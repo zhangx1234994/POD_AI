@@ -1287,6 +1287,118 @@ OpenAPI 内每个工具都会枚举错误响应：
 - 新增组件类型时，必须同步补输入、输出、错误、路由、可编辑字段和不可编辑字段。
 - 线上默认版本仍只读；该目录只说明草稿允许编辑哪些受控字段，不代表可以绕过发布门禁。
 
+### POST /api/admin/business/capabilities/{capabilityId}/drafts
+
+用途：从一个已有业务版本复制出草稿。草稿用于调整编排配方和受控参数，不影响线上默认版本。
+
+请求示例：
+
+```json
+{
+  "note": "调整图裂变的重绘幅度默认值"
+}
+```
+
+可选字段：
+
+| 字段 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `version` | 否 | 指定草稿版本号；不传时后端自动生成，例如 `v1-draft`、`v1-draft-2`。 |
+| `displayName` | 否 | 草稿展示名；不传时沿用原版本名称并追加“草稿”。 |
+| `note` | 否 | 创建原因，会写入 `draftInfo` 和版本血缘。 |
+| `metadata` | 否 | 管理端补充元数据；不要放密钥或敏感信息。 |
+
+响应重点：
+
+```json
+{
+  "id": "biz_fission_v1-draft_ab12cd34",
+  "businessKey": "fission",
+  "version": "v1-draft",
+  "status": "draft",
+  "isDefault": false,
+  "recipe": {
+    "mode": "single_ability_task",
+    "primaryAbilityId": "ability_comfyui_fission"
+  },
+  "metadata": {
+    "draftInfo": {
+      "sourceCapabilityId": "biz_fission_v1",
+      "sourceVersion": "v1",
+      "note": "调整图裂变的重绘幅度默认值"
+    },
+    "versionLineage": {
+      "parentVersionId": "biz_fission_v1",
+      "decision": "version_upgrade"
+    }
+  }
+}
+```
+
+错误：
+
+| 错误码 | 场景 |
+| --- | --- |
+| `BUSINESS_CAPABILITY_NOT_FOUND` | 原业务版本不存在。 |
+| `BUSINESS_CAPABILITY_VERSION_DUPLICATED` | 指定的草稿版本号已存在。 |
+| `BUSINESS_VERSION_REQUIRED` | 指定版本号为空。 |
+| `BUSINESS_RECIPE_INVALID` | 原版本配方非法，不能复制为可编辑草稿。 |
+| `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE` | 原版本配方引用的原子能力不可用。 |
+
+### PATCH /api/admin/business/capability-drafts/{draftId}/recipe
+
+用途：保存草稿的受控编排配方。该接口只能修改 `status=draft` 且 `isDefault=false` 的业务版本；线上默认版本和历史 active 版本不能直接改。
+
+请求示例：
+
+```json
+{
+  "note": "增加 VL 分析步骤，再进入 ComfyUI 裂变",
+  "recipe": {
+    "mode": "vl_then_primary",
+    "primaryAbilityId": "ability_comfyui_fission",
+    "steps": [
+      {
+        "id": "vl",
+        "type": "vl_analyze_image",
+        "role": "preprocess",
+        "abilityId": "ability_vl_analyze_image"
+      },
+      {
+        "id": "primary",
+        "type": "ability_task",
+        "role": "primary",
+        "abilityId": "ability_comfyui_fission"
+      }
+    ]
+  }
+}
+```
+
+可选字段：
+
+| 字段 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `recipe` | 是 | 完整业务配方，必须包含可执行步骤。 |
+| `primaryAbilityId` | 否 | 兼容字段；传入时会覆盖 `recipe.primaryAbilityId`。 |
+| `note` | 否 | 本次修改说明，会写入 `draftInfo.recipeChangeHistory`。 |
+
+响应重点：
+
+- `recipe`：保存后的草稿配方。
+- `metadata.draftInfo.lastRecipeDiff`：后端生成的本次变更摘要。
+- `metadata.draftInfo.recipeChangeHistory`：最近 20 次草稿配方修改记录。
+
+错误：
+
+| 错误码 | 场景 |
+| --- | --- |
+| `BUSINESS_CAPABILITY_NOT_FOUND` | 草稿不存在。 |
+| `BUSINESS_DRAFT_ONLY_EDITABLE` | 目标不是草稿，或已经是线上默认版本。 |
+| `BUSINESS_RECIPE_INVALID` | 配方缺少主能力、步骤非法或步骤结构不合法。 |
+| `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE` | 配方引用的原子能力不可用。 |
+| `VENDOR_MODEL_NOT_FOUND` | 配方间接依赖的第三方模型目录不存在。 |
+
 ### GET /api/admin/business/capabilities
 
 用途：管理端展示业务能力版本、发布时间、默认版本、配方来源。

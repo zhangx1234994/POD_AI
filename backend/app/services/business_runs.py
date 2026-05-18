@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from functools import lru_cache
 import hashlib
 import json
@@ -42,6 +43,8 @@ from app.schemas.abilities import AbilityInvokeRequest
 from app.schemas.business import (
     BusinessAcceptanceRecordRequest,
     BusinessCapabilityCreateRequest,
+    BusinessCapabilityDraftCreateRequest,
+    BusinessCapabilityDraftRecipeUpdateRequest,
     BusinessCapabilityPromoteRequest,
     BusinessCapabilityRollbackRequest,
     BusinessCapabilityUpdateRequest,
@@ -337,6 +340,152 @@ class BusinessRunService:
                     .values(is_default=False)
                 )
             session.add(row)
+            session.commit()
+            session.refresh(row)
+            return self._capability_to_dict(row, session=session)
+
+    def create_capability_draft(
+        self,
+        capability_id: str,
+        payload: BusinessCapabilityDraftCreateRequest | None = None,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        request = payload or BusinessCapabilityDraftCreateRequest()
+        with get_session() as session:
+            source = session.get(BusinessCapability, capability_id)
+            if not source:
+                raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+            recipe = deepcopy(source.recipe or {})
+            self._validate_recipe(session=session, recipe=recipe)
+            version = self._required_text(
+                request.version or self._next_draft_version(session=session, source=source),
+                "BUSINESS_VERSION_REQUIRED",
+            )
+            duplicate = (
+                session.execute(
+                    select(BusinessCapability).where(
+                        BusinessCapability.business_key == source.business_key,
+                        BusinessCapability.version == version,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if duplicate:
+                raise HTTPException(status_code=409, detail="BUSINESS_CAPABILITY_VERSION_DUPLICATED")
+            now = datetime.utcnow()
+            metadata = deepcopy(source.extra_metadata or {})
+            if isinstance(request.metadata, dict):
+                metadata.update(deepcopy(request.metadata))
+            metadata["draftInfo"] = {
+                **(metadata.get("draftInfo") if isinstance(metadata.get("draftInfo"), dict) else {}),
+                "sourceCapabilityId": source.id,
+                "sourceVersion": source.version,
+                "createdAt": now.isoformat(),
+                "createdBy": self._actor_username(actor),
+                "note": self._clean_optional_text(request.note),
+            }
+            metadata["versionLineage"] = {
+                **(metadata.get("versionLineage") if isinstance(metadata.get("versionLineage"), dict) else {}),
+                "parentVersionId": source.id,
+                "supersedesVersionId": source.id,
+                "changeSummary": self._clean_optional_text(request.note) or "从线上或既有版本复制出的草稿，待验证后再发布。",
+                "breakingChange": False,
+                "decision": "version_upgrade",
+                "decisionNote": "同一业务入口下的草稿版本，不新增业务分类。",
+            }
+            row = BusinessCapability(
+                id=f"biz_{source.business_key}_{version}_{uuid4().hex[:8]}",
+                business_key=source.business_key,
+                version=version,
+                display_name=self._short_text(request.displayName, 128) or f"{source.display_name} 草稿",
+                description=source.description,
+                status="draft",
+                is_default=False,
+                release_time=None,
+                recipe=recipe,
+                input_schema=deepcopy(source.input_schema),
+                output_schema=deepcopy(source.output_schema),
+                extra_metadata=metadata,
+            )
+            session.add(row)
+            session.flush()
+            self._record_business_operation(
+                session=session,
+                action="create_capability_draft",
+                target_type="business_capability",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=request.note,
+                before_payload=self._json_safe_payload(self._capability_to_dict(source, session=session)),
+                after_payload=self._json_safe_payload(self._capability_to_dict(row, session=session)),
+            )
+            session.commit()
+            session.refresh(row)
+            return self._capability_to_dict(row, session=session)
+
+    def update_capability_draft_recipe(
+        self,
+        draft_id: str,
+        payload: BusinessCapabilityDraftRecipeUpdateRequest,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        with get_session() as session:
+            row = session.get(BusinessCapability, draft_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+            if row.is_default or row.status != "draft":
+                raise HTTPException(status_code=409, detail="BUSINESS_DRAFT_ONLY_EDITABLE")
+            before_recipe = deepcopy(row.recipe or {})
+            next_recipe = self._build_recipe(
+                base_recipe=payload.recipe,
+                primary_ability_id=payload.primaryAbilityId,
+            )
+            self._validate_recipe(session=session, recipe=next_recipe)
+            diff_summary = self._recipe_diff_summary(before_recipe, next_recipe)
+            metadata = deepcopy(row.extra_metadata or {})
+            draft_info = metadata.get("draftInfo") if isinstance(metadata.get("draftInfo"), dict) else {}
+            history = draft_info.get("recipeChangeHistory") if isinstance(draft_info.get("recipeChangeHistory"), list) else []
+            draft_info = {
+                **draft_info,
+                "updatedAt": datetime.utcnow().isoformat(),
+                "updatedBy": self._actor_username(actor),
+                "lastRecipeDiff": diff_summary,
+                "lastRecipeNote": self._clean_optional_text(payload.note),
+                "recipeChangeHistory": [
+                    {
+                        "changedAt": datetime.utcnow().isoformat(),
+                        "changedBy": self._actor_username(actor),
+                        "note": self._clean_optional_text(payload.note),
+                        "diff": diff_summary,
+                    },
+                    *history,
+                ][:20],
+            }
+            metadata["draftInfo"] = draft_info
+            before_payload = self._json_safe_payload(
+                {
+                    "recipe": before_recipe,
+                    "draftInfo": (row.extra_metadata or {}).get("draftInfo") if isinstance(row.extra_metadata, dict) else None,
+                }
+            )
+            row.recipe = next_recipe
+            row.extra_metadata = metadata
+            session.add(row)
+            self._record_business_operation(
+                session=session,
+                action="update_draft_recipe",
+                target_type="business_capability",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=payload.note,
+                before_payload=before_payload,
+                after_payload=self._json_safe_payload({"recipe": next_recipe, "draftInfo": draft_info}),
+            )
             session.commit()
             session.refresh(row)
             return self._capability_to_dict(row, session=session)
@@ -3853,6 +4002,74 @@ class BusinessRunService:
         if rollout_bucket is not None:
             info["rolloutBucket"] = rollout_bucket
         return info
+
+    @staticmethod
+    def _next_draft_version(*, session, source: BusinessCapability) -> str:
+        base = str(source.version or "v1").strip() or "v1"
+        if base.endswith("-draft") or "-draft-" in base:
+            base = base.split("-draft", 1)[0] or "v1"
+        for index in range(1, 100):
+            suffix = "-draft" if index == 1 else f"-draft-{index}"
+            candidate = f"{base[: max(1, 32 - len(suffix))]}{suffix}"
+            exists = (
+                session.execute(
+                    select(BusinessCapability.id).where(
+                        BusinessCapability.business_key == source.business_key,
+                        BusinessCapability.version == candidate,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if not exists:
+                return candidate
+        return f"{base[:16]}-draft-{uuid4().hex[:6]}"
+
+    @staticmethod
+    def _recipe_diff_summary(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+        changes: list[str] = []
+        before_primary = str(before.get("primaryAbilityId") or before.get("primary_ability_id") or "").strip()
+        after_primary = str(after.get("primaryAbilityId") or after.get("primary_ability_id") or "").strip()
+        if before_primary != after_primary:
+            changes.append(f"主执行能力：{before_primary or '-'} -> {after_primary or '-'}")
+        before_mode = str(before.get("mode") or "").strip()
+        after_mode = str(after.get("mode") or "").strip()
+        if before_mode != after_mode:
+            changes.append(f"执行模式：{before_mode or '-'} -> {after_mode or '-'}")
+        before_steps = before.get("steps") if isinstance(before.get("steps"), list) else []
+        after_steps = after.get("steps") if isinstance(after.get("steps"), list) else []
+        if len(before_steps) != len(after_steps):
+            changes.append(f"处理步骤数量：{len(before_steps)} -> {len(after_steps)}")
+
+        def step_map(steps: list[Any]) -> dict[str, dict[str, Any]]:
+            result: dict[str, dict[str, Any]] = {}
+            for index, raw in enumerate(steps, start=1):
+                if not isinstance(raw, dict):
+                    continue
+                key = str(raw.get("id") or f"step_{index}").strip()
+                result[key] = raw
+            return result
+
+        before_map = step_map(before_steps)
+        after_map = step_map(after_steps)
+        removed = sorted(set(before_map) - set(after_map))
+        added = sorted(set(after_map) - set(before_map))
+        if added:
+            changes.append(f"新增步骤：{', '.join(added[:5])}")
+        if removed:
+            changes.append(f"删除步骤：{', '.join(removed[:5])}")
+        for key in sorted(set(before_map) & set(after_map)):
+            before_step = before_map[key]
+            after_step = after_map[key]
+            before_ability = BusinessRunService._extract_step_ability_id(before_step) or "-"
+            after_ability = BusinessRunService._extract_step_ability_id(after_step) or "-"
+            if before_ability != after_ability:
+                changes.append(f"步骤 {key} 能力：{before_ability} -> {after_ability}")
+            before_enabled = before_step.get("enabled", True)
+            after_enabled = after_step.get("enabled", True)
+            if before_enabled != after_enabled:
+                changes.append(f"步骤 {key} 启用状态：{before_enabled} -> {after_enabled}")
+        return changes or ["配方结构未变化，仅更新了格式或说明。"]
 
     @staticmethod
     def _build_recipe(*, base_recipe: dict[str, Any] | None, primary_ability_id: str | None) -> dict[str, Any]:

@@ -93,9 +93,11 @@ v0.3 尽量不大改表结构，优先复用现有业务版本和 recipe 字段�
 
 2. `POST /api/admin/business/capabilities/{id}/drafts`
    - 从当前业务版本复制草稿。
+   - 已落地（2026-05-19）：复制时保留原配方、输入/输出 schema 和元数据，自动写入 `draftInfo` 与 `versionLineage`，不会影响线上默认版本。
 
 3. `PATCH /api/admin/business/capability-drafts/{draftId}/recipe`
    - 保存受控 recipe 修改。
+   - 已落地（2026-05-19）：仅允许 `status=draft` 且非默认版本更新配方，保存后记录差异摘要和最近 20 次修改历史。
 
 4. `POST /api/admin/business/capability-drafts/{draftId}/validate`
    - 校验字段、组件、路由、文档、测评入口和门禁。

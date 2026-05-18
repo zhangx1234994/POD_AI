@@ -25,6 +25,8 @@ from app.models.user import User
 from app.schemas.business import (
     BusinessAcceptanceRecordRequest,
     BusinessCapabilityCreateRequest,
+    BusinessCapabilityDraftCreateRequest,
+    BusinessCapabilityDraftRecipeUpdateRequest,
     BusinessCapabilityPromoteRequest,
     BusinessCapabilityRollbackRequest,
     BusinessCapabilityUpdateRequest,
@@ -580,6 +582,89 @@ def test_business_capability_update_rejects_default_demotion(monkeypatch) -> Non
         assert getattr(exc, "detail", None) == "BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE"
     else:  # pragma: no cover - defensive
         raise AssertionError("default business capability should be changed by promoting another version")
+
+
+def test_business_capability_can_copy_default_to_draft(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    draft = service.create_capability_draft(
+        "biz_fission_old",
+        BusinessCapabilityDraftCreateRequest(note="调整重绘幅度默认值"),
+    )
+
+    assert draft["business_key"] == "fission"
+    assert draft["version"] == "old-draft"
+    assert draft["status"] == "draft"
+    assert draft["is_default"] is False
+    assert draft["recipe"]["primaryAbilityId"] == "ability_openai_fission"
+    assert draft["input_schema"] is None
+    assert draft["extra_metadata"]["draftInfo"]["sourceCapabilityId"] == "biz_fission_old"
+    assert draft["version_lineage"]["parentVersionId"] == "biz_fission_old"
+    assert draft["version_lineage"]["decision"] == "version_upgrade"
+
+
+def test_business_capability_draft_recipe_update_is_isolated(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    draft = service.create_capability_draft(
+        "biz_fission_old",
+        BusinessCapabilityDraftCreateRequest(version="old-draft-edit", note="复制为草稿"),
+    )
+
+    updated = service.update_capability_draft_recipe(
+        draft["id"],
+        BusinessCapabilityDraftRecipeUpdateRequest(
+            recipe={
+                "mode": "vl_then_primary",
+                "primaryAbilityId": "ability_openai_fission",
+                "steps": [
+                    {
+                        "id": "vl",
+                        "type": "vl_analyze_image",
+                        "role": "preprocess",
+                        "abilityId": "test_vl_analyze_image",
+                    },
+                    {
+                        "id": "primary",
+                        "type": "ability_task",
+                        "role": "primary",
+                        "abilityId": "ability_openai_fission",
+                    },
+                ],
+            },
+            note="增加 VL 预处理",
+        ),
+    )
+
+    assert updated["id"] == draft["id"]
+    assert updated["status"] == "draft"
+    assert updated["is_default"] is False
+    assert updated["recipe"]["mode"] == "vl_then_primary"
+    assert len(updated["recipe"]["steps"]) == 2
+    assert "处理步骤数量：1 -> 2" in updated["extra_metadata"]["draftInfo"]["lastRecipeDiff"]
+
+    original = {item["id"]: item for item in service.list_capabilities()}["biz_fission_old"]
+    assert original["is_default"] is True
+    assert original["recipe"]["mode"] == "single_ability_task"
+    assert len(original["recipe"]["steps"]) == 1
+
+
+def test_business_capability_draft_recipe_update_rejects_non_draft(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.update_capability_draft_recipe(
+            "biz_fission_old",
+            BusinessCapabilityDraftRecipeUpdateRequest(
+                recipe={"primaryAbilityId": "ability_openai_fission"},
+                note="不能直接改线上默认",
+            ),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "BUSINESS_DRAFT_ONLY_EDITABLE"
 
 
 def test_business_capability_update_switches_default(monkeypatch) -> None:

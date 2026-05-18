@@ -104,6 +104,7 @@
 | HEALTH_WATCH_UNIT_FAILED | 自检守护最近一次执行失败 | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
 | BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE | 默认业务版本必须是 active 状态 | 400 |
 | BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE | 线上默认业务版本的控制项不可直接修改 | 409，主能力、配方、业务标识、版本号、输入/输出 schema 或取消默认都必须通过新草稿版本和默认切换流程完成 |
+| BUSINESS_DRAFT_ONLY_EDITABLE | 只有草稿业务版本允许修改编排配方 | 409，线上默认版本或历史 active 版本必须先复制为草稿，再修改受控编排字段 |
 | BUSINESS_DEFAULT_ALREADY_ACTIVE | 目标业务版本已经是默认版本 | 409，默认版本审批申请 |
 | BUSINESS_DEFAULT_APPROVAL_PENDING | 目标业务版本已有待审批的默认切换申请 | 409，避免重复申请 |
 | BUSINESS_DEFAULT_APPROVAL_NOT_FOUND | 默认版本审批记录不存在 | 404 |

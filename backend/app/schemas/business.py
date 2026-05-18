@@ -346,6 +346,23 @@ class BusinessCapabilityUpdateRequest(BaseModel):
     metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
 
 
+class BusinessCapabilityDraftCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    version: str | None = None
+    displayName: str | None = Field(default=None, alias="display_name")
+    note: str | None = None
+    metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
+
+
+class BusinessCapabilityDraftRecipeUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    recipe: dict[str, Any]
+    primaryAbilityId: str | None = Field(default=None, alias="primary_ability_id")
+    note: str | None = None
+
+
 class BusinessCapabilityPromoteRequest(BaseModel):
     activate: bool = Field(default=True, description="如果版本未启用，是否先启用再设为默认")
     note: str | None = Field(default=None, description="切换原因，写入版本事件")

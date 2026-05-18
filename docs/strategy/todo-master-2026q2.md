@@ -61,9 +61,10 @@
 - 已完成（2026-05-19）：新增后端受控组件目录 `GET /api/admin/business/component-catalog`，覆盖 10 类业务组件，明确默认版本只读、只能草稿编辑、不允许任意代码/HTTP、重执行必须外置。
 - 验收：业务链路图节点不再只是后端步骤名，而是有稳定组件类型和用户能理解的说明。
 
-3. `todo` 受控编排草稿能力
+3. `done` 受控编排草稿能力
 - 目标：线上默认版本只读，允许复制为草稿并编辑已有步骤的受控字段。
 - 技术路线：复用管理端现有 `@xyflow/react`，不引入新的重型编排引擎。
+- 已完成（2026-05-19）：新增 `POST /api/admin/business/capabilities/{id}/drafts` 和 `PATCH /api/admin/business/capability-drafts/{draftId}/recipe`，默认版本继续只读；草稿记录来源版本、血缘关系、修改摘要和最近修改历史。
 - 验收：复制图裂变当前版本为草稿，修改重绘幅度默认值或 profile，保存草稿但不影响线上默认。
 
 4. `todo` 草稿门禁与发布闭环
