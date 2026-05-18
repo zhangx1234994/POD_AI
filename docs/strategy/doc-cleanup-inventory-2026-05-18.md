@@ -20,6 +20,7 @@
 | 战略入口 | `docs/strategy/README.md` | 平台级方向、方案和治理入口 |
 | 唯一 TODO | `docs/strategy/todo-master-2026q2.md` | 当前任务池 |
 | v0.3 方案 | `docs/strategy/business-orchestration-workbench-v0.3-plan.md` | 当前版本执行方案 |
+| 控制点矩阵 | `docs/strategy/business-control-point-matrix-2026-05-19.md` | 当前四个核心业务的控制点去重依据 |
 | v0.2 阶段方案 | `docs/strategy/business-control-plane-v0.2-plan.md` | 已完成阶段记录，保留为 v0.3 背景 |
 | 业务主线 | `docs/standards/business-mainline-contract.md` | `runId`、版本、步骤、回填、计费口径 |
 | 版本规则 | `docs/standards/version-control-rules.md` | 版本升级、新功能、回滚规则 |
@@ -64,6 +65,7 @@
 | 更新总索引当前基线 | 从 2026-05-16 / `904f9a2a` 调整到 2026-05-18 / `0f977db5` |
 | 新增 v0.2 方案入口 | `business-control-plane-v0.2-plan.md` 保留为已完成阶段方案 |
 | 新增 v0.3 方案入口 | `business-orchestration-workbench-v0.3-plan.md` 成为当前执行方案 |
+| 新增控制点盘点矩阵 | `business-control-point-matrix-2026-05-19.md` 成为 v0.3 去重依据 |
 | 更新战略索引 | v0.3 方案置于战略文档清单前列，v0.2 降级为阶段记录 |
 | 更新唯一 TODO 当前焦点 | 当前执行单切换到 v0.3 业务编排工作台与控制点去重版 |
 | 历史执行单降级 | 2026-05-14 稳定化执行单保留为历史记录 |

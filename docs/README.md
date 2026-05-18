@@ -17,21 +17,22 @@
 6. `docs/standards/business-mainline-contract.md`
 7. `docs/strategy/business-orchestration-workbench-v0.3-plan.md`
 8. `docs/strategy/business-control-plane-v0.2-plan.md`
-9. `docs/standards/version-control-rules.md`
-10. `docs/strategy/todo-master-2026q2.md`
-11. `docs/api/INDEX.md`
-12. 对应模块文档：
+9. `docs/strategy/business-control-point-matrix-2026-05-19.md`
+10. `docs/standards/version-control-rules.md`
+11. `docs/strategy/todo-master-2026q2.md`
+12. `docs/api/INDEX.md`
+13. 对应模块文档：
    - 评测端：`docs/eval/eval-platform.md`
    - Coze：`docs/coze/toolbox-inventory.md`
    - ComfyUI：`docs/comfyui/README.md`
    - 第三方模型 Key：`docs/admin/integration-dashboard.md`
-13. 每日早检：`docs/standards/morning-ops-check.md`
-14. 样本包导出：`docs/standards/business-sample-pack-export.md`
-15. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
-16. 清理治理：`docs/standards/cleanup-governance.md`
-17. 发布与上线：`docs/standards/release-sop.md`
-18. 需要回看阶段过程，再看：`docs/weekly/README.md`
-19. 需要回看历史客户端资料时，再看：`docs/client/README.md`
+14. 每日早检：`docs/standards/morning-ops-check.md`
+15. 样本包导出：`docs/standards/business-sample-pack-export.md`
+16. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
+17. 清理治理：`docs/standards/cleanup-governance.md`
+18. 发布与上线：`docs/standards/release-sop.md`
+19. 需要回看阶段过程，再看：`docs/weekly/README.md`
+20. 需要回看历史客户端资料时，再看：`docs/client/README.md`
 
 ## 当前运行基线（2026-05-19）
 
@@ -58,6 +59,7 @@
 - `docs/strategy/strategy-one-page-2026q2.md`
 - `docs/strategy/todo-master-2026q2.md`
 - `docs/strategy/business-orchestration-workbench-v0.3-plan.md`
+- `docs/strategy/business-control-point-matrix-2026-05-19.md`
 - `docs/strategy/business-control-plane-v0.2-plan.md`
 - `docs/strategy/doc-cleanup-inventory-2026-05-18.md`
 - `docs/architecture.md`
@@ -93,6 +95,7 @@
 | 平台边界 | `docs/PLATFORM_SURFACES.md` | 管理端 / 测评端 / 客户端 / 对话式助手边界 |
 | 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
 | v0.3 版本方案 | `docs/strategy/business-orchestration-workbench-v0.3-plan.md` | 业务编排工作台、控制点去重、组件目录、草稿发布和 runId 父子步骤 |
+| 业务控制点矩阵 | `docs/strategy/business-control-point-matrix-2026-05-19.md` | 花纹提取 / 图裂变 / 扩图 / 裂变评分的真源、兜底和去重动作 |
 | v0.2 阶段方案 | `docs/strategy/business-control-plane-v0.2-plan.md` | 已完成的业务控制面收敛、版本族、接口调用中心、上线门禁和文档降噪 |
 | 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
 | 业务主线契约 | `docs/standards/business-mainline-contract.md` | 固定业务入口、runId、业务版本、处理步骤、回填、回调、计费和页面动线 |
