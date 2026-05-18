@@ -34,7 +34,7 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import get_current_user, require_admin
 from app.deps.internal import is_internal_request
-from app.models.integration import ApiKey, BusinessApiKeyUsageLog
+from app.models.integration import ApiKey, BusinessApiKeyUsageLog, BusinessRun
 from app.models.user import User
 from app.schemas import business as schemas
 from app.services.auth_service import auth_service
@@ -2093,7 +2093,18 @@ def admin_list_business_api_key_usage(
                 .order_by(func.max(BusinessApiKeyUsageLog.created_at).desc())
                 .limit(group_limit)
             ).all()
+            run_ids = [str(row[0]) for row in group_rows if row[0]]
+            run_map: dict[str, BusinessRun] = {}
+            if run_ids:
+                run_map = {
+                    row.id: row
+                    for row in session.execute(select(BusinessRun).where(BusinessRun.id.in_(run_ids))).scalars().all()
+                }
             for row in group_rows:
+                linked_run = run_map.get(str(row[0] or ""))
+                image_count = len(linked_run.image_urls or []) if linked_run else 0
+                video_count = len(linked_run.video_urls or []) if linked_run else 0
+                text_count = len(linked_run.texts or []) if linked_run else 0
                 submit_count = int(row[9] or 0)
                 poll_count = int(row[10] or 0)
                 error_count = int(row[12] or 0)
@@ -2102,10 +2113,26 @@ def admin_list_business_api_key_usage(
                     poll_count=poll_count,
                     error_count=error_count,
                 )
+                if linked_run is None and row[0]:
+                    needs_attention = True
+                    issue_code = issue_code or "BUSINESS_RUN_NOT_FOUND"
+                    issue_hint = "接口日志里有 runId，但业务任务表里没有对应记录；需要核对是否为旧数据或异常清理。"
+                elif linked_run and linked_run.status in {"failed", "cancelled", "timeout"} and not needs_attention:
+                    needs_attention = True
+                    issue_code = "BUSINESS_RUN_FAILED"
+                    issue_hint = linked_run.error_message or "接口提交成功，但业务任务最终失败；请打开业务详情查看失败步骤。"
                 groups.append(
                     schemas.BusinessApiKeyUsageRunGroup(
                         run_id=row[0],
                         business_key=row[1],
+                        run_status=linked_run.status if linked_run else None,
+                        run_version=linked_run.version if linked_run else None,
+                        business_version_id=linked_run.business_version_id if linked_run else None,
+                        result_image_count=image_count,
+                        result_video_count=video_count,
+                        result_text_count=text_count,
+                        run_error=linked_run.error_message if linked_run else None,
+                        run_finished_at=linked_run.finished_at if linked_run else None,
                         api_key_name=row[2],
                         api_key_preview=row[3],
                         request_id=row[4],

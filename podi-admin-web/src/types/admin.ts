@@ -131,6 +131,14 @@ export interface BusinessApiKeyUsageSummary {
 export interface BusinessApiKeyUsageRunGroup {
   runId?: string | null;
   businessKey?: string | null;
+  runStatus?: string | null;
+  runVersion?: string | null;
+  businessVersionId?: string | null;
+  resultImageCount?: number | null;
+  resultVideoCount?: number | null;
+  resultTextCount?: number | null;
+  runError?: string | null;
+  runFinishedAt?: string | null;
   apiKeyName?: string | null;
   apiKeyPreview?: string | null;
   requestId?: string | null;

@@ -342,6 +342,26 @@ def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> N
     with get_session() as session:
         for row in session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.run_id == run_id)).scalars().all():
             session.delete(row)
+        existing_run = session.get(BusinessRun, run_id)
+        if existing_run:
+            session.delete(existing_run)
+            session.flush()
+        session.add(
+            BusinessRun(
+                id=run_id,
+                business_key="fission",
+                version="comfyui-vl-control-v2",
+                status="succeeded",
+                source="business-api",
+                channel="open-api",
+                image_urls=["https://example.com/result.png"],
+                video_urls=[],
+                texts=[],
+                created_at=now,
+                updated_at=now,
+                finished_at=now,
+            )
+        )
         session.add_all(
             [
                 BusinessApiKeyUsageLog(
@@ -422,6 +442,9 @@ def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> N
     assert body["groups"][0]["pollCount"] == 2
     assert body["groups"][0]["needsAttention"] is True
     assert body["groups"][0]["issueCode"] == "HAS_ERROR"
+    assert body["groups"][0]["runStatus"] == "succeeded"
+    assert body["groups"][0]["runVersion"] == "comfyui-vl-control-v2"
+    assert body["groups"][0]["resultImageCount"] == 1
 
     poll_resp = client.get(
         "/api/admin/business/api-key-usage",

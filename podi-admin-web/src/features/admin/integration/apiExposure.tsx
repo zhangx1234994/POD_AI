@@ -1053,6 +1053,36 @@ function endpointKindTheme(value?: string | null): 'success' | 'primary' | 'warn
   return 'default';
 }
 
+function businessApiRunStatusLabel(value?: string | null): string {
+  if (value === 'queued' || value === 'pending' || value === 'planned') return '排队中';
+  if (value === 'running') return '运行中';
+  if (value === 'succeeded') return '成功';
+  if (value === 'failed') return '失败';
+  if (value === 'timeout') return '超时';
+  if (value === 'cancelled' || value === 'canceled') return '已取消';
+  return value || '未关联任务';
+}
+
+function businessApiRunStatusTheme(value?: string | null): 'success' | 'primary' | 'warning' | 'danger' | 'default' {
+  if (value === 'succeeded') return 'success';
+  if (value === 'running') return 'primary';
+  if (value === 'queued' || value === 'pending' || value === 'planned') return 'warning';
+  if (value === 'failed' || value === 'timeout' || value === 'cancelled' || value === 'canceled') return 'danger';
+  return 'default';
+}
+
+function businessApiRunResultLabel(row: BusinessApiKeyUsageRunGroup): string {
+  const imageCount = Number(row.resultImageCount || 0);
+  const videoCount = Number(row.resultVideoCount || 0);
+  const textCount = Number(row.resultTextCount || 0);
+  const parts = [
+    imageCount > 0 ? `${imageCount} 张图` : '',
+    videoCount > 0 ? `${videoCount} 个视频` : '',
+    textCount > 0 ? `${textCount} 条文字` : '',
+  ].filter(Boolean);
+  return parts.join(' / ') || '暂无结果';
+}
+
 function businessApiUsageIssue(row: BusinessApiKeyUsageRunGroup): {
   needsAttention: boolean;
   code: string | null;
@@ -1069,6 +1099,9 @@ function businessApiUsageIssue(row: BusinessApiKeyUsageRunGroup): {
   }
   if ((row.pollCount || 0) >= 30) {
     return { needsAttention: true, code: 'POLLING_TOO_FREQUENT', hint: '同一任务查询次数偏多，建议业务方按建议间隔轮询。' };
+  }
+  if (row.runStatus === 'failed' || row.runStatus === 'timeout' || row.runStatus === 'cancelled') {
+    return { needsAttention: true, code: 'BUSINESS_RUN_FAILED', hint: row.runError || '接口提交成功，但业务任务最终失败。' };
   }
   return { needsAttention: false, code: null, hint: null };
 }
@@ -1622,6 +1655,19 @@ export function ApiExposurePanel({
                     <Tag size="small" theme={row.errorCount ? 'danger' : 'default'} variant="light">
                       异常 {row.errorCount || 0}
                     </Tag>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'runStatus',
+                title: '业务任务',
+                width: 190,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Tag size="small" theme={businessApiRunStatusTheme(row.runStatus)} variant="light">
+                      {businessApiRunStatusLabel(row.runStatus)}
+                    </Tag>
+                    <Typography.Text theme="secondary">{businessApiRunResultLabel(row)}</Typography.Text>
                   </Space>
                 ),
               },
@@ -2499,6 +2545,26 @@ export function ApiExposurePanel({
                     <Tag size="small" variant="light">
                       总计 {row.totalCount || 0}
                     </Tag>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'runStatus',
+                title: '业务任务',
+                width: 210,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Space size={4} breakLine>
+                      <Tag size="small" theme={businessApiRunStatusTheme(row.runStatus)} variant="light">
+                        {businessApiRunStatusLabel(row.runStatus)}
+                      </Tag>
+                      {row.runVersion ? (
+                        <Tag size="small" variant="light">
+                          版本 {row.runVersion}
+                        </Tag>
+                      ) : null}
+                    </Space>
+                    <Typography.Text theme="secondary">{businessApiRunResultLabel(row)}</Typography.Text>
                   </Space>
                 ),
               },
