@@ -15,24 +15,25 @@
 4. `docs/architecture.md`
 5. `docs/BUSINESS_MODEL.md`
 6. `docs/standards/business-mainline-contract.md`
-7. `docs/strategy/business-control-plane-v0.2-plan.md`
-8. `docs/standards/version-control-rules.md`
-9. `docs/strategy/todo-master-2026q2.md`
-10. `docs/api/INDEX.md`
-11. 对应模块文档：
+7. `docs/strategy/business-orchestration-workbench-v0.3-plan.md`
+8. `docs/strategy/business-control-plane-v0.2-plan.md`
+9. `docs/standards/version-control-rules.md`
+10. `docs/strategy/todo-master-2026q2.md`
+11. `docs/api/INDEX.md`
+12. 对应模块文档：
    - 评测端：`docs/eval/eval-platform.md`
    - Coze：`docs/coze/toolbox-inventory.md`
    - ComfyUI：`docs/comfyui/README.md`
    - 第三方模型 Key：`docs/admin/integration-dashboard.md`
-12. 每日早检：`docs/standards/morning-ops-check.md`
-13. 样本包导出：`docs/standards/business-sample-pack-export.md`
-14. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
-15. 清理治理：`docs/standards/cleanup-governance.md`
-16. 发布与上线：`docs/standards/release-sop.md`
-17. 需要回看阶段过程，再看：`docs/weekly/README.md`
-18. 需要回看历史客户端资料时，再看：`docs/client/README.md`
+13. 每日早检：`docs/standards/morning-ops-check.md`
+14. 样本包导出：`docs/standards/business-sample-pack-export.md`
+15. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
+16. 清理治理：`docs/standards/cleanup-governance.md`
+17. 发布与上线：`docs/standards/release-sop.md`
+18. 需要回看阶段过程，再看：`docs/weekly/README.md`
+19. 需要回看历史客户端资料时，再看：`docs/client/README.md`
 
-## 当前运行基线（2026-05-18）
+## 当前运行基线（2026-05-19）
 
 - 当前线上稳定基线为 `v0.1.x`，已验证生产提交 `0f977db5`。
 - `origin/main` 是唯一发版真源；后续版本按 `docs/standards/version-control-rules.md` 管理。
@@ -42,7 +43,8 @@
 - backend 是控制面，只负责业务入口、能力目录、路由、任务、回调、OSS、日志、OpenAPI 和版本证据；不承载高清放大、ComfyUI 或第三方 API 重执行。
 - 当前仓库不包含客户端代码目录；`docs/client/` 只作为历史客户端资料入口，不再代表当前开发主线。
 - 业务主线已固定：一次业务调用以 `runId` 为主线，VL、ComfyUI、OpenAI、评分、回填、回调、计费都归入这次业务调用下的处理步骤或证据；标准见 `docs/standards/business-mainline-contract.md`。
-- 下一阶段目标是 v0.2 业务控制面收敛版：减少多处控制点，让业务入口、版本、配方、测评、文档和发布门禁读取同一份真源；规划见 `docs/strategy/business-control-plane-v0.2-plan.md`。
+- v0.2 业务控制面收敛版已完成本地开发和验证，保留为已完成阶段记录。
+- 下一阶段目标是 v0.3 业务编排工作台与控制点去重版：减少业务链条里的重复控制单元，把业务组件、草稿编排、版本发布、runId 排障和上线门禁串成一个可维护工作台；规划见 `docs/strategy/business-orchestration-workbench-v0.3-plan.md`。
 - 114 控制面发布统一走 `docs/standards/release-sop.md` 和 `scripts/release_114_control_plane.sh`，不再临时手工拼 tar/ssh/restart。
 - 发版前必须执行逐功能上线检查、ComfyUI 队列验证、业务接口回归和线上 smoke；标准见 `docs/standards/per-feature-release-checklist.md`。
 - 旧迁移方案、旧客户端资料和阶段过程文档不再作为当前执行入口；清理台账见 `docs/strategy/doc-cleanup-inventory-2026-05-18.md`。
@@ -55,6 +57,7 @@
 - `docs/strategy/platform-vision-and-goals-2026.md`
 - `docs/strategy/strategy-one-page-2026q2.md`
 - `docs/strategy/todo-master-2026q2.md`
+- `docs/strategy/business-orchestration-workbench-v0.3-plan.md`
 - `docs/strategy/business-control-plane-v0.2-plan.md`
 - `docs/strategy/doc-cleanup-inventory-2026-05-18.md`
 - `docs/architecture.md`
@@ -89,7 +92,8 @@
 | --- | --- | --- |
 | 平台边界 | `docs/PLATFORM_SURFACES.md` | 管理端 / 测评端 / 客户端 / 对话式助手边界 |
 | 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
-| v0.2 版本方案 | `docs/strategy/business-control-plane-v0.2-plan.md` | 业务控制面收敛、版本族、接口调用中心、上线门禁和文档降噪 |
+| v0.3 版本方案 | `docs/strategy/business-orchestration-workbench-v0.3-plan.md` | 业务编排工作台、控制点去重、组件目录、草稿发布和 runId 父子步骤 |
+| v0.2 阶段方案 | `docs/strategy/business-control-plane-v0.2-plan.md` | 已完成的业务控制面收敛、版本族、接口调用中心、上线门禁和文档降噪 |
 | 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
 | 业务主线契约 | `docs/standards/business-mainline-contract.md` | 固定业务入口、runId、业务版本、处理步骤、回填、回调、计费和页面动线 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
