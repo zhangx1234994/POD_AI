@@ -26,6 +26,7 @@ from app.schemas.business import (
     BusinessAcceptanceRecordRequest,
     BusinessCapabilityCreateRequest,
     BusinessCapabilityDraftCreateRequest,
+    BusinessCapabilityDraftPublishRequest,
     BusinessCapabilityDraftRecipeUpdateRequest,
     BusinessCapabilityPromoteRequest,
     BusinessCapabilityRollbackRequest,
@@ -665,6 +666,77 @@ def test_business_capability_draft_recipe_update_rejects_non_draft(monkeypatch) 
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "BUSINESS_DRAFT_ONLY_EDITABLE"
+
+
+def test_business_capability_draft_validate_lists_publish_blockers(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
+    service = BusinessRunService()
+    draft = service.create_capability_draft(
+        "biz_fission_old",
+        BusinessCapabilityDraftCreateRequest(version="old-draft-validate", note="准备校验"),
+    )
+
+    validation = service.validate_capability_draft(draft["id"])
+
+    assert validation["can_publish"] is False
+    assert validation["default_capability"]["id"] == "biz_fission_old"
+    assert "配方结构未变化，仅更新了格式或说明。" in validation["diff_summary"]
+    failed_codes = {item["code"] for item in validation["checks"] if not item["passed"]}
+    assert "BUSINESS_DRAFT_REAL_RUN_PASSED" in failed_codes
+    assert "BUSINESS_DRAFT_ACCEPTANCE_PASSED" in failed_codes
+    assert validation["release_gate"]["status"] == "blocked"
+
+
+def test_business_capability_draft_publish_requires_real_run_and_acceptance(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
+    service = BusinessRunService()
+    draft = service.create_capability_draft(
+        "biz_fission_old",
+        BusinessCapabilityDraftCreateRequest(version="old-draft-publish", note="准备发布"),
+    )
+
+    with pytest.raises(HTTPException) as blocked_exc:
+        service.publish_capability_draft(draft["id"], BusinessCapabilityDraftPublishRequest(note="缺少真实测试"))
+    assert blocked_exc.value.status_code == 409
+    assert blocked_exc.value.detail == "BUSINESS_RELEASE_GATE_BLOCKED"
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_draft_publish_success",
+                business_key="fission",
+                business_version_id=draft["id"],
+                version=draft["version"],
+                status="succeeded",
+                source="admin-draft-run",
+                channel="release-smoke",
+                ability_id="ability_openai_fission",
+                image_urls=["https://example.com/result.png"],
+                result_payload={"imageUrls": ["https://example.com/result.png"]},
+                created_at=datetime.utcnow(),
+                finished_at=datetime.utcnow(),
+            )
+        )
+        session.commit()
+    service.record_acceptance(
+        draft["id"],
+        BusinessAcceptanceRecordRequest(status="passed", note="草稿真实链路验收通过"),
+    )
+
+    validation = service.validate_capability_draft(draft["id"])
+    assert validation["can_publish"] is True
+    assert validation["release_gate"]["status"] == "ready"
+
+    published = service.publish_capability_draft(
+        draft["id"],
+        BusinessCapabilityDraftPublishRequest(note="草稿验证通过，发布为默认版本"),
+    )
+
+    listed = {item["id"]: item for item in service.list_capabilities()}
+    assert published["id"] == draft["id"]
+    assert published["status"] == "active"
+    assert published["is_default"] is True
+    assert listed["biz_fission_old"]["is_default"] is False
 
 
 def test_business_capability_update_switches_default(monkeypatch) -> None:

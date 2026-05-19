@@ -363,6 +363,22 @@ class BusinessCapabilityDraftRecipeUpdateRequest(BaseModel):
     note: str | None = None
 
 
+class BusinessCapabilityDraftPublishRequest(BaseModel):
+    note: str | None = None
+
+
+class BusinessCapabilityDraftValidateResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    draft: BusinessCapabilityRead
+    defaultCapability: BusinessCapabilityRead | None = Field(default=None, alias="default_capability")
+    canPublish: bool = Field(alias="can_publish")
+    checks: list[dict[str, Any]]
+    diffSummary: list[str] = Field(default_factory=list, alias="diff_summary")
+    releaseGate: dict[str, Any] = Field(default_factory=dict, alias="release_gate")
+    nextAction: str | None = Field(default=None, alias="next_action")
+
+
 class BusinessCapabilityPromoteRequest(BaseModel):
     activate: bool = Field(default=True, description="如果版本未启用，是否先启用再设为默认")
     note: str | None = Field(default=None, description="切换原因，写入版本事件")

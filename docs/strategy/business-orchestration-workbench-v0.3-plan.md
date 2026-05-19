@@ -101,9 +101,11 @@ v0.3 尽量不大改表结构，优先复用现有业务版本和 recipe 字段�
 
 4. `POST /api/admin/business/capability-drafts/{draftId}/validate`
    - 校验字段、组件、路由、文档、测评入口和门禁。
+   - 已落地（2026-05-19）：校验草稿身份、编排可用性、真实测试结果、人工验收和近期失败，返回阻断项、差异摘要和下一步动作。
 
 5. `POST /api/admin/business/capability-drafts/{draftId}/publish`
    - 只允许门禁和验收通过后发布。
+   - 已落地（2026-05-19）：草稿通过校验后才允许切默认；未测试、未验收或底层治理阻断时返回 `BUSINESS_RELEASE_GATE_BLOCKED`。
 
 如果现有接口已经能覆盖，优先复用现有接口，不为了接口整齐强行新增。
 

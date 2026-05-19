@@ -1399,6 +1399,72 @@ OpenAPI 内每个工具都会枚举错误响应：
 | `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE` | 配方引用的原子能力不可用。 |
 | `VENDOR_MODEL_NOT_FOUND` | 配方间接依赖的第三方模型目录不存在。 |
 
+### POST /api/admin/business/capability-drafts/{draftId}/validate
+
+用途：发布前校验草稿是否具备切默认条件。这个接口只做判断，不修改线上默认版本。
+
+校验内容：
+
+| 校验项 | 阻断规则 |
+| --- | --- |
+| 草稿身份 | 目标必须是 `status=draft` 且 `isDefault=false`。 |
+| 编排可用 | 必须有主执行能力，且底层能力、模型、密钥和执行节点没有阻断项。 |
+| 真实测试 | 最近一次该草稿业务调用必须成功，并产生图片、视频或文字结果。 |
+| 人工验收 | 必须有最近一次 `passed` 验收记录。 |
+| 近期失败 | 最近一次调用存在错误时作为警告，不建议发布。 |
+
+响应示例：
+
+```json
+{
+  "canPublish": false,
+  "diffSummary": ["处理步骤数量：1 -> 2", "新增步骤：vl"],
+  "releaseGate": {
+    "status": "blocked",
+    "label": "草稿暂不能发布",
+    "canPublish": false,
+    "blockers": ["BUSINESS_DRAFT_REAL_RUN_PASSED", "BUSINESS_DRAFT_ACCEPTANCE_PASSED"],
+    "warnings": []
+  },
+  "nextAction": "先用该草稿跑一次真实测试，确认结果能正常回填。"
+}
+```
+
+错误：
+
+| 错误码 | 场景 |
+| --- | --- |
+| `BUSINESS_CAPABILITY_NOT_FOUND` | 草稿不存在。 |
+| `BUSINESS_DRAFT_ONLY_EDITABLE` | 目标不是草稿，或已经是线上默认版本。 |
+
+### POST /api/admin/business/capability-drafts/{draftId}/publish
+
+用途：草稿通过发布前校验后，将草稿启用并切为该业务入口的默认版本。发布失败时不会改变默认版本。
+
+请求示例：
+
+```json
+{
+  "note": "草稿验证通过，发布为默认版本"
+}
+```
+
+发布规则：
+
+- 必须先通过 `validate` 的阻断校验。
+- 必须已有真实测试成功样本。
+- 必须已有最近一次人工验收通过记录。
+- 发布成功后，原默认版本会自动取消默认；草稿变为 `active + isDefault=true`。
+
+错误：
+
+| 错误码 | 场景 |
+| --- | --- |
+| `BUSINESS_CAPABILITY_NOT_FOUND` | 草稿不存在。 |
+| `BUSINESS_DRAFT_ONLY_EDITABLE` | 目标不是草稿。 |
+| `BUSINESS_RELEASE_GATE_BLOCKED` | 草稿仍有发布阻断项，例如未真实测试或未验收。 |
+| `BUSINESS_ACCEPTANCE_REQUIRED` | 发布过程中发现验收记录缺失。 |
+
 ### GET /api/admin/business/capabilities
 
 用途：管理端展示业务能力版本、发布时间、默认版本、配方来源。

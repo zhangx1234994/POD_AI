@@ -2597,6 +2597,35 @@ def admin_update_business_capability_draft_recipe(
     return get_business_run_service().update_capability_draft_recipe(draft_id, payload, actor=user)
 
 
+@admin_router.post(
+    "/capability-drafts/{draft_id}/validate",
+    response_model=schemas.BusinessCapabilityDraftValidateResponse,
+    response_model_by_alias=False,
+)
+def admin_validate_business_capability_draft(
+    draft_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessCapabilityDraftValidateResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().validate_capability_draft(draft_id)
+
+
+@admin_router.post(
+    "/capability-drafts/{draft_id}/publish",
+    response_model=schemas.BusinessCapabilityRead,
+    response_model_by_alias=False,
+)
+def admin_publish_business_capability_draft(
+    draft_id: str,
+    payload: schemas.BusinessCapabilityDraftPublishRequest | None = None,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessCapabilityRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().publish_capability_draft(draft_id, payload, actor=user)
+
+
 @admin_router.post("/capabilities/{capability_id}/draft-run", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
 def admin_run_business_capability_draft(
     capability_id: str,

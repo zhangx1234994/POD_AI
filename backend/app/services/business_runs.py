@@ -44,6 +44,7 @@ from app.schemas.business import (
     BusinessAcceptanceRecordRequest,
     BusinessCapabilityCreateRequest,
     BusinessCapabilityDraftCreateRequest,
+    BusinessCapabilityDraftPublishRequest,
     BusinessCapabilityDraftRecipeUpdateRequest,
     BusinessCapabilityPromoteRequest,
     BusinessCapabilityRollbackRequest,
@@ -489,6 +490,71 @@ class BusinessRunService:
             session.commit()
             session.refresh(row)
             return self._capability_to_dict(row, session=session)
+
+    def validate_capability_draft(self, draft_id: str) -> dict[str, Any]:
+        with get_session() as session:
+            row = session.get(BusinessCapability, draft_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+            if row.is_default or row.status != "draft":
+                raise HTTPException(status_code=409, detail="BUSINESS_DRAFT_ONLY_EDITABLE")
+            draft_payload = self._capability_to_dict(row, session=session)
+            default_row = (
+                session.execute(
+                    select(BusinessCapability)
+                    .where(
+                        BusinessCapability.business_key == row.business_key,
+                        BusinessCapability.is_default.is_(True),
+                        BusinessCapability.id != row.id,
+                    )
+                    .order_by(BusinessCapability.updated_at.desc(), BusinessCapability.created_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+            default_payload = self._capability_to_dict(default_row, session=session) if default_row else None
+            before_recipe = default_row.recipe if default_row and isinstance(default_row.recipe, dict) else {}
+            after_recipe = row.recipe if isinstance(row.recipe, dict) else {}
+            diff_summary = self._recipe_diff_summary(before_recipe, after_recipe)
+            checks = self._build_draft_publish_checks(draft_payload)
+            can_publish = all(bool(item.get("passed")) for item in checks if item.get("level") == "blocker")
+            next_action = None
+            for item in checks:
+                if item.get("level") == "blocker" and not item.get("passed"):
+                    next_action = str(item.get("action") or "")
+                    break
+            return {
+                "draft": draft_payload,
+                "default_capability": default_payload,
+                "can_publish": can_publish,
+                "checks": checks,
+                "diff_summary": diff_summary,
+                "release_gate": {
+                    "status": "ready" if can_publish else "blocked",
+                    "label": "草稿可发布" if can_publish else "草稿暂不能发布",
+                    "canPublish": can_publish,
+                    "blockers": [item["code"] for item in checks if item.get("level") == "blocker" and not item.get("passed")],
+                    "warnings": [item["code"] for item in checks if item.get("level") == "warning" and not item.get("passed")],
+                },
+                "next_action": next_action,
+            }
+
+    def publish_capability_draft(
+        self,
+        draft_id: str,
+        payload: BusinessCapabilityDraftPublishRequest | None = None,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        request = payload or BusinessCapabilityDraftPublishRequest()
+        validation = self.validate_capability_draft(draft_id)
+        if not validation.get("can_publish"):
+            raise HTTPException(status_code=409, detail="BUSINESS_RELEASE_GATE_BLOCKED")
+        return self.promote_capability(
+            draft_id,
+            BusinessCapabilityPromoteRequest(activate=True, note=request.note or "草稿验证通过，发布为默认版本"),
+            actor=actor,
+        )
 
     def record_acceptance(
         self,
@@ -5711,6 +5777,63 @@ class BusinessRunService:
         release_gate = release_payload.get("release_gate") if isinstance(release_payload, dict) else None
         if not isinstance(release_gate, dict) or not release_gate.get("canRelease"):
             raise HTTPException(status_code=409, detail="BUSINESS_RELEASE_GATE_BLOCKED")
+
+    @staticmethod
+    def _build_draft_publish_checks(draft_payload: dict[str, Any]) -> list[dict[str, Any]]:
+        latest_run = draft_payload.get("latest_run") if isinstance(draft_payload.get("latest_run"), dict) else None
+        latest_acceptance = (
+            draft_payload.get("latest_acceptance") if isinstance(draft_payload.get("latest_acceptance"), dict) else None
+        )
+        governance_status = str(draft_payload.get("governance_status") or "").strip().lower()
+        image_count = BusinessRunService._first_int(latest_run.get("image_count") if latest_run else None) or 0
+        video_count = BusinessRunService._first_int(latest_run.get("video_count") if latest_run else None) or 0
+        text_count = BusinessRunService._first_int(latest_run.get("text_count") if latest_run else None) or 0
+        latest_status = str(latest_run.get("status") if latest_run else "").strip().lower()
+        latest_has_output = bool(image_count or video_count or text_count)
+        acceptance_passed = BusinessRunService._acceptance_passed(latest_acceptance)
+        return [
+            {
+                "code": "BUSINESS_DRAFT_IDENTITY",
+                "label": "草稿身份",
+                "passed": str(draft_payload.get("status") or "").strip().lower() == "draft"
+                and not bool(draft_payload.get("is_default")),
+                "level": "blocker",
+                "message": "只有草稿版本允许进入发布前校验。",
+                "action": "先复制线上版本为草稿，再在草稿里调整编排。",
+            },
+            {
+                "code": "BUSINESS_DRAFT_RECIPE_AVAILABLE",
+                "label": "编排可用",
+                "passed": bool(draft_payload.get("primary_ability_id")) and governance_status != "blocker",
+                "level": "blocker",
+                "message": "业务配方必须有主执行能力，且底层能力、模型、密钥和执行节点不能存在阻断项。",
+                "action": "先处理能力目录、模型弹药库、密钥或执行节点里的阻断问题。",
+            },
+            {
+                "code": "BUSINESS_DRAFT_REAL_RUN_PASSED",
+                "label": "真实测试",
+                "passed": latest_status == "succeeded" and latest_has_output and not latest_run.get("error") if latest_run else False,
+                "level": "blocker",
+                "message": "发布前必须至少跑通一次真实业务调用，并产生图片、视频或文字结果。",
+                "action": "先用该草稿跑一次真实测试，确认结果能正常回填。",
+            },
+            {
+                "code": "BUSINESS_DRAFT_ACCEPTANCE_PASSED",
+                "label": "人工验收",
+                "passed": acceptance_passed,
+                "level": "blocker",
+                "message": "发布前必须记录最近一次人工验收通过。",
+                "action": "先登记验收记录，最好带 runId 或样本链接。",
+            },
+            {
+                "code": "BUSINESS_DRAFT_RECENT_FAILURES",
+                "label": "近期失败",
+                "passed": not bool((draft_payload.get("latest_run") or {}).get("error")),
+                "level": "warning",
+                "message": "最近一次调用存在错误时，不建议直接发布。",
+                "action": "先打开 runId 详情定位失败阶段。",
+            },
+        ]
 
     def _business_capability_release_gate(
         self,
