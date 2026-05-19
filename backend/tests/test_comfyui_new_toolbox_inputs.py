@@ -142,6 +142,59 @@ def test_qwen2512_print_shape_text_enhance_maps_url_prompt_and_bili_to_repaint_d
     assert context.workflow.definition["_max_output_images"] == 1
 
 
+def test_qwen2512_text2img_text_allowed_maps_user_editable_prompt_to_text2img_nodes():
+    graph = {
+        "10": {"inputs": {"text": "__PROMPT__"}},
+        "11": {"inputs": {"text": "__NEGATIVE__"}},
+        "12": {"inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+        "19": {"inputs": {"seed": 1, "steps": 8, "cfg": 2.0}},
+        "21": {"inputs": {"filename_prefix": "09_qwen_text2img"}},
+    }
+    context = _make_context("qwen2512_text2img_text_allowed", graph)
+    adapter = ComfyUIExecutorAdapter()
+
+    overrides, error = adapter._build_qwen2512_text2img_text_allowed_inputs(
+        {
+            "editable_prompt": "flat textile pattern with readable HAPPY SUMMER letters",
+            "editable_negative_prompt": "bad anatomy, watermark",
+            "width": 1201,
+            "height": 999,
+            "seed": 12345,
+            "steps": 9,
+            "cfg": 2.5,
+        },
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["10"] == {"text": "flat textile pattern with readable HAPPY SUMMER letters"}
+    assert "bad anatomy" in overrides["11"]["text"]
+    assert "watermark" in overrides["11"]["text"]
+    assert "text" not in overrides["11"]["text"].lower()
+    assert "letters" not in overrides["11"]["text"].lower()
+    assert overrides["12"] == {"width": 1200, "height": 992, "batch_size": 1}
+    assert overrides["19"] == {"seed": 12345, "steps": 9, "cfg": 2.5}
+    assert context.workflow.definition["output_node_ids"] == ["21"]
+    assert context.workflow.definition["_max_output_images"] == 1
+    assert context.workflow.definition["_expected_image_count"] == 1
+
+
+def test_qwen2512_text2img_text_allowed_requires_prompt():
+    context = _make_context("qwen2512_text2img_text_allowed", {})
+    adapter = ComfyUIExecutorAdapter()
+
+    overrides, error = adapter._build_qwen2512_text2img_text_allowed_inputs(
+        {"width": 1024},
+        context,
+        context.workflow.definition,
+    )
+
+    assert overrides is None
+    assert error == "COMFYUI_PROMPT_REQUIRED"
+
+
 def test_flux_strong_hq_softstyle_fission_maps_uploaded_image_profile_and_bili():
     graph = {
         "10": {"inputs": {"image": "old.png"}},

@@ -115,6 +115,17 @@ type MultiImageTrialRun = MultiImageTrialInput & {
   submittedAt: string;
 };
 
+type TextFissionPromptDraft = {
+  promptDraftId: string;
+  editablePrompt: string;
+  editableNegativePrompt?: string | null;
+  textContent?: string | null;
+  promptProfile?: string | null;
+  layoutCard?: unknown;
+  paletteCard?: unknown;
+  riskNotes?: unknown;
+};
+
 type WorkflowMetric = {
   ratingCount: number;
   avgRating: number | null;
@@ -671,6 +682,13 @@ const isBusinessApiWorkflow = (wf: EvalWorkflowVersion | null | undefined): bool
   return routing?.entryMode === 'business_api' || execution?.mode === 'business_run';
 };
 
+const isTextFissionEditableWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
+  const execution = getWorkflowEvalExecution(wf);
+  const workflowId = String(wf?.workflow_id || '').trim();
+  const text = `${workflowId} ${wf?.version || ''} ${wf?.name || ''}`.toLowerCase();
+  return execution?.business_key === 'text_fission' || workflowId === 'business_text_fission_qwen2512_text2img_user_editable_v1' || text.includes('text2img-user-editable');
+};
+
 const inferWorkflowCategory = (
   wf: Pick<EvalWorkflowVersion, 'category' | 'presentation' | 'name' | 'workflow_id' | 'notes'> | null | undefined,
 ): string => {
@@ -1023,6 +1041,9 @@ const getWorkflowVersionLabel = (wf: EvalWorkflowVersion | null | undefined): st
   if (workflowId === 'business_fission_comfyui_vl_control_v1') {
     if (text.includes('comfyui-vl-control-v2')) return 'ComfyUI 颜色锁定版';
     return 'ComfyUI VL 控制版';
+  }
+  if (workflowId === 'business_text_fission_qwen2512_text2img_user_editable_v1' || text.includes('qwen2512-text2img-user-editable')) {
+    return 'Qwen 文生图可编辑提示词版';
   }
   if (workflowId === 'business_fission_comfyui_vl_colorlock_v2' || text.includes('comfyui-vl-control-v2')) return 'ComfyUI 颜色锁定版';
   if (text.includes('comfyui-vl-control')) return 'ComfyUI VL 控制版';
@@ -2096,6 +2117,47 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   const cozeTaskGetPayload = {
     taskId: '<runId 或 taskId>',
   };
+  if (businessKey === 'text_fission') {
+    const promptPayload = {
+      imageUrl: paramsExample.imageUrl,
+      source: 'partner-api',
+      channel: 'open-api',
+      requestId: 'biz-text-fission-prompt-001',
+    };
+    const runPayload = {
+      ...paramsExample,
+      editable_prompt: paramsExample.editable_prompt || '<第一步返回的 editablePrompt，可人工修改>',
+      editable_negative_prompt: paramsExample.editable_negative_prompt || '<第一步返回的 editableNegativePrompt，可人工修改>',
+      promptDraftId: '<第一步返回的 promptDraftId>',
+    };
+    return [
+      '【第 1 步：生成可编辑提示词】',
+      `curl -X POST "$PODI_BASE_URL/api/business/${endpointKey}/prompts" \\`,
+      '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${JSON.stringify(promptPayload, null, 2)}'`,
+      '',
+      '业务方拿到 editablePrompt 后，应展示给用户确认或修改；第二步只使用用户最终确认后的文本。',
+      '',
+      '【第 2 步：提交文生图任务】',
+      `curl -X POST "$PODI_BASE_URL/api/business/${endpointKey}/runs" \\`,
+      '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${JSON.stringify(runPayload, null, 2)}'`,
+      '',
+      '【查询结果】',
+      'curl -X POST "$PODI_BASE_URL/api/business/runs/get" \\',
+      '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${JSON.stringify({ runId: '<第二步返回的 runId>' }, null, 2)}'`,
+      '',
+      '【参数说明】',
+      buildBusinessApiParamDocText(wf),
+      '',
+      '【返回字段说明】',
+      buildBusinessApiOutputDocText(wf),
+    ].join('\n');
+  }
   return [
     '【提交任务】',
     `curl -X POST "$PODI_BASE_URL/api/business/${endpointKey}/runs" \\`,
@@ -3650,6 +3712,8 @@ export function App() {
 
   const [formUrl, setFormUrl] = useState('');
   const [formParams, setFormParams] = useState<Record<string, string>>({});
+  const [textFissionPromptDraft, setTextFissionPromptDraft] = useState<TextFissionPromptDraft | null>(null);
+  const [textFissionPromptLoading, setTextFissionPromptLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [multiRunInputs, setMultiRunInputs] = useState<MultiImageTrialInput[]>([]);
@@ -4050,6 +4114,10 @@ export function App() {
     batchReviewMapRef.current = batchReviewMap;
   }, [batchReviewMap]);
 
+  useEffect(() => {
+    setTextFissionPromptDraft(null);
+  }, [formUrl]);
+
   const actionableReviewGroups = useMemo(
     () => batchReviewGroups.filter((group) => Array.isArray(group.outputs) && group.outputs.length > 0),
     [batchReviewGroups],
@@ -4077,6 +4145,7 @@ export function App() {
   const shouldAutoFillFissionSize = useMemo(
     () =>
       Boolean(selectedTool && isFissionWorkflow(selectedTool)) &&
+      !isTextFissionEditableWorkflow(selectedTool) &&
       toolFields.some((f) => f.name === 'width') &&
       toolFields.some((f) => f.name === 'height'),
     [selectedTool, toolFields],
@@ -4087,6 +4156,7 @@ export function App() {
     const text = `${selectedTool.workflow_id || ''} ${selectedTool.version || ''} ${execution?.version || ''} ${selectedTool.name || ''}`.toLowerCase();
     return text.includes('comfyui-vl-control-v2');
   }, [selectedTool]);
+  const isTextFissionEditable = useMemo(() => isTextFissionEditableWorkflow(selectedTool), [selectedTool]);
   const selectedFissionVariationPresets = useMemo(() => getWorkflowVariationPresets(selectedTool), [selectedTool]);
   const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID;
   const isShengtuWorkflow = selectedTool?.workflow_id === SHENGTU_WORKFLOW_ID;
@@ -4964,6 +5034,8 @@ export function App() {
     setFormUrl('');
     setMultiRunInputs([]);
     setLatestTrialRuns([]);
+    setTextFissionPromptDraft(null);
+    setTextFissionPromptLoading(false);
     autoFilledFissionSizeRef.current = null;
     // Prevent showing previous tool's results while the new tool's history is loading.
     setToolRuns([]);
@@ -5041,6 +5113,51 @@ export function App() {
   const setSingleImageField = useCallback((fieldName: string, value: string) => {
     setFormParams((prev) => ({ ...prev, [fieldName]: value }));
   }, []);
+
+  const prepareTextFissionPrompt = useCallback(async () => {
+    const imageUrl = formUrl.trim();
+    if (!imageUrl) {
+      pushNotice('error', '请先上传或粘贴原图 URL');
+      return;
+    }
+    setTextFissionPromptLoading(true);
+    setTextFissionPromptDraft(null);
+    try {
+      const res = await evalApi.prepareTextFissionPrompt({
+        imageUrl,
+        source: 'eval-web',
+        channel: 'eval',
+        requestId: `eval-text-fission-${Date.now()}`,
+      });
+      const editablePrompt = String(res.editablePrompt || '').trim();
+      const editableNegativePrompt = String(res.editableNegativePrompt || '').trim();
+      if (!editablePrompt) {
+        throw new Error('VL 已返回，但没有可用的生成提示词');
+      }
+      setTextFissionPromptDraft({
+        promptDraftId: String(res.promptDraftId || ''),
+        editablePrompt,
+        editableNegativePrompt,
+        textContent: res.textContent || null,
+        promptProfile: res.promptProfile || null,
+        layoutCard: res.layoutCard,
+        paletteCard: res.paletteCard,
+        riskNotes: res.riskNotes,
+      });
+      setFormParams((prev) => ({
+        ...prev,
+        editable_prompt: editablePrompt,
+        editable_negative_prompt: editableNegativePrompt || prev.editable_negative_prompt || '',
+        promptDraftId: String(res.promptDraftId || ''),
+      }));
+      pushNotice('success', '已生成提示词草稿，可继续人工修改后再提交。');
+    } catch (err) {
+      console.error(err);
+      pushNotice('error', String((err as any)?.message || err || '提示词识别失败'));
+    } finally {
+      setTextFissionPromptLoading(false);
+    }
+  }, [formUrl, pushNotice]);
 
   const applyFissionOriginalSizeDefaults = useCallback(
     async (imageUrl: string, sizeHint?: { width: number; height: number } | null) => {
@@ -8204,13 +8321,13 @@ export function App() {
                             />
                           </div>
                           <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
-                            上传 / 多选
+                            {isTextFissionEditable ? '上传' : '上传 / 多选'}
                           </Button>
                           <input
                             ref={uploadInputRef}
                             type="file"
                             accept="image/*"
-                            multiple
+                            multiple={!isTextFissionEditable}
                             style={{ display: 'none' }}
                             disabled={uploading}
                             onChange={async (e) => {
@@ -8274,6 +8391,58 @@ export function App() {
                                 </button>
                               ))}
                             </div>
+                          </Space>
+                        </Card>
+                      ) : null}
+
+                      {isTextFissionEditable ? (
+                        <Card bordered title="第 1 步：生成可编辑提示词">
+                          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                              先用 VL 读取原图，生成“可编辑提示词”。你可以在下方文本框里继续改，最终生图只使用你确认后的文本。
+                            </Typography.Text>
+                            <Space align="center" style={{ width: '100%' }}>
+                              <Button
+                                theme="primary"
+                                variant="outline"
+                                loading={textFissionPromptLoading}
+                                disabled={textFissionPromptLoading || !formUrl.trim()}
+                                onClick={() => void prepareTextFissionPrompt()}
+                              >
+                                先识别提示词
+                              </Button>
+                              {textFissionPromptDraft?.promptDraftId ? (
+                                <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                                  草稿 ID：{textFissionPromptDraft.promptDraftId.slice(0, 12)}...
+                                </Typography.Text>
+                              ) : (
+                                <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                                  识别完成后会自动填入“生成提示词”和“反向提示词”。
+                                </Typography.Text>
+                              )}
+                            </Space>
+                            {textFissionPromptDraft ? (
+                              <div
+                                style={{
+                                  border: '1px solid var(--td-border-level-1-color)',
+                                  background: 'var(--td-bg-color-secondarycontainer)',
+                                  borderRadius: 8,
+                                  padding: 12,
+                                  display: 'grid',
+                                  gap: 8,
+                                }}
+                              >
+                                {textFissionPromptDraft.textContent ? (
+                                  <Typography.Text theme="secondary">识别文字：{textFissionPromptDraft.textContent}</Typography.Text>
+                                ) : null}
+                                {textFissionPromptDraft.promptProfile ? (
+                                  <Typography.Text theme="secondary">提示词类型：{textFissionPromptDraft.promptProfile}</Typography.Text>
+                                ) : null}
+                                <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                                  下面的“生成提示词”文本框才是最终送入生图的内容。
+                                </Typography.Text>
+                              </div>
+                            ) : null}
                           </Space>
                         </Card>
                       ) : null}

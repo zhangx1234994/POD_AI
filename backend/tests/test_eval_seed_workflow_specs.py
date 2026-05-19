@@ -224,6 +224,35 @@ def test_20260512_native_eval_entries_are_visible_and_badged():
     assert "business_fission_comfyui_vl_colorlock_v2" not in FISSION_WORKFLOW_IDS
 
 
+def test_text_fission_user_editable_eval_entry_is_two_step_business_api():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_text_fission_qwen2512_text2img_user_editable_v1"]
+
+    assert workflow["category"] == "图裂变"
+    assert workflow["name"] == "文字强化裂变 · Qwen 文生图可编辑提示词版"
+    assert workflow["metadata"]["eval_execution"] == {
+        "mode": "business_run",
+        "business_key": "text_fission",
+        "version": "qwen2512-text2img-user-editable-v1",
+    }
+
+    fields = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [field.get("name") for field in fields if isinstance(field, dict)]
+    assert names == [
+        "url",
+        "editable_prompt",
+        "editable_negative_prompt",
+        "width",
+        "height",
+        "steps",
+        "cfg",
+        "seed",
+    ]
+    assert "count" not in names
+    assert "bili" not in names
+    assert _field_by_name(workflow, "editable_prompt").get("required") is True
+    assert workflow["metadata"]["presentation"]["supports_batch"] is False
+
+
 def test_eval_presentation_keeps_new_as_badge_not_name():
     workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v1"]
     presentation = resolve_eval_workflow_presentation(

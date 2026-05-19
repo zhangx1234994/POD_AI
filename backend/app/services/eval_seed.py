@@ -15,7 +15,7 @@ from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.models.eval import EvalBatchSession, EvalRun, EvalWorkflowVersion
-from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS
+from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS, TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT
 from app.constants.business_api_contract import COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
 
 
@@ -145,6 +145,7 @@ IP_OUTPUT_WORKFLOW_IDS: set[str] = {
 FORCE_SYNC_EVAL_WORKFLOW_IDS: set[str] = {
     "business_fission_gpt_image2_vl_v1",
     "business_fission_comfyui_vl_control_v1",
+    "business_text_fission_qwen2512_text2img_user_editable_v1",
     "ability_fission_generated_image_evaluate_v1",
     "7631838631375667200",
     "7625930748914040832",
@@ -1666,6 +1667,58 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 "mode": "business_run",
                 "business_key": "fission",
                 "version": "comfyui-vl-control-v2",
+            },
+        },
+    },
+    # 图裂变 / 文字强化裂变：两步式文生图
+    {
+        "category": "图裂变",
+        "name": "文字强化裂变 · Qwen 文生图可编辑提示词版",
+        "version": "qwen2512-text2img-user-editable-v1",
+        "workflow_id": "business_text_fission_qwen2512_text2img_user_editable_v1",
+        "status": "active",
+        "notes": "中台原生两步式业务接口：先让 VL 生成可编辑提示词，用户确认后再调用 Qwen2512 文生图。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "用于第一步 VL 分析和结果对比；第二步文生图不直接使用原图。"},
+                {"name": "editable_prompt", "label": "生成提示词", "type": "textarea", "required": True, "defaultValue": "", "description": "点击“先识别提示词”后自动填入，可人工修改；实际生图会原样使用这里的内容。"},
+                {"name": "editable_negative_prompt", "label": "反向提示词", "type": "textarea", "required": False, "defaultValue": TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT, "description": "默认不要禁用文字、字母和数字。"},
+                {"name": "width", "label": "输出宽度", "type": "text", "required": False, "defaultValue": "1024", "description": "不填默认 1024；只填数字，不要带 px。"},
+                {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "1024", "description": "不填默认 1024；只填数字，不要带 px。"},
+                {"name": "steps", "label": "采样步数", "type": "text", "required": False, "defaultValue": "8"},
+                {"name": "cfg", "label": "提示词强度", "type": "text", "required": False, "defaultValue": "2.0"},
+                {"name": "seed", "label": "随机种子", "type": "text", "required": False, "defaultValue": ""},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "imageUrls", "type": "array", "description": "中台 OSS 结果图"},
+                {"name": "runId", "type": "text", "description": "业务运行 ID"},
+                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "operation_label": "文字强化裂变",
+                "variant_label": "Qwen 文生图可编辑提示词版",
+                "badges": ["新版", "两步确认", "原生业务接口"],
+                "release_time": "2026-05-19",
+                "update_time": "2026-05-19",
+                "supports_batch": False,
+                "result_mode": "image",
+                "usage_hint": "适合文字要求强的裂变场景：先生成提示词草稿，人工确认后再文生图。",
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-05-19 新接入，先在测评端验证提示词质量和出图稳定性。",
+            },
+            "eval_execution": {
+                "mode": "business_run",
+                "business_key": "text_fission",
+                "version": "qwen2512-text2img-user-editable-v1",
             },
         },
     },

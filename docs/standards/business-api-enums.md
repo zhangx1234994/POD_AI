@@ -25,7 +25,7 @@
 | --- | --- | --- | --- |
 | `runId` | string | 是 | 业务运行 ID，业务方轮询和排查的主键。 |
 | `taskId` | string/null | 是 | 中台内部任务 ID，主要用于排查。 |
-| `businessKey` | string | 是 | 业务能力，如 `fission`、`fission_evaluate`、`outpaint`。 |
+| `businessKey` | string | 是 | 业务能力，如 `pattern_extract`、`fission`、`text_fission`、`fission_evaluate`、`outpaint`。 |
 | `version` | string/null | 是 | 命中的业务版本。 |
 | `status` | enum | 是 | 同任务状态。 |
 | `taskStatus` | enum | 是 | 兼容 Coze 工具箱口径，同任务状态。 |
@@ -49,6 +49,7 @@
 | --- | --- | --- | --- |
 | GPT Image 2 受控裂变 | `POST /api/business/fission/runs` | `POST /api/business/runs/get` | `gpt-image2-vl-v2` |
 | ComfyUI 颜色锁定裂变 | `POST /api/business/fission/runs` | `POST /api/business/runs/get` | `comfyui-vl-control-v2` |
+| 文字强化裂变 | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | `POST /api/business/runs/get` | `qwen2512-text2img-user-editable-v1` |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `POST /api/business/runs/get` | `generated-image-eval-v1` |
 | 扩图 | `POST /api/business/outpaint/runs` | `POST /api/business/runs/get` | 当前默认版本 |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `POST /api/business/runs/get` | 当前默认版本 |
@@ -128,6 +129,21 @@
 | `refission_repeat` | 建议重复裂变。 |
 | `reject` | 拒绝当前结果。 |
 
+## 5.1 文字强化裂变
+
+文字强化裂变的 `businessKey` 固定为 `text_fission`，当前固定版本为 `qwen2512-text2img-user-editable-v1`。
+
+调用方式是两步：
+
+1. `POST /api/business/text-fission/prompts`：传 `imageUrl`，中台用 VL 生成 `editablePrompt`、`editableNegativePrompt`、`promptDraftId`。
+2. `POST /api/business/text-fission/runs`：传 `imageUrl` 和用户确认后的 `editable_prompt`，中台直接提交 ComfyUI 文生图，不再二次调用 VL。
+
+约束：
+
+- 单次固定生成 1 张图，不支持 `count/batch/batch_size/n`。
+- `width/height` 不传时默认 `1024 x 1024`；传入时按 ComfyUI 安全倍数归一化。
+- 第二步必须传 `editable_prompt`，也可以传第一步返回的 `editableNegativePrompt` 作为 `editable_negative_prompt`。
+
 ## 6. 路由预览枚举
 
 | 字段 | 允许值 | 含义 |
@@ -168,6 +184,9 @@
 | `BUSINESS_API_KEY_INVALID` | Key 不存在或已失效。 | 更换有效 Key。 |
 | `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED` | Key 无权调用该业务。 | 联系中台补授权。 |
 | `BUSINESS_USER_SCOPE_FORBIDDEN` | 租户或用户范围不匹配。 | 检查 `tenantId/clientId/userId`。 |
+| `TEXT_FISSION_PROMPT_REQUIRED` | 文字强化裂变第二步缺少确认后的提示词。 | 先调用 `/api/business/text-fission/prompts`，再传 `editable_prompt`。 |
+| `TEXT_FISSION_PROMPT_EMPTY` | VL 没有返回可用提示词。 | 换图重试；如持续出现，提供图片和请求时间给中台排查。 |
+| `TEXT_FISSION_PROMPT_PREPARE_FAILED` | 文字强化裂变提示词生成失败。 | 可重试；如持续失败，提供请求时间和图片地址给中台。 |
 | `VL_EVAL_IMAGE_REQUIRED` | 裂变生成图评估缺少原图或生成图。 | 补齐 `originalImageUrl` 和 `generatedImageUrl` 后重新提交。 |
 | `BUSINESS_RUN_TIMEOUT` | 任务超时。 | 稍后重试，必要时联系中台排查底层能力。 |
 | `BUSINESS_ABILITY_EXECUTION_FAILED` | 底层能力执行失败。 | 可重试；如持续失败，提供 `runId` 给中台。 |

@@ -2148,6 +2148,32 @@ class AbilityInvocationService:
                     or fission_control_card.get("imageDesc")
                     or ""
                 )
+            text2img_fields = [
+                "image_id",
+                "task_route",
+                "prompt_profile",
+                "confidence",
+                "editable_prompt",
+                "editable_negative_prompt",
+                "text_content",
+                "text_priority",
+                "print_type",
+                "background",
+                "layout_card",
+                "motif_card",
+                "palette_card",
+                "material_card",
+                "hierarchy_card",
+                "negative_card",
+                "risk_notes",
+            ]
+            text2img_payload: dict[str, Any] = {}
+            for key in text2img_fields:
+                if key in parsed:
+                    structured[key] = parsed.get(key)
+                    text2img_payload[key] = parsed.get(key)
+            if text2img_payload:
+                structured["text2imgPromptDraft"] = text2img_payload
             return structured
         raw_text = value if isinstance(value, str) else self._stringify_value(value)
         return {

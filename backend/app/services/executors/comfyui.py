@@ -28,6 +28,10 @@ from app.services.media_ingest import media_ingest_service
 # IMPORTANT: This must exist on every ComfyUI executor you route to, otherwise the
 # fallback will still fail. Keep it consistent with your ops sync policy.
 FALLBACK_LORA_NAME = "杯子1124.safetensors"
+TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT = (
+    "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, "
+    "dirty grunge, muddy colors, extra instruction words, unrelated objects"
+)
 
 FISSION_V4_ROUTE_MAP: dict[str, dict[str, Any]] = {
     "small_scatter_high_density": {"low": 0.50, "mid": 0.52, "high": 0.52, "experimental": 0.52},
@@ -688,6 +692,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_qwen2512_print_shape_text_enhance_inputs(
                 inputs, context, workflow_definition
             )
+        elif workflow_key == "qwen2512_text2img_text_allowed":
+            base_overrides, base_error = self._build_qwen2512_text2img_text_allowed_inputs(
+                inputs, context, workflow_definition
+            )
         elif workflow_key in {"jisu_chuli", "zhongsu_tisheng"}:
             base_overrides, base_error = self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
         elif workflow_key == "duotu_ronghe":
@@ -1166,6 +1174,75 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         workflow_definition["output_node_ids"] = ["29"]
         return overrides, None
 
+    def _build_qwen2512_text2img_text_allowed_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """文字强化文生图：用户确认提示词后直接文生图，不再二次改写。
+
+        Node mapping:
+        - 10: CLIPTextEncode.text -> editable_prompt
+        - 11: CLIPTextEncode.text -> editable_negative_prompt
+        - 12: EmptySD3LatentImage.width / height / batch_size
+        - 19: KSampler.seed / steps / cfg
+        - 21: SaveImage
+        """
+
+        prompt = self._as_text(
+            params.get("editable_prompt")
+            or params.get("editablePrompt")
+            or params.get("prompt")
+            or params.get("positive_prompt")
+            or params.get("positivePrompt")
+        )
+        if not prompt:
+            return None, "COMFYUI_PROMPT_REQUIRED"
+
+        raw_negative = self._as_text(
+            params.get("editable_negative_prompt")
+            or params.get("editableNegativePrompt")
+            or params.get("negative_prompt")
+            or params.get("negativePrompt")
+        )
+        negative_prompt = self._merge_negative_prompt(raw_negative, TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT)
+
+        width = self._normalize_comfy_dim(
+            self._coerce_positive_int(params.get("width") or params.get("output_width") or params.get("outputWidth"))
+        )
+        height = self._normalize_comfy_dim(
+            self._coerce_positive_int(params.get("height") or params.get("output_height") or params.get("outputHeight"))
+        )
+        width = width or 1024
+        height = height or 1024
+        batch_size = self._coerce_positive_int(params.get("batch_size") or params.get("batch") or params.get("n"))
+        batch_size = 1 if batch_size is None else max(1, min(batch_size, 1))
+
+        seed = self._coerce_positive_int(params.get("seed"))
+        if seed is None:
+            seed = secrets.randbelow(2**63 - 1) + 1
+
+        steps = self._coerce_positive_int(params.get("steps"))
+        if steps is None:
+            steps = self._coerce_positive_int(workflow_definition.get("steps")) or 8
+
+        cfg_raw = params.get("cfg")
+        if cfg_raw is None:
+            cfg_raw = workflow_definition.get("cfg", 2.0)
+        try:
+            cfg = float(cfg_raw)
+        except (TypeError, ValueError):
+            cfg = 2.0
+
+        overrides: dict[str, dict[str, Any]] = {
+            "10": {"text": prompt},
+            "11": {"text": negative_prompt},
+            "12": {"width": width, "height": height, "batch_size": batch_size},
+            "19": {"seed": seed, "steps": steps, "cfg": cfg},
+        }
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["_expected_image_count"] = 1
+        workflow_definition["output_node_ids"] = ["21"]
+        return overrides, None
+
     def _build_jisu_chuli_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
@@ -1388,6 +1465,20 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
     @staticmethod
     def _map_repaint_strength_to_denoise(value: Any) -> float | None:
         return ComfyUIExecutorAdapter._map_variation_percent_to_denoise(value)
+
+    @staticmethod
+    def _merge_negative_prompt(user_value: str | None, default_value: str) -> str:
+        items: list[str] = []
+        seen: set[str] = set()
+        for source in (user_value, default_value):
+            for raw in str(source or "").split(","):
+                item = raw.strip()
+                key = item.lower()
+                if not item or key in seen:
+                    continue
+                seen.add(key)
+                items.append(item)
+        return ", ".join(items)
 
     @staticmethod
     def _parse_fission_percent(value: Any) -> float | None:

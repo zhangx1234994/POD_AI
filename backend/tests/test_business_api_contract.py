@@ -27,6 +27,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "/api/business/pattern-extract/runs" in paths
     assert "/api/business/fission/runs" in paths
     assert "/api/business/fission-evaluate/runs" in paths
+    assert "/api/business/text-fission/prompts" in paths
+    assert "/api/business/text-fission/runs" in paths
     assert "/api/business/outpaint/runs" in paths
     assert "/api/business/pattern-extract/route-preview" in paths
     assert "/api/business/fission/route-preview" in paths
@@ -104,6 +106,35 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "border_or_layout",
         "unknown",
     ]
+    text_fission_prompt_schema = paths["/api/business/text-fission/prompts"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert text_fission_prompt_schema["required"] == ["imageUrl"]
+    assert {"imageUrl", "prompt", "traceId", "requestId", "tenantId", "clientId"}.issubset(
+        text_fission_prompt_schema["properties"]
+    )
+    text_fission_schema = paths["/api/business/text-fission/runs"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert text_fission_schema["required"] == ["imageUrl", "editable_prompt"]
+    assert {
+        "imageUrl",
+        "editable_prompt",
+        "editable_negative_prompt",
+        "promptDraftId",
+        "width",
+        "height",
+        "steps",
+        "cfg",
+        "seed",
+        "callbackUrl",
+        "traceId",
+        "requestId",
+        "tenantId",
+        "clientId",
+    }.issubset(text_fission_schema["properties"])
+    assert "count" not in text_fission_schema["properties"]
+    assert "bili" not in text_fission_schema["properties"]
     outpaint_schema = paths["/api/business/outpaint/runs"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
     ]
@@ -203,6 +234,12 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert {"BusinessApiKey": []} in data["security"]
     get_responses = paths["/api/business/runs/get"]["post"]["responses"]
     assert "BUSINESS_RUN_ID_REQUIRED" in get_responses["400"]["x-podi-errors"]
+    text_fission_responses = paths["/api/business/text-fission/runs"]["post"]["responses"]
+    assert "TEXT_FISSION_PROMPT_REQUIRED" in text_fission_responses["400"]["x-podi-errors"]
+    assert "COMFYUI_PROMPT_REQUIRED" in text_fission_responses["400"]["x-podi-errors"]
+    prompt_responses = paths["/api/business/text-fission/prompts"]["post"]["responses"]
+    assert "TEXT_FISSION_PROMPT_EMPTY" in prompt_responses["500"]["x-podi-errors"]
+    assert "TEXT_FISSION_PROMPT_PREPARE_FAILED" in prompt_responses["500"]["x-podi-errors"]
 
 
 def test_business_delivery_contract_audit_exposes_enum_truth_source() -> None:
@@ -296,6 +333,59 @@ def test_business_fission_variation_preset_does_not_override_explicit_profile_al
     assert request.inputs["profile"] == "pattern_color_lock_strict_v2"
     assert "profile_id" not in request.inputs
     assert request.inputs["reference_lock"] == "0.50"
+
+
+def test_text_fission_payload_uses_user_editable_prompt_without_count() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editable_prompt="A clean textile print with readable text",
+        editable_negative_prompt="blur, watermark",
+        width=1200,
+        height=960,
+        steps=24,
+        cfg=3.5,
+        seed=123,
+        promptDraftId="draft_001",
+        inputs={"count": 8, "batch_size": 8},
+    )
+
+    request = service._build_ability_payload(
+        capability_key="text_fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    assert request.inputs["editable_prompt"] == "A clean textile print with readable text"
+    assert request.inputs["prompt"] == "A clean textile print with readable text"
+    assert request.inputs["editable_negative_prompt"] == "blur, watermark"
+    assert request.inputs["width"] == 1200
+    assert request.inputs["height"] == 960
+    assert request.inputs["steps"] == 24
+    assert request.inputs["cfg"] == 3.5
+    assert request.inputs["seed"] == 123
+    assert request.inputs["promptDraftId"] == "draft_001"
+    assert "count" not in request.inputs
+    assert "batch_size" not in request.inputs
+    assert "batch" not in request.inputs
+    assert "n" not in request.inputs
+
+
+def test_text_fission_payload_requires_user_confirmed_prompt() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(imageUrl="https://example.com/source.png")
+
+    try:
+        service._build_ability_payload(
+            capability_key="text_fission",
+            payload=payload,
+            image_url="https://example.com/source.png",
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "TEXT_FISSION_PROMPT_REQUIRED"
+    else:
+        raise AssertionError("expected TEXT_FISSION_PROMPT_REQUIRED")
 
 
 def test_admin_business_component_catalog_exposes_controlled_component_types() -> None:

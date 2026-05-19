@@ -207,6 +207,33 @@ export const evalApi = {
     input_oss_urls_json?: string[];
     parameters_json?: Record<string, unknown>;
   }) => request<EvalRun>('/api/evals/runs', { method: 'POST', body: JSON.stringify(payload) }),
+  prepareTextFissionPrompt: (payload: {
+    imageUrl: string;
+    provider?: string;
+    prompt?: string;
+    source?: string;
+    channel?: string;
+    requestId?: string;
+    traceId?: string;
+    metadata?: Record<string, unknown>;
+  }) =>
+    request<{
+      promptDraftId: string;
+      status: string;
+      imageUrl: string;
+      editablePrompt: string;
+      editableNegativePrompt?: string | null;
+      textContent?: string | null;
+      promptProfile?: string | null;
+      layoutCard?: unknown;
+      paletteCard?: unknown;
+      riskNotes?: unknown;
+      vlResult?: Record<string, unknown>;
+      traceId?: string | null;
+    }>('/api/business/text-fission/prompts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }, 90000),
   listRuns: (params: {
     workflow_version_id?: string;
     batch_session_id?: string;

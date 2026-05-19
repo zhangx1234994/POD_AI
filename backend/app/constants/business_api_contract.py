@@ -113,12 +113,14 @@ BUSINESS_CALLBACK_STATUS_VALUES = ["pending", "succeeded", "failed", "skipped"]
 BUSINESS_API_ENDPOINT_KIND_VALUES = ["submit", "poll", "callback"]
 BUSINESS_API_STATUS_GROUP_VALUES = ["success", "error"]
 BUSINESS_API_USAGE_ISSUE_CODES = ["HAS_ERROR", "POLL_WITHOUT_SUBMIT", "POLLING_TOO_FREQUENT"]
+BUSINESS_KEY_VALUES = ["pattern_extract", "fission", "text_fission", "fission_evaluate", "outpaint"]
 
 BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "status / taskStatus", "value": "queued", "meaning": "已进入中台队列，还没开始执行。", "action": "按 retryAfterSeconds 继续查询。"},
     {"field": "status / taskStatus", "value": "running", "meaning": "正在执行或等待结果回填。", "action": "按 retryAfterSeconds 继续查询。"},
     {"field": "status / taskStatus", "value": "succeeded", "meaning": "任务成功，结果字段可读取。", "action": "读取 imageUrls / videoUrls / texts / resultPayload。"},
     {"field": "status / taskStatus", "value": "failed", "meaning": "任务失败或无法继续。", "action": "读取 errorCode / errorMessage，并按错误码处理。"},
+    {"field": "businessKey", "value": "text_fission", "meaning": "文字强化裂变，两步式：先生成可编辑提示词，再提交文生图。", "action": "业务方先调 prompts，再把确认后的 editable_prompt 传给 runs。"},
     {"field": "variation_strength", "value": "conservative", "meaning": "GPT Image 2 保守裂变，更接近原图。", "action": "希望变化小的时候使用。"},
     {"field": "variation_strength", "value": "same_series", "meaning": "GPT Image 2 同系列裂变，默认推荐。", "action": "常规业务优先使用。"},
     {"field": "variation_strength", "value": "creative_same_series", "meaning": "GPT Image 2 更开放的同系列变化。", "action": "需要更明显变化时使用。"},
@@ -177,10 +179,15 @@ def business_api_enum_doc_tokens() -> list[str]:
         "gpt-image2-vl-v2",
         "comfyui-vl-control-v2",
         "generated-image-eval-v1",
+        "qwen2512-text2img-user-editable-v1",
+        "text_fission",
         "selectedBy",
         "selectedStatus",
         "BUSINESS_IMAGE_URL_REQUIRED",
         "BUSINESS_RUN_ID_REQUIRED",
+        "TEXT_FISSION_PROMPT_REQUIRED",
+        "TEXT_FISSION_PROMPT_EMPTY",
+        "TEXT_FISSION_PROMPT_PREPARE_FAILED",
         "COMFYUI_QUEUE_FULL",
         "POLLING_TOO_FREQUENT",
     ]:
@@ -205,6 +212,7 @@ def business_api_contract_payload() -> dict[str, Any]:
         "requiredEnumFields": REQUIRED_BUSINESS_API_ENUM_FIELDS,
         "values": {
             "taskStatus": BUSINESS_TASK_STATUS_VALUES,
+            "businessKey": BUSINESS_KEY_VALUES,
             "variation_strength": GPT_IMAGE2_VARIATION_STRENGTH_VALUES,
             "quality": GPT_IMAGE2_QUALITY_VALUES,
             "size": GPT_IMAGE2_SIZE_VALUES,

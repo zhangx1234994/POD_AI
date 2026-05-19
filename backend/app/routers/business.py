@@ -742,6 +742,36 @@ def create_fission_run(
     return _create_business_run_with_usage(request=request, business_key="fission", payload=payload, user=user)
 
 
+@router.post("/text-fission/prompts", response_model=schemas.TextFissionPromptResponse, response_model_by_alias=False)
+def prepare_text_fission_prompt(
+    payload: schemas.TextFissionPromptRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    _business_key_allowed_for_api_key(request, "text_fission")
+    try:
+        result = get_business_run_service().prepare_text_fission_prompt(payload=payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key="text_fission",
+            error_code=str(exc.detail or ""),
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, business_key="text_fission")
+    return result
+
+
+@router.post("/text-fission/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_text_fission_run(
+    payload: schemas.BusinessRunCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    return _create_business_run_with_usage(request=request, business_key="text_fission", payload=payload, user=user)
+
+
 @router.post("/fission-evaluate/runs", response_model=dict[str, Any], response_model_by_alias=False)
 @router.post("/fission/evaluate/runs", response_model=dict[str, Any], response_model_by_alias=False)
 def create_fission_evaluate_run(
@@ -1110,6 +1140,37 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "maskUrl": {"type": "string", "nullable": True, "description": "可选蒙版 URL；用于局部编辑。"},
         },
     }
+    text_fission_prompt_schema = {
+        "type": "object",
+        "required": ["imageUrl"],
+        "properties": {
+            **base_submit_properties,
+            "provider": {"type": "string", "nullable": True, "description": "VL 模型来源；默认使用中台配置的 Doubao-Seed-2.0-lite。"},
+            "prompt": {"type": "string", "nullable": True, "description": "可选补充说明；不填时按系统提示词生成可编辑文生图提示词。"},
+        },
+    }
+    text_fission_submit_schema = {
+        "type": "object",
+        "required": ["imageUrl", "editable_prompt"],
+        "properties": {
+            **base_submit_properties,
+            "editable_prompt": {
+                "type": "string",
+                "description": "用户确认后的最终生成提示词；会原样送入 ComfyUI 文生图节点。",
+            },
+            "editable_negative_prompt": {
+                "type": "string",
+                "nullable": True,
+                "description": "反向提示词；默认不会禁用文字、字母和数字。",
+            },
+            "promptDraftId": {"type": "string", "nullable": True, "description": "第一步 prompts 接口返回的草稿 ID，用于链路追踪。"},
+            "width": {"type": "integer", "nullable": True, "description": "输出宽度；默认 1024。"},
+            "height": {"type": "integer", "nullable": True, "description": "输出高度；默认 1024。"},
+            "steps": {"type": "integer", "nullable": True, "description": "采样步数；默认 8。"},
+            "cfg": {"type": "number", "nullable": True, "description": "提示词强度；默认 2.0。"},
+            "seed": {"type": "integer", "nullable": True, "description": "随机种子；不填则随机。"},
+        },
+    }
     fission_evaluate_submit_schema = {
         "type": "object",
         "required": ["originalImageUrl", "generatedImageUrl"],
@@ -1282,6 +1343,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     )
     fission_submit_schema = _merge_business_capability_schema("fission", fission_submit_schema)
     fission_route_preview_schema = _merge_business_capability_schema("fission", fission_route_preview_schema, required_override=[])
+    text_fission_submit_schema = _merge_business_capability_schema("text_fission", text_fission_submit_schema)
     fission_evaluate_submit_schema = _merge_business_capability_schema("fission_evaluate", fission_evaluate_submit_schema)
     outpaint_submit_schema = _merge_business_capability_schema("outpaint", outpaint_submit_schema)
     outpaint_route_preview_schema = _merge_business_capability_schema("outpaint", outpaint_route_preview_schema, required_override=[])
@@ -1337,6 +1399,36 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "channel": "open-api",
                 "requestId": "biz-request-eval-001",
                 "traceId": "biz-trace-eval-001",
+            },
+        }
+    }
+    text_fission_prompt_examples = {
+        "prepare_prompt": {
+            "summary": "第一步：生成可编辑提示词",
+            "value": {
+                "imageUrl": "https://example.com/input.png",
+                "source": "partner-api",
+                "channel": "open-api",
+                "requestId": "biz-text-fission-prompt-001",
+            },
+        }
+    }
+    text_fission_submit_examples = {
+        "submit_after_edit": {
+            "summary": "第二步：用确认后的提示词生成图片",
+            "value": {
+                "imageUrl": "https://example.com/input.png",
+                "version": "qwen2512-text2img-user-editable-v1",
+                "editable_prompt": "一张白底平面印花图，包含清晰可读的 HAPPY SUMMER 英文字样，周围搭配热带花朵和贝壳元素，清爽商业插画风。",
+                "editable_negative_prompt": "blurry, low quality, broken composition, watermark",
+                "width": 1024,
+                "height": 1024,
+                "steps": 8,
+                "cfg": 2,
+                "promptDraftId": "vl-draft-request-id",
+                "source": "partner-api",
+                "channel": "open-api",
+                "requestId": "biz-text-fission-run-001",
             },
         }
     }
@@ -1461,7 +1553,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "info": {
             "title": "PODI Business APIs",
             "version": "0.1.0",
-            "description": "业务层稳定入口：花纹提取、图裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
+            "description": "业务层稳定入口：花纹提取、图裂变、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
         "components": {
@@ -1515,6 +1607,67 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "responses": _business_responses(
                         success_description="Business run accepted",
                         errors_by_status=submit_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
+            "/api/business/text-fission/prompts": {
+                "post": {
+                    "operationId": "podi_business_text_fission_prompt",
+                    "summary": "PODI · 文字强化裂变 · 生成可编辑提示词",
+                    "description": "第一步接口：输入原图，让 VL 生成可编辑文生图提示词。业务方应把 editablePrompt 展示给用户确认或修改。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": text_fission_prompt_schema,
+                                "examples": text_fission_prompt_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Text fission editable prompt prepared",
+                        errors_by_status={
+                            **submit_errors,
+                            "400": [*submit_errors["400"], "VL_IMAGE_REQUIRED"],
+                            "500": [*submit_errors["500"], "TEXT_FISSION_PROMPT_EMPTY", "TEXT_FISSION_PROMPT_PREPARE_FAILED"],
+                        },
+                        success_schema={
+                            "type": "object",
+                            "properties": {
+                                "promptDraftId": {"type": "string", "description": "提示词草稿 ID。"},
+                                "status": {"type": "string", "description": "VL 调用状态。"},
+                                "imageUrl": {"type": "string", "description": "原图 URL。"},
+                                "editablePrompt": {"type": "string", "description": "用户可编辑的生成提示词。"},
+                                "editableNegativePrompt": {"type": "string", "nullable": True, "description": "用户可编辑的反向提示词。"},
+                                "vlResult": {"type": "object", "description": "完整 VL 结构化结果，用于排查和复盘。"},
+                            },
+                        },
+                    ),
+                }
+            },
+            "/api/business/text-fission/runs": {
+                "post": {
+                    "operationId": "podi_business_text_fission_run",
+                    "summary": "PODI · 文字强化裂变 · 文生图",
+                    "description": "第二步接口：提交用户确认后的 editable_prompt，创建文生图任务并返回 runId。该接口固定一次生成 1 张图。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": text_fission_submit_schema,
+                                "examples": text_fission_submit_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Business run accepted",
+                        errors_by_status={
+                            **submit_errors,
+                            "400": [*submit_errors["400"], "TEXT_FISSION_PROMPT_REQUIRED", "COMFYUI_PROMPT_REQUIRED"],
+                        },
                         success_schema=submit_response_schema,
                     ),
                 }

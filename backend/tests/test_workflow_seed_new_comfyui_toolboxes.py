@@ -21,6 +21,7 @@ def test_new_comfyui_workflow_seeds_exist_with_expected_output_nodes():
     assert workflows["toubu_kouxiang"].metadata["output_node_ids"] == ["140"]
     assert workflows["flux2_9b_liebian_sifang"].metadata["output_node_ids"] == ["111"]
     assert workflows["qwen2512_print_shape_text_enhance"].metadata["output_node_ids"] == ["29"]
+    assert workflows["qwen2512_text2img_text_allowed"].metadata["output_node_ids"] == ["21"]
     assert workflows["flux_strong_hq_softstyle_fission"].metadata["output_node_ids"] == ["31"]
 
 
@@ -69,6 +70,14 @@ def test_new_comfyui_bindings_cover_two_executors():
         "executor_comfyui_pattern_extract_158",
     ) in binding_pairs
     assert (
+        "workflow_comfyui_qwen2512_text2img_text_allowed_v1",
+        "executor_comfyui_seamless_117",
+    ) in binding_pairs
+    assert (
+        "workflow_comfyui_qwen2512_text2img_text_allowed_v1",
+        "executor_comfyui_pattern_extract_158",
+    ) in binding_pairs
+    assert (
         "workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
         "executor_comfyui_seamless_117",
     ) in binding_pairs
@@ -102,6 +111,7 @@ def test_core_comfyui_workflows_have_dual_executor_bindings():
         "workflow_comfyui_beijing_koutu_v1",
         "workflow_comfyui_toubu_kouxiang_v1",
         "workflow_comfyui_qwen2512_print_shape_text_enhance_v1",
+        "workflow_comfyui_qwen2512_text2img_text_allowed_v1",
         "workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
         *STRING_NODE_RECOVERED_DUAL_WORKFLOWS,
     }

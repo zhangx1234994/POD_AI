@@ -146,6 +146,9 @@
 | BUSINESS_API_KEY_NOT_FOUND | 业务 API Key 不存在 | 404 |
 | BUSINESS_REQUEST_PAYLOAD_INVALID | 业务任务保存的请求载荷不可恢复 | 500，阻塞式 VL 前置完成后无法重建主任务入参 |
 | BUSINESS_VL_PREPROCESS_FAILED | VL 前置分析失败，主任务未提交 | 500，`vlAssist.waitForResult=true` 或 `mode=vl_then_primary` |
+| TEXT_FISSION_PROMPT_REQUIRED | 文字强化裂变缺少用户确认后的提示词 | 400，第二步 `/api/business/text-fission/runs` 必须传 `editable_prompt` 或兼容字段 |
+| TEXT_FISSION_PROMPT_EMPTY | VL 返回结果中没有可用的可编辑提示词 | 500，第一步 `/api/business/text-fission/prompts` 返回异常 |
+| TEXT_FISSION_PROMPT_PREPARE_FAILED | 文字强化裂变提示词草稿生成失败 | 500，第一步调用 VL 或解析结构化结果失败 |
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
 | BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |
 | BUSINESS_RUN_FORBIDDEN | 业务任务无访问权限 | 403 |
@@ -313,6 +316,7 @@
 | COMFYUI_ASSETS_EMPTY | OSS 入库为空 | |
 | COMFYUI_TIMEOUT | 轮询超时 | |
 | COMFYUI_IMAGE_REQUIRED | 缺少图片 | |
+| COMFYUI_PROMPT_REQUIRED | 缺少 ComfyUI 文生图提示词 | 400，文字强化文生图节点执行前校验 |
 | COMFYUI_OBJECT_INFO_ERROR | /object_info 异常 | |
 | COMFYUI_OBJECT_INFO_INVALID | /object_info JSON 异常 | |
 | COMFYUI_QUEUE_STATUS_ERROR | /queue/status 异常 | |

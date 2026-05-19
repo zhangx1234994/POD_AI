@@ -261,6 +261,64 @@ FISSION_CONTROL_CARD_VL_PROMPT = dedent(
     """
 ).strip()
 
+TEXT2IMG_USER_EDITABLE_VL_PROMPT = dedent(
+    """
+    你是一个商品印花图案分析和生图提示词撰写模型。
+
+    你的任务是读取输入图片，一次性输出：
+    1. 用户能看懂、能修改的文生图提示词
+    2. 系统可解析的结构化字段
+
+    只输出 JSON，不要 Markdown，不要解释，不要代码块。
+
+    业务目标：
+    我们要把原图重构为新的可商用印花图案，通常用于衣服、饰品、杯子、贴纸、器具印刷。
+    不要把图案理解成海报、摄影图、产品 mockup 或电影画面。
+
+    输出 JSON schema：
+    {
+      "image_id": "",
+      "task_route": "text2img_rebuild",
+      "prompt_profile": "",
+      "confidence": 0.0,
+      "editable_prompt": "",
+      "editable_negative_prompt": "",
+      "text_content": [],
+      "text_priority": "exact_required",
+      "print_type": "",
+      "background": "",
+      "layout_card": "",
+      "motif_card": "",
+      "palette_card": "",
+      "material_card": "",
+      "hierarchy_card": "",
+      "negative_card": "",
+      "risk_notes": []
+    }
+
+    editable_prompt 要求：
+    - 使用自然语言英文
+    - 80-160 个英文词
+    - 用户可以直接读懂和修改
+    - 必须包含图案用途、文字内容、版式、主元素、颜色、材质、禁忌方向
+    - 不要出现字段名、JSON、schema、系统规则
+    - 不要写“根据图片”或“参考原图”，因为文生图阶段不再传原图
+    - 不要把图案描述成 poster、mockup、photo、cinematic scene
+
+    推荐结构：
+    Create a [print type] on [background]. The only readable text should be '[text]'. Arrange the design with [layout]. Include [motifs]. Use [palette]. Render it as [material]. Avoid [negative directions].
+
+    editable_negative_prompt 要求：
+    - 用英文短语，以逗号分隔
+    - 不要包含 text、letters、numbers、typography 这类禁止文字的词
+    - 必须包含 blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects
+
+    text_content：识别图片中需要保留或重建的主要文字，按视觉重要性排序；不确定的小字不要强行猜测。
+    print_type：必须说明这是印刷图案用途，优先使用 apparel print graphic、merchandise print emblem、sticker-sheet repeat print、ornamental lettering print、commemorative badge print。
+    layout_card、motif_card、palette_card、material_card、hierarchy_card、negative_card、risk_notes 必须完整输出，便于后续评估和归因。
+    """
+).strip()
+
 
 def _vl_fission_control_card_schema() -> dict[str, Any]:
     return {
@@ -296,6 +354,53 @@ def _vl_fission_control_card_schema() -> dict[str, Any]:
                 "description": _compose_bilingual_label(
                     "默认使用平台图裂变控制卡模板；只有调试新模型时才需要覆盖。",
                     "Defaults to PODI's fission control-card template; override only for model debugging.",
+                ),
+            },
+            {
+                "name": "coze_workflow_id",
+                "type": "text",
+                "label": _compose_bilingual_label("Coze VL 工作流 ID", "Coze VL Workflow ID"),
+                "required": False,
+            },
+        ]
+    }
+
+
+def _vl_text2img_prompt_draft_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("原图 URL", "Image URL"),
+                "required": True,
+                "description": _compose_bilingual_label(
+                    "用于识别文字、版式、颜色和图案结构，并生成用户可编辑提示词。",
+                    "Source image used to generate an editable text-to-image prompt.",
+                ),
+            },
+            {
+                "name": "provider",
+                "type": "select",
+                "label": _compose_bilingual_label("VL 来源", "VL Provider"),
+                "default": "volcengine_vl",
+                "options": [
+                    {"label": DEFAULT_VOLCENGINE_VL_DISPLAY_NAME, "value": "volcengine_vl"},
+                    {"label": "Coze 已接入 VL", "value": "coze_vl"},
+                ],
+                "description": _compose_bilingual_label(
+                    "默认使用中台统一 VL 模型，后续切模型只改组件配置。",
+                    "Defaults to PODI's central VL model; model changes should happen at component level.",
+                ),
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("提示词生成要求（高级）", "Prompt Draft Instruction (Advanced)"),
+                "required": False,
+                "description": _compose_bilingual_label(
+                    "默认使用文字强化文生图提示词模板；只有调试时才需要覆盖。",
+                    "Uses the built-in text-to-image prompt draft template unless overridden.",
                 ),
             },
             {
@@ -413,6 +518,38 @@ def _vl_fission_control_card_metadata(*, seed_version: int) -> dict[str, Any]:
                 "image_url": _presentation_field(label="原图"),
                 "provider": _presentation_field(label="VL 来源", advanced=True),
                 "prompt": _presentation_field(label="控制卡提示词", advanced=True),
+            },
+        ),
+    }
+
+
+def _vl_text2img_prompt_draft_metadata(*, seed_version: int) -> dict[str, Any]:
+    return {
+        "executor_type": "vl",
+        "api_type": "vl_analyze_image",
+        "component_key": "text2img_prompt_draft",
+        "default_provider": "volcengine_vl",
+        "provider_ability_map": {
+            "volcengine_vl": DEFAULT_VOLCENGINE_VL_ABILITY_ID,
+            "coze_vl": "coze_workflow",
+        },
+        "requires_image_input": True,
+        "supports_vision": True,
+        "structured_output": True,
+        "output_schema": "text2img_prompt_draft_v2",
+        "default_provider_label": DEFAULT_VOLCENGINE_VL_DISPLAY_NAME,
+        "interface_pack": "19_2026-05-19_text2img_user_editable_vl_pack_v2",
+        "seed_version": seed_version,
+        "presentation": _presentation(
+            name="文字强化文生图提示词草稿",
+            summary="先把原图识别成用户可编辑的生图提示词，再由用户确认后提交文生图。",
+            form_intro="上传原图后生成可编辑提示词、反向提示词和识别卡。",
+            expected_output="返回 editable_prompt、editable_negative_prompt、识别文字、版式、颜色和风险提示。",
+            surfaces={"client": False, "coze": True, "admin": True, "eval": True},
+            fields={
+                "image_url": _presentation_field(label="原图"),
+                "provider": _presentation_field(label="VL 来源", advanced=True),
+                "prompt": _presentation_field(label="提示词生成要求", advanced=True),
             },
         ),
     }
@@ -1864,6 +2001,69 @@ def _comfyui_qwen2512_print_shape_text_enhance_schema() -> dict[str, Any]:
     }
 
 
+TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT = (
+    "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, "
+    "dirty grunge, muddy colors, extra instruction words, unrelated objects"
+)
+
+
+def _comfyui_qwen2512_text2img_text_allowed_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "editable_prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("生成提示词", "Editable Prompt"),
+                "description": "节点 10 · CLIPTextEncode.text。用户最终看到并确认的提示词会直接用于文生图。",
+                "required": True,
+            },
+            {
+                "name": "editable_negative_prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("反向提示词", "Editable Negative Prompt"),
+                "description": "节点 11 · CLIPTextEncode.text。默认不要禁用 text/letters/numbers，因为本任务需要生成文字。",
+                "default": TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT,
+                "required": False,
+            },
+            {
+                "name": "width",
+                "type": "number",
+                "label": _compose_bilingual_label("输出宽度 (px)", "Output Width (px)"),
+                "description": "节点 12 · EmptySD3LatentImage.width。不填默认 1024。",
+                "default": 1024,
+            },
+            {
+                "name": "height",
+                "type": "number",
+                "label": _compose_bilingual_label("输出高度 (px)", "Output Height (px)"),
+                "description": "节点 12 · EmptySD3LatentImage.height。不填默认 1024。",
+                "default": 1024,
+            },
+            {
+                "name": "steps",
+                "type": "number",
+                "label": _compose_bilingual_label("采样步数", "Steps"),
+                "description": "节点 19 · KSampler.steps。建议 8。",
+                "default": 8,
+            },
+            {
+                "name": "cfg",
+                "type": "number",
+                "label": _compose_bilingual_label("提示词强度", "CFG"),
+                "description": "节点 19 · KSampler.cfg。建议 2.0。",
+                "default": 2.0,
+            },
+            {
+                "name": "seed",
+                "type": "number",
+                "label": _compose_bilingual_label("随机种子", "Seed"),
+                "description": "节点 19 · KSampler.seed。不填则随机。",
+                "required": False,
+            },
+        ]
+    }
+
+
 def _build_kie_schema(capability_key: str) -> dict[str, Any]:
     if capability_key == "nano_banana_pro_image_to_image":
         return {
@@ -2215,6 +2415,17 @@ VL_ABILITIES: dict[str, AbilityDefinition] = {
         "category": "vision_language",
         "input_schema": _vl_fission_control_card_schema(),
         "metadata": _vl_fission_control_card_metadata(seed_version=5),
+    },
+    "text2img_prompt_draft": {
+        "defaults": {
+            "provider": "volcengine_vl",
+            "prompt": TEXT2IMG_USER_EDITABLE_VL_PROMPT,
+        },
+        "display_name": "VL · 文字强化文生图提示词草稿",
+        "description": "文字强化裂变的前置组件：根据原图生成用户可编辑的文生图提示词和结构化识别卡。",
+        "category": "vision_language",
+        "input_schema": _vl_text2img_prompt_draft_schema(),
+        "metadata": _vl_text2img_prompt_draft_metadata(seed_version=1),
     },
     "fission_generated_image_evaluate": {
         "defaults": {
@@ -3108,6 +3319,55 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                     "expand_right": _presentation_field(label="右侧扩展"),
                     "expand_top": _presentation_field(label="上侧扩展"),
                     "expand_bottom": _presentation_field(label="下侧扩展"),
+                },
+            ),
+        },
+    },
+    "qwen2512_text2img_text_allowed": {
+        "defaults": {
+            "workflow_key": "qwen2512_text2img_text_allowed",
+            "timeout": 420,
+            "width": 1024,
+            "height": 1024,
+            "steps": 8,
+            "cfg": 2.0,
+            "editable_negative_prompt": TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT,
+        },
+        "display_name": "ComfyUI · 文字强化文生图",
+        "description": "输入用户确认后的可编辑提示词，走 Qwen2512 文生图 workflow，解决文字要求强但图生图改不干净的问题。",
+        "category": "image_generation",
+        "input_schema": _comfyui_qwen2512_text2img_text_allowed_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "qwen2512_text2img_text_allowed",
+            "action": "text_to_image",
+            "requires_image_input": False,
+            "supports_vision": False,
+            "output_node_ids": ["21"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "fallback_to_default": False,
+            "interface_pack": "19_2026-05-19_text2img_user_editable_vl_pack_v2",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
+            "presentation": _presentation(
+                name="文字强化文生图",
+                summary="用可编辑提示词重新生成带文字的印花图，适合原图中文字修改不彻底的场景。",
+                form_intro="先由 VL 生成提示词草稿，人工确认后再提交文生图。",
+                expected_output="产出 1 张文生图结果，可继续做评分或人工复盘。",
+                surfaces={"client": False, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "editable_prompt": _presentation_field(label="生成提示词"),
+                    "editable_negative_prompt": _presentation_field(label="反向提示词", advanced=True),
+                    "width": _presentation_field(label="输出宽度"),
+                    "height": _presentation_field(label="输出高度"),
                 },
             ),
         },

@@ -3,7 +3,7 @@
 ## 用途
 
 业务能力接口是给业务方、Coze、客户端、MCP/技能复用的稳定入口。
-第一阶段开放三个核心业务：花纹提取、图裂变、扩图；底层仍复用统一能力任务和 ComfyUI workflow，但对外不暴露节点、workflow、executor 等实现细节。
+第一阶段开放核心业务：花纹提取、图裂变、文字强化裂变、裂变生成图评估、扩图；底层仍复用统一能力任务和 ComfyUI workflow，但对外不暴露节点、workflow、executor 等实现细节。
 
 核心约定：
 
@@ -42,6 +42,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
+| 文字强化裂变 | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`steps`、`cfg`、`seed`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
@@ -88,7 +89,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
     "status": "active",
     "tenantId": "tenant-a",
     "clientId": "open-api",
-    "allowedBusinessKeys": ["fission", "fission_evaluate", "outpaint", "pattern_extract"],
+    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract"],
     "expireAt": "2026-12-31T23:59:59+08:00"
   }'
 ```
@@ -120,6 +121,8 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 | 业务 OpenAPI | `GET /api/business/openapi.json` | 8) OpenAPI 工具箱 | 无 | 返回 200，且包含业务提交、路由预览、任务查询工具。 |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | 2) 提交花纹提取 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 图裂变 | `POST /api/business/fission/runs` | 3) 提交图裂变 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
+| 文字强化裂变提示词 | `POST /api/business/text-fission/prompts` | 3.1) 文字强化裂变两步接口 | `imageUrl` | 真实调用必须确认 `editablePrompt/promptDraftId`，并由用户确认或修改。 |
+| 文字强化裂变生图 | `POST /api/business/text-fission/runs` | 3.1) 文字强化裂变两步接口 | `imageUrl`、`editable_prompt` | 真实出图必须确认 `runId/status/imageUrls`；固定一次生成 1 张图。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | 4) 提交裂变生成图评估 | `originalImageUrl`、`generatedImageUrl` | 真实提交必须确认 `runId/status/texts/resultPayload`。 |
 | 扩图 | `POST /api/business/outpaint/runs` | 5) 提交扩图 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 查询业务任务 | `POST /api/business/runs/get` | 6) 查询业务任务 | `runId` | 使用不存在的 `runId` 时应返回 `BUSINESS_RUN_NOT_FOUND` 或等价 404，不应返回 500。 |
@@ -209,6 +212,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 - GPT Image 2 图裂变新版使用专用编译器：VL 输出 `vlCard` 后，中台会编译成英文图片编辑提示词，并映射 `quality/size/output_format/n=1` 等 OpenAI 参数；业务方不用理解 VL 卡片和模型参数。该业务版固定一个请求生成一张图，需要多张时由业务方发起多次请求，分别获得多个 `runId`。
 - ComfyUI VL 控制卡裂变新版使用 `vl_fission_control_card` 作为统一 VL 组件，输出 `fissionControlCard` 后再传给 `comfyui_flux_strong_hq_softstyle_fission_control_v1`；后续更换 VL 模型时优先改这个组件的默认 provider。
 - ComfyUI 颜色锁定裂变版使用版本 `comfyui-vl-control-v2`，主能力为 `comfyui_flux_strong_hq_softstyle_fission_colorlock_v2`。VL 输出必须包含 `palette_card`，中台会把颜色卡和硬负向约束拼进 `image_desc`。`denoise` 不写死，继续按 `bili` 约定映射；其他颜色锁定强度按交付包固定。
+- 文字强化裂变使用两步式业务接口：第一步 `text-fission/prompts` 只生成可编辑提示词；第二步 `text-fission/runs` 只接收用户最终确认后的 `editable_prompt` 并提交 ComfyUI 文生图。第二步不再二次调用 VL，固定一次生成 1 张图。
 - 裂变生成图评估底层仍是原子能力 `vl_fission_generated_image_evaluate`，但已经提供业务包装入口 `/api/business/fission-evaluate/runs`。它只输出 `pass / needs_refission / reject` 和问题标签，不在业务层自动二次裂变；业务方可按自己的策略决定是否再次调用图裂变。
 
 推荐结构：
@@ -453,6 +457,133 @@ ComfyUI 颜色锁定版请求示例：
 - 旧调用仍兼容 `inputs.bili`、`inputs.width` 等格式；顶层字段不会破坏现有 Coze 工作流。
 - 提交接口默认只返回轻量回执，业务方保存 `runId` 后调用 `/api/business/runs/get` 轮询结果；底层路由、步骤、成本、排障证据不在提交阶段返回。
 - `traceId/requestId/tenantId/clientId/channel/source` 会进入业务运行记录，并继续透传到底层能力任务，后续用于排查、灰度、成本和配额统计。
+
+---
+
+## 3.1) 文字强化裂变两步接口
+
+### POST /api/business/text-fission/prompts
+
+用途：第一步，输入原图，让 VL 生成用户可编辑的文生图提示词。这个接口不生图，只返回草稿。
+
+请求体：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/text-input.png",
+  "prompt": "可选：希望突出包袋上的英文和热带元素",
+  "source": "partner-api",
+  "channel": "open-api",
+  "traceId": "trace-text-fission-prompt-001",
+  "requestId": "req-text-fission-prompt-001"
+}
+```
+
+响应体：
+
+```json
+{
+  "promptDraftId": "0b4b3d8c2f8d4a92b6a1122334455667",
+  "status": "succeeded",
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/text-input.png",
+  "editablePrompt": "A clean flat textile print design with clear readable English text HAPPY SUMMER, tropical flowers and shells around the text, balanced commercial illustration style, white background.",
+  "editableNegativePrompt": "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects",
+  "textContent": "HAPPY SUMMER",
+  "promptProfile": "text_allowed",
+  "layoutCard": {},
+  "paletteCard": {},
+  "riskNotes": [],
+  "vlResult": {
+    "editable_prompt": "A clean flat textile print design..."
+  },
+  "traceId": "trace-text-fission-prompt-001"
+}
+```
+
+参数说明：
+
+| 参数 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `imageUrl` | 是 | 无 | 原图 URL。用于 VL 识别文字、主体、风格和构图。 |
+| `prompt` | 否 | 空 | 业务补充说明；不填也会使用系统提示词生成草稿。 |
+| `source/channel` | 否 | 空 | 调用来源，建议传 `partner-api/open-api` 或 `eval-web/eval`。 |
+| `traceId/requestId` | 否 | 自动生成 | 跨系统排障字段。 |
+
+常见错误：
+
+- `BUSINESS_IMAGE_URL_REQUIRED`
+- `VL_IMAGE_REQUIRED`
+- `TEXT_FISSION_PROMPT_EMPTY`
+- `TEXT_FISSION_PROMPT_PREPARE_FAILED`
+- `BUSINESS_API_KEY_INACTIVE`
+- `BUSINESS_API_KEY_EXPIRED`
+- `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED`
+
+### POST /api/business/text-fission/runs
+
+用途：第二步，提交用户确认或修改后的提示词，创建 ComfyUI 文生图任务并返回 `runId`。这个接口不会再次调用 VL。
+
+请求体：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/text-input.png",
+  "version": "qwen2512-text2img-user-editable-v1",
+  "editable_prompt": "A clean flat textile print design with clear readable English text HAPPY SUMMER, tropical flowers and shells around the text, balanced commercial illustration style, white background.",
+  "editable_negative_prompt": "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects",
+  "width": 1024,
+  "height": 1024,
+  "steps": 8,
+  "cfg": 2,
+  "seed": 123456789,
+  "promptDraftId": "0b4b3d8c2f8d4a92b6a1122334455667",
+  "source": "partner-api",
+  "channel": "open-api",
+  "traceId": "trace-text-fission-run-001",
+  "requestId": "req-text-fission-run-001"
+}
+```
+
+响应体同图裂变提交接口。提交成功后用 `/api/business/runs/get` 轮询：
+
+```json
+{
+  "runId": "提交接口返回的 runId"
+}
+```
+
+参数说明：
+
+| 参数 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `imageUrl` | 是 | 无 | 原图 URL，用于链路关联和测评对比；第二步生图主输入是提示词。 |
+| `editable_prompt` | 是 | 无 | 用户最终确认后的生成提示词；会原样送入 ComfyUI 正向提示词节点。 |
+| `editable_negative_prompt` | 否 | 系统默认负向词 | 反向提示词；默认不会禁止文字、字母、数字、排版。 |
+| `width` | 否 | `1024` | 输出宽度。只在业务方明确传入时覆盖默认值。 |
+| `height` | 否 | `1024` | 输出高度。只在业务方明确传入时覆盖默认值。 |
+| `steps` | 否 | `8` | 采样步数。 |
+| `cfg` | 否 | `2` | 提示词控制强度。 |
+| `seed` | 否 | 随机 | 随机种子。不传由中台生成。 |
+| `promptDraftId` | 否 | 空 | 第一步返回的草稿 ID，用于排障和关联。 |
+
+常见错误：
+
+- `BUSINESS_IMAGE_URL_REQUIRED`
+- `TEXT_FISSION_PROMPT_REQUIRED`
+- `COMFYUI_PROMPT_REQUIRED`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_RECIPE_INVALID`
+- `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
+- `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
+- `COMFYUI_QUEUE_FULL`
+- `COMFYUI_TIMEOUT`
+- `ABILITY_TASK_FAILED`
+
+说明：
+
+- 一次请求固定生成 1 张图；如果需要多张，请提交多次，每次保存独立 `runId`。
+- `editable_prompt` 是唯一必须由用户确认的生成内容。前端/业务方可以展示第一步返回的草稿，但不要在第二步自动追加新的系统描述。
+- 不需要传 `bili/count/batch_size/n`；这些字段会被忽略，避免一个 `runId` 对应多张结果造成回填和验收歧义。
 
 ---
 
@@ -1027,7 +1158,7 @@ OpenAPI 内每个工具都会枚举错误响应：
   "clientId": "coze-main",
   "displayName": "业务方 A · Coze 主工作流",
   "status": "active",
-  "allowedBusinessKeys": ["fission", "fission_evaluate", "outpaint"],
+  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint"],
   "dailyRunLimit": 200,
   "dailyQuotaUnits": 200,
   "concurrentRunLimit": 5,
@@ -1041,7 +1172,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 - `tenantId` 是业务方 ID，必填。
 - `clientId` 是具体应用或工作流 ID，可为空；为空时表示该 `tenantId` 的默认策略。
-- `allowedBusinessKeys` 为空表示不限制业务能力；填值后只允许调用这些业务，例如 `fission/fission_evaluate/outpaint`。
+- `allowedBusinessKeys` 为空表示不限制业务能力；填值后只允许调用这些业务，例如 `fission/text_fission/fission_evaluate/outpaint`。
 - `dailyRunLimit` 限制当日提交次数。
 - `dailyQuotaUnits` 按估算额度限制当日用量；当前每次提交默认按 1 个额度估算，后续会接正式计费。
 - `concurrentRunLimit` 限制该业务方同时处于排队/运行中的任务数。
@@ -1097,7 +1228,7 @@ OpenAPI 内每个工具都会枚举错误响应：
   "status": "active",
   "tenantId": "tenant-a",
   "clientId": "open-api",
-  "allowedBusinessKeys": ["fission", "fission_evaluate", "outpaint"],
+  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint"],
   "expireAt": "2026-12-31T23:59:59"
 }
 ```
@@ -1702,7 +1833,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 参数：
 
-- `business_key`：可选，`pattern_extract` / `fission` / `outpaint`
+- `business_key`：可选，`pattern_extract` / `fission` / `text_fission` / `fission_evaluate` / `outpaint`
 - `version`：可选，按业务版本过滤，例如 `v1`
 - `status`：可选，按运行状态过滤，常见值为 `queued` / `running` / `succeeded` / `failed` / `cancelled`
 - `billing_status`：可选，按计费状态过滤，取值为 `billable` / `unpriced` / `no_charge` / `billing_pending`
@@ -1755,7 +1886,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 参数：
 
 - `window_hours`：统计窗口，默认 24，范围 1-2160。
-- `business_key`：可选，`pattern_extract` / `fission` / `outpaint`。
+- `business_key`：可选，`pattern_extract` / `fission` / `text_fission` / `fission_evaluate` / `outpaint`。
 - `version`：可选，按业务版本过滤。
 - `status`：可选，按运行状态过滤。
 - `issue_category`：可选，按链路问题过滤，取值同 `/api/admin/business/runs`。

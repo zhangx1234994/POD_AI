@@ -54,10 +54,12 @@ from app.schemas.business import (
     BusinessDefaultApprovalCreateRequest,
     BusinessDefaultApprovalDecisionRequest,
     BusinessRunCreateRequest,
+    TextFissionPromptRequest,
 )
 from app.constants.business_api_contract import COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
 from app.services.api_key_selector import is_usable
 from app.services.ability_seed import ensure_default_abilities
+from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
 from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
@@ -1004,6 +1006,85 @@ class BusinessRunService:
                     for row in active_rows
                 ],
             }
+
+    def prepare_text_fission_prompt(
+        self,
+        *,
+        payload: TextFissionPromptRequest,
+        user: User | None,
+    ) -> dict[str, Any]:
+        image_url = self._first_string(payload.imageUrl, payload.url)
+        if not image_url:
+            raise HTTPException(status_code=400, detail="BUSINESS_IMAGE_URL_REQUIRED")
+        metadata = dict(payload.metadata or {})
+        if payload.source:
+            metadata["source"] = payload.source
+        if payload.channel:
+            metadata["channel"] = payload.channel
+        if payload.traceId:
+            metadata["traceId"] = payload.traceId
+        if payload.requestId:
+            metadata["requestId"] = payload.requestId
+        if payload.tenantId:
+            metadata["tenantId"] = payload.tenantId
+        if payload.clientId:
+            metadata["clientId"] = payload.clientId
+        metadata.update(
+            {
+                "businessKey": "text_fission",
+                "businessStep": "prompt_draft",
+                "interfacePack": "19_2026-05-19_text2img_user_editable_vl_pack_v2",
+            }
+        )
+        inputs: dict[str, Any] = {"image_url": image_url}
+        if payload.provider:
+            inputs["provider"] = payload.provider
+        if payload.prompt:
+            inputs["instruction"] = payload.prompt
+        try:
+            response = ability_invocation_service.invoke(
+                ability_id="vl_text2img_prompt_draft",
+                payload=AbilityInvokeRequest(inputs=inputs, imageUrl=image_url, metadata=metadata),
+                user=user,
+                source="business:text_fission_prompt",
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("Text fission prompt preparation failed")
+            raise HTTPException(status_code=500, detail="TEXT_FISSION_PROMPT_PREPARE_FAILED") from exc
+
+        structured = self._extract_text_fission_structured_response(response.raw, response.texts)
+        editable_prompt = self._first_string(
+            structured.get("editable_prompt"),
+            structured.get("editablePrompt"),
+            (structured.get("text2imgPromptDraft") or {}).get("editable_prompt")
+            if isinstance(structured.get("text2imgPromptDraft"), dict)
+            else None,
+        )
+        if not editable_prompt:
+            raise HTTPException(status_code=500, detail="TEXT_FISSION_PROMPT_EMPTY")
+        editable_negative = self._first_string(
+            structured.get("editable_negative_prompt"),
+            structured.get("editableNegativePrompt"),
+            (structured.get("text2imgPromptDraft") or {}).get("editable_negative_prompt")
+            if isinstance(structured.get("text2imgPromptDraft"), dict)
+            else None,
+        )
+        return {
+            "promptDraftId": response.requestId,
+            "status": response.status,
+            "imageUrl": image_url,
+            "editablePrompt": editable_prompt,
+            "editableNegativePrompt": editable_negative,
+            "textContent": structured.get("text_content") or structured.get("textContent"),
+            "promptProfile": structured.get("prompt_profile") or structured.get("promptProfile"),
+            "layoutCard": structured.get("layout_card") or structured.get("layoutCard"),
+            "paletteCard": structured.get("palette_card") or structured.get("paletteCard"),
+            "riskNotes": structured.get("risk_notes") or structured.get("riskNotes"),
+            "vlResult": structured,
+            "traceId": response.requestId,
+        }
 
     def list_runs(
         self,
@@ -4721,6 +4802,32 @@ class BusinessRunService:
                 "coze_workflow_id",
                 "cozeWorkflowId",
             }
+        elif capability_key == "text_fission":
+            pass_keys = {
+                "image_url",
+                "imageUrl",
+                "url",
+                "editable_prompt",
+                "editablePrompt",
+                "prompt",
+                "editable_negative_prompt",
+                "editableNegativePrompt",
+                "negative_prompt",
+                "negativePrompt",
+                "width",
+                "height",
+                "steps",
+                "cfg",
+                "seed",
+                "promptDraftId",
+                "prompt_draft_id",
+                "vl_result",
+                "text_content",
+                "prompt_profile",
+                "layout_card",
+                "palette_card",
+                "risk_notes",
+            }
         else:
             pass_keys = set(inputs)
         flat_payload = payload.model_dump(exclude_none=True, by_alias=True)
@@ -4752,6 +4859,41 @@ class BusinessRunService:
             inputs["batch"] = inputs.pop("batch_size")
         if payload.prompt and "prompt" not in inputs:
             inputs["prompt"] = payload.prompt
+        if capability_key == "text_fission":
+            editable_prompt = self._first_string(
+                inputs.get("editable_prompt"),
+                inputs.get("editablePrompt"),
+                payload.editable_prompt,
+                payload.editablePrompt,
+                payload.prompt,
+                inputs.get("prompt"),
+            )
+            if not editable_prompt:
+                raise HTTPException(status_code=400, detail="TEXT_FISSION_PROMPT_REQUIRED")
+            inputs["editable_prompt"] = editable_prompt
+            inputs["prompt"] = editable_prompt
+            editable_negative = self._first_string(
+                inputs.get("editable_negative_prompt"),
+                inputs.get("editableNegativePrompt"),
+                payload.editable_negative_prompt,
+                payload.editableNegativePrompt,
+                payload.negative_prompt,
+                inputs.get("negative_prompt"),
+            )
+            if editable_negative:
+                inputs["editable_negative_prompt"] = editable_negative
+                inputs["negative_prompt"] = editable_negative
+            prompt_draft_id = self._first_string(
+                inputs.get("promptDraftId"),
+                inputs.get("prompt_draft_id"),
+                payload.promptDraftId,
+                payload.prompt_draft_id,
+            )
+            if prompt_draft_id:
+                inputs["promptDraftId"] = prompt_draft_id
+            # 本业务接口固定单次产出 1 张，避免一个 runId 对多张图造成回填和验收歧义。
+            for noisy_key in ("count", "batch", "batch_size", "n"):
+                inputs.pop(noisy_key, None)
         if vl_summary and self._should_apply_vl_to_primary(recipe or {}):
             self._apply_vl_summary_to_inputs(
                 capability_key=capability_key,
@@ -7714,6 +7856,24 @@ class BusinessRunService:
             return json.loads(text)
         except Exception:
             return None
+
+    def _extract_text_fission_structured_response(
+        self,
+        raw: dict[str, Any] | None,
+        texts: list[str] | None,
+    ) -> dict[str, Any]:
+        if isinstance(raw, dict):
+            structured = raw.get("structured")
+            if isinstance(structured, dict):
+                return structured
+            nested = raw.get("raw")
+            if isinstance(nested, dict) and isinstance(nested.get("structured"), dict):
+                return nested["structured"]
+        for text in texts or []:
+            parsed = self._try_parse_json(str(text or ""))
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
 
     def _omit_large_fields(self, payload: Any, depth: int = 0) -> Any:
         if depth > 6:

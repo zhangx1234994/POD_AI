@@ -419,6 +419,12 @@ class BusinessRunCreateRequest(BaseModel):
     originalImageUrl: str | None = Field(default=None, description="原图 URL；裂变评分业务使用")
     generatedImageUrl: str | None = Field(default=None, description="生成图 URL；裂变评分业务使用")
     prompt: str | None = Field(default=None, description="业务提示词")
+    editable_prompt: str | None = Field(default=None, description="文字强化文生图最终提示词；由用户确认后提交")
+    editablePrompt: str | None = Field(default=None, description="文字强化文生图最终提示词；camelCase 兼容字段")
+    editable_negative_prompt: str | None = Field(default=None, description="文字强化文生图反向提示词")
+    editableNegativePrompt: str | None = Field(default=None, description="文字强化文生图反向提示词；camelCase 兼容字段")
+    promptDraftId: str | None = Field(default=None, description="第一步 VL 提示词草稿 ID，用于链路追踪")
+    prompt_draft_id: str | None = Field(default=None, description="第一步 VL 提示词草稿 ID；snake_case 兼容字段")
     context: dict[str, Any] | str | None = Field(default=None, description="业务上下文；裂变评分业务可传版本、提示词等信息")
     inputs: dict[str, Any] | None = Field(default=None, description="业务参数；不同业务能力字段不同")
     bili: float | str | None = Field(default=None, description="图裂变重绘幅度，0-100；值越大重绘越强、变化越明显。兼容 50% 这类百分比口径")
@@ -469,6 +475,37 @@ class BusinessRunCreateRequest(BaseModel):
     callbackUrl: str | None = Field(default=None, description="业务任务终态回调地址")
     callbackHeaders: dict[str, str] | None = Field(default=None, description="业务任务回调请求头")
     metadata: dict[str, Any] | None = Field(default=None, description="调用来源、灰度标识等业务上下文")
+
+
+class TextFissionPromptRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    imageUrl: str | None = Field(default=None, description="原图 URL")
+    url: str | None = Field(default=None, description="原图 URL 兼容字段")
+    provider: str | None = Field(default=None, description="VL 模型来源，默认使用中台配置的 Doubao VL")
+    prompt: str | None = Field(default=None, description="可选补充说明；默认按系统提示词生成可编辑提示词")
+    source: str | None = Field(default=None, description="调用来源，例如 eval、partner-api")
+    channel: str | None = Field(default=None, description="业务渠道")
+    traceId: str | None = Field(default=None, description="调用链路 ID")
+    requestId: str | None = Field(default=None, description="业务方请求 ID")
+    tenantId: str | None = Field(default=None, description="租户/业务方 ID")
+    clientId: str | None = Field(default=None, description="客户端/应用 ID")
+    metadata: dict[str, Any] | None = Field(default=None, description="调用上下文")
+
+
+class TextFissionPromptResponse(BaseModel):
+    promptDraftId: str
+    status: str
+    imageUrl: str
+    editablePrompt: str
+    editableNegativePrompt: str | None = None
+    textContent: str | None = None
+    promptProfile: str | None = None
+    layoutCard: dict[str, Any] | str | None = None
+    paletteCard: dict[str, Any] | str | None = None
+    riskNotes: list[Any] | str | None = None
+    vlResult: dict[str, Any]
+    traceId: str | None = None
 
 
 class BusinessRunStepRead(BaseModel):

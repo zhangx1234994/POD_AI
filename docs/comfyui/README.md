@@ -23,6 +23,7 @@
 | `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，158 / 233 均可按队列路由；颜色锁定 v2 复用该 workflow |
 | `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；233/158 双机 |
 | `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
+| `qwen2512_text2img_text_allowed` | `comfyui.qwen2512_text2img_text_allowed` / `text_to_image` | `editable_prompt`、`editable_negative_prompt`、`width`、`height`、`steps`、`cfg`、`seed` | `21` | 2026-05-19 新增，文字强化裂变两步式生图 |
 | `yinhua_tiqu` | `comfyui.yinhua_tiqu` / `pattern_extract` | `url`、`prompt`、`negative_prompt`、`output_width`、`output_height`、`lora_name` | `421` | 线上在用 |
 
 ## 当前已知说明
@@ -32,7 +33,7 @@
 - `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 依赖 `String` 自定义节点。2026-05-16 233 已恢复 `String` 并强制跑通三条旧工作流，当前恢复 233/158 双机队列路由。
 - `qwen2512_print_shape_text_enhance` 当前执行链路已验证可跑通，主要待优化点是上游 Coze/VL 提示词质量，不是中台或评测执行接口。
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
-- `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
+- `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`；`文字强化文生图` 正式回填只认 `21`。
 - `FLUX2-Klein 扩图` 的源图节点是 `76 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；不要直接把外部 URL 填进 workflow JSON。
 - `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 为重绘幅度，映射到节点 `24.denoise`，默认 `90 ≈ 0.765`。2026-05-14 `comfyui-vl-control-v2` 按对象级裂变修补包升级：默认 `bili=80%`，后端用 `pattern_risk_type + bili` 路由实际 `denoise`；`reference_lock` 映射 IPAdapter 权重，建议 0.34-0.50；`color_lock` 映射 ColorMatch 强度，建议 0.75-1.00。建议区间只做文案提示，不做接口硬拦截。2026-05-04 已确认 233 机器补齐 CLIPVision/IPAdapter 后可完整出图并完成 OSS 回填，当前允许 158 / 233 双节点按队列路由。
 - 233 承接 `flux_strong_hq_softstyle_fission` 依赖：
@@ -332,6 +333,40 @@
 - 该 workflow 的执行链路已验证正常；当前主要问题不是工具箱契约，而是上游生成的最终 `prompt` 质量与稳定性。
 - 2026-04-17：修正节点 `16` 的负向提示词，移除了会直接压制文字生成的 `text`，改为 `illegible lettering / broken glyphs / duplicated characters / unwanted watermark` 这类坏字形约束。
 - 业务侧若同时存在旧字段 `similarity`，后端仍兼容，但正式推荐口径统一使用 `bili`。
+
+## 文字强化文生图 · ComfyUI (workflow_key: qwen2512_text2img_text_allowed)
+
+| 项目 | 说明 |
+| --- | --- |
+| 能力 ID | comfyui.qwen2512_text2img_text_allowed |
+| Action | text_to_image |
+| 执行节点 | executor_comfyui_seamless_117 / executor_comfyui_pattern_extract_158 |
+| Workflow 文件 | backend/app/workflows/comfyui/qwen2512_text2img_text_allowed.json |
+| 交付包 | `19_2026-05-19_text2img_user_editable_vl_pack_v2.zip` |
+| 超时设置 | 420 秒 |
+
+**关键节点**
+
+| 节点 | 描述 |
+| --- | --- |
+| 10 · CLIPTextEncode.text | 正向提示词。业务接口第二步的 `editable_prompt` 会原样写入。 |
+| 11 · CLIPTextEncode.text | 反向提示词。默认负向词不包含 `text/letters/numbers/typography`，避免压制文字。 |
+| 12 · EmptySD3LatentImage | 输出 `width` / `height` / `batch_size`；业务层固定 `batch_size=1`。 |
+| 19 · KSampler | `seed` / `steps` / `cfg`，`denoise` 固定为 1.0。 |
+| 21 · SaveImage | 最终输出节点，仅回填该节点结果。 |
+
+**默认参数**
+
+- `editable_prompt`：必填，来自第一步 VL 草稿并由用户确认或修改。
+- `editable_negative_prompt`：可选；为空时使用系统默认负向词。
+- `width` / `height`：默认 `1024x1024`，手动填写时按 8 像素对齐。
+- `steps`：默认 8；`cfg`：默认 2；`seed`：不填随机。
+
+**调试备注**
+
+- 该业务不是图生图。原图只用于第一步 VL 识别和测评对比，第二步 ComfyUI 主输入是 `editable_prompt`。
+- 第二步不允许再次自动调用 VL；用户改过的提示词必须直接送入节点 10。
+- 单个业务 run 固定 1 张图，批量测评由测评端创建多个独立 runId。
 
 ## 印花提取 · ComfyUI (workflow_key: yinhua_tiqu)
 

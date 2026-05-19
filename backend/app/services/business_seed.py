@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.constants.abilities import TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT
 from app.models.integration import BusinessCapability
 
 
@@ -843,6 +844,79 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             ),
             "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
             "seed_version": 3,
+        },
+    ),
+    BusinessCapabilitySeed(
+        id="biz_text_fission_qwen2512_text2img_user_editable_v1",
+        business_key="text_fission",
+        version="qwen2512-text2img-user-editable-v1",
+        display_name="文字强化裂变 · Qwen 文生图可编辑提示词版",
+        description="先用 VL 从原图生成可编辑提示词草稿，用户确认或修改后再调用 Qwen2512 文生图工作流，适合需要准确文字内容的裂变场景。",
+        status="active",
+        is_default=True,
+        release_time=datetime(2026, 5, 19, 0, 0, 0),
+        recipe={
+            "mode": "user_editable_prompt_then_primary",
+            "primaryAbilityId": "comfyui_qwen2512_text2img_text_allowed",
+            "steps": [
+                {
+                    "id": "prompt_draft",
+                    "type": "vl_analyze",
+                    "role": "preprocess",
+                    "displayName": "VL 生成可编辑提示词",
+                    "abilityId": "vl_text2img_prompt_draft",
+                    "manualConfirmRequired": True,
+                },
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "Qwen 文生图",
+                    "abilityId": "comfyui_qwen2512_text2img_text_allowed",
+                },
+            ],
+            "vlAssist": {
+                "enabled": False,
+                "reason": "该业务需要用户先确认提示词，不能在提交出图时自动二次改写。",
+            },
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "原图 URL Image URL", required=True, description="用于第一步 VL 分析、测评对比和链路追踪；第二步文生图不直接使用原图。"),
+                _field("editable_prompt", "生成提示词 Editable Prompt", field_type="textarea", required=True, description="第一步生成后可人工编辑；第二步会原样送入 ComfyUI。"),
+                _field("editable_negative_prompt", "反向提示词 Negative Prompt", field_type="textarea", required=False, default=TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT, description="默认不会禁用文字、字母或数字。"),
+                _field("width", "输出宽度 Width", field_type="number", default=1024),
+                _field("height", "输出高度 Height", field_type="number", default=1024),
+                _field("steps", "采样步数 Steps", field_type="number", default=8),
+                _field("cfg", "提示词强度 CFG", field_type="number", default=2.0),
+                _field("seed", "随机种子 Seed", field_type="number", required=False),
+                _field("promptDraftId", "提示词草稿 ID Prompt Draft ID", field_type="text", required=False, description="第一步接口返回；用于排查链路。"),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "text_fission",
+            "entry": "business-api",
+            "role": "gray_candidate",
+            "badge": "新版",
+            "isNewVersion": True,
+            "provider": "comfyui",
+            "interface_pack": "19_2026-05-19_text2img_user_editable_vl_pack_v2",
+            "vl_component_ability_id": "vl_text2img_prompt_draft",
+            "primary_ability_id": "comfyui_qwen2512_text2img_text_allowed",
+            "versionLine": _version_line(
+                "text-to-image",
+                "文字强化文生图线",
+                "为文字要求强的图案单独建立两步式文生图入口。",
+                25,
+            ),
+            "versionLineage": _version_lineage(
+                decision="new_business_entry",
+                decision_note="这不是旧图生图文字增强的简单升级，而是两步式文生图业务入口。",
+                change_summary="新增 VL 提示词草稿接口和 Qwen2512 文生图接口，用户可在中间编辑提示词。",
+            ),
+            "coze_strategy": "Coze 可只调用业务接口；测评端提供两步交互，业务方也可按 prompts -> runs 顺序接入。",
+            "seed_version": 1,
         },
     ),
     BusinessCapabilitySeed(
