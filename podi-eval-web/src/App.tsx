@@ -4150,8 +4150,7 @@ export function App() {
   );
   const shouldAutoFillFissionSize = useMemo(
     () =>
-      Boolean(selectedTool && isFissionWorkflow(selectedTool)) &&
-      !isTextFissionEditableWorkflow(selectedTool) &&
+      Boolean(selectedTool && (isFissionWorkflow(selectedTool) || isTextFissionEditableWorkflow(selectedTool))) &&
       toolFields.some((f) => f.name === 'width') &&
       toolFields.some((f) => f.name === 'height'),
     [selectedTool, toolFields],

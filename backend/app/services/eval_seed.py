@@ -1683,8 +1683,8 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "用于第一步 VL 分析和结果对比；第二步文生图不直接使用原图。"},
                 {"name": "editable_prompt", "label": "生成提示词", "type": "textarea", "required": True, "defaultValue": "", "description": "点击“先识别提示词”后自动填入，可人工修改；实际生图会原样使用这里的内容。"},
                 {"name": "editable_negative_prompt", "label": "反向提示词", "type": "textarea", "required": False, "defaultValue": TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT, "description": "默认不要禁用文字、字母和数字。"},
-                {"name": "width", "label": "输出宽度", "type": "text", "required": False, "defaultValue": "1024", "description": "不填默认 1024；只填数字，不要带 px。"},
-                {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "1024", "description": "不填默认 1024；只填数字，不要带 px。"},
+                {"name": "width", "label": "输出宽度", "type": "text", "required": False, "defaultValue": "", "description": "不填则跟随原图宽度；手动填写时只填数字，不要带 px。"},
+                {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "", "description": "不填则跟随原图高度；手动填写时只填数字，不要带 px。"},
             ]
         },
         "output_schema": {

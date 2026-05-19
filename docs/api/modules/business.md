@@ -531,8 +531,6 @@ ComfyUI 颜色锁定版请求示例：
   "version": "qwen2512-text2img-v1",
   "editable_prompt": "A clean flat textile print design with clear readable English text HAPPY SUMMER, tropical flowers and shells around the text, balanced commercial illustration style, white background.",
   "editable_negative_prompt": "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects",
-  "width": 1024,
-  "height": 1024,
   "promptDraftId": "0b4b3d8c2f8d4a92b6a1122334455667",
   "source": "partner-api",
   "channel": "open-api",
@@ -556,9 +554,11 @@ ComfyUI 颜色锁定版请求示例：
 | `imageUrl` | 是 | 无 | 原图 URL，用于链路关联和测评对比；第二步生图主输入是提示词。 |
 | `editable_prompt` | 是 | 无 | 用户最终确认后的生成提示词；会原样送入 ComfyUI 正向提示词节点。 |
 | `editable_negative_prompt` | 否 | 系统默认负向词 | 反向提示词；默认不会禁止文字、字母、数字、排版。 |
-| `width` | 否 | `1024` | 输出宽度。只在业务方明确传入时覆盖默认值。 |
-| `height` | 否 | `1024` | 输出高度。只在业务方明确传入时覆盖默认值。 |
+| `width` | 否 | 跟随原图宽度 | 输出宽度。只在业务方明确传入时覆盖；底层会按 8 像素安全倍数归一。 |
+| `height` | 否 | 跟随原图高度 | 输出高度。只在业务方明确传入时覆盖；底层会按 8 像素安全倍数归一。 |
 | `promptDraftId` | 否 | 空 | 第一步返回的草稿 ID，用于排障和关联。 |
+
+质量说明：该能力本质是文生图，原图只用于第一步 VL 提示词草稿和尺寸/对比。文字密集图片的中文逐字复刻稳定性仍取决于 ComfyUI 工作流与提示词策略；若业务目标是“保留原图文字并精确改版”，后续应走 OCR/版式叠字或质量门禁方案。
 
 常见错误：
 

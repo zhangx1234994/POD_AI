@@ -1171,8 +1171,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "description": "反向提示词；默认不会禁用文字、字母和数字。",
             },
             "promptDraftId": {"type": "string", "nullable": True, "description": "第一步 prompts 接口返回的草稿 ID，用于链路追踪。"},
-            "width": {"type": "integer", "nullable": True, "description": "输出宽度；默认 1024。"},
-            "height": {"type": "integer", "nullable": True, "description": "输出高度；默认 1024。"},
+            "width": {"type": "integer", "nullable": True, "description": "输出宽度；不传则跟随原图宽度，手动传入时覆盖。"},
+            "height": {"type": "integer", "nullable": True, "description": "输出高度；不传则跟随原图高度，手动传入时覆盖。"},
         },
     }
     fission_evaluate_submit_schema = {
@@ -1425,8 +1425,6 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "version": "qwen2512-text2img-v1",
                 "editable_prompt": "一张白底平面印花图，包含清晰可读的 HAPPY SUMMER 英文字样，周围搭配热带花朵和贝壳元素，清爽商业插画风。",
                 "editable_negative_prompt": "blurry, low quality, broken composition, watermark",
-                "width": 1024,
-                "height": 1024,
                 "promptDraftId": "vl-draft-request-id",
                 "source": "partner-api",
                 "channel": "open-api",

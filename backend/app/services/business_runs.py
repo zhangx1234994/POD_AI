@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import lru_cache
+from io import BytesIO
 import hashlib
 import json
 import logging
@@ -17,6 +18,7 @@ from uuid import uuid4
 
 import httpx
 from fastapi import HTTPException
+from PIL import Image
 from sqlalchemy import and_, case, func, not_, or_, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import load_only
@@ -4902,6 +4904,7 @@ class BusinessRunService:
             )
             if prompt_draft_id:
                 inputs["promptDraftId"] = prompt_draft_id
+            self._fill_text_fission_original_size(inputs=inputs, image_url=image_url)
             # 本业务接口固定单次产出 1 张，避免一个 runId 对多张图造成回填和验收歧义。
             for noisy_key in ("count", "batch", "batch_size", "n", "steps", "cfg", "seed"):
                 inputs.pop(noisy_key, None)
@@ -4933,6 +4936,52 @@ class BusinessRunService:
                 "source": (trace_context or {}).get("source"),
             },
         )
+
+    def _fill_text_fission_original_size(self, *, inputs: dict[str, Any], image_url: str) -> None:
+        """Text-to-image fission should keep source aspect by default.
+
+        Callers may still override width/height explicitly. If either dimension is
+        omitted, read the source image once and fill the missing dimension before
+        the ComfyUI adapter applies its 8px-safe normalization.
+        """
+
+        width_explicit = self._is_positive_dimension(inputs.get("width"))
+        height_explicit = self._is_positive_dimension(inputs.get("height"))
+        if width_explicit and height_explicit:
+            return
+        source_size = self._read_remote_image_size(image_url)
+        if not source_size:
+            return
+        width, height = source_size
+        if not width_explicit:
+            inputs["width"] = width
+        if not height_explicit:
+            inputs["height"] = height
+
+    @staticmethod
+    def _is_positive_dimension(value: Any) -> bool:
+        if value in (None, "", []):
+            return False
+        try:
+            return int(float(str(value).strip())) > 0
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _read_remote_image_size(url: str) -> tuple[int, int] | None:
+        target = str(url or "").strip()
+        if not target:
+            return None
+        try:
+            response = httpx.get(target, timeout=15, follow_redirects=True)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content))
+            width, height = image.size
+            if width > 0 and height > 0:
+                return int(width), int(height)
+        except Exception:
+            return None
+        return None
 
     def _build_step_ability_payload(
         self,

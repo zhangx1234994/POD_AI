@@ -247,6 +247,10 @@ def test_text_fission_user_editable_eval_entry_is_two_step_business_api():
     assert "count" not in names
     assert "bili" not in names
     assert _field_by_name(workflow, "editable_prompt").get("required") is True
+    assert _field_by_name(workflow, "width").get("defaultValue") == ""
+    assert "跟随原图宽度" in _field_by_name(workflow, "width").get("description", "")
+    assert _field_by_name(workflow, "height").get("defaultValue") == ""
+    assert "跟随原图高度" in _field_by_name(workflow, "height").get("description", "")
     assert workflow["metadata"]["presentation"]["supports_batch"] is False
 
 

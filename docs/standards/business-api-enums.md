@@ -141,7 +141,7 @@
 约束：
 
 - 单次固定生成 1 张图，不支持 `count/batch/batch_size/n`。
-- `width/height` 不传时默认 `1024 x 1024`；传入时按 ComfyUI 安全倍数归一化。
+- `width/height` 不传时跟随原图尺寸；传入时按 ComfyUI 安全倍数归一化。
 - 第二步必须传 `editable_prompt`，也可以传第一步返回的 `editableNegativePrompt` 作为 `editable_negative_prompt`。
 
 ## 6. 路由预览枚举

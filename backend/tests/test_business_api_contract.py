@@ -135,6 +135,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "seed" not in text_fission_schema["properties"]
     assert "count" not in text_fission_schema["properties"]
     assert "bili" not in text_fission_schema["properties"]
+    assert "跟随原图宽度" in text_fission_schema["properties"]["width"]["description"]
+    assert "跟随原图高度" in text_fission_schema["properties"]["height"]["description"]
     outpaint_schema = paths["/api/business/outpaint/runs"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
     ]
@@ -369,6 +371,24 @@ def test_text_fission_payload_uses_user_editable_prompt_without_internal_control
     assert "steps" not in request.inputs
     assert "cfg" not in request.inputs
     assert "seed" not in request.inputs
+
+
+def test_text_fission_payload_follows_source_size_when_width_height_missing(monkeypatch) -> None:
+    service = object.__new__(BusinessRunService)
+    monkeypatch.setattr(BusinessRunService, "_read_remote_image_size", staticmethod(lambda url: (2925, 2009)))
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editable_prompt="A clean textile print with readable text",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="text_fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    assert request.inputs["width"] == 2925
+    assert request.inputs["height"] == 2009
 
 
 def test_text_fission_payload_requires_user_confirmed_prompt() -> None:
