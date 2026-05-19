@@ -1673,7 +1673,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     # 图裂变 / 文字强化裂变：两步式文生图
     {
         "category": "图裂变",
-        "name": "文字强化裂变 · Qwen 文生图可编辑提示词版",
+        "name": "文字强化裂变（文生图）",
         "version": "qwen2512-text2img-v1",
         "workflow_id": "business_text_fission_qwen2512_text2img_user_editable_v1",
         "status": "active",
@@ -1699,7 +1699,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "badge": "新版",
             "presentation": {
                 "operation_label": "文字强化裂变",
-                "variant_label": "Qwen 文生图可编辑提示词版",
+                "variant_label": "文生图",
                 "badges": ["新版", "两步确认", "原生业务接口"],
                 "release_time": "2026-05-19",
                 "update_time": "2026-05-19",

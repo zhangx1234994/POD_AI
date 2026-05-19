@@ -228,7 +228,7 @@ def test_text_fission_user_editable_eval_entry_is_two_step_business_api():
     workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_text_fission_qwen2512_text2img_user_editable_v1"]
 
     assert workflow["category"] == "图裂变"
-    assert workflow["name"] == "文字强化裂变 · Qwen 文生图可编辑提示词版"
+    assert workflow["name"] == "文字强化裂变（文生图）"
     assert workflow["metadata"]["eval_execution"] == {
         "mode": "business_run",
         "business_key": "text_fission",

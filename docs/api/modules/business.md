@@ -42,7 +42,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
-| 文字强化裂变 | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
+| 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
@@ -121,8 +121,8 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 | 业务 OpenAPI | `GET /api/business/openapi.json` | 8) OpenAPI 工具箱 | 无 | 返回 200，且包含业务提交、路由预览、任务查询工具。 |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | 2) 提交花纹提取 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 图裂变 | `POST /api/business/fission/runs` | 3) 提交图裂变 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
-| 文字强化裂变提示词 | `POST /api/business/text-fission/prompts` | 3.1) 文字强化裂变两步接口 | `imageUrl` | 真实调用必须确认 `editablePrompt/promptDraftId`，并由用户确认或修改。 |
-| 文字强化裂变生图 | `POST /api/business/text-fission/runs` | 3.1) 文字强化裂变两步接口 | `imageUrl`、`editable_prompt` | 真实出图必须确认 `runId/status/imageUrls`；固定一次生成 1 张图。 |
+| 文字强化裂变（文生图）提示词 | `POST /api/business/text-fission/prompts` | 3.1) 文字强化裂变（文生图）两步接口 | `imageUrl` | 真实调用必须确认 `editablePrompt/promptDraftId`，并由用户确认或修改。 |
+| 文字强化裂变（文生图）生图 | `POST /api/business/text-fission/runs` | 3.1) 文字强化裂变（文生图）两步接口 | `imageUrl`、`editable_prompt` | 真实出图必须确认 `runId/status/imageUrls`；固定一次生成 1 张图。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | 4) 提交裂变生成图评估 | `originalImageUrl`、`generatedImageUrl` | 真实提交必须确认 `runId/status/texts/resultPayload`。 |
 | 扩图 | `POST /api/business/outpaint/runs` | 5) 提交扩图 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 查询业务任务 | `POST /api/business/runs/get` | 6) 查询业务任务 | `runId` | 使用不存在的 `runId` 时应返回 `BUSINESS_RUN_NOT_FOUND` 或等价 404，不应返回 500。 |
@@ -212,7 +212,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 - GPT Image 2 图裂变新版使用专用编译器：VL 输出 `vlCard` 后，中台会编译成英文图片编辑提示词，并映射 `quality/size/output_format/n=1` 等 OpenAI 参数；业务方不用理解 VL 卡片和模型参数。该业务版固定一个请求生成一张图，需要多张时由业务方发起多次请求，分别获得多个 `runId`。
 - ComfyUI VL 控制卡裂变新版使用 `vl_fission_control_card` 作为统一 VL 组件，输出 `fissionControlCard` 后再传给 `comfyui_flux_strong_hq_softstyle_fission_control_v1`；后续更换 VL 模型时优先改这个组件的默认 provider。
 - ComfyUI 颜色锁定裂变版使用版本 `comfyui-vl-control-v2`，主能力为 `comfyui_flux_strong_hq_softstyle_fission_colorlock_v2`。VL 输出必须包含 `palette_card`，中台会把颜色卡和硬负向约束拼进 `image_desc`。`denoise` 不写死，继续按 `bili` 约定映射；其他颜色锁定强度按交付包固定。
-- 文字强化裂变使用两步式业务接口：第一步 `text-fission/prompts` 只生成可编辑提示词；第二步 `text-fission/runs` 只接收用户最终确认后的 `editable_prompt` 并提交 ComfyUI 文生图。第二步不再二次调用 VL，固定一次生成 1 张图。
+- 文字强化裂变（文生图）使用两步式业务接口：第一步 `text-fission/prompts` 只生成可编辑提示词；第二步 `text-fission/runs` 只接收用户最终确认后的 `editable_prompt` 并提交 ComfyUI 文生图。第二步不再二次调用 VL，固定一次生成 1 张图。
 - 裂变生成图评估底层仍是原子能力 `vl_fission_generated_image_evaluate`，但已经提供业务包装入口 `/api/business/fission-evaluate/runs`。它只输出 `pass / needs_refission / reject` 和问题标签，不在业务层自动二次裂变；业务方可按自己的策略决定是否再次调用图裂变。
 
 推荐结构：
@@ -460,7 +460,7 @@ ComfyUI 颜色锁定版请求示例：
 
 ---
 
-## 3.1) 文字强化裂变两步接口
+## 3.1) 文字强化裂变（文生图）两步接口
 
 ### POST /api/business/text-fission/prompts
 

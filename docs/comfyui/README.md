@@ -23,7 +23,7 @@
 | `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，158 / 233 均可按队列路由；颜色锁定 v2 复用该 workflow |
 | `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；233/158 双机 |
 | `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
-| `qwen2512_text2img_text_allowed` | `comfyui.qwen2512_text2img_text_allowed` / `text_to_image` | `editable_prompt`、`editable_negative_prompt`、`width`、`height`、`steps`、`cfg`、`seed` | `21` | 2026-05-19 新增，文字强化裂变两步式生图 |
+| `qwen2512_text2img_text_allowed` | `comfyui.qwen2512_text2img_text_allowed` / `text_to_image` | 对外业务只暴露 `editable_prompt`、`editable_negative_prompt`、`width`、`height`；`steps/cfg/seed` 由中台控制 | `21` | 2026-05-19 新增，文字强化裂变（文生图）两步式生图 |
 | `yinhua_tiqu` | `comfyui.yinhua_tiqu` / `pattern_extract` | `url`、`prompt`、`negative_prompt`、`output_width`、`output_height`、`lora_name` | `421` | 线上在用 |
 
 ## 当前已知说明

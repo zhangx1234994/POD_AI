@@ -1045,7 +1045,7 @@ const getWorkflowVersionLabel = (wf: EvalWorkflowVersion | null | undefined): st
     return 'ComfyUI VL 控制版';
   }
   if (workflowId === 'business_text_fission_qwen2512_text2img_user_editable_v1' || text.includes('qwen2512-text2img-user-editable')) {
-    return 'Qwen 文生图可编辑提示词版';
+    return '文字强化裂变（文生图）';
   }
   if (workflowId === 'business_fission_comfyui_vl_colorlock_v2' || text.includes('comfyui-vl-control-v2')) return 'ComfyUI 颜色锁定版';
   if (text.includes('comfyui-vl-control')) return 'ComfyUI VL 控制版';

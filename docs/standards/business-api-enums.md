@@ -49,7 +49,7 @@
 | --- | --- | --- | --- |
 | GPT Image 2 受控裂变 | `POST /api/business/fission/runs` | `POST /api/business/runs/get` | `gpt-image2-vl-v2` |
 | ComfyUI 颜色锁定裂变 | `POST /api/business/fission/runs` | `POST /api/business/runs/get` | `comfyui-vl-control-v2` |
-| 文字强化裂变 | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | `POST /api/business/runs/get` | `qwen2512-text2img-v1` |
+| 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | `POST /api/business/runs/get` | `qwen2512-text2img-v1` |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `POST /api/business/runs/get` | `generated-image-eval-v1` |
 | 扩图 | `POST /api/business/outpaint/runs` | `POST /api/business/runs/get` | 当前默认版本 |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `POST /api/business/runs/get` | 当前默认版本 |
@@ -129,9 +129,9 @@
 | `refission_repeat` | 建议重复裂变。 |
 | `reject` | 拒绝当前结果。 |
 
-## 5.1 文字强化裂变
+## 5.1 文字强化裂变（文生图）
 
-文字强化裂变的 `businessKey` 固定为 `text_fission`，当前固定版本为 `qwen2512-text2img-v1`。
+文字强化裂变（文生图）的 `businessKey` 固定为 `text_fission`，当前固定版本为 `qwen2512-text2img-v1`。
 
 调用方式是两步：
 
