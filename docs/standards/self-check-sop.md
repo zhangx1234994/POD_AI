@@ -33,6 +33,18 @@
 3) **异常枚举**：宽高/步数/枚举/URL/文本等边界值测试
 4) **状态一致性**：失败必须落到 `failed`，不允许“成功但无结果”
 
+### D. Bug 修复闭环（必须执行）
+对任何接口、任务、回填、队列、计费、权限类 Bug，不能只验证“现象消失”。必须逐项确认：
+
+1) **根因定位**：明确是契约错误、参数映射、执行节点、数据库副作用、前端展示、文档不一致还是发布流程问题。
+2) **成功路径复测**：使用真实样例跑通一次完整链路，记录 `runId`、结果链接和输出类型。
+3) **失败路径复测**：至少覆盖本次 Bug 对应的错误请求，例如缺参、非法枚举、依赖不可用或队列满。
+4) **副作用检查**：提交前错误不能创建业务任务、处理步骤、计费记录、回调任务或 queued/running 脏数据。
+5) **返回契约检查**：默认返回必须是业务方可用的轻量结构；调试版才返回步骤、请求、路由、底层响应等排障字段。
+6) **用量记录检查**：业务 API Key、服务令牌或内部巡检调用都必须能在接口调用中心按 `runId/requestId/traceId` 追溯。
+7) **文档同步检查**：请求、响应、错误、枚举和示例必须同步到接口文档、错误码、测评端说明和交付材料。
+8) **防复发测试**：补单测、契约测试、巡检脚本或逐功能检查项；不能只靠人工记忆。
+
 ## 4. 通过标准
 - 自动化检查 0 失败
 - 契约一致性 0 偏差
@@ -64,6 +76,16 @@ scope:
 - total workflows: N
 - pass: N
 - fail: N
+
+## Bug Fix Closure
+- root cause:
+- success runId / result:
+- negative case:
+- side effects checked: PASS/FAIL
+- light response checked: PASS/FAIL
+- debug response checked: PASS/FAIL
+- usage record checked: PASS/FAIL
+- regression test added:
 
 ## Risk & Gaps
 - covered:
