@@ -487,8 +487,22 @@ ComfyUI 颜色锁定版请求示例：
   "status": "succeeded",
   "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/text-input.png",
   "editablePrompt": "A clean flat textile print design with clear readable English text HAPPY SUMMER, tropical flowers and shells around the text, balanced commercial illustration style, white background.",
+  "editablePromptCn": "生成一张干净的平面纺织印花图案，保留清晰可读的英文 HAPPY SUMMER，周围有热带花朵和贝壳元素，商业插画风格，白色背景。",
   "editableNegativePrompt": "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects",
+  "editableNegativePromptCn": "模糊、低质量、构图破碎、水印、服装实拍、脏污颗粒、颜色浑浊、额外说明文字、无关物体",
   "textContent": "HAPPY SUMMER",
+  "textItems": [
+    {
+      "index": 1,
+      "text": "HAPPY SUMMER",
+      "role": "main_title",
+      "keep": true
+    }
+  ],
+  "routeDecision": "text2img_rebuild",
+  "routeReason": "短文字装饰图，适合进入文生图重绘。",
+  "canUseText2Img": true,
+  "textCount": 1,
   "promptProfile": "text_allowed",
   "layoutCard": {},
   "paletteCard": {},
@@ -508,6 +522,20 @@ ComfyUI 颜色锁定版请求示例：
 | `prompt` | 否 | 空 | 业务补充说明；不填也会使用系统提示词生成草稿。 |
 | `source/channel` | 否 | 空 | 调用来源，建议传 `partner-api/open-api` 或 `eval-web/eval`。 |
 | `traceId/requestId` | 否 | 自动生成 | 跨系统排障字段。 |
+
+关键响应字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `editablePrompt` | 英文生成提示词，给第二步的 `editable_prompt` 使用。 |
+| `editablePromptCn` | 中文可读提示词，方便业务和测试人员理解并修改。 |
+| `editableNegativePrompt` | 英文反向提示词；默认不会禁止文字、字母、数字和排版。 |
+| `editableNegativePromptCn` | 中文可读反向提示词。 |
+| `textItems` | VL 识别出的文字清单，一条文字一项；用户可在测评端修改后带回第二步。 |
+| `routeDecision` | 推荐路由：`text2img_rebuild` / `deterministic_text_rebuild` / `general_pattern_fission` / `reject_text2img`。 |
+| `routeReason` | 路由原因，给测试和排障使用。 |
+| `canUseText2Img` | 是否建议进入 Qwen 文生图链路。 |
+| `textCount` | 识别文字数量。 |
 
 常见错误：
 
@@ -531,6 +559,15 @@ ComfyUI 颜色锁定版请求示例：
   "version": "qwen2512-text2img-v1",
   "editable_prompt": "A clean flat textile print design with clear readable English text HAPPY SUMMER, tropical flowers and shells around the text, balanced commercial illustration style, white background.",
   "editable_negative_prompt": "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects",
+  "routeDecision": "text2img_rebuild",
+  "textItems": [
+    {
+      "index": 1,
+      "text": "HAPPY SUMMER",
+      "role": "main_title",
+      "keep": true
+    }
+  ],
   "promptDraftId": "0b4b3d8c2f8d4a92b6a1122334455667",
   "source": "partner-api",
   "channel": "open-api",
@@ -554,6 +591,8 @@ ComfyUI 颜色锁定版请求示例：
 | `imageUrl` | 是 | 无 | 原图 URL，用于链路关联和测评对比；第二步生图主输入是提示词。 |
 | `editable_prompt` | 是 | 无 | 用户最终确认后的生成提示词；会原样送入 ComfyUI 正向提示词节点。 |
 | `editable_negative_prompt` | 否 | 系统默认负向词 | 反向提示词；默认不会禁止文字、字母、数字、排版。 |
+| `routeDecision` | 否 | 第一步推荐值 | 推荐路由，允许值：`text2img_rebuild`、`deterministic_text_rebuild`、`general_pattern_fission`、`reject_text2img`。 |
+| `textItems` | 否 | 第一步识别结果 | 用户确认后的文字清单；每项至少包含 `text`，建议保留 `index/role/keep` 便于后续排障。 |
 | `width` | 否 | 跟随原图宽度 | 输出宽度。只在业务方明确传入时覆盖；底层会按 8 像素安全倍数归一。 |
 | `height` | 否 | 跟随原图高度 | 输出高度。只在业务方明确传入时覆盖；底层会按 8 像素安全倍数归一。 |
 | `promptDraftId` | 否 | 空 | 第一步返回的草稿 ID，用于排障和关联。 |

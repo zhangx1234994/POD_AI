@@ -1171,6 +1171,26 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "description": "反向提示词；默认不会禁用文字、字母和数字。",
             },
             "promptDraftId": {"type": "string", "nullable": True, "description": "第一步 prompts 接口返回的草稿 ID，用于链路追踪。"},
+            "routeDecision": {
+                "type": "string",
+                "nullable": True,
+                "description": "第一步返回的路线判断；兼容字段，不传不影响旧调用。建议原样带回用于链路排查。",
+                "enum": ["text2img_rebuild", "deterministic_text_rebuild", "general_pattern_fission", "reject_text2img"],
+            },
+            "textItems": {
+                "type": "array",
+                "nullable": True,
+                "description": "用户确认后的识别文字列表；可修改文字、角色和是否保留。旧调用方可不传。",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": {"type": "integer", "nullable": True, "description": "文字序号"},
+                        "text": {"type": "string", "description": "用户确认后的文字"},
+                        "role": {"type": "string", "nullable": True, "description": "文字角色，如 main_title/subtitle/body/decoration"},
+                        "keep": {"type": "boolean", "nullable": True, "description": "是否保留该文字"},
+                    },
+                },
+            },
             "width": {"type": "integer", "nullable": True, "description": "输出宽度；不传则跟随原图宽度，手动传入时覆盖。"},
             "height": {"type": "integer", "nullable": True, "description": "输出高度；不传则跟随原图高度，手动传入时覆盖。"},
         },
@@ -1426,6 +1446,10 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "editable_prompt": "一张白底平面印花图，包含清晰可读的 HAPPY SUMMER 英文字样，周围搭配热带花朵和贝壳元素，清爽商业插画风。",
                 "editable_negative_prompt": "blurry, low quality, broken composition, watermark",
                 "promptDraftId": "vl-draft-request-id",
+                "routeDecision": "text2img_rebuild",
+                "textItems": [
+                    {"index": 1, "text": "HAPPY SUMMER", "role": "main_title", "keep": True}
+                ],
                 "source": "partner-api",
                 "channel": "open-api",
                 "requestId": "biz-text-fission-run-001",

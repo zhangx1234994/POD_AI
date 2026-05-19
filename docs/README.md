@@ -34,11 +34,12 @@
 19. 清理治理：`docs/standards/cleanup-governance.md`
 20. 发布与上线：`docs/standards/release-sop.md`
 21. 需要回看阶段过程，再看：`docs/weekly/README.md`
-22. 需要回看历史客户端资料时，再看：`docs/client/README.md`
+22. 需要回看近期返工复盘，再看：`docs/releases/retrospectives/2026-05-19-text-fission-retrospective.md`
+23. 需要回看历史客户端资料时，再看：`docs/client/README.md`
 
 ## 当前运行基线（2026-05-19）
 
-- 当前线上稳定基线为 `v0.1.x`，已验证生产提交 `0f977db5`。
+- 当前线上稳定基线为 `v0.1.x`，已验证生产提交 `a47e877b`。
 - `origin/main` 是唯一发版真源；后续版本按 `docs/standards/version-control-rules.md` 管理。
 - Coze、backend、管理端、测评端已收口到 Coze 主机：`114.55.0.56`。
 - Coze 工具箱统一指向 backend，不再以 `117.50.80.158:8099` 作为现行工具箱入口。
@@ -47,6 +48,7 @@
 - 当前仓库不包含客户端代码目录；`docs/client/` 只作为历史客户端资料入口，不再代表当前开发主线。
 - 业务主线已固定：一次业务调用以 `runId` 为主线，VL、ComfyUI、OpenAI、评分、回填、回调、计费都归入这次业务调用下的处理步骤或证据；标准见 `docs/standards/business-mainline-contract.md`。
 - v0.2 业务控制面收敛版和 v0.3 业务编排工作台与控制点去重版已完成本地开发和验证，保留为已完成阶段记录。
+- 文字强化裂变（文生图）已完成两步式接入和返工复盘；下一轮图编辑/两步式能力接入前，必须先参考 `docs/releases/retrospectives/2026-05-19-text-fission-retrospective.md` 的检查表。
 - 下一阶段目标是 v0.4 业务编排工作台产品化版：把业务能力页从技术配置页升级为业务工作台，重点处理业务命名、版本族、可交互编排图、接口调用中心、runId 排障性能和文案降噪；规划见 `docs/strategy/business-orchestration-workbench-v0.4-plan.md`。
 - 114 控制面发布统一走 `docs/standards/release-sop.md` 和 `scripts/release_114_control_plane.sh`，不再临时手工拼 tar/ssh/restart。
 - 发版前必须执行逐功能上线检查、ComfyUI 队列验证、业务接口回归和线上 smoke；标准见 `docs/standards/per-feature-release-checklist.md`。

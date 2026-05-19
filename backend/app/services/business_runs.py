@@ -1057,7 +1057,29 @@ class BusinessRunService:
             raise HTTPException(status_code=500, detail="TEXT_FISSION_PROMPT_PREPARE_FAILED") from exc
 
         structured = self._extract_text_fission_structured_response(response.raw, response.texts)
+        text_items = self._normalize_text_fission_items(
+            structured.get("text_items"),
+            structured.get("textItems"),
+            structured.get("text_content"),
+            structured.get("textContent"),
+            (structured.get("text2imgPromptDraft") or {}).get("text_items")
+            if isinstance(structured.get("text2imgPromptDraft"), dict)
+            else None,
+        )
+        route_decision = self._resolve_text_fission_route_decision(structured=structured, text_items=text_items)
+        can_use_text2img = self._resolve_text_fission_can_use_text2img(
+            structured=structured,
+            route_decision=route_decision,
+        )
+        editable_prompt_cn = self._first_string(
+            structured.get("editable_prompt_cn"),
+            structured.get("editablePromptCn"),
+            (structured.get("text2imgPromptDraft") or {}).get("editable_prompt_cn")
+            if isinstance(structured.get("text2imgPromptDraft"), dict)
+            else None,
+        )
         editable_prompt = self._first_string(
+            editable_prompt_cn,
             structured.get("editable_prompt"),
             structured.get("editablePrompt"),
             (structured.get("text2imgPromptDraft") or {}).get("editable_prompt")
@@ -1066,7 +1088,15 @@ class BusinessRunService:
         )
         if not editable_prompt:
             raise HTTPException(status_code=500, detail="TEXT_FISSION_PROMPT_EMPTY")
+        editable_negative_cn = self._first_string(
+            structured.get("editable_negative_prompt_cn"),
+            structured.get("editableNegativePromptCn"),
+            (structured.get("text2imgPromptDraft") or {}).get("editable_negative_prompt_cn")
+            if isinstance(structured.get("text2imgPromptDraft"), dict)
+            else None,
+        )
         editable_negative = self._first_string(
+            editable_negative_cn,
             structured.get("editable_negative_prompt"),
             structured.get("editableNegativePrompt"),
             (structured.get("text2imgPromptDraft") or {}).get("editable_negative_prompt")
@@ -1078,11 +1108,19 @@ class BusinessRunService:
             "status": response.status,
             "imageUrl": image_url,
             "editablePrompt": editable_prompt,
+            "editablePromptCn": editable_prompt_cn,
             "editableNegativePrompt": editable_negative,
+            "editableNegativePromptCn": editable_negative_cn,
             "textContent": self._display_text_content(
+                [item.get("text") for item in text_items],
                 structured.get("text_content"),
                 structured.get("textContent"),
             ),
+            "textItems": text_items,
+            "routeDecision": route_decision,
+            "routeReason": self._first_string(structured.get("route_reason"), structured.get("routeReason")),
+            "canUseText2Img": can_use_text2img,
+            "textCount": self._resolve_text_fission_text_count(structured=structured, text_items=text_items),
             "promptProfile": structured.get("prompt_profile") or structured.get("promptProfile"),
             "layoutCard": structured.get("layout_card") or structured.get("layoutCard"),
             "paletteCard": structured.get("palette_card") or structured.get("paletteCard"),
@@ -4834,6 +4872,10 @@ class BusinessRunService:
                 "height",
                 "promptDraftId",
                 "prompt_draft_id",
+                "route_decision",
+                "routeDecision",
+                "text_items",
+                "textItems",
                 "vl_result",
                 "text_content",
                 "prompt_profile",
@@ -4904,6 +4946,22 @@ class BusinessRunService:
             )
             if prompt_draft_id:
                 inputs["promptDraftId"] = prompt_draft_id
+            route_decision = self._first_string(
+                inputs.get("route_decision"),
+                inputs.get("routeDecision"),
+                payload.route_decision,
+                payload.routeDecision,
+            )
+            if route_decision:
+                inputs["route_decision"] = route_decision
+            text_items = self._normalize_text_fission_items(
+                inputs.get("text_items"),
+                inputs.get("textItems"),
+                payload.text_items,
+                payload.textItems,
+            )
+            if text_items:
+                inputs["text_items"] = text_items
             self._fill_text_fission_original_size(inputs=inputs, image_url=image_url)
             # 本业务接口固定单次产出 1 张，避免一个 runId 对多张图造成回填和验收歧义。
             for noisy_key in ("count", "batch", "batch_size", "n", "steps", "cfg", "seed"):
@@ -5600,6 +5658,111 @@ class BusinessRunService:
             if text:
                 return text
         return None
+
+    @staticmethod
+    def _normalize_text_fission_items(*values: Any) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add_item(raw: Any, index: int | None = None) -> None:
+            if raw in (None, "", []):
+                return
+            if isinstance(raw, dict):
+                text = str(raw.get("text") or raw.get("content") or raw.get("value") or "").strip()
+                if not text:
+                    return
+                item = dict(raw)
+            else:
+                text = str(raw).strip()
+                if not text:
+                    return
+                item = {"text": text}
+            if text in seen:
+                return
+            seen.add(text)
+            item["text"] = text
+            item["index"] = int(item.get("index") or index or len(items) + 1)
+            item["role"] = str(item.get("role") or "unknown")
+            if "confidence" in item:
+                try:
+                    item["confidence"] = float(item["confidence"])
+                except Exception:
+                    item.pop("confidence", None)
+            item["keep"] = bool(item.get("keep", True))
+            items.append(item)
+
+        for value in values:
+            if value in (None, "", []):
+                continue
+            if isinstance(value, list):
+                for idx, item in enumerate(value, start=1):
+                    add_item(item, idx)
+            elif isinstance(value, dict):
+                maybe_items = value.get("items") or value.get("text_items") or value.get("textItems")
+                if isinstance(maybe_items, list):
+                    for idx, item in enumerate(maybe_items, start=1):
+                        add_item(item, idx)
+                else:
+                    add_item(value)
+            elif isinstance(value, str):
+                for idx, text in enumerate([part.strip() for part in value.splitlines() if part.strip()], start=1):
+                    add_item(text, idx)
+        return items
+
+    @staticmethod
+    def _resolve_text_fission_route_decision(
+        *,
+        structured: dict[str, Any],
+        text_items: list[dict[str, Any]],
+    ) -> str:
+        allowed = {
+            "text2img_rebuild",
+            "deterministic_text_rebuild",
+            "general_pattern_fission",
+            "reject_text2img",
+        }
+        raw = BusinessRunService._first_string(
+            structured.get("route_decision"),
+            structured.get("routeDecision"),
+            structured.get("task_route"),
+        )
+        if raw in allowed:
+            return raw
+        text_count = len(text_items)
+        joined_text = "\n".join(str(item.get("text") or "") for item in text_items)
+        long_form_keywords = ("路线图", "架构", "表格", "说明", "截图", "模块", "阶段", "流程", "对比", "参数")
+        if text_count == 0:
+            return "general_pattern_fission"
+        if text_count >= 6 or len(joined_text) >= 90 or any(keyword in joined_text for keyword in long_form_keywords):
+            return "deterministic_text_rebuild"
+        return "text2img_rebuild"
+
+    @staticmethod
+    def _resolve_text_fission_can_use_text2img(
+        *,
+        structured: dict[str, Any],
+        route_decision: str,
+    ) -> bool:
+        raw = structured.get("can_use_text2img", structured.get("canUseText2Img"))
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, str) and raw.strip().lower() in {"true", "false"}:
+            return raw.strip().lower() == "true"
+        return route_decision == "text2img_rebuild"
+
+    @staticmethod
+    def _resolve_text_fission_text_count(
+        *,
+        structured: dict[str, Any],
+        text_items: list[dict[str, Any]],
+    ) -> int:
+        raw = structured.get("text_count", structured.get("textCount"))
+        try:
+            if raw is not None:
+                return int(raw)
+        except Exception:
+            pass
+        return len(text_items)
 
     @staticmethod
     def _safe_user_id(user: User | None) -> str | None:

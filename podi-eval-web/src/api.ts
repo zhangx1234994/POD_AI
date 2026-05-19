@@ -222,10 +222,17 @@ export const evalApi = {
       status: string;
       imageUrl: string;
       editablePrompt: string;
+      editablePromptCn?: string | null;
       editable_prompt?: string | null;
       editableNegativePrompt?: string | null;
+      editableNegativePromptCn?: string | null;
       editable_negative_prompt?: string | null;
       textContent?: string | null;
+      textItems?: Array<{ index?: number; text: string; role?: string; keep?: boolean; confidence?: number }>;
+      routeDecision?: string | null;
+      routeReason?: string | null;
+      canUseText2Img?: boolean | null;
+      textCount?: number | null;
       text_content?: string | null;
       promptProfile?: string | null;
       prompt_profile?: string | null;

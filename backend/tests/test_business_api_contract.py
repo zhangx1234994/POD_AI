@@ -122,6 +122,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "editable_prompt",
         "editable_negative_prompt",
         "promptDraftId",
+        "routeDecision",
+        "textItems",
         "width",
         "height",
         "callbackUrl",
@@ -391,6 +393,31 @@ def test_text_fission_payload_follows_source_size_when_width_height_missing(monk
     assert request.inputs["height"] == 2009
 
 
+def test_text_fission_payload_keeps_optional_route_and_confirmed_text_items() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editable_prompt="生成一个白底徽章，主文字为 USA，副文字为 250 YEARS OF FREEDOM。",
+        routeDecision="text2img_rebuild",
+        textItems=[
+            {"index": 1, "text": "USA", "role": "main_title", "keep": True},
+            {"index": 2, "text": "250 YEARS OF FREEDOM", "role": "subtitle", "keep": True},
+        ],
+    )
+
+    request = service._build_ability_payload(
+        capability_key="text_fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    assert request.inputs["route_decision"] == "text2img_rebuild"
+    assert request.inputs["text_items"] == [
+        {"index": 1, "text": "USA", "role": "main_title", "keep": True},
+        {"index": 2, "text": "250 YEARS OF FREEDOM", "role": "subtitle", "keep": True},
+    ]
+
+
 def test_text_fission_payload_requires_user_confirmed_prompt() -> None:
     service = object.__new__(BusinessRunService)
     payload = BusinessRunCreateRequest(imageUrl="https://example.com/source.png")
@@ -413,6 +440,18 @@ def test_text_fission_prompt_text_content_list_is_display_safe() -> None:
         ["产品演进路线图", "四阶段里程碑"],
     ) == "产品演进路线图\n四阶段里程碑"
     assert BusinessRunService._display_text_content([], None) is None
+
+
+def test_text_fission_route_decision_infers_long_text_as_deterministic() -> None:
+    items = BusinessRunService._normalize_text_fission_items(
+        ["产品演进路线图（2025-2026）", "从AI工具箱到独立应用的四阶段里程碑", "AI工具箱与私有化", "设计师Agent与生产打通", "供应链深度整合", "C端独立应用"]
+    )
+
+    assert BusinessRunService._resolve_text_fission_route_decision(structured={}, text_items=items) == "deterministic_text_rebuild"
+    assert BusinessRunService._resolve_text_fission_can_use_text2img(
+        structured={},
+        route_decision="deterministic_text_rebuild",
+    ) is False
 
 
 def test_business_text_fission_missing_prompt_does_not_create_queued_run() -> None:

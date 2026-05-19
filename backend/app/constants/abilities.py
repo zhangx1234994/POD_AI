@@ -278,11 +278,26 @@ TEXT2IMG_USER_EDITABLE_VL_PROMPT = dedent(
     输出 JSON schema：
     {
       "image_id": "",
+      "route_decision": "text2img_rebuild | deterministic_text_rebuild | general_pattern_fission | reject_text2img",
+      "route_reason": "",
+      "can_use_text2img": true,
+      "text_count": 0,
+      "text_items": [
+        {
+          "index": 1,
+          "text": "",
+          "role": "main_title | subtitle | body | decoration | unknown",
+          "confidence": 0.0,
+          "keep": true
+        }
+      ],
       "task_route": "text2img_rebuild",
       "prompt_profile": "",
       "confidence": 0.0,
       "editable_prompt": "",
+      "editable_prompt_cn": "",
       "editable_negative_prompt": "",
+      "editable_negative_prompt_cn": "",
       "text_content": [],
       "text_priority": "exact_required",
       "print_type": "",
@@ -296,8 +311,26 @@ TEXT2IMG_USER_EDITABLE_VL_PROMPT = dedent(
       "risk_notes": []
     }
 
+    route_decision 判断规则：
+    - text2img_rebuild：短文字、徽章、装饰字、少量标题或简单标语，适合文生图重构。
+    - deterministic_text_rebuild：产品路线图、架构图、表格、中文长文案、商品说明图、UI 截图、多模块信息图；这类必须走确定性文字重建，不要进入文生图直出。
+    - general_pattern_fission：未识别到需要保留的有效文字，或文字不是主要诉求，可转通用图案裂变或添加文字流程。
+    - reject_text2img：文字不可辨认、冲突严重、疑似不能稳定生成，需用户确认后再继续。
+
+    text_items 要求：
+    - 必须逐条列出原图中需要保留或重建的文字原文，不要只概括成“标题和模块文字”。
+    - 如果文字很多，这本身就是 deterministic_text_rebuild 的信号。
+    - 不确定的小字不要强行猜测，可在 risk_notes 说明。
+
+    editable_prompt_cn 要求：
+    - 使用用户能直接看懂和修改的中文。
+    - 必须包含图案用途、需要保留的文字、版式、主元素、颜色、材质、禁忌方向。
+    - 不要出现字段名、JSON、schema、系统规则。
+    - 不要写“根据图片”或“参考原图”，因为文生图阶段不再传原图。
+    - 不要把图案描述成 poster、mockup、photo、cinematic scene。
+
     editable_prompt 要求：
-    - 使用自然语言英文
+    - 可以输出英文等价版本，供底层模型或调试使用。
     - 80-160 个英文词
     - 用户可以直接读懂和修改
     - 必须包含图案用途、文字内容、版式、主元素、颜色、材质、禁忌方向
@@ -313,7 +346,12 @@ TEXT2IMG_USER_EDITABLE_VL_PROMPT = dedent(
     - 不要包含 text、letters、numbers、typography 这类禁止文字的词
     - 必须包含 blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects
 
-    text_content：识别图片中需要保留或重建的主要文字，按视觉重要性排序；不确定的小字不要强行猜测。
+    editable_negative_prompt_cn 要求：
+    - 用中文短语，以顿号或逗号分隔。
+    - 不要包含“不要文字、不要字母、不要数字、不要排版文字”等与文字生成目标冲突的词。
+    - 推荐：模糊、低质量、结构破碎、水印、商品 mockup、衣服照片、脏旧颗粒、颜色浑浊、多余文字、无关元素。
+
+    text_content：保留兼容字段，内容应与 text_items 中的 text 对齐。
     print_type：必须说明这是印刷图案用途，优先使用 apparel print graphic、merchandise print emblem、sticker-sheet repeat print、ornamental lettering print、commemorative badge print。
     layout_card、motif_card、palette_card、material_card、hierarchy_card、negative_card、risk_notes 必须完整输出，便于后续评估和归因。
     """
@@ -2425,7 +2463,7 @@ VL_ABILITIES: dict[str, AbilityDefinition] = {
         "description": "文字强化裂变的前置组件：根据原图生成用户可编辑的文生图提示词和结构化识别卡。",
         "category": "vision_language",
         "input_schema": _vl_text2img_prompt_draft_schema(),
-        "metadata": _vl_text2img_prompt_draft_metadata(seed_version=1),
+        "metadata": _vl_text2img_prompt_draft_metadata(seed_version=2),
     },
     "fission_generated_image_evaluate": {
         "defaults": {

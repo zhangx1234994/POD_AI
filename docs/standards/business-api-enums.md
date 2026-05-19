@@ -135,14 +135,24 @@
 
 调用方式是两步：
 
-1. `POST /api/business/text-fission/prompts`：传 `imageUrl`，中台用 VL 生成 `editablePrompt`、`editableNegativePrompt`、`promptDraftId`。
-2. `POST /api/business/text-fission/runs`：传 `imageUrl` 和用户确认后的 `editable_prompt`，中台直接提交 ComfyUI 文生图，不再二次调用 VL。
+1. `POST /api/business/text-fission/prompts`：传 `imageUrl`，中台用 VL 生成 `editablePrompt`、`editableNegativePrompt`、`promptDraftId`，并返回可读的文字识别项和推荐路由。
+2. `POST /api/business/text-fission/runs`：传 `imageUrl` 和用户确认后的 `editable_prompt`，可选带回 `routeDecision`、`textItems`，中台直接提交 ComfyUI 文生图，不再二次调用 VL。
 
 约束：
 
 - 单次固定生成 1 张图，不支持 `count/batch/batch_size/n`。
 - `width/height` 不传时跟随原图尺寸；传入时按 ComfyUI 安全倍数归一化。
 - 第二步必须传 `editable_prompt`，也可以传第一步返回的 `editableNegativePrompt` 作为 `editable_negative_prompt`。
+- 第二步可选传 `routeDecision` 和 `textItems`，用于保留第一步的路由判断和用户确认后的文字清单；不传也保持兼容。
+
+文字强化裂变路由枚举：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `routeDecision` | `text2img_rebuild` | 适合进入 Qwen 文生图重绘，通常是短文字、装饰型图案。 |
+| `routeDecision` | `deterministic_text_rebuild` | 文字较多或结构明确，应优先走确定性文字重建，不建议直接文生图。 |
+| `routeDecision` | `general_pattern_fission` | 没有明确文字强化诉求，更适合普通图裂变或图案扩展。 |
+| `routeDecision` | `reject_text2img` | 当前图不适合文字强化裂变，应拒绝进入文生图链路并给出原因。 |
 
 ## 6. 路由预览枚举
 

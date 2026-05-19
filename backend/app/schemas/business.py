@@ -425,6 +425,10 @@ class BusinessRunCreateRequest(BaseModel):
     editableNegativePrompt: str | None = Field(default=None, description="文字强化文生图反向提示词；camelCase 兼容字段")
     promptDraftId: str | None = Field(default=None, description="第一步 VL 提示词草稿 ID，用于链路追踪")
     prompt_draft_id: str | None = Field(default=None, description="第一步 VL 提示词草稿 ID；snake_case 兼容字段")
+    route_decision: str | None = Field(default=None, description="文字强化裂变第一步返回的内部路线判断；可选兼容字段")
+    routeDecision: str | None = Field(default=None, description="文字强化裂变第一步返回的内部路线判断；camelCase 兼容字段")
+    text_items: list[dict[str, Any]] | None = Field(default=None, description="用户确认后的识别文字列表；可选")
+    textItems: list[dict[str, Any]] | None = Field(default=None, description="用户确认后的识别文字列表；camelCase 兼容字段")
     context: dict[str, Any] | str | None = Field(default=None, description="业务上下文；裂变评分业务可传版本、提示词等信息")
     inputs: dict[str, Any] | None = Field(default=None, description="业务参数；不同业务能力字段不同")
     bili: float | str | None = Field(default=None, description="图裂变重绘幅度，0-100；值越大重绘越强、变化越明显。兼容 50% 这类百分比口径")
@@ -498,8 +502,15 @@ class TextFissionPromptResponse(BaseModel):
     status: str
     imageUrl: str
     editablePrompt: str
+    editablePromptCn: str | None = None
     editableNegativePrompt: str | None = None
+    editableNegativePromptCn: str | None = None
     textContent: str | None = None
+    textItems: list[dict[str, Any]] = Field(default_factory=list)
+    routeDecision: str | None = None
+    routeReason: str | None = None
+    canUseText2Img: bool | None = None
+    textCount: int | None = None
     promptProfile: str | None = None
     layoutCard: dict[str, Any] | str | None = None
     paletteCard: dict[str, Any] | str | None = None

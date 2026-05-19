@@ -118,12 +118,27 @@ type MultiImageTrialRun = MultiImageTrialInput & {
 type TextFissionPromptDraft = {
   promptDraftId: string;
   editablePrompt: string;
+  editablePromptCn?: string | null;
   editableNegativePrompt?: string | null;
+  editableNegativePromptCn?: string | null;
   textContent?: string | null;
+  textItems?: TextFissionTextItem[];
+  routeDecision?: string | null;
+  routeReason?: string | null;
+  canUseText2Img?: boolean | null;
+  textCount?: number | null;
   promptProfile?: string | null;
   layoutCard?: unknown;
   paletteCard?: unknown;
   riskNotes?: unknown;
+};
+
+type TextFissionTextItem = {
+  index?: number;
+  text: string;
+  role?: string;
+  keep?: boolean;
+  confidence?: number;
 };
 
 type WorkflowMetric = {
@@ -690,6 +705,50 @@ const isTextFissionEditableWorkflow = (wf: EvalWorkflowVersion | null | undefine
 };
 
 const TEXT_FISSION_INTERNAL_PARAM_NAMES = new Set(['steps', 'cfg', 'seed']);
+
+const normalizeTextFissionTextItems = (...values: unknown[]): TextFissionTextItem[] => {
+  const items: TextFissionTextItem[] = [];
+  const seen = new Set<string>();
+  const add = (raw: unknown, index?: number) => {
+    if (raw == null || raw === '') return;
+    const item: TextFissionTextItem =
+      typeof raw === 'object' && !Array.isArray(raw)
+        ? { ...(raw as Record<string, unknown>), text: String((raw as any).text ?? (raw as any).content ?? (raw as any).value ?? '').trim() } as TextFissionTextItem
+        : { text: String(raw).trim() };
+    if (!item.text || seen.has(item.text)) return;
+    seen.add(item.text);
+    items.push({
+      index: Number(item.index || index || items.length + 1),
+      text: item.text,
+      role: item.role || 'unknown',
+      keep: item.keep !== false,
+      confidence: typeof item.confidence === 'number' ? item.confidence : undefined,
+    });
+  };
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      value.forEach((item, idx) => add(item, idx + 1));
+    } else if (typeof value === 'string') {
+      value.split(/\r?\n/g).map((item) => item.trim()).filter(Boolean).forEach((item, idx) => add(item, idx + 1));
+    } else if (value && typeof value === 'object') {
+      const nested = (value as any).items ?? (value as any).text_items ?? (value as any).textItems;
+      if (Array.isArray(nested)) nested.forEach((item, idx) => add(item, idx + 1));
+      else add(value);
+    }
+  }
+  return items;
+};
+
+const textFissionRouteLabel = (route?: string | null): string => {
+  const key = String(route || '').trim();
+  const labels: Record<string, string> = {
+    text2img_rebuild: '适合文生图重构',
+    deterministic_text_rebuild: '建议走确定性文字重建',
+    general_pattern_fission: '未识别到有效文字，建议转图案裂变或添加文字',
+    reject_text2img: '不建议直接文生图',
+  };
+  return labels[key] || '等待识别';
+};
 
 const inferWorkflowCategory = (
   wf: Pick<EvalWorkflowVersion, 'category' | 'presentation' | 'name' | 'workflow_id' | 'notes'> | null | undefined,
@@ -5136,18 +5195,26 @@ export function App() {
       });
       const promptResponse = res as any;
       const editablePrompt = String(
+        promptResponse.editablePromptCn ??
+        promptResponse.editable_prompt_cn ??
         promptResponse.editablePrompt ??
         promptResponse.editable_prompt ??
         promptResponse.prompt ??
+        promptResponse.vlResult?.editable_prompt_cn ??
+        promptResponse.vlResult?.editablePromptCn ??
         promptResponse.vlResult?.editable_prompt ??
         promptResponse.vlResult?.editablePrompt ??
         '',
       ).trim();
       const editableNegativePrompt = String(
+        promptResponse.editableNegativePromptCn ??
+        promptResponse.editable_negative_prompt_cn ??
         promptResponse.editableNegativePrompt ??
         promptResponse.editable_negative_prompt ??
         promptResponse.negativePrompt ??
         promptResponse.negative_prompt ??
+        promptResponse.vlResult?.editable_negative_prompt_cn ??
+        promptResponse.vlResult?.editableNegativePromptCn ??
         promptResponse.vlResult?.editable_negative_prompt ??
         promptResponse.vlResult?.editableNegativePrompt ??
         '',
@@ -5155,11 +5222,26 @@ export function App() {
       if (!editablePrompt) {
         throw new Error('VL 已返回，但没有可用的生成提示词');
       }
+      const textItems = normalizeTextFissionTextItems(
+        promptResponse.textItems,
+        promptResponse.text_items,
+        promptResponse.vlResult?.text_items,
+        promptResponse.vlResult?.textItems,
+        promptResponse.textContent,
+        promptResponse.text_content,
+      );
       setTextFissionPromptDraft({
         promptDraftId: String(promptResponse.promptDraftId || promptResponse.prompt_draft_id || ''),
         editablePrompt,
+        editablePromptCn: promptResponse.editablePromptCn ?? promptResponse.editable_prompt_cn,
         editableNegativePrompt,
-        textContent: promptResponse.textContent || promptResponse.text_content || null,
+        editableNegativePromptCn: promptResponse.editableNegativePromptCn ?? promptResponse.editable_negative_prompt_cn,
+        textContent: promptResponse.textContent || promptResponse.text_content || textItems.map((item) => item.text).join('\n') || null,
+        textItems,
+        routeDecision: promptResponse.routeDecision || promptResponse.route_decision || promptResponse.vlResult?.route_decision || null,
+        routeReason: promptResponse.routeReason || promptResponse.route_reason || promptResponse.vlResult?.route_reason || null,
+        canUseText2Img: typeof promptResponse.canUseText2Img === 'boolean' ? promptResponse.canUseText2Img : promptResponse.vlResult?.can_use_text2img,
+        textCount: Number(promptResponse.textCount ?? promptResponse.text_count ?? textItems.length) || textItems.length,
         promptProfile: promptResponse.promptProfile || promptResponse.prompt_profile || null,
         layoutCard: promptResponse.layoutCard ?? promptResponse.layout_card,
         paletteCard: promptResponse.paletteCard ?? promptResponse.palette_card,
@@ -5172,6 +5254,7 @@ export function App() {
         editable_negative_prompt: editableNegativePrompt || prev.editable_negative_prompt || '',
         editableNegativePrompt: editableNegativePrompt || prev.editableNegativePrompt || '',
         promptDraftId: String(promptResponse.promptDraftId || promptResponse.prompt_draft_id || ''),
+        routeDecision: String(promptResponse.routeDecision || promptResponse.route_decision || promptResponse.vlResult?.route_decision || ''),
       }));
       pushNotice('success', '已生成提示词草稿，可继续人工修改后再提交。');
     } catch (err) {
@@ -5521,6 +5604,15 @@ export function App() {
             parameters[k] = normalizeWorkflowParam(k, v);
           } else {
             parameters[k] = v;
+          }
+        }
+        if (isTextFissionEditable && textFissionPromptDraft) {
+          if (textFissionPromptDraft.routeDecision && parameters.routeDecision == null) {
+            parameters.routeDecision = textFissionPromptDraft.routeDecision;
+          }
+          const confirmedTextItems = normalizeTextFissionTextItems((formParams as any).textItems, textFissionPromptDraft.textItems);
+          if (confirmedTextItems.length > 0) {
+            parameters.textItems = confirmedTextItems;
           }
         }
         if (isDuotuRongheWorkflow || shouldAutoFillFissionSize) {
@@ -8456,8 +8548,36 @@ export function App() {
                                   gap: 8,
                                 }}
                               >
-                                {textFissionPromptDraft.textContent ? (
-                                  <Typography.Text theme="secondary">识别文字：{textFissionPromptDraft.textContent}</Typography.Text>
+                                <Space size="small" align="center">
+                                  <Tag theme={textFissionPromptDraft.canUseText2Img === false ? 'warning' : 'success'} variant="light">
+                                    {textFissionRouteLabel(textFissionPromptDraft.routeDecision)}
+                                  </Tag>
+                                  {textFissionPromptDraft.textCount != null ? (
+                                    <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                                      识别文字 {textFissionPromptDraft.textCount} 条
+                                    </Typography.Text>
+                                  ) : null}
+                                </Space>
+                                {textFissionPromptDraft.routeReason ? (
+                                  <Typography.Text theme="secondary">路线原因：{textFissionPromptDraft.routeReason}</Typography.Text>
+                                ) : null}
+                                {(textFissionPromptDraft.textItems?.length || textFissionPromptDraft.textContent) ? (
+                                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                    <Typography.Text strong>识别文字（可修改，一行一条）</Typography.Text>
+                                    <Textarea
+                                      value={(textFissionPromptDraft.textItems?.length ? textFissionPromptDraft.textItems.map((item) => item.text) : [textFissionPromptDraft.textContent || '']).join('\n')}
+                                      onChange={(v) => {
+                                        const textItems = normalizeTextFissionTextItems(String(v));
+                                        setTextFissionPromptDraft((prev) => prev ? {
+                                          ...prev,
+                                          textItems,
+                                          textContent: textItems.map((item) => item.text).join('\n'),
+                                          textCount: textItems.length,
+                                        } : prev);
+                                      }}
+                                      autosize={{ minRows: 2, maxRows: 6 }}
+                                    />
+                                  </Space>
                                 ) : null}
                                 {textFissionPromptDraft.promptProfile ? (
                                   <Typography.Text theme="secondary">提示词类型：{textFissionPromptDraft.promptProfile}</Typography.Text>
