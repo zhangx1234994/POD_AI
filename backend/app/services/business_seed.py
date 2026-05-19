@@ -687,7 +687,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "vl_component_ability_id": "vl_fission_control_card",
             "eval_component_ability_id": "vl_fission_generated_image_evaluate",
             "coze_strategy": "Coze 仍调用图裂变业务入口；中台内部完成 VL 控制卡生成和 ComfyUI 裂变调用，生成图评估由业务方按需单独调用。",
-            "seed_version": 3,
+            "seed_version": 2,
         },
     ),
     BusinessCapabilitySeed(
@@ -913,7 +913,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
                 change_summary="新增 VL 提示词草稿接口和 Qwen2512 文生图接口，用户可在中间编辑提示词。",
             ),
             "coze_strategy": "Coze 可只调用业务接口；测评端提供两步交互，业务方也可按 prompts -> runs 顺序接入。",
-            "seed_version": 2,
+            "seed_version": 3,
         },
     ),
     BusinessCapabilitySeed(
