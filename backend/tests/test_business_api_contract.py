@@ -8,10 +8,11 @@ from sqlalchemy import select
 from app.constants.business_api_contract import business_api_contract_payload
 from app.core.db import get_session
 from app.main import app
-from app.models.integration import ApiKey, BusinessApiKeyUsageLog, BusinessRun
+from app.models.integration import ApiKey, BusinessApiKeyUsageLog, BusinessRun, BusinessRunStep
 from app.models.user import User
 from app.routers.business import _business_delivery_contract_audit
 from app.schemas.business import BusinessRunCreateRequest
+from app.services import business_runs as business_runs_module
 from app.services.business_runs import BusinessRunService
 
 
@@ -482,6 +483,60 @@ def test_business_text_fission_missing_prompt_does_not_create_queued_run() -> No
     with get_session() as session:
         rows = session.execute(select(BusinessRun).where(BusinessRun.request_id == request_id)).scalars().all()
     assert rows == []
+
+
+def test_text_fission_confirmed_prompt_does_not_enqueue_vl_sidecar(monkeypatch) -> None:
+    request_id = "req_text_fission_confirmed_prompt_no_vl_sidecar"
+    enqueued: list[str] = []
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):  # noqa: ANN001
+            enqueued.append(str(ability_id))
+            return {"id": f"task_{len(enqueued)}", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+    with get_session() as session:
+        for run in session.execute(select(BusinessRun).where(BusinessRun.request_id == request_id)).scalars().all():
+            for step in session.execute(select(BusinessRunStep).where(BusinessRunStep.run_id == run.id)).scalars().all():
+                session.delete(step)
+            session.delete(run)
+        session.commit()
+
+    service = object.__new__(BusinessRunService)
+    service.create_run(
+        business_key="text_fission",
+        payload=BusinessRunCreateRequest(
+            imageUrl="https://example.com/source.png",
+            editable_prompt="Create a readable beach club print with HAPPY SUMMER.",
+            promptDraftId="draft_confirmed",
+            routeDecision="text2img_rebuild",
+            textItems=[{"index": 1, "text": "HAPPY SUMMER", "keep": True}],
+            requestId=request_id,
+            source="contract-test",
+        ),
+        user=None,
+    )
+
+    assert enqueued == ["comfyui_qwen2512_text2img_text_allowed"]
+    with get_session() as session:
+        run = session.execute(select(BusinessRun).where(BusinessRun.request_id == request_id)).scalars().one()
+        steps = (
+            session.execute(
+                select(BusinessRunStep)
+                .where(BusinessRunStep.run_id == run.id)
+                .order_by(BusinessRunStep.step_order.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+    assert [(step.step_id, step.status) for step in steps] == [
+        ("prompt_draft", "succeeded"),
+        ("primary", "queued"),
+    ]
+    assert steps[0].ability_task_id is None
+    assert steps[0].result_payload["status"] == "confirmed"
+    assert steps[0].result_payload["routeDecision"] == "text2img_rebuild"
 
 
 def test_admin_business_component_catalog_exposes_controlled_component_types() -> None:

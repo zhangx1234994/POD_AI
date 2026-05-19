@@ -1839,7 +1839,7 @@ class BusinessRunService:
                 callback_headers=payload.callbackHeaders,
             )
             session.add(run)
-            self._create_run_steps(session=session, run=run, recipe=recipe)
+            self._create_run_steps(session=session, run=run, recipe=recipe, payload=payload, business_key=business_key)
             session.commit()
             session.refresh(run)
             run_id = run.id
@@ -1894,11 +1894,37 @@ class BusinessRunService:
             self._sync_run_steps(session=session, run=db_run)
             return self._run_to_dict(db_run, session=session)
 
-    def _create_run_steps(self, *, session, run: BusinessRun, recipe: dict[str, Any]) -> None:
+    def _create_run_steps(
+        self,
+        *,
+        session,
+        run: BusinessRun,
+        recipe: dict[str, Any],
+        payload: BusinessRunCreateRequest | None = None,
+        business_key: str | None = None,
+    ) -> None:
         for order, step in enumerate(self._normalized_recipe_steps(recipe), start=1):
             ability_id = step.get("abilityId")
             ability = session.get(Ability, ability_id) if isinstance(ability_id, str) and ability_id else None
             enabled = step.get("enabled") is not False
+            status = "planned" if enabled else "skipped"
+            started_at = None
+            finished_at = None
+            duration_ms = None
+            request_payload = None
+            result_payload = None
+            if enabled and self._is_text_fission_confirmed_prompt_step(
+                business_key=business_key,
+                payload=payload,
+                step=step,
+            ):
+                status = "succeeded"
+                now = datetime.utcnow()
+                started_at = now
+                finished_at = now
+                duration_ms = 0
+                request_payload = self._text_fission_prompt_step_request(payload)
+                result_payload = self._text_fission_prompt_step_result(payload)
             row = BusinessRunStep(
                 id=uuid4().hex,
                 run_id=run.id,
@@ -1908,12 +1934,101 @@ class BusinessRunService:
                 role=self._first_string(step.get("role")),
                 display_name=self._first_string(step.get("displayName")),
                 enabled=enabled,
-                status="planned" if enabled else "skipped",
+                status=status,
                 ability_id=ability_id if isinstance(ability_id, str) else None,
                 ability_name=ability.display_name if ability else None,
                 ability_provider=ability.provider if ability else None,
+                request_payload=request_payload,
+                result_payload=result_payload,
+                duration_ms=duration_ms,
+                started_at=started_at,
+                finished_at=finished_at,
             )
             session.add(row)
+
+    def _is_text_fission_confirmed_prompt_step(
+        self,
+        *,
+        business_key: str | None,
+        payload: BusinessRunCreateRequest | None,
+        step: dict[str, Any],
+    ) -> bool:
+        if business_key != "text_fission" or payload is None:
+            return False
+        step_id = str(step.get("id") or "").strip()
+        step_type = str(step.get("type") or "").strip().lower()
+        role = str(step.get("role") or "").strip().lower()
+        if step_id != "prompt_draft" and step_type not in {"vl_analyze", "vl_analyze_image"} and role != "preprocess":
+            return False
+        payload_inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
+        editable_prompt = self._first_string(
+            payload.editable_prompt,
+            payload.editablePrompt,
+            payload.prompt,
+            payload_inputs.get("editable_prompt"),
+            payload_inputs.get("editablePrompt"),
+            payload_inputs.get("prompt"),
+        )
+        return bool(editable_prompt)
+
+    def _text_fission_prompt_step_request(self, payload: BusinessRunCreateRequest | None) -> dict[str, Any] | None:
+        if payload is None:
+            return None
+        payload_inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
+        route_decision = self._first_string(
+            payload.routeDecision,
+            payload.route_decision,
+            payload_inputs.get("routeDecision"),
+            payload_inputs.get("route_decision"),
+        )
+        request_payload = {
+            "promptDraftId": self._first_string(payload.promptDraftId, payload_inputs.get("promptDraftId")),
+            "routeDecision": route_decision,
+            "textItems": self._normalize_text_fission_items(
+                payload.textItems,
+                payload.text_items,
+                payload_inputs.get("textItems"),
+                payload_inputs.get("text_items"),
+            ),
+        }
+        return {key: value for key, value in request_payload.items() if value not in (None, "", [])}
+
+    def _text_fission_prompt_step_result(self, payload: BusinessRunCreateRequest | None) -> dict[str, Any]:
+        payload_inputs = payload.inputs if payload is not None and isinstance(payload.inputs, dict) else {}
+        prompt = self._first_string(
+            payload.editable_prompt if payload else None,
+            payload.editablePrompt if payload else None,
+            payload.prompt if payload else None,
+            payload_inputs.get("editable_prompt"),
+            payload_inputs.get("editablePrompt"),
+            payload_inputs.get("prompt"),
+        )
+        negative_prompt = self._first_string(
+            payload.editable_negative_prompt if payload else None,
+            payload.editableNegativePrompt if payload else None,
+            payload_inputs.get("editable_negative_prompt"),
+            payload_inputs.get("editableNegativePrompt"),
+        )
+        route_decision = self._first_string(
+            payload.routeDecision if payload else None,
+            payload.route_decision if payload else None,
+            payload_inputs.get("routeDecision"),
+            payload_inputs.get("route_decision"),
+        )
+        result = {
+            "status": "confirmed",
+            "message": "用户已确认或直接提供生成提示词，本次出图不再重复执行 VL。",
+            "editablePrompt": prompt,
+            "editableNegativePrompt": negative_prompt,
+            "routeDecision": route_decision,
+            "textItems": self._normalize_text_fission_items(
+                payload.textItems if payload else None,
+                payload.text_items if payload else None,
+                payload_inputs.get("textItems"),
+                payload_inputs.get("text_items"),
+            ),
+        }
+        return {key: value for key, value in result.items() if value not in (None, "", [])}
 
     def _mark_primary_step_submitted(
         self,
