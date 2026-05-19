@@ -4816,9 +4816,6 @@ class BusinessRunService:
                 "negativePrompt",
                 "width",
                 "height",
-                "steps",
-                "cfg",
-                "seed",
                 "promptDraftId",
                 "prompt_draft_id",
                 "vl_result",
@@ -4892,7 +4889,7 @@ class BusinessRunService:
             if prompt_draft_id:
                 inputs["promptDraftId"] = prompt_draft_id
             # 本业务接口固定单次产出 1 张，避免一个 runId 对多张图造成回填和验收歧义。
-            for noisy_key in ("count", "batch", "batch_size", "n"):
+            for noisy_key in ("count", "batch", "batch_size", "n", "steps", "cfg", "seed"):
                 inputs.pop(noisy_key, None)
         if vl_summary and self._should_apply_vl_to_primary(recipe or {}):
             self._apply_vl_summary_to_inputs(

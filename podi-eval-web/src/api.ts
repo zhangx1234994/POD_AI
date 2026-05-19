@@ -222,12 +222,19 @@ export const evalApi = {
       status: string;
       imageUrl: string;
       editablePrompt: string;
+      editable_prompt?: string | null;
       editableNegativePrompt?: string | null;
+      editable_negative_prompt?: string | null;
       textContent?: string | null;
+      text_content?: string | null;
       promptProfile?: string | null;
+      prompt_profile?: string | null;
       layoutCard?: unknown;
+      layout_card?: unknown;
       paletteCard?: unknown;
+      palette_card?: unknown;
       riskNotes?: unknown;
+      risk_notes?: unknown;
       vlResult?: Record<string, unknown>;
       traceId?: string | null;
     }>('/api/business/text-fission/prompts', {

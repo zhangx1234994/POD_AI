@@ -42,7 +42,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
-| 文字强化裂变 | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`steps`、`cfg`、`seed`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。 |
+| 文字强化裂变 | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
@@ -533,9 +533,6 @@ ComfyUI 颜色锁定版请求示例：
   "editable_negative_prompt": "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects",
   "width": 1024,
   "height": 1024,
-  "steps": 8,
-  "cfg": 2,
-  "seed": 123456789,
   "promptDraftId": "0b4b3d8c2f8d4a92b6a1122334455667",
   "source": "partner-api",
   "channel": "open-api",
@@ -561,9 +558,6 @@ ComfyUI 颜色锁定版请求示例：
 | `editable_negative_prompt` | 否 | 系统默认负向词 | 反向提示词；默认不会禁止文字、字母、数字、排版。 |
 | `width` | 否 | `1024` | 输出宽度。只在业务方明确传入时覆盖默认值。 |
 | `height` | 否 | `1024` | 输出高度。只在业务方明确传入时覆盖默认值。 |
-| `steps` | 否 | `8` | 采样步数。 |
-| `cfg` | 否 | `2` | 提示词控制强度。 |
-| `seed` | 否 | 随机 | 随机种子。不传由中台生成。 |
 | `promptDraftId` | 否 | 空 | 第一步返回的草稿 ID，用于排障和关联。 |
 
 常见错误：
@@ -583,7 +577,7 @@ ComfyUI 颜色锁定版请求示例：
 
 - 一次请求固定生成 1 张图；如果需要多张，请提交多次，每次保存独立 `runId`。
 - `editable_prompt` 是唯一必须由用户确认的生成内容。前端/业务方可以展示第一步返回的草稿，但不要在第二步自动追加新的系统描述。
-- 不需要传 `bili/count/batch_size/n`；这些字段会被忽略，避免一个 `runId` 对应多张结果造成回填和验收歧义。
+- 不需要传 `bili/count/batch_size/n/steps/cfg/seed`；这些字段会被忽略或由中台默认策略控制，避免用户理解底层采样参数。
 
 ---
 

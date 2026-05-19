@@ -1685,9 +1685,6 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "editable_negative_prompt", "label": "反向提示词", "type": "textarea", "required": False, "defaultValue": TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT, "description": "默认不要禁用文字、字母和数字。"},
                 {"name": "width", "label": "输出宽度", "type": "text", "required": False, "defaultValue": "1024", "description": "不填默认 1024；只填数字，不要带 px。"},
                 {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "1024", "description": "不填默认 1024；只填数字，不要带 px。"},
-                {"name": "steps", "label": "采样步数", "type": "text", "required": False, "defaultValue": "8"},
-                {"name": "cfg", "label": "提示词强度", "type": "text", "required": False, "defaultValue": "2.0"},
-                {"name": "seed", "label": "随机种子", "type": "text", "required": False, "defaultValue": ""},
             ]
         },
         "output_schema": {

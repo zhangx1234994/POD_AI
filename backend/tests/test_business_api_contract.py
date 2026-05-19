@@ -124,15 +124,15 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "promptDraftId",
         "width",
         "height",
-        "steps",
-        "cfg",
-        "seed",
         "callbackUrl",
         "traceId",
         "requestId",
         "tenantId",
         "clientId",
     }.issubset(text_fission_schema["properties"])
+    assert "steps" not in text_fission_schema["properties"]
+    assert "cfg" not in text_fission_schema["properties"]
+    assert "seed" not in text_fission_schema["properties"]
     assert "count" not in text_fission_schema["properties"]
     assert "bili" not in text_fission_schema["properties"]
     outpaint_schema = paths["/api/business/outpaint/runs"]["post"]["requestBody"]["content"]["application/json"][
@@ -335,7 +335,7 @@ def test_business_fission_variation_preset_does_not_override_explicit_profile_al
     assert request.inputs["reference_lock"] == "0.50"
 
 
-def test_text_fission_payload_uses_user_editable_prompt_without_count() -> None:
+def test_text_fission_payload_uses_user_editable_prompt_without_internal_controls() -> None:
     service = object.__new__(BusinessRunService)
     payload = BusinessRunCreateRequest(
         imageUrl="https://example.com/source.png",
@@ -361,14 +361,14 @@ def test_text_fission_payload_uses_user_editable_prompt_without_count() -> None:
     assert request.inputs["editable_negative_prompt"] == "blur, watermark"
     assert request.inputs["width"] == 1200
     assert request.inputs["height"] == 960
-    assert request.inputs["steps"] == 24
-    assert request.inputs["cfg"] == 3.5
-    assert request.inputs["seed"] == 123
     assert request.inputs["promptDraftId"] == "draft_001"
     assert "count" not in request.inputs
     assert "batch_size" not in request.inputs
     assert "batch" not in request.inputs
     assert "n" not in request.inputs
+    assert "steps" not in request.inputs
+    assert "cfg" not in request.inputs
+    assert "seed" not in request.inputs
 
 
 def test_text_fission_payload_requires_user_confirmed_prompt() -> None:

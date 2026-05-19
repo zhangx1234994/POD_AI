@@ -1166,9 +1166,6 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "promptDraftId": {"type": "string", "nullable": True, "description": "第一步 prompts 接口返回的草稿 ID，用于链路追踪。"},
             "width": {"type": "integer", "nullable": True, "description": "输出宽度；默认 1024。"},
             "height": {"type": "integer", "nullable": True, "description": "输出高度；默认 1024。"},
-            "steps": {"type": "integer", "nullable": True, "description": "采样步数；默认 8。"},
-            "cfg": {"type": "number", "nullable": True, "description": "提示词强度；默认 2.0。"},
-            "seed": {"type": "integer", "nullable": True, "description": "随机种子；不填则随机。"},
         },
     }
     fission_evaluate_submit_schema = {
@@ -1423,8 +1420,6 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "editable_negative_prompt": "blurry, low quality, broken composition, watermark",
                 "width": 1024,
                 "height": 1024,
-                "steps": 8,
-                "cfg": 2,
                 "promptDraftId": "vl-draft-request-id",
                 "source": "partner-api",
                 "channel": "open-api",

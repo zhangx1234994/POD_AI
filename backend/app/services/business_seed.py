@@ -887,9 +887,6 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
                 _field("editable_negative_prompt", "反向提示词 Negative Prompt", field_type="textarea", required=False, default=TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT, description="默认不会禁用文字、字母或数字。"),
                 _field("width", "输出宽度 Width", field_type="number", default=1024),
                 _field("height", "输出高度 Height", field_type="number", default=1024),
-                _field("steps", "采样步数 Steps", field_type="number", default=8),
-                _field("cfg", "提示词强度 CFG", field_type="number", default=2.0),
-                _field("seed", "随机种子 Seed", field_type="number", required=False),
                 _field("promptDraftId", "提示词草稿 ID Prompt Draft ID", field_type="text", required=False, description="第一步接口返回；用于排查链路。"),
             ]
         },
@@ -916,7 +913,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
                 change_summary="新增 VL 提示词草稿接口和 Qwen2512 文生图接口，用户可在中间编辑提示词。",
             ),
             "coze_strategy": "Coze 可只调用业务接口；测评端提供两步交互，业务方也可按 prompts -> runs 顺序接入。",
-            "seed_version": 1,
+            "seed_version": 2,
         },
     ),
     BusinessCapabilitySeed(

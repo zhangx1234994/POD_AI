@@ -689,6 +689,8 @@ const isTextFissionEditableWorkflow = (wf: EvalWorkflowVersion | null | undefine
   return execution?.business_key === 'text_fission' || workflowId === 'business_text_fission_qwen2512_text2img_user_editable_v1' || text.includes('text2img-user-editable');
 };
 
+const TEXT_FISSION_INTERNAL_PARAM_NAMES = new Set(['steps', 'cfg', 'seed']);
+
 const inferWorkflowCategory = (
   wf: Pick<EvalWorkflowVersion, 'category' | 'presentation' | 'name' | 'workflow_id' | 'notes'> | null | undefined,
 ): string => {
@@ -1458,7 +1460,11 @@ const getFields = (wf: EvalWorkflowVersion | null): SchemaField[] => {
   const schema = wf?.parameters_schema as any;
   const fields = schema?.fields;
   if (!Array.isArray(fields)) return [];
-  return fields.filter((f: any) => f && typeof f === 'object' && typeof f.name === 'string');
+  const normalizedFields = fields.filter((f: any) => f && typeof f === 'object' && typeof f.name === 'string');
+  if (isTextFissionEditableWorkflow(wf)) {
+    return normalizedFields.filter((f: any) => !TEXT_FISSION_INTERNAL_PARAM_NAMES.has(String(f.name || '').trim()));
+  }
+  return normalizedFields;
 };
 
 const formatDuration = (ms?: number | null) => {
@@ -5129,26 +5135,44 @@ export function App() {
         channel: 'eval',
         requestId: `eval-text-fission-${Date.now()}`,
       });
-      const editablePrompt = String(res.editablePrompt || '').trim();
-      const editableNegativePrompt = String(res.editableNegativePrompt || '').trim();
+      const promptResponse = res as any;
+      const editablePrompt = String(
+        promptResponse.editablePrompt ??
+        promptResponse.editable_prompt ??
+        promptResponse.prompt ??
+        promptResponse.vlResult?.editable_prompt ??
+        promptResponse.vlResult?.editablePrompt ??
+        '',
+      ).trim();
+      const editableNegativePrompt = String(
+        promptResponse.editableNegativePrompt ??
+        promptResponse.editable_negative_prompt ??
+        promptResponse.negativePrompt ??
+        promptResponse.negative_prompt ??
+        promptResponse.vlResult?.editable_negative_prompt ??
+        promptResponse.vlResult?.editableNegativePrompt ??
+        '',
+      ).trim();
       if (!editablePrompt) {
         throw new Error('VL 已返回，但没有可用的生成提示词');
       }
       setTextFissionPromptDraft({
-        promptDraftId: String(res.promptDraftId || ''),
+        promptDraftId: String(promptResponse.promptDraftId || promptResponse.prompt_draft_id || ''),
         editablePrompt,
         editableNegativePrompt,
-        textContent: res.textContent || null,
-        promptProfile: res.promptProfile || null,
-        layoutCard: res.layoutCard,
-        paletteCard: res.paletteCard,
-        riskNotes: res.riskNotes,
+        textContent: promptResponse.textContent || promptResponse.text_content || null,
+        promptProfile: promptResponse.promptProfile || promptResponse.prompt_profile || null,
+        layoutCard: promptResponse.layoutCard ?? promptResponse.layout_card,
+        paletteCard: promptResponse.paletteCard ?? promptResponse.palette_card,
+        riskNotes: promptResponse.riskNotes ?? promptResponse.risk_notes,
       });
       setFormParams((prev) => ({
         ...prev,
         editable_prompt: editablePrompt,
+        editablePrompt,
         editable_negative_prompt: editableNegativePrompt || prev.editable_negative_prompt || '',
-        promptDraftId: String(res.promptDraftId || ''),
+        editableNegativePrompt: editableNegativePrompt || prev.editableNegativePrompt || '',
+        promptDraftId: String(promptResponse.promptDraftId || promptResponse.prompt_draft_id || ''),
       }));
       pushNotice('success', '已生成提示词草稿，可继续人工修改后再提交。');
     } catch (err) {
@@ -5482,6 +5506,7 @@ export function App() {
           }
         }
         for (const [k, v] of Object.entries(formParams)) {
+          if (isTextFissionEditable && TEXT_FISSION_INTERNAL_PARAM_NAMES.has(k)) continue;
           if (isAiEditor && (k === 'prompt' || k === 'image_urls')) continue;
           if (isShengtuWorkflow) {
             const field = toolFields.find((f) => f.name === k);

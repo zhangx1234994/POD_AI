@@ -243,9 +243,6 @@ def test_text_fission_user_editable_eval_entry_is_two_step_business_api():
         "editable_negative_prompt",
         "width",
         "height",
-        "steps",
-        "cfg",
-        "seed",
     ]
     assert "count" not in names
     assert "bili" not in names
