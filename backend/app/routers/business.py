@@ -748,6 +748,7 @@ def prepare_text_fission_prompt(
     request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True)
     _business_key_allowed_for_api_key(request, "text_fission")
     try:
         result = get_business_run_service().prepare_text_fission_prompt(payload=payload, user=user)
@@ -757,9 +758,15 @@ def prepare_text_fission_prompt(
             status_code=exc.status_code,
             business_key="text_fission",
             error_code=str(exc.detail or ""),
+            request_payload=request_payload,
         )
         raise
-    _record_business_api_key_usage(request, status_code=200, business_key="text_fission")
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key="text_fission",
+        request_payload=request_payload,
+    )
     return result
 
 

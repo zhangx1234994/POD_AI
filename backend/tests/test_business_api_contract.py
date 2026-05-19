@@ -868,7 +868,11 @@ def test_business_api_key_usage_records_request_context_for_errors_and_route_pre
                 name="业务方上下文测试 Key",
                 key=api_key_value,
                 status="active",
-                extra_metadata={"tenantId": "tenant-context", "clientId": "client-context", "allowedBusinessKeys": ["fission"]},
+                extra_metadata={
+                    "tenantId": "tenant-context",
+                    "clientId": "client-context",
+                    "allowedBusinessKeys": ["fission", "text_fission"],
+                },
             )
         )
         session.commit()
@@ -893,6 +897,17 @@ def test_business_api_key_usage_records_request_context_for_errors_and_route_pre
                 "default_capability_id": "biz_fission_default",
                 "default_version": "v1",
                 "active_versions": [],
+            }
+
+        def prepare_text_fission_prompt(self, *, payload, user):  # noqa: ANN001
+            return {
+                "promptDraftId": "draft_usage_context",
+                "status": "success",
+                "imageUrl": payload.imageUrl,
+                "editablePrompt": "A clean text-to-image prompt",
+                "editableNegativePrompt": "blur",
+                "vlResult": {},
+                "traceId": payload.traceId,
             }
 
     monkeypatch.setattr("app.routers.business.get_business_run_service", lambda: FakeBusinessRunService())
@@ -926,6 +941,18 @@ def test_business_api_key_usage_records_request_context_for_errors_and_route_pre
 
     assert missing_run_resp.status_code == 400
 
+    prompt_resp = client.post(
+        "/api/business/text-fission/prompts",
+        json={
+            "imageUrl": "https://example.com/input.png",
+            "requestId": request_id,
+            "traceId": trace_id,
+        },
+        headers={"X-PODI-API-Key": api_key_value},
+    )
+
+    assert prompt_resp.status_code == 200
+
     with get_session() as session:
         rows = (
             session.execute(
@@ -941,6 +968,7 @@ def test_business_api_key_usage_records_request_context_for_errors_and_route_pre
         ("/api/business/fission/route-preview", 200, None),
         ("/api/business/fission/runs", 400, "BUSINESS_IMAGE_URL_REQUIRED"),
         ("/api/business/runs/get", 400, "BUSINESS_RUN_ID_REQUIRED"),
+        ("/api/business/text-fission/prompts", 200, None),
     ]
     assert {row.trace_id for row in rows} == {trace_id}
     assert {row.tenant_id for row in rows} == {"tenant-context"}
