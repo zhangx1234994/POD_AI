@@ -175,7 +175,7 @@ def test_flux_strong_hq_softstyle_fission_maps_uploaded_image_profile_and_bili()
     assert error is None
     assert overrides is not None
     assert overrides["10"] == {"image": "staged-fission.png"}
-    assert overrides["12"] == {"width": 1800, "height": 1800, "method": "fill / crop"}
+    assert overrides["12"] == {"width": 1792, "height": 1792, "method": "fill / crop"}
     assert overrides["13"] == {
         "text1": "new pattern fission prompt",
         "text2": "dense repeating floral pattern with restrained fillers",
@@ -259,7 +259,7 @@ def test_flux_strong_hq_softstyle_fission_explicit_size_uses_target_canvas():
 
     assert error is None
     assert overrides is not None
-    assert overrides["12"] == {"width": 2920, "height": 2008, "method": "fill / crop"}
+    assert overrides["12"] == {"width": 2912, "height": 2000, "method": "fill / crop"}
 
 
 def test_flux_strong_hq_softstyle_fission_colorlock_uses_v4_risk_route_and_controls():

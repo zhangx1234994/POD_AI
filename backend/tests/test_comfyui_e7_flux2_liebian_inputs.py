@@ -61,8 +61,8 @@ def test_e7_flux2_liebian_normalizes_custom_size_and_clamps_repaint_strength():
     assert error is None
     assert overrides is not None
     assert overrides["21"]["denoise"] == 0.45
-    assert overrides["12"]["width"] == 1000
-    assert overrides["12"]["height"] == 1496
+    assert overrides["12"]["width"] == 992
+    assert overrides["12"]["height"] == 1488
     assert overrides["12"]["method"] == "fill / crop"
 
 

@@ -377,7 +377,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 inputs["noise_seed"] = seed
 
     @staticmethod
-    def _normalize_comfy_dim(value: int | None) -> int | None:
+    def _normalize_comfy_dim(value: int | None, *, multiple: int = 8) -> int | None:
         """ComfyUI/latent pipelines typically require dimensions to be multiples of 8.
 
         If callers pass arbitrary px sizes, ComfyUI will silently round; we normalize
@@ -385,8 +385,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         """
         if not value or value <= 0:
             return None
-        # Keep it simple: floor to a multiple of 8.
-        return max(8, int(value) - (int(value) % 8))
+        multiple = max(1, int(multiple))
+        return max(multiple, int(value) - (int(value) % multiple))
 
     def _poll_history(
         self,
@@ -1547,8 +1547,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             except Exception:
                 pass
 
-        width = self._normalize_comfy_dim(width)
-        height = self._normalize_comfy_dim(height)
+        target_multiple = 16 if (explicit_width or explicit_height) else 8
+        width = self._normalize_comfy_dim(width, multiple=target_multiple)
+        height = self._normalize_comfy_dim(height, multiple=target_multiple)
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:
@@ -1694,8 +1695,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             except Exception:
                 pass
 
-        width = self._normalize_comfy_dim(width)
-        height = self._normalize_comfy_dim(height)
+        target_multiple = 16 if (explicit_width or explicit_height) else 8
+        width = self._normalize_comfy_dim(width, multiple=target_multiple)
+        height = self._normalize_comfy_dim(height, multiple=target_multiple)
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:
