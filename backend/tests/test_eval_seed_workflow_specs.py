@@ -232,7 +232,7 @@ def test_text_fission_user_editable_eval_entry_is_two_step_business_api():
     assert workflow["metadata"]["eval_execution"] == {
         "mode": "business_run",
         "business_key": "text_fission",
-        "version": "qwen2512-text2img-user-editable-v1",
+        "version": "qwen2512-text2img-v1",
     }
 
     fields = ((workflow.get("parameters_schema") or {}).get("fields") or [])

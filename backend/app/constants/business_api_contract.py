@@ -179,7 +179,7 @@ def business_api_enum_doc_tokens() -> list[str]:
         "gpt-image2-vl-v2",
         "comfyui-vl-control-v2",
         "generated-image-eval-v1",
-        "qwen2512-text2img-user-editable-v1",
+        "qwen2512-text2img-v1",
         "text_fission",
         "selectedBy",
         "selectedStatus",

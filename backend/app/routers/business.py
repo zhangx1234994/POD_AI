@@ -1418,7 +1418,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "summary": "第二步：用确认后的提示词生成图片",
             "value": {
                 "imageUrl": "https://example.com/input.png",
-                "version": "qwen2512-text2img-user-editable-v1",
+                "version": "qwen2512-text2img-v1",
                 "editable_prompt": "一张白底平面印花图，包含清晰可读的 HAPPY SUMMER 英文字样，周围搭配热带花朵和贝壳元素，清爽商业插画风。",
                 "editable_negative_prompt": "blurry, low quality, broken composition, watermark",
                 "width": 1024,

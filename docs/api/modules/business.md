@@ -528,7 +528,7 @@ ComfyUI 颜色锁定版请求示例：
 ```json
 {
   "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/text-input.png",
-  "version": "qwen2512-text2img-user-editable-v1",
+  "version": "qwen2512-text2img-v1",
   "editable_prompt": "A clean flat textile print design with clear readable English text HAPPY SUMMER, tropical flowers and shells around the text, balanced commercial illustration style, white background.",
   "editable_negative_prompt": "blurry, low quality, broken composition, watermark, mockup, photo of a shirt, dirty grunge, muddy colors, extra instruction words, unrelated objects",
   "width": 1024,

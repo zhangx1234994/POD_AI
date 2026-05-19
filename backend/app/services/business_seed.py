@@ -849,7 +849,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
     BusinessCapabilitySeed(
         id="biz_text_fission_qwen2512_text2img_user_editable_v1",
         business_key="text_fission",
-        version="qwen2512-text2img-user-editable-v1",
+        version="qwen2512-text2img-v1",
         display_name="文字强化裂变 · Qwen 文生图可编辑提示词版",
         description="先用 VL 从原图生成可编辑提示词草稿，用户确认或修改后再调用 Qwen2512 文生图工作流，适合需要准确文字内容的裂变场景。",
         status="active",

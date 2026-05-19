@@ -1674,7 +1674,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     {
         "category": "图裂变",
         "name": "文字强化裂变 · Qwen 文生图可编辑提示词版",
-        "version": "qwen2512-text2img-user-editable-v1",
+        "version": "qwen2512-text2img-v1",
         "workflow_id": "business_text_fission_qwen2512_text2img_user_editable_v1",
         "status": "active",
         "notes": "中台原生两步式业务接口：先让 VL 生成可编辑提示词，用户确认后再调用 Qwen2512 文生图。",
@@ -1718,7 +1718,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "eval_execution": {
                 "mode": "business_run",
                 "business_key": "text_fission",
-                "version": "qwen2512-text2img-user-editable-v1",
+                "version": "qwen2512-text2img-v1",
             },
         },
     },
