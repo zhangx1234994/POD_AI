@@ -267,6 +267,13 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
     assert created["version_lineage"]["breakingChange"] is False
     assert created["version_lineage"]["decision"] == "version_upgrade"
     assert created["version_lineage"]["decisionNote"] == "入口不变，只替换底层模型。"
+    assert created["version_family"]["businessLabel"] == "图裂变"
+    assert created["version_family"]["lifecycleLabel"] == "线上默认"
+    assert created["version_family"]["lineLabel"] == "商业模型线"
+    assert created["version_family"]["decisionLabel"] == "同一业务版本升级"
+    assert created["version_family"]["parent"]["id"] == "biz_fission_old"
+    assert created["version_family"]["supersedes"]["label"] == "old · 旧图裂变"
+    assert created["version_family"]["changeSummary"] == "商业模型线验证通过后替代旧图裂变。"
     assert created["governance_status"] == "ready"
     assert created["runtime_key_configured"] is True
     assert created["model_cost_configured"] is True

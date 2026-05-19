@@ -1422,6 +1422,7 @@ export interface BusinessCapability {
   vendorModelProvider?: string | null;
   versionLine?: BusinessCapabilityVersionLine | null;
   versionLineage?: BusinessCapabilityVersionLineage | null;
+  versionFamily?: BusinessCapabilityVersionFamily | null;
   governanceStatus?: string | null;
   governanceIssues?: string[];
   governanceSuggestions?: string[];
@@ -1453,6 +1454,40 @@ export interface BusinessCapabilityVersionLineage {
   breakingChange?: boolean | null;
   decision?: string | null;
   decisionNote?: string | null;
+}
+
+export interface BusinessCapabilityVersionRef {
+  id: string;
+  version?: string | null;
+  displayName?: string | null;
+  label?: string | null;
+  status?: string | null;
+  isDefault?: boolean | null;
+}
+
+export interface BusinessCapabilityVersionFamily {
+  businessKey?: string | null;
+  businessLabel?: string | null;
+  versionId?: string | null;
+  version?: string | null;
+  versionLabel?: string | null;
+  lifecycleKey?: string | null;
+  lifecycleLabel?: string | null;
+  lineKey?: string | null;
+  lineLabel?: string | null;
+  lineDetail?: string | null;
+  linePriority?: number | null;
+  parent?: BusinessCapabilityVersionRef | null;
+  supersedes?: BusinessCapabilityVersionRef | null;
+  parentVersionId?: string | null;
+  supersedesVersionId?: string | null;
+  decision?: string | null;
+  decisionLabel?: string | null;
+  decisionNote?: string | null;
+  changeSummary?: string | null;
+  breakingChange?: boolean | null;
+  releaseTime?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface BusinessOrchestrationNode {

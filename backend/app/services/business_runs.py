@@ -5577,6 +5577,12 @@ class BusinessRunService:
             run_metrics=run_metrics,
             primary_ability_id=primary_ability_id,
         )
+        version_line = self._business_capability_version_line(
+            row,
+            primary_ability_provider=primary_ability_provider,
+            vendor_model_provider=vendor_model_provider,
+        )
+        version_lineage = self._business_capability_version_lineage(row)
         return {
             "id": row.id,
             "business_key": row.business_key,
@@ -5596,12 +5602,14 @@ class BusinessRunService:
             "vendor_model_id": vendor_model_id,
             "vendor_model_name": vendor_model_name,
             "vendor_model_provider": vendor_model_provider,
-            "version_line": self._business_capability_version_line(
+            "version_line": version_line,
+            "version_lineage": version_lineage,
+            "version_family": self._business_capability_version_family(
                 row,
-                primary_ability_provider=primary_ability_provider,
-                vendor_model_provider=vendor_model_provider,
+                session=session,
+                version_line=version_line,
+                version_lineage=version_lineage,
             ),
-            "version_lineage": self._business_capability_version_lineage(row),
             "recipe_steps": self._recipe_steps_to_dict(recipe, session=session),
             "orchestration_graph": self._build_recipe_orchestration_graph(
                 recipe,
@@ -5749,6 +5757,103 @@ class BusinessRunService:
             "breakingChange": bool(raw.get("breakingChange") or raw.get("breaking_change")),
             "decision": decision,
             "decisionNote": decision_note,
+        }
+
+    @staticmethod
+    def _business_key_label(business_key: str | None) -> str:
+        labels = {
+            "pattern_extract": "花纹提取",
+            "image_fission": "图裂变",
+            "fission": "图裂变",
+            "fission_evaluate": "裂变评分",
+            "outpaint": "扩图",
+        }
+        key = str(business_key or "").strip()
+        return labels.get(key, key or "未命名业务")
+
+    @staticmethod
+    def _business_version_ref(row: BusinessCapability | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        version = str(row.version or "").strip()
+        display_name = str(row.display_name or "").strip()
+        label_parts = [part for part in (version, display_name) if part]
+        return {
+            "id": row.id,
+            "version": row.version,
+            "displayName": row.display_name,
+            "label": " · ".join(label_parts) or row.id,
+            "status": row.status,
+            "isDefault": row.is_default,
+        }
+
+    @staticmethod
+    def _business_version_decision_label(decision: str | None) -> str:
+        if decision == "new_feature":
+            return "新业务分类"
+        if decision == "rollback":
+            return "回滚保底"
+        return "同一业务版本升级"
+
+    @staticmethod
+    def _business_version_lifecycle(row: BusinessCapability) -> dict[str, str]:
+        if row.is_default:
+            return {"key": "default", "label": "线上默认"}
+        status = str(row.status or "").strip().lower()
+        if status == "draft":
+            return {"key": "draft", "label": "草稿验证"}
+        if status == "active":
+            return {"key": "active", "label": "备选验证"}
+        if status in {"deprecated", "disabled", "inactive"}:
+            return {"key": status, "label": "已停用"}
+        return {"key": status or "unknown", "label": status or "未知状态"}
+
+    def _business_capability_version_family(
+        self,
+        row: BusinessCapability,
+        *,
+        session,
+        version_line: dict[str, Any],
+        version_lineage: dict[str, Any],
+    ) -> dict[str, Any]:
+        parent = None
+        supersedes = None
+        if session is not None:
+            parent_id = version_lineage.get("parentVersionId")
+            supersedes_id = version_lineage.get("supersedesVersionId")
+            if parent_id:
+                parent = session.get(BusinessCapability, str(parent_id))
+            if supersedes_id and supersedes_id != parent_id:
+                supersedes = session.get(BusinessCapability, str(supersedes_id))
+            elif supersedes_id == parent_id:
+                supersedes = parent
+        lifecycle = self._business_version_lifecycle(row)
+        business_label = self._business_key_label(row.business_key)
+        version_label = " · ".join(part for part in (str(row.version or "").strip(), str(row.display_name or "").strip()) if part)
+        decision = str(version_lineage.get("decision") or "version_upgrade")
+        return {
+            "businessKey": row.business_key,
+            "businessLabel": business_label,
+            "versionId": row.id,
+            "version": row.version,
+            "versionLabel": version_label or row.id,
+            "lifecycleKey": lifecycle["key"],
+            "lifecycleLabel": lifecycle["label"],
+            "lineKey": version_line.get("key") or "standard",
+            "lineLabel": version_line.get("label") or "标准版本",
+            "lineDetail": version_line.get("detail") or "同一业务入口下的稳定版本。",
+            "linePriority": version_line.get("priority"),
+            "parent": self._business_version_ref(parent),
+            "supersedes": self._business_version_ref(supersedes),
+            "parentVersionId": version_lineage.get("parentVersionId"),
+            "supersedesVersionId": version_lineage.get("supersedesVersionId"),
+            "decision": decision,
+            "decisionLabel": self._business_version_decision_label(decision),
+            "decisionNote": version_lineage.get("decisionNote"),
+            "changeSummary": version_lineage.get("changeSummary"),
+            "breakingChange": bool(version_lineage.get("breakingChange")),
+            "releaseTime": row.release_time,
+            "updatedAt": row.updated_at,
         }
 
     @staticmethod

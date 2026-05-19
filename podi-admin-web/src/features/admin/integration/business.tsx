@@ -4719,6 +4719,31 @@ const businessCapabilityEngineLabel = (item?: BusinessCapability | null) => {
 };
 
 const businessCapabilityVersionLine = (item?: BusinessCapability | null) => {
+  const family = item?.versionFamily;
+  if (family?.lineKey || family?.lineLabel) {
+    const key = String(family.lineKey || 'standard');
+    const theme =
+      key === 'rollback'
+        ? ('warning' as const)
+        : key === 'quality-gate'
+          ? ('primary' as const)
+        : key === 'commercial-model'
+          ? ('primary' as const)
+          : key === 'comfyui'
+            ? ('success' as const)
+            : key === 'coze'
+              ? ('default' as const)
+              : item?.isDefault
+                ? ('success' as const)
+                : ('default' as const);
+    return {
+      key,
+      label: String(family.lineLabel || '标准版本'),
+      theme,
+      detail: String(family.lineDetail || '同一业务入口下的稳定版本。'),
+      priority: Number(family.linePriority ?? (item?.isDefault ? 10 : 50)),
+    };
+  }
   const serverLine = item?.versionLine;
   if (serverLine?.key || serverLine?.label) {
     const key = String(serverLine.key || 'standard');
@@ -4805,23 +4830,35 @@ const businessCapabilityVersionLine = (item?: BusinessCapability | null) => {
 };
 
 const businessCapabilityVersionLineage = (item?: BusinessCapability | null) => {
+  const family = item?.versionFamily;
   const metadata = (item?.metadata || {}) as JsonRecord;
   const raw = item?.versionLineage || (
     metadata.versionLineage && typeof metadata.versionLineage === 'object' && !Array.isArray(metadata.versionLineage)
       ? (metadata.versionLineage as JsonRecord)
       : null
   );
-  const parentVersionId = typeof raw?.parentVersionId === 'string' ? raw.parentVersionId : '';
-  const supersedesVersionId = typeof raw?.supersedesVersionId === 'string' ? raw.supersedesVersionId : '';
-  const changeSummary = typeof raw?.changeSummary === 'string' ? raw.changeSummary : '';
-  const decision = typeof raw?.decision === 'string' ? raw.decision : 'unknown';
-  const decisionNote = typeof raw?.decisionNote === 'string' ? raw.decisionNote : '';
+  const parentVersionId =
+    typeof family?.parentVersionId === 'string' ? family.parentVersionId : typeof raw?.parentVersionId === 'string' ? raw.parentVersionId : '';
+  const supersedesVersionId =
+    typeof family?.supersedesVersionId === 'string'
+      ? family.supersedesVersionId
+      : typeof raw?.supersedesVersionId === 'string'
+        ? raw.supersedesVersionId
+        : '';
+  const changeSummary =
+    typeof family?.changeSummary === 'string' ? family.changeSummary : typeof raw?.changeSummary === 'string' ? raw.changeSummary : '';
+  const decision = typeof family?.decision === 'string' ? family.decision : typeof raw?.decision === 'string' ? raw.decision : 'unknown';
+  const decisionNote =
+    typeof family?.decisionNote === 'string' ? family.decisionNote : typeof raw?.decisionNote === 'string' ? raw.decisionNote : '';
   return {
     parentVersionId,
     supersedesVersionId,
+    parentLabel: family?.parent?.label || '',
+    supersedesLabel: family?.supersedes?.label || '',
     changeSummary,
-    breakingChange: Boolean(raw?.breakingChange),
+    breakingChange: Boolean(family?.breakingChange ?? raw?.breakingChange),
     decision,
+    decisionLabel: family?.decisionLabel || '',
     decisionNote,
   };
 };
@@ -4829,6 +4866,8 @@ const businessCapabilityVersionLineage = (item?: BusinessCapability | null) => {
 const businessCapabilityVersionRoleLabel = (item?: BusinessCapability | null) => {
   if (!item) return '未设置版本';
   const line = businessCapabilityVersionLine(item);
+  const lifecycle = item.versionFamily?.lifecycleLabel;
+  if (lifecycle) return `${lifecycle} · ${line.label}`;
   if (item.isDefault) return `线上默认 · ${line.label}`;
   if (line.key === 'rollback') return `保底回滚 · ${line.label}`;
   if (line.key === 'quality-gate') return `质检入口 · ${line.label}`;
@@ -4837,7 +4876,7 @@ const businessCapabilityVersionRoleLabel = (item?: BusinessCapability | null) =>
 };
 
 const businessCapabilityVersionOptionLabel = (item: BusinessCapability) => {
-  const versionLabel = item.version ? `版本 ${item.version}` : '未填版本号';
+  const versionLabel = item.versionFamily?.versionLabel || (item.version ? `版本 ${item.version}` : '未填版本号');
   return `${businessCapabilityVersionRoleLabel(item)} · ${versionLabel}`;
 };
 
@@ -4851,10 +4890,22 @@ const businessCapabilityVersionRelationLabel = (item: BusinessCapability, items:
   if (lineage.decision === 'new_feature') {
     return `新功能判断：${lineage.decisionNote || '入口含义发生变化，需要作为独立业务管理。'}`;
   }
-  if (parent || supersedes || lineage.parentVersionId || lineage.supersedesVersionId) {
+  if (parent || supersedes || lineage.parentVersionId || lineage.supersedesVersionId || lineage.parentLabel || lineage.supersedesLabel) {
     const parts = [
-      parent ? `来源 ${businessCapabilityVersionBrief(parent)}` : lineage.parentVersionId ? `来源 ${formatShortBusinessId(lineage.parentVersionId)}` : '',
-      supersedes ? `替代 ${businessCapabilityVersionBrief(supersedes)}` : lineage.supersedesVersionId ? `替代 ${formatShortBusinessId(lineage.supersedesVersionId)}` : '',
+      parent
+        ? `来源 ${businessCapabilityVersionBrief(parent)}`
+        : lineage.parentLabel
+          ? `来源 ${lineage.parentLabel}`
+          : lineage.parentVersionId
+            ? `来源 ${formatShortBusinessId(lineage.parentVersionId)}`
+            : '',
+      supersedes
+        ? `替代 ${businessCapabilityVersionBrief(supersedes)}`
+        : lineage.supersedesLabel
+          ? `替代 ${lineage.supersedesLabel}`
+          : lineage.supersedesVersionId
+            ? `替代 ${formatShortBusinessId(lineage.supersedesVersionId)}`
+            : '',
     ].filter(Boolean);
     return parts.join('；');
   }
@@ -5281,14 +5332,39 @@ export const BusinessOrchestrationMapPanel = ({
   pendingApprovals,
   summary,
   formatDateTime,
+  capabilitiesLoading = false,
 }: {
   capabilities: BusinessCapability[];
   pendingApprovals: BusinessDefaultApproval[];
   summary?: BusinessUsageSummaryResponse | null;
   formatDateTime: (value?: string | null) => string;
+  capabilitiesLoading?: boolean;
 }) => {
   const [selectedBusinessKey, setSelectedBusinessKey] = useState<(typeof businessOrchestrationKeys)[number]>('fission');
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, string>>({});
+  if (capabilitiesLoading && capabilities.length === 0) {
+    return (
+      <Card
+        bordered
+        className="podi-business-workflow-map-card"
+        title={
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>业务链路图</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">正在读取业务版本和编排链路，避免把加载中误判成“缺默认入口”。</Typography.Text>
+              </div>
+            </div>
+            <Tag theme="primary" variant="light">
+              加载中
+            </Tag>
+          </Space>
+        }
+      >
+        <Alert theme="info" message="业务版本数据还在加载中，请稍等几秒；加载完成后再显示默认版本、版本族和处理链路。" />
+      </Card>
+    );
+  }
   const rows = businessOrchestrationKeys.map((businessKey) => {
     const items = capabilities
       .filter((item) => canonicalBusinessKey(item.businessKey) === businessKey)
@@ -5907,12 +5983,16 @@ export const BusinessCapabilityGrid = ({
                           <Typography.Text strong>版本关系</Typography.Text>
                           <div className="podi-business-version-lineage__grid">
                             <span>来源版本</span>
-                            <strong>{lineage.parentVersionId ? formatShortBusinessId(lineage.parentVersionId) : '同路线起点'}</strong>
+                            <strong>
+                              {lineage.parentLabel || (lineage.parentVersionId ? formatShortBusinessId(lineage.parentVersionId) : '同路线起点')}
+                            </strong>
                             <span>替代版本</span>
-                            <strong>{lineage.supersedesVersionId ? formatShortBusinessId(lineage.supersedesVersionId) : '未指定'}</strong>
+                            <strong>
+                              {lineage.supersedesLabel || (lineage.supersedesVersionId ? formatShortBusinessId(lineage.supersedesVersionId) : '未指定')}
+                            </strong>
                             <span>归属判断</span>
                             <strong>
-                              {businessVersionDecisionOptions.find((option) => option.value === lineage.decision)?.label || '待确认'}
+                              {lineage.decisionLabel || businessVersionDecisionOptions.find((option) => option.value === lineage.decision)?.label || '待确认'}
                             </strong>
                             <span>更新说明</span>
                             <strong>{lineage.changeSummary || relationLabel}</strong>

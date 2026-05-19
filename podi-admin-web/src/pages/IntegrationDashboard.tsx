@@ -3136,6 +3136,31 @@ export function IntegrationDashboard({
         setLoadErrors(errors);
         return;
       }
+      const businessCapabilityPromise = adminApi.listBusinessCapabilities();
+      const businessRunPromise = adminApi.listBusinessRuns(businessRunFilters);
+      const businessUsagePromise = adminApi.getBusinessUsageSummary(businessRunFilters).catch((error) => ({ __error: error }));
+      const businessOperationLogPromise = isBusinessReadOnly
+        ? Promise.resolve({ items: [] })
+        : adminApi
+            .listBusinessOperationLogs({ businessKey: businessRunFilters.businessKey, limit: 20 })
+            .catch((error) => ({ __error: error }));
+      const businessDefaultApprovalPromise = isBusinessReadOnly
+        ? Promise.resolve({ items: [] })
+        : adminApi
+            .listBusinessDefaultApprovals({ businessKey: businessRunFilters.businessKey, status: 'pending', limit: 20 })
+            .catch((error) => ({ __error: error }));
+
+      void businessCapabilityPromise.then((res) => setBusinessCapabilities(res.items || [])).catch(() => {});
+      void businessRunPromise
+        .then((res) => {
+          setBusinessRuns(res.items || []);
+          setBusinessRunTotal(Number(res.total || 0));
+        })
+        .catch(() => {});
+      void businessUsagePromise.then((res: any) => {
+        if (res && !res.__error) setBusinessUsageSummary(res as BusinessUsageSummaryResponse);
+      });
+
       const settled = await Promise.allSettled([
         adminApi.listExecutors(),
         adminApi.listWorkflows(),
@@ -3144,19 +3169,11 @@ export function IntegrationDashboard({
         adminApi.getDashboardMetrics(),
         adminApi.getDispatchLogs(),
         adminApi.getSystemConfig(),
-        adminApi.listBusinessCapabilities(),
-        adminApi.listBusinessRuns(businessRunFilters),
-        adminApi.getBusinessUsageSummary(businessRunFilters).catch((error) => ({ __error: error })),
-        isBusinessReadOnly
-          ? Promise.resolve({ items: [] })
-          : adminApi
-              .listBusinessOperationLogs({ businessKey: businessRunFilters.businessKey, limit: 20 })
-              .catch((error) => ({ __error: error })),
-        isBusinessReadOnly
-          ? Promise.resolve({ items: [] })
-          : adminApi
-              .listBusinessDefaultApprovals({ businessKey: businessRunFilters.businessKey, status: 'pending', limit: 20 })
-              .catch((error) => ({ __error: error })),
+        businessCapabilityPromise,
+        businessRunPromise,
+        businessUsagePromise,
+        businessOperationLogPromise,
+        businessDefaultApprovalPromise,
         adminApi.listAbilities(),
         adminApi.getAbilityHealthSummary({ staleHours: 24, limit: 100 }).catch((error) => ({ __error: error })),
         adminApi.getAbilityLogMetrics({ windowHours: 24 }).catch(() => null),
@@ -6563,6 +6580,7 @@ const extractErrorMessage = (error: unknown): string => {
                       pendingApprovals={businessDefaultApprovals}
                       summary={businessUsageSummary}
                       formatDateTime={formatDateTime}
+                      capabilitiesLoading={loading && businessCapabilities.length === 0}
                     />
                   </>
                 ) : null}
