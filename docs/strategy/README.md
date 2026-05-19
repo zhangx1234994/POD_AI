@@ -7,7 +7,8 @@
 - `platform-vision-and-goals-2026.md`：平台愿景与核心目标（中台 / 测评端 / 客户端 / 对话式助手统一叙事）
 - `strategy-one-page-2026q2.md`：战略一页纸（北极星、KPI、90天里程碑）
 - `todo-master-2026q2.md`：唯一待办池（当前执行单只认这里）
-- `business-orchestration-workbench-v0.3-plan.md`：当前 v0.3 业务编排工作台与控制点去重方案
+- `business-orchestration-workbench-v0.4-plan.md`：当前 v0.4 业务编排工作台产品化方案
+- `business-orchestration-workbench-v0.3-plan.md`：已完成的 v0.3 业务编排工作台与控制点去重阶段方案
 - `business-control-point-matrix-2026-05-19.md`：四个核心业务的控制点盘点矩阵，标明真源、兜底和后续去重动作
 - `business-control-plane-v0.2-plan.md`：已完成的 v0.2 业务控制面收敛版阶段方案
 - `business-orchestration-control-plane-v1.md`：控制权收敛、业务编排 DSL、可视化编排和 runId 排障规划背景，不直接作为执行清单
@@ -42,7 +43,7 @@
 2. 状态只允许：`todo / doing / blocked / done / archived`。
 3. 已归档内容不得回写主文档，只允许在归档文档追加说明。
 4. 每周至少一次回顾：目标偏差、任务偏差、文档偏差。
-5. 当前开发默认按 `business-orchestration-workbench-v0.3-plan.md` 执行；v0.2 和旧控制面方案只作为阶段记录或背景，不直接当任务清单。
+5. 当前开发默认按 `business-orchestration-workbench-v0.4-plan.md` 执行；v0.3、v0.2 和旧控制面方案只作为阶段记录或背景，不直接当任务清单。
 
 ## 与旧文档关系
 
