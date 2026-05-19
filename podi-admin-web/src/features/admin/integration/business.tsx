@@ -4258,6 +4258,45 @@ const businessGraphRoutingSummary = (routing?: JsonRecord | null) => {
   return [policy ? `策略 ${policy}` : '', tags ? `标签 ${tags}` : '', executors ? `节点 ${executors}` : '', fallback].filter(Boolean).join(' · ');
 };
 
+const businessGraphNodeFlowLabel = (
+  node: BusinessOrchestrationNode,
+  graph?: BusinessOrchestrationGraph | null,
+) => {
+  const nodes = graph?.nodes || [];
+  const nodeMap = new Map(nodes.map((item) => [item.id, item]));
+  const incoming = (graph?.edges || [])
+    .filter((edge) => edge.target === node.id)
+    .map((edge) => nodeMap.get(edge.source))
+    .filter(Boolean)
+    .map((item) => businessGraphNodeTitle(item as BusinessOrchestrationNode));
+  const outgoing = (graph?.edges || [])
+    .filter((edge) => edge.source === node.id)
+    .map((edge) => nodeMap.get(edge.target))
+    .filter(Boolean)
+    .map((item) => businessGraphNodeTitle(item as BusinessOrchestrationNode));
+  return {
+    incoming: incoming.length > 0 ? incoming.join('、') : '业务入口',
+    outgoing: outgoing.length > 0 ? outgoing.join('、') : '业务结果',
+  };
+};
+
+const businessGraphNodeActionAdvice = (
+  node: BusinessOrchestrationNode,
+  graph?: BusinessOrchestrationGraph | null,
+) => {
+  const status = String(node.status || '').toLowerCase();
+  if (node.error) return '先从本节点的错误和本次 runId 处理步骤定位；如果是底层能力失败，再下钻到能力调用记录。';
+  if (node.type === 'entry') return '先确认业务入口、版本和入参是否正确；业务方排障时优先保存 runId。';
+  if (node.type === 'result') return '重点确认结果数量、OSS 链接、回填和回调状态；结果缺失时回到上一个执行节点。';
+  if (!node.abilityId && !node.abilityName) return '这是说明或聚合节点，不直接调用底层能力；主要用于理解业务流程。';
+  if (businessRunIsActive(status)) return '任务还在排队或执行中，先观察队列和执行节点；超时后再进入失败排查。';
+  if (status === 'succeeded' || status === 'success' || status === 'completed') {
+    return '本节点已完成；继续核对输出是否进入下一步、是否落 OSS、是否计入本次业务 runId。';
+  }
+  if (graph?.mode === 'recipe') return '这是版本配方视角；上线前需要用真实样本跑一次，确认字段、路由和输出都符合预期。';
+  return '按字段、路由、执行节点和输出四项核对；缺哪一项就先补哪一项。';
+};
+
 const BusinessGraphNodeDiagnostics = ({ node }: { node: BusinessOrchestrationNode }) => {
   const schemaSummary = businessGraphSchemaSummary(node.inputSchema);
   const routingSummary = businessGraphRoutingSummary(node.routing);
@@ -4391,6 +4430,8 @@ const BusinessGraphSelectedNodePanel = ({
   }
   const schemaSummary = businessGraphSchemaSummary(node.inputSchema);
   const routingSummary = businessGraphRoutingSummary(node.routing);
+  const flowLabel = businessGraphNodeFlowLabel(node, graph);
+  const actionAdvice = businessGraphNodeActionAdvice(node, graph);
   return (
     <aside className="podi-business-flow-detail">
       <div className="podi-business-flow-detail__head">
@@ -4408,6 +4449,12 @@ const BusinessGraphSelectedNodePanel = ({
         <span>耗时：{node.durationMs ? formatDurationMs(node.durationMs) : '—'}</span>
         <span>排障：{node.abilityTaskId ? formatShortBusinessId(node.abilityTaskId) : '—'}</span>
       </div>
+      <div className="podi-business-flow-detail__block">
+        <Typography.Text strong>上下游</Typography.Text>
+        <Typography.Text theme="secondary">上一步：{flowLabel.incoming}</Typography.Text>
+        <Typography.Text theme="secondary">下一步：{flowLabel.outgoing}</Typography.Text>
+      </div>
+      <Alert theme={node.error ? 'error' : 'info'} message={`建议：${actionAdvice}`} />
       {schemaSummary ? (
         <div className="podi-business-flow-detail__block">
           <Typography.Text strong>字段摘要</Typography.Text>
