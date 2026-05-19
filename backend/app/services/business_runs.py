@@ -1077,7 +1077,10 @@ class BusinessRunService:
             "imageUrl": image_url,
             "editablePrompt": editable_prompt,
             "editableNegativePrompt": editable_negative,
-            "textContent": structured.get("text_content") or structured.get("textContent"),
+            "textContent": self._display_text_content(
+                structured.get("text_content"),
+                structured.get("textContent"),
+            ),
             "promptProfile": structured.get("prompt_profile") or structured.get("promptProfile"),
             "layoutCard": structured.get("layout_card") or structured.get("layoutCard"),
             "paletteCard": structured.get("palette_card") or structured.get("paletteCard"),
@@ -5523,6 +5526,30 @@ class BusinessRunService:
         for value in values:
             if isinstance(value, str) and value.strip():
                 return value.strip()
+        return None
+
+    @staticmethod
+    def _display_text_content(*values: Any) -> str | None:
+        for value in values:
+            if value in (None, "", []):
+                continue
+            if isinstance(value, str):
+                text = value.strip()
+                if text:
+                    return text
+                continue
+            if isinstance(value, list):
+                parts = [str(item).strip() for item in value if str(item).strip()]
+                if parts:
+                    return "\n".join(parts)
+                continue
+            try:
+                text = json.dumps(value, ensure_ascii=False)
+            except Exception:
+                text = str(value)
+            text = text.strip()
+            if text:
+                return text
         return None
 
     @staticmethod

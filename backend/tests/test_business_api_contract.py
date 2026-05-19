@@ -388,6 +388,13 @@ def test_text_fission_payload_requires_user_confirmed_prompt() -> None:
         raise AssertionError("expected TEXT_FISSION_PROMPT_REQUIRED")
 
 
+def test_text_fission_prompt_text_content_list_is_display_safe() -> None:
+    assert BusinessRunService._display_text_content(
+        ["产品演进路线图", "四阶段里程碑"],
+    ) == "产品演进路线图\n四阶段里程碑"
+    assert BusinessRunService._display_text_content([], None) is None
+
+
 def test_business_text_fission_missing_prompt_does_not_create_queued_run() -> None:
     request_id = "req_text_fission_missing_prompt_no_run"
     with get_session() as session:
