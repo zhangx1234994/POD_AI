@@ -452,6 +452,11 @@ def test_text_fission_route_decision_infers_long_text_as_deterministic() -> None
         structured={},
         route_decision="deterministic_text_rebuild",
     ) is False
+    assert "确定性文字重建" in BusinessRunService._resolve_text_fission_route_reason(
+        structured={},
+        route_decision="deterministic_text_rebuild",
+        text_count=len(items),
+    )
 
 
 def test_business_text_fission_missing_prompt_does_not_create_queued_run() -> None:

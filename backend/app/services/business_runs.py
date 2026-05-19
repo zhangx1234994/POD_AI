@@ -1118,7 +1118,11 @@ class BusinessRunService:
             ),
             "textItems": text_items,
             "routeDecision": route_decision,
-            "routeReason": self._first_string(structured.get("route_reason"), structured.get("routeReason")),
+            "routeReason": self._resolve_text_fission_route_reason(
+                structured=structured,
+                route_decision=route_decision,
+                text_count=len(text_items),
+            ),
             "canUseText2Img": can_use_text2img,
             "textCount": self._resolve_text_fission_text_count(structured=structured, text_items=text_items),
             "promptProfile": structured.get("prompt_profile") or structured.get("promptProfile"),
@@ -5749,6 +5753,24 @@ class BusinessRunService:
         if isinstance(raw, str) and raw.strip().lower() in {"true", "false"}:
             return raw.strip().lower() == "true"
         return route_decision == "text2img_rebuild"
+
+    @staticmethod
+    def _resolve_text_fission_route_reason(
+        *,
+        structured: dict[str, Any],
+        route_decision: str,
+        text_count: int,
+    ) -> str:
+        explicit = BusinessRunService._first_string(structured.get("route_reason"), structured.get("routeReason"))
+        if explicit:
+            return explicit
+        if route_decision == "text2img_rebuild":
+            return "识别到少量明确文字，适合进入文生图重绘链路。"
+        if route_decision == "deterministic_text_rebuild":
+            return f"识别到 {text_count} 条文字或复杂版式，直接文生图容易改字，建议走确定性文字重建。"
+        if route_decision == "reject_text2img":
+            return "当前图不适合文字强化裂变，建议先确认业务目标或更换能力。"
+        return "没有识别到稳定文字，建议优先走普通图裂变或图案重绘链路。"
 
     @staticmethod
     def _resolve_text_fission_text_count(
