@@ -1737,6 +1737,7 @@ export interface BusinessRun {
   retestRecovered?: boolean | null;
   retestSummary?: JsonRecord | null;
   flowSummary?: BusinessRunFlowSummary | null;
+  traceSummary?: BusinessRunTraceSummary | null;
   apiUsage?: BusinessRunApiUsageEvidence | null;
   orchestrationGraph?: BusinessOrchestrationGraph | null;
   steps?: BusinessRunStep[];
@@ -1771,6 +1772,34 @@ export interface BusinessRunFlowSummary {
   executor?: JsonRecord | null;
   output?: JsonRecord | null;
   callback?: JsonRecord | null;
+}
+
+export interface BusinessRunTraceNode {
+  id: string;
+  parentId?: string | null;
+  type: string;
+  label: string;
+  status?: string | null;
+  statusLabel?: string | null;
+  order?: number | null;
+  evidence?: JsonRecord | null;
+}
+
+export interface BusinessRunTraceEdge {
+  from: string;
+  to: string;
+}
+
+export interface BusinessRunTraceSummary {
+  runId: string;
+  rootId?: string | null;
+  status?: string | null;
+  summary?: string | null;
+  nextAction?: string | null;
+  failedNodeId?: string | null;
+  activeNodeId?: string | null;
+  nodes?: BusinessRunTraceNode[];
+  edges?: BusinessRunTraceEdge[];
 }
 
 export interface BusinessRunApiUsageEvidence {

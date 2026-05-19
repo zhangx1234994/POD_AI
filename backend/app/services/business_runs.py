@@ -6243,6 +6243,7 @@ class BusinessRunService:
             "retest_recovered": bool(retest_summary.get("recovered")),
             "retest_summary": retest_summary,
             "flow_summary": flow_summary,
+            "trace_summary": self._build_run_trace_summary(row, steps=steps, flow_summary=flow_summary),
             "api_usage": self._business_api_usage_evidence(row, session=session) if include_api_usage else None,
             "orchestration_graph": self._build_run_orchestration_graph(
                 row,
@@ -6500,6 +6501,7 @@ class BusinessRunService:
             "retest_recovered": False,
             "retest_summary": None,
             "flow_summary": flow_summary,
+            "trace_summary": self._build_run_trace_summary(row, steps=steps, flow_summary=flow_summary),
             "orchestration_graph": self._build_run_orchestration_graph(
                 row,
                 steps=steps,
@@ -7254,6 +7256,185 @@ class BusinessRunService:
                 "httpStatus": row.callback_http_status,
                 "error": row.callback_error,
             },
+        }
+
+    @staticmethod
+    def _trace_step_type(step_type: str | None, role: str | None) -> str:
+        normalized_type = str(step_type or "").strip().lower()
+        normalized_role = str(role or "").strip().lower()
+        if normalized_type.startswith("vl") or normalized_role == "preprocess":
+            return "vl"
+        if normalized_role == "primary" or normalized_type in {"ability_task", "comfyui_workflow", "vendor_api"}:
+            return "generation"
+        if normalized_type in {"score", "evaluate", "quality_score"}:
+            return "score"
+        if normalized_type in {"callback", "webhook"}:
+            return "callback"
+        return "ability"
+
+    @staticmethod
+    def _trace_node_status_label(status: str | None) -> str:
+        normalized = str(status or "").strip().lower()
+        return {
+            "queued": "排队中",
+            "running": "执行中",
+            "succeeded": "成功",
+            "failed": "失败",
+            "skipped": "跳过",
+            "cancelled": "已取消",
+            "planned": "待执行",
+        }.get(normalized, normalized or "未知")
+
+    def _build_run_trace_summary(
+        self,
+        row: BusinessRun,
+        *,
+        steps: list[dict[str, Any]],
+        flow_summary: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        flow = flow_summary if isinstance(flow_summary, dict) else {}
+        nodes: list[dict[str, Any]] = []
+        edges: list[dict[str, Any]] = []
+
+        def add_node(
+            node_id: str,
+            *,
+            parent_id: str | None,
+            node_type: str,
+            label: str,
+            status: str | None,
+            order: int,
+            evidence: dict[str, Any] | None = None,
+        ) -> None:
+            nodes.append(
+                {
+                    "id": node_id,
+                    "parentId": parent_id,
+                    "type": node_type,
+                    "label": label,
+                    "status": status,
+                    "statusLabel": self._trace_node_status_label(status),
+                    "order": order,
+                    "evidence": evidence or {},
+                }
+            )
+            if parent_id:
+                edges.append({"from": parent_id, "to": node_id})
+
+        add_node(
+            "business_entry",
+            parent_id=None,
+            node_type="business_entry",
+            label="业务入口",
+            status="succeeded" if row.status not in {"queued"} else "queued",
+            order=0,
+            evidence={
+                "runId": row.id,
+                "businessKey": row.business_key,
+                "version": row.version,
+                "source": row.source,
+                "channel": row.channel,
+                "requestId": row.request_id,
+                "traceId": row.trace_id,
+            },
+        )
+
+        previous_id = "business_entry"
+        for index, step in enumerate(steps, start=1):
+            step_id = str(step.get("step_id") or step.get("id") or f"step_{index}")
+            node_id = f"step_{index}_{step_id}"
+            label = (
+                str(step.get("display_name") or "").strip()
+                or str(step.get("ability_name") or "").strip()
+                or f"处理步骤 {index}"
+            )
+            add_node(
+                node_id,
+                parent_id="business_entry",
+                node_type=self._trace_step_type(step.get("step_type"), step.get("role")),
+                label=label,
+                status=str(step.get("status") or "planned"),
+                order=index,
+                evidence={
+                    "stepId": step.get("step_id"),
+                    "role": step.get("role"),
+                    "abilityId": step.get("ability_id"),
+                    "abilityTaskId": step.get("ability_task_id"),
+                    "abilityLogId": step.get("ability_log_id"),
+                    "executorId": step.get("executor_id"),
+                    "executorName": step.get("executor_name"),
+                    "durationMs": step.get("duration_ms"),
+                    "error": step.get("error_message"),
+                },
+            )
+            previous_id = node_id
+
+        output = flow.get("output") if isinstance(flow.get("output"), dict) else {}
+        add_node(
+            "result_fill",
+            parent_id=previous_id,
+            node_type="result",
+            label="结果回填",
+            status="succeeded" if output.get("hasOutput") else ("failed" if row.status == "succeeded" else row.status),
+            order=len(steps) + 1,
+            evidence={
+                "hasOutput": output.get("hasOutput"),
+                "imageCount": output.get("imageCount"),
+                "videoCount": output.get("videoCount"),
+                "textCount": output.get("textCount"),
+                "firstImageUrl": output.get("firstImageUrl"),
+            },
+        )
+
+        if row.callback_url or row.callback_status or row.callback_error:
+            add_node(
+                "callback",
+                parent_id="result_fill",
+                node_type="callback",
+                label="业务回调",
+                status=row.callback_status or "planned",
+                order=len(steps) + 2,
+                evidence={
+                    "callbackUrl": row.callback_url,
+                    "httpStatus": row.callback_http_status,
+                    "error": row.callback_error,
+                },
+            )
+
+        billing_status = self._business_billing_status(row)
+        if row.billing_unit or row.cost_amount is not None or row.quota_units is not None or billing_status != "unpriced":
+            add_node(
+                "billing",
+                parent_id="result_fill",
+                node_type="billing",
+                label="成本记录",
+                status="succeeded" if billing_status in {"billable", "free", "refunded"} else "planned",
+                order=len(steps) + 3,
+                evidence={
+                    "billingStatus": billing_status,
+                    "billingUnit": row.billing_unit,
+                    "costAmount": float(row.cost_amount) if row.cost_amount is not None else None,
+                    "currency": row.currency,
+                    "quotaUnits": row.quota_units,
+                    "noChargeReason": self._business_no_charge_reason(row),
+                },
+            )
+
+        failed_node = next((node for node in nodes if str(node.get("status") or "").lower() == "failed"), None)
+        active_node = next(
+            (node for node in nodes if str(node.get("status") or "").lower() in {"queued", "running", "planned"}),
+            None,
+        )
+        return {
+            "runId": row.id,
+            "rootId": "business_entry",
+            "status": row.status,
+            "summary": flow.get("message") or f"业务链路状态：{row.status}",
+            "nextAction": flow.get("nextAction"),
+            "failedNodeId": failed_node.get("id") if failed_node else None,
+            "activeNodeId": active_node.get("id") if active_node else None,
+            "nodes": nodes,
+            "edges": edges,
         }
 
     def _build_flow_executor_summary(

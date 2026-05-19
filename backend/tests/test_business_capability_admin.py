@@ -2762,6 +2762,16 @@ def test_business_run_detail_includes_flow_evidence(monkeypatch) -> None:
     assert fetched["flow_summary"]["ability"]["id"] == "ability_openai_fission"
     assert fetched["flow_summary"]["executor"]["id"] == "executor_comfyui_4090"
     assert fetched["flow_summary"]["output"]["hasOssOutput"] is True
+    assert fetched["trace_summary"]["rootId"] == "business_entry"
+    assert fetched["trace_summary"]["summary"] == "业务链路执行成功"
+    assert [node["type"] for node in fetched["trace_summary"]["nodes"]] == [
+        "business_entry",
+        "generation",
+        "result",
+    ]
+    result_node = next(node for node in fetched["trace_summary"]["nodes"] if node["id"] == "result_fill")
+    assert result_node["status"] == "succeeded"
+    assert result_node["evidence"]["imageCount"] == 1
     assert fetched["orchestration_graph"]["summary"]["status"] == "succeeded"
     assert fetched["orchestration_graph"]["summary"]["output"]["hasOutput"] is True
     assert [node["id"] for node in fetched["orchestration_graph"]["nodes"]] == ["entry", "primary", "result"]

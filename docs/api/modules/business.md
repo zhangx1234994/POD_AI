@@ -1723,6 +1723,29 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `billingStatus/chargeable/noChargeReason`：业务计费口径。`billable` 表示成功且有成本或额度，可进入正式账单；`no_charge` 表示失败、取消或超时，不向业务方计费；`billing_pending` 表示任务未终态；`unpriced` 表示成功但缺少定价，需要先补成本规则。
 - `issueCategory/issueLabel/issueAction/issueEvidence`：链路问题分类。用于管理端快速区分执行节点、结果回填、业务回调、计费扣减、参数、版本/路由等问题。
 - `retestSourceRunId/retestAttempts/retestLatestRunId/retestLatestStatus/retestRecovered/retestSummary`：复测追踪字段。原问题任务会显示复测次数、最新复测任务和是否恢复；复测任务会显示来源任务，便于从“发现问题”追到“确认恢复”。
+- `traceSummary`：一次业务调用的父子链路视图，固定包含业务入口、处理步骤、结果回填、业务回调和成本记录节点；管理端排障优先按这个字段渲染，不再把 VL、ComfyUI/OpenAI、回调和计费平铺混看。
+
+`traceSummary` 示例：
+
+```json
+{
+  "runId": "run_xxx",
+  "rootId": "business_entry",
+  "status": "succeeded",
+  "summary": "业务链路执行成功",
+  "failedNodeId": null,
+  "activeNodeId": null,
+  "nodes": [
+    { "id": "business_entry", "type": "business_entry", "label": "业务入口", "status": "succeeded" },
+    { "id": "step_1_primary", "parentId": "business_entry", "type": "generation", "label": "ComfyUI 图裂变", "status": "succeeded" },
+    { "id": "result_fill", "parentId": "step_1_primary", "type": "result", "label": "结果回填", "status": "succeeded" }
+  ],
+  "edges": [
+    { "from": "business_entry", "to": "step_1_primary" },
+    { "from": "step_1_primary", "to": "result_fill" }
+  ]
+}
+```
 
 ### GET /api/admin/business/usage-summary
 

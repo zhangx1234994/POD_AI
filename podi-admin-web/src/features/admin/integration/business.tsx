@@ -1846,6 +1846,83 @@ const businessRunStepTheme = (status?: string | null): BusinessRunFlowStageTheme
   return 'default';
 };
 
+function BusinessRunTraceTreeCard({ detail }: { detail: BusinessRun }) {
+  const trace = detail.traceSummary;
+  const nodes = trace?.nodes || [];
+  if (nodes.length === 0) return null;
+  return (
+    <Card
+      bordered
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>业务父子链路</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                一次业务调用只看一个 runId；VL、生图、结果回填、回调和计费都挂在这条主线下。
+              </Typography.Text>
+            </div>
+          </div>
+          <Space size={6} breakLine>
+            {trace?.failedNodeId ? <Tag theme="danger" variant="light">卡点 {formatShortBusinessId(trace.failedNodeId)}</Tag> : null}
+            {trace?.activeNodeId ? <Tag theme="warning" variant="light">当前 {formatShortBusinessId(trace.activeNodeId)}</Tag> : null}
+          </Space>
+        </Space>
+      }
+    >
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        {trace?.summary || trace?.nextAction ? (
+          <Alert
+            theme={trace.failedNodeId ? 'error' : trace.activeNodeId ? 'warning' : 'success'}
+            message={[trace.summary, trace.nextAction].filter(Boolean).join('。')}
+          />
+        ) : null}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
+          {nodes.map((node, index) => {
+            const theme = businessRunStepTheme(node.status);
+            const evidence = asJsonRecord(node.evidence);
+            return (
+              <div
+                key={node.id}
+                style={{
+                  border: '1px solid var(--td-border-level-1-color)',
+                  borderTop: `3px solid ${businessFlowStageColor(theme)}`,
+                  borderRadius: 12,
+                  padding: 12,
+                  background: 'var(--td-bg-color-container)',
+                  minHeight: 132,
+                }}
+              >
+                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Typography.Text strong>{node.label || `节点 ${index + 1}`}</Typography.Text>
+                    <Tag theme={theme as any} variant="light">{node.statusLabel || node.status || '未知'}</Tag>
+                  </Space>
+                  <Typography.Text theme="secondary">{node.type}</Typography.Text>
+                  {node.parentId ? (
+                    <Typography.Text theme="secondary">上级：{formatShortBusinessId(node.parentId)}</Typography.Text>
+                  ) : (
+                    <Typography.Text theme="secondary">主线入口</Typography.Text>
+                  )}
+                  {recordText(evidence, 'abilityId') ? (
+                    <Typography.Text code>{formatShortBusinessId(recordText(evidence, 'abilityId'))}</Typography.Text>
+                  ) : null}
+                  {recordText(evidence, 'executorName') ? (
+                    <Typography.Text theme="secondary">{recordText(evidence, 'executorName')}</Typography.Text>
+                  ) : null}
+                  {recordText(evidence, 'error') ? (
+                    <Typography.Text theme="error">{recordText(evidence, 'error')}</Typography.Text>
+                  ) : null}
+                </Space>
+              </div>
+            );
+          })}
+        </div>
+      </Space>
+    </Card>
+  );
+}
+
 const countBusinessRunSteps = (steps?: BusinessRunStep[] | null) => {
   const stats = {
     total: 0,
@@ -2913,6 +2990,7 @@ export const BusinessRunHistoryPanel = ({
               </Space>
             </Col>
           </Row>
+          <BusinessRunTraceTreeCard detail={detail} />
           <BusinessRunFlowEvidenceBar detail={detail} />
           <Card bordered title="本次业务编排">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
