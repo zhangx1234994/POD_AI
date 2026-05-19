@@ -1980,6 +1980,124 @@ const businessApiStatusTheme = (statusCode?: number | null): 'success' | 'warnin
   return 'default';
 };
 
+const businessApiUsageSummary = (row?: BusinessRun | null) => row?.apiUsage?.summary || {};
+
+const businessRunApiUsageTotal = (row?: BusinessRun | null) => Number(businessApiUsageSummary(row).total || 0);
+
+const businessRunApiUsageTheme = (row?: BusinessRun | null): 'success' | 'warning' | 'danger' | 'default' => {
+  const summary = businessApiUsageSummary(row);
+  if (Number(summary.errorCount || 0) > 0 || summary.issueCode === 'HAS_ERROR') return 'danger';
+  if (summary.needsAttention || businessRunApiUsageTotal(row) <= 0) return 'warning';
+  return 'success';
+};
+
+const businessRunApiUsageLabel = (row?: BusinessRun | null) => {
+  const summary = businessApiUsageSummary(row);
+  const total = Number(summary.total || 0);
+  if (total <= 0) return '未记录入口调用';
+  return [
+    `入口 ${total}`,
+    Number(summary.submitCount || 0) > 0 ? `提交 ${Number(summary.submitCount || 0)}` : '',
+    Number(summary.pollCount || 0) > 0 ? `查询 ${Number(summary.pollCount || 0)}` : '',
+    Number(summary.callbackCount || 0) > 0 ? `回调 ${Number(summary.callbackCount || 0)}` : '',
+    Number(summary.errorCount || 0) > 0 ? `失败 ${Number(summary.errorCount || 0)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+};
+
+const businessRunApiUsageHint = (row?: BusinessRun | null) => {
+  const summary = businessApiUsageSummary(row);
+  if (summary.issueHint) return summary.issueHint;
+  if (businessRunApiUsageTotal(row) <= 0) return '未匹配到业务入口日志，可能是旧数据、后台补录或入口未打点。';
+  if (Number(summary.errorCount || 0) > 0) return '入口或查询接口存在失败，打开详情确认具体接口和状态码。';
+  return '业务入口和查询记录已关联到本次 runId。';
+};
+
+const businessInvocationCenterStats = (runs: BusinessRun[], total: number) => {
+  const loaded = runs.length;
+  const active = runs.filter((row) => businessRunIsActive(row.status)).length;
+  const failed = runs.filter((row) => businessRunIsFailed(row.status) || row.error || row.errorMessage).length;
+  const callbackFailed = runs.filter((row) => row.callbackStatus === 'failed').length;
+  const apiLogged = runs.filter((row) => businessRunApiUsageTotal(row) > 0).length;
+  const apiMissing = runs.filter((row) => businessRunApiUsageTotal(row) <= 0).length;
+  const apiNeedsAttention = runs.filter((row) => {
+    const summary = businessApiUsageSummary(row);
+    return Boolean(summary.needsAttention) || Number(summary.errorCount || 0) > 0;
+  }).length;
+  const issueTheme: 'success' | 'warning' | 'danger' =
+    failed > 0 || apiNeedsAttention > 0 ? 'danger' : callbackFailed > 0 || apiMissing > 0 ? 'warning' : 'success';
+  const issueText =
+    failed > 0
+      ? `有 ${failed} 条失败，先按 runId 下钻`
+      : apiNeedsAttention > 0
+        ? `有 ${apiNeedsAttention} 条接口证据需处理`
+        : callbackFailed > 0
+          ? `有 ${callbackFailed} 条回调失败`
+          : apiMissing > 0
+            ? `有 ${apiMissing} 条未匹配入口日志`
+            : '当前筛选内未发现明显阻塞';
+  return { loaded, total, active, failed, callbackFailed, apiLogged, apiMissing, apiNeedsAttention, issueTheme, issueText };
+};
+
+function BusinessInvocationCenterSummary({ runs, total }: { runs: BusinessRun[]; total: number }) {
+  const stats = businessInvocationCenterStats(runs, total);
+  return (
+    <div className="podi-business-invocation-center">
+      <div className="podi-business-invocation-center__head">
+        <div>
+          <Typography.Text strong>接口调用中心</Typography.Text>
+          <div>
+            <Typography.Text theme="secondary">
+              业务方反馈问题时，先用 runId 在这里确认入口、版本、状态、接口证据和当前卡点。
+            </Typography.Text>
+          </div>
+        </div>
+        <Tag variant="light" theme={stats.issueTheme}>
+          {stats.issueText}
+        </Tag>
+      </div>
+      <div className="podi-business-invocation-center__grid">
+        <div>
+          <span>当前筛选</span>
+          <strong>
+            {stats.loaded}/{stats.total}
+          </strong>
+          <small>已加载 / 总数</small>
+        </div>
+        <div>
+          <span>排队或执行</span>
+          <strong>{stats.active}</strong>
+          <small>需要继续观察</small>
+        </div>
+        <div>
+          <span>失败或异常</span>
+          <strong>{stats.failed}</strong>
+          <small>先打开详情定位步骤</small>
+        </div>
+        <div>
+          <span>入口证据</span>
+          <strong>
+            {stats.apiLogged}/{stats.loaded || 0}
+          </strong>
+          <small>能证明业务接口已打入</small>
+        </div>
+        <div>
+          <span>回调异常</span>
+          <strong>{stats.callbackFailed}</strong>
+          <small>失败时优先重试或查业务方地址</small>
+        </div>
+      </div>
+      <div className="podi-business-invocation-center__contract">
+        <Tag variant="light">状态口径</Tag>
+        <Typography.Text theme="secondary">
+          queued=排队，running=处理中，succeeded=成功，failed/timeout/cancelled=失败或终止；一次业务调用只认一个 runId。
+        </Typography.Text>
+      </div>
+    </div>
+  );
+}
+
 function BusinessRunParentTaskCard({
   detail,
   formatDateTime,
@@ -2484,9 +2602,10 @@ export const BusinessRunHistoryPanel = ({
         </Space>
       }
     >
+      <BusinessInvocationCenterSummary runs={runs} total={total} />
       <Alert
         theme="info"
-        message="排查时先找 runId，再看详情里的处理步骤；原子能力调用只作为下钻证据。"
+        message="排查顺序：先确认 runId 和入口证据，再看版本与状态；原子能力调用只作为下钻证据，不再单独当成一次业务。"
         style={{ marginBottom: 12 }}
       />
       <BusinessRunRetestControlPanel
@@ -2699,6 +2818,19 @@ export const BusinessRunHistoryPanel = ({
             title: '版本',
             width: 100,
             cell: ({ row }) => <Tag variant="light">{row.version || '—'}</Tag>,
+          },
+          {
+            colKey: 'apiUsage',
+            title: '接口证据',
+            width: 230,
+            cell: ({ row }) => (
+              <Space direction="vertical" size={2}>
+                <Tag variant="light" theme={businessRunApiUsageTheme(row)}>
+                  {businessRunApiUsageLabel(row)}
+                </Tag>
+                <Typography.Text theme="secondary">{businessRunApiUsageHint(row)}</Typography.Text>
+              </Space>
+            ),
           },
           {
             colKey: 'route',

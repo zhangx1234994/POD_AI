@@ -1179,6 +1179,62 @@ html.t-theme-dark {
   background: color-mix(in srgb, var(--td-bg-color-container) 92%, var(--td-bg-color-page));
 }
 
+.podi-business-invocation-center {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 26%, var(--td-border-level-1-color));
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--td-brand-color) 8%, transparent), transparent 42%),
+    var(--td-bg-color-container);
+}
+
+.podi-business-invocation-center__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.podi-business-invocation-center__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.podi-business-invocation-center__grid > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 94%, var(--td-bg-color-page));
+}
+
+.podi-business-invocation-center__grid span,
+.podi-business-invocation-center__grid small {
+  display: block;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.podi-business-invocation-center__grid strong {
+  display: block;
+  margin: 3px 0;
+  color: var(--td-text-color-primary);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.podi-business-invocation-center__contract {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .podi-business-run-ops {
   margin-bottom: 12px;
   border: 1px solid var(--td-border-level-1-color);
