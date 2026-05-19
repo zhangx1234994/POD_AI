@@ -84,9 +84,12 @@ from app.services.eval_workflow_response import (
 )
 from app.services.eval_workflow_routing_governance import resolve_eval_workflow_routing_governance
 from app.services.eval_service import get_eval_service
+from app.services.auth_service import auth_service
+from app.services.business_runs import get_business_run_service
 from app.services.integration_test import integration_test_service
 from app.services.oss import oss_service
 from app.services.task_status_contract import derive_eval_run_status
+from app.schemas import business as business_schemas
 
 
 router = APIRouter(prefix="/api/evals", tags=["evals-public"])
@@ -1325,6 +1328,40 @@ def get_me(request: Request, response: Response) -> dict[str, Any]:
     _require_public_enabled(request)
     rid = _get_or_set_rater_id(request, response)
     return {"raterId": rid}
+
+
+@router.post(
+    "/text-fission/prompts",
+    response_model=business_schemas.TextFissionPromptResponse,
+    response_model_by_alias=False,
+)
+def prepare_text_fission_prompt_for_eval(
+    request: Request,
+    response: Response,
+    payload: business_schemas.TextFissionPromptRequest,
+) -> dict[str, Any]:
+    """Eval-console proxy for text fission prompt drafting.
+
+    The eval web page is public/internal and must not expose business API keys
+    in the browser. Keep the browser on `/api/evals/*`; backend calls the
+    business service with a service user and records eval context in metadata.
+    """
+
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    payload.metadata = {
+        **(payload.metadata or {}),
+        "evalRaterId": rater_id,
+        "evalProxy": True,
+    }
+    payload.source = payload.source or "eval-web"
+    payload.channel = payload.channel or "eval"
+    payload.tenantId = payload.tenantId or "podi-internal-realtest"
+    payload.clientId = payload.clientId or "eval-web"
+    return get_business_run_service().prepare_text_fission_prompt(
+        payload=payload,
+        user=auth_service.build_service_user(),
+    )
 
 
 @router.get("/workflow-versions", response_model=list[EvalWorkflowVersionResponse])

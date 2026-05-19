@@ -237,7 +237,7 @@ export const evalApi = {
       risk_notes?: unknown;
       vlResult?: Record<string, unknown>;
       traceId?: string | null;
-    }>('/api/business/text-fission/prompts', {
+    }>('/api/evals/text-fission/prompts', {
       method: 'POST',
       body: JSON.stringify(payload),
     }, 90000),

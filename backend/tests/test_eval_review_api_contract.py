@@ -105,6 +105,51 @@ def _create_batch(
     return batch_id
 
 
+def test_eval_text_fission_prompt_proxy_uses_service_identity(
+    eval_review_client: tuple[TestClient, sessionmaker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _ = eval_review_client
+    captured: dict[str, object] = {}
+
+    class FakeBusinessRunService:
+        def prepare_text_fission_prompt(self, *, payload, user):
+            captured["payload"] = payload
+            captured["user"] = user
+            return {
+                "promptDraftId": "draft_eval_proxy",
+                "status": "succeeded",
+                "imageUrl": payload.imageUrl,
+                "editablePrompt": "生成一张文字清晰的商业海报。",
+                "editableNegativePrompt": "",
+                "textContent": "商业海报",
+                "promptProfile": "text2img",
+                "layoutCard": {},
+                "paletteCard": {},
+                "riskNotes": [],
+                "vlResult": {"editable_prompt": "生成一张文字清晰的商业海报。"},
+                "traceId": "draft_eval_proxy",
+            }
+
+    monkeypatch.setattr(evals_public, "get_business_run_service", lambda: FakeBusinessRunService())
+
+    resp = client.post(
+        "/api/evals/text-fission/prompts",
+        json={"imageUrl": "https://example.com/input.png", "requestId": "req_eval_proxy"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["editablePrompt"] == "生成一张文字清晰的商业海报。"
+    payload = captured["payload"]
+    user = captured["user"]
+    assert getattr(user, "role") == "admin"
+    assert getattr(payload, "source") == "eval-web"
+    assert getattr(payload, "channel") == "eval"
+    assert getattr(payload, "tenantId") == "podi-internal-realtest"
+    assert getattr(payload, "clientId") == "eval-web"
+    assert getattr(payload, "metadata")["evalProxy"] is True
+
+
 def test_eval_runs_expose_readonly_cost_fields(
     eval_review_client: tuple[TestClient, sessionmaker],
 ) -> None:
