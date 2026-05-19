@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.eval import EvalBatchSession, EvalRun, EvalWorkflowVersion
 from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS
+from app.constants.business_api_contract import COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
 
 
 LORA_OPTIONS = [
@@ -1654,6 +1655,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 "supports_batch": True,
                 "result_mode": "image",
                 "usage_hint": "用于验证 ComfyUI 智能路由裂变接口，重点看对象级变化、主色、深浅比例和图案结构是否稳定。",
+                "variation_presets": COMFYUI_FISSION_VARIATION_PRESET_CONFIGS,
             },
             "governance": {
                 "role": "candidate",

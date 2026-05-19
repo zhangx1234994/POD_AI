@@ -284,7 +284,8 @@ def resolve_eval_workflow_presentation(
     if _normalize_bool(base.get("is_new_version") or base.get("isNewVersion"), default=False) and "新版" not in badges:
         badges.insert(0, "新版")
     default_sort = _CATEGORY_SORT_BUCKETS.get(category_text, 9000)
-    return {
+    variation_presets = presentation.get("variation_presets") or presentation.get("variationPresets") or []
+    result = {
         "visible": _normalize_bool(
             presentation.get("visible"),
             default=(str(status or "").strip().lower() == "active"),
@@ -323,6 +324,9 @@ def resolve_eval_workflow_presentation(
         "update_time": str(presentation.get("update_time") or presentation.get("updateTime") or "").strip(),
         "update_note": str(presentation.get("update_note") or presentation.get("updateNote") or "").strip(),
     }
+    if isinstance(variation_presets, list) and variation_presets:
+        result["variation_presets"] = variation_presets
+    return result
 
 
 def enrich_metadata_with_eval_workflow_presentation(
@@ -353,6 +357,7 @@ def enrich_metadata_with_eval_workflow_presentation(
             "release_time": str(presentation_override.get("release_time") or presentation_override.get("releaseTime") or "").strip() or None,
             "update_time": str(presentation_override.get("update_time") or presentation_override.get("updateTime") or "").strip() or None,
             "update_note": str(presentation_override.get("update_note") or presentation_override.get("updateNote") or "").strip() or None,
+            "variation_presets": presentation_override.get("variation_presets") or presentation_override.get("variationPresets"),
         }
         payload = {key: value for key, value in payload.items() if value is not None}
         if payload:

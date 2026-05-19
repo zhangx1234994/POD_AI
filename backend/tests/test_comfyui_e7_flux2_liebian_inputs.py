@@ -63,6 +63,7 @@ def test_e7_flux2_liebian_normalizes_custom_size_and_clamps_repaint_strength():
     assert overrides["21"]["denoise"] == 0.45
     assert overrides["12"]["width"] == 1000
     assert overrides["12"]["height"] == 1496
+    assert overrides["12"]["method"] == "fill / crop"
 
 
 def test_e7_flux2_liebian_accepts_decimal_repaint_strength_and_hits_business_anchor():

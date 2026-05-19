@@ -210,6 +210,10 @@ def test_20260512_native_eval_entries_are_visible_and_badged():
     assert _field_by_name(comfy, "profile").get("defaultValue") == "pattern_risk_routed_v4"
     assert _field_by_name(comfy, "reference_lock").get("defaultValue") == "0.42"
     assert _field_by_name(comfy, "color_lock").get("defaultValue") == "0.90"
+    presets = comfy["metadata"]["presentation"].get("variation_presets")
+    assert isinstance(presets, list)
+    assert [item.get("key") for item in presets] == ["default-high", "safe", "object-strong", "color-free"]
+    assert presets[0]["values"]["profile"] == "pattern_risk_routed_v4"
     assert "business_fission_gpt_image2_vl_v2" not in DEFAULT_EVAL_WORKFLOW_BY_ID
     assert "business_fission_comfyui_vl_colorlock_v2" not in DEFAULT_EVAL_WORKFLOW_BY_ID
     assert "business_fission_gpt_image2_vl_v2" in DEPRECATED_EVAL_WORKFLOW_IDS

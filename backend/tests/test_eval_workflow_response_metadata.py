@@ -43,6 +43,34 @@ def test_eval_workflow_response_exposes_business_catalog_role() -> None:
     }
 
 
+def test_eval_workflow_response_exposes_variation_presets_to_frontend() -> None:
+    payload = build_eval_workflow_response_metadata(
+        _workflow(
+            extra_metadata={
+                "presentation": {
+                    "variation_presets": [
+                        {
+                            "key": "safe",
+                            "label": "保守稳定",
+                            "description": "更像原图。",
+                            "values": {"bili": "30%", "reference_lock": "0.50"},
+                        }
+                    ]
+                }
+            }
+        )
+    )
+
+    assert payload["presentation"]["variationPresets"] == [
+        {
+            "key": "safe",
+            "label": "保守稳定",
+            "description": "更像原图。",
+            "values": {"bili": "30%", "reference_lock": "0.50"},
+        }
+    ]
+
+
 def test_eval_workflow_unlisted_active_defaults_to_candidate() -> None:
     payload = build_eval_workflow_response_metadata(
         _workflow(

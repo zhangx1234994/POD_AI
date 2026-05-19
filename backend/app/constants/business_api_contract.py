@@ -33,11 +33,63 @@ COMFYUI_FISSION_PROFILE_VALUES = [
     "pattern_default_v1",
 ]
 
+COMFYUI_FISSION_V4_PROFILE = "pattern_risk_routed_v4"
+
+COMFYUI_FISSION_VARIATION_PRESET_CONFIGS: list[dict[str, Any]] = [
+    {
+        "key": "default-high",
+        "label": "高幅度默认",
+        "description": "适合对象可分离的卡通、图标、童趣元素，变化更明显。",
+        "values": {
+            "bili": "80%",
+            "reference_lock": "0.42",
+            "color_lock": "0.90",
+            "profile": COMFYUI_FISSION_V4_PROFILE,
+            "profile_id": COMFYUI_FISSION_V4_PROFILE,
+        },
+    },
+    {
+        "key": "safe",
+        "label": "保守稳定",
+        "description": "更像原图，适合先看结构稳定性。",
+        "values": {
+            "bili": "30%",
+            "reference_lock": "0.50",
+            "color_lock": "1.00",
+            "profile": COMFYUI_FISSION_V4_PROFILE,
+            "profile_id": COMFYUI_FISSION_V4_PROFILE,
+        },
+    },
+    {
+        "key": "object-strong",
+        "label": "对象变化更强",
+        "description": "放开对象细节变化，适合找更明显的裂变方向。",
+        "values": {
+            "bili": "100%",
+            "reference_lock": "0.34",
+            "color_lock": "0.90",
+            "profile": COMFYUI_FISSION_V4_PROFILE,
+            "profile_id": COMFYUI_FISSION_V4_PROFILE,
+        },
+    },
+    {
+        "key": "color-free",
+        "label": "配色更自由",
+        "description": "结构仍保留，但允许配色稍微自由。",
+        "values": {
+            "bili": "80%",
+            "reference_lock": "0.42",
+            "color_lock": "0.75",
+            "profile": COMFYUI_FISSION_V4_PROFILE,
+            "profile_id": COMFYUI_FISSION_V4_PROFILE,
+        },
+    },
+]
+
 COMFYUI_FISSION_VARIATION_PRESET_VALUES = [
-    "default-high",
-    "safe",
-    "object-strong",
-    "color-free",
+    str(item.get("key"))
+    for item in COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
+    if item.get("key")
 ]
 
 FISSION_PATTERN_RISK_TYPE_VALUES = [
@@ -77,10 +129,15 @@ BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "size", "value": "1024x1024 / 1536x1024 / 1024x1536", "meaning": "常用 1K 正方形、横图、竖图。", "action": "业务明确尺寸时传入。"},
     {"field": "profile", "value": "pattern_risk_routed_v4", "meaning": "ComfyUI 智能风险路由，默认推荐。", "action": "常规裂变优先使用。"},
     {"field": "profile", "value": "pattern_color_lock_strict_v2", "meaning": "严格颜色锁定，更像原图但裂变感更弱。", "action": "颜色一致性要求高时使用。"},
-    {"field": "variation_preset", "value": "default-high", "meaning": "高幅度默认配置。", "action": "希望变化明显时使用。"},
-    {"field": "variation_preset", "value": "safe", "meaning": "保守稳定配置。", "action": "希望更接近原图时使用。"},
-    {"field": "variation_preset", "value": "object-strong", "meaning": "对象变化更强。", "action": "主体变化不足时使用。"},
-    {"field": "variation_preset", "value": "color-free", "meaning": "配色更自由。", "action": "颜色不需要强锁定时使用。"},
+    *[
+        {
+            "field": "variation_preset",
+            "value": str(item.get("key") or ""),
+            "meaning": f"{item.get('label') or item.get('key')}配置。",
+            "action": str(item.get("description") or ""),
+        }
+        for item in COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
+    ],
     {"field": "decision", "value": "pass", "meaning": "裂变评分通过。", "action": "可以接受当前生成图。"},
     {"field": "decision", "value": "needs_refission", "meaning": "建议二次裂变。", "action": "业务侧可重新提交裂变任务。"},
     {"field": "decision", "value": "reject", "meaning": "不建议使用。", "action": "拒绝当前结果或人工复核。"},
@@ -142,7 +199,7 @@ def business_api_enum_doc_tokens() -> list[str]:
 
 def business_api_contract_payload() -> dict[str, Any]:
     return {
-        "version": "2026-05-18",
+        "version": "2026-05-19",
         "source": "backend.app.constants.business_api_contract",
         "enumDocs": BUSINESS_API_ENUM_DOCS,
         "requiredEnumFields": REQUIRED_BUSINESS_API_ENUM_FIELDS,
@@ -153,6 +210,7 @@ def business_api_contract_payload() -> dict[str, Any]:
             "size": GPT_IMAGE2_SIZE_VALUES,
             "profile": COMFYUI_FISSION_PROFILE_VALUES,
             "variation_preset": COMFYUI_FISSION_VARIATION_PRESET_VALUES,
+            "variationPresetDetails": COMFYUI_FISSION_VARIATION_PRESET_CONFIGS,
             "pattern_risk_type": FISSION_PATTERN_RISK_TYPE_VALUES,
             "decision": FISSION_EVALUATE_DECISION_VALUES,
             "next_action.type": FISSION_EVALUATE_NEXT_ACTION_VALUES,

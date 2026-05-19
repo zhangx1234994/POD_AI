@@ -175,7 +175,7 @@ def test_flux_strong_hq_softstyle_fission_maps_uploaded_image_profile_and_bili()
     assert error is None
     assert overrides is not None
     assert overrides["10"] == {"image": "staged-fission.png"}
-    assert overrides["12"] == {"width": 1800, "height": 1800}
+    assert overrides["12"] == {"width": 1800, "height": 1800, "method": "fill / crop"}
     assert overrides["13"] == {
         "text1": "new pattern fission prompt",
         "text2": "dense repeating floral pattern with restrained fillers",
@@ -223,9 +223,43 @@ def test_flux_strong_hq_softstyle_fission_control_card_uses_ai_team_bili_mapping
 
     assert error is None
     assert overrides is not None
-    assert overrides["12"] == {"width": 2000, "height": 2000}
+    assert overrides["12"] == {"width": 2000, "height": 2000, "method": "fill / crop"}
     assert overrides["24"] == {"steps": 8, "denoise": 0.625}
     assert context.workflow.definition["_max_output_images"] == 1
+
+
+def test_flux_strong_hq_softstyle_fission_explicit_size_uses_target_canvas():
+    graph = {
+        "10": {"inputs": {"image": "old.png"}},
+        "12": {"inputs": {"width": ["11", 0], "height": ["11", 1], "method": "keep proportion"}},
+        "13": {"inputs": {"text1": "__PROMPT__", "text2": "__IMAGE_DESC__"}},
+        "20": {"inputs": {"weight": "__IPADAPTER_WEIGHT__"}},
+        "21": {"inputs": {"cfg": "__CFG__"}},
+        "22": {"inputs": {"noise_seed": "__SEED__"}},
+        "24": {"inputs": {"steps": "__STEPS__", "denoise": "__DENOISE__"}},
+        "27": {"inputs": {"batch_size": "__BATCH_SIZE__"}},
+        "30": {"inputs": {"method": "__COLORMATCH_METHOD__", "strength": "__COLORMATCH_STRENGTH__"}},
+        "31": {"inputs": {"filename_prefix": "05_FluxStrongHQSoftStyle"}},
+    }
+    context = _make_context("flux_strong_hq_softstyle_fission", graph)
+    adapter = ComfyUIExecutorAdapter()
+    adapter._upload_image_for_comfyui_loadimage = lambda **_: "staged-fission.png"  # type: ignore[method-assign]
+
+    overrides, error = adapter._build_flux_strong_hq_softstyle_fission_inputs(
+        {
+            "image_url": "https://example.com/pattern.png",
+            "bili": "80",
+            "width": 2925,
+            "height": 2009,
+            "profile": "pattern_risk_routed_v4",
+        },
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["12"] == {"width": 2920, "height": 2008, "method": "fill / crop"}
 
 
 def test_flux_strong_hq_softstyle_fission_colorlock_uses_v4_risk_route_and_controls():

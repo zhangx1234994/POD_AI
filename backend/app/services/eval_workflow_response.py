@@ -61,7 +61,7 @@ def merge_eval_workflow_metadata_update(
 def _camelize_presentation(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
-    return {
+    result = {
         "visible": payload.get("visible"),
         "sortOrder": payload.get("sort_order"),
         "categoryLabel": payload.get("category_label"),
@@ -77,6 +77,10 @@ def _camelize_presentation(payload: dict[str, Any] | None) -> dict[str, Any] | N
         "updateTime": payload.get("update_time"),
         "updateNote": payload.get("update_note"),
     }
+    variation_presets = payload.get("variation_presets")
+    if isinstance(variation_presets, list) and variation_presets:
+        result["variationPresets"] = variation_presets
+    return result
 
 
 def _camelize_usage(payload: dict[str, Any] | None) -> dict[str, Any] | None:

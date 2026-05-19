@@ -1,6 +1,6 @@
 # 中台业务 API 枚举与返回契约
 
-更新时间：2026-05-18
+更新时间：2026-05-19
 
 本文档是业务方直接调用 `/api/business/*` 时的枚举口径。后续对外接口、交付文档、管理端 API 开放页、测评端业务接入文档必须以本文档为准。
 
@@ -105,6 +105,8 @@
 | `safe` | 保守稳定：`bili=30%`、`reference_lock=0.50`、`color_lock=1.00`。 |
 | `object-strong` | 对象变化更强：`bili=100%`、`reference_lock=0.34`、`color_lock=0.90`。 |
 | `color-free` | 配色更自由：`bili=80%`、`reference_lock=0.42`、`color_lock=0.75`。 |
+
+预设只用于快速填充缺失参数；如果业务方显式传了 `bili`、`reference_lock`、`color_lock`、`profile`，以显式参数为准。
 
 `bili` 不是相似度，是重绘幅度。值越大变化越明显。当前只做文案建议，不做接口硬限制。
 

@@ -220,6 +220,8 @@ def test_business_delivery_contract_audit_exposes_enum_truth_source() -> None:
         "same_series",
         "creative_same_series",
     ]
+    assert contract["values"]["variationPresetDetails"][0]["key"] == "default-high"
+    assert contract["values"]["variationPresetDetails"][0]["values"]["profile"] == "pattern_risk_routed_v4"
     feature_checks = {item["key"]: item for item in payload["featureReleaseChecks"]}
     assert {
         "gpt-image2-fission",
@@ -231,6 +233,69 @@ def test_business_delivery_contract_audit_exposes_enum_truth_source() -> None:
     assert feature_checks["comfyui-colorlock-fission"]["mustCheck"]
     assert feature_checks["comfyui-colorlock-fission"]["evidence"]
     assert feature_checks["legacy-seamless-fission"]["status"] in {"doing", "todo", "done"}
+
+
+def test_business_fission_variation_preset_expands_only_missing_colorlock_params() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        variation_preset="safe",
+        bili="90%",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe={"primaryAbilityId": "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2"},
+    )
+
+    assert request.inputs["variation_preset"] == "safe"
+    assert request.inputs["bili"] == "90%"
+    assert request.inputs["reference_lock"] == "0.50"
+    assert request.inputs["color_lock"] == "1.00"
+    assert request.inputs["profile"] == "pattern_risk_routed_v4"
+    assert request.inputs["profile_id"] == "pattern_risk_routed_v4"
+
+
+def test_business_fission_variation_preset_does_not_leak_into_gpt_image2_recipe() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        variation_preset="safe",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe={"primaryAbilityId": "openai_gpt_image_2_edit"},
+    )
+
+    assert request.inputs["variation_preset"] == "safe"
+    assert "reference_lock" not in request.inputs
+    assert "color_lock" not in request.inputs
+    assert "profile" not in request.inputs
+
+
+def test_business_fission_variation_preset_does_not_override_explicit_profile_aliases() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        variation_preset="safe",
+        profile="pattern_color_lock_strict_v2",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe={"primaryAbilityId": "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2"},
+    )
+
+    assert request.inputs["profile"] == "pattern_color_lock_strict_v2"
+    assert "profile_id" not in request.inputs
+    assert request.inputs["reference_lock"] == "0.50"
 
 
 def test_admin_business_component_catalog_exposes_controlled_component_types() -> None:

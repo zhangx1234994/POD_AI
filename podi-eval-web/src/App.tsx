@@ -291,7 +291,14 @@ const LORA_BATCH_MAX_TASKS = 5000;
 const TOOL_MULTI_IMAGE_MAX = 50;
 const TOOL_HISTORY_PAGE_SIZE = 20;
 const COMFYUI_FISSION_V4_PROFILE = 'pattern_risk_routed_v4';
-const COMFYUI_FISSION_V4_PRESETS = [
+type FissionVariationPreset = {
+  key: string;
+  label: string;
+  desc: string;
+  values: Record<string, string>;
+};
+
+const DEFAULT_COMFYUI_FISSION_V4_PRESETS: FissionVariationPreset[] = [
   {
     key: 'default-high',
     label: '高幅度默认',
@@ -340,7 +347,7 @@ const COMFYUI_FISSION_V4_PRESETS = [
       profile_id: COMFYUI_FISSION_V4_PROFILE,
     },
   },
-] as const;
+];
 const TERMINAL_BATCH_STATUS = new Set(['succeeded', 'failed', 'stopped']);
 const COMFYUI_EXECUTOR_LABELS: Record<string, string> = {
   executor_comfyui_pattern_extract_158: '158 图形能力机',
@@ -624,6 +631,33 @@ const getWorkflowRoutingGovernance = (wf: EvalWorkflowVersion | null | undefined
   (wf?.routingGovernance && typeof wf.routingGovernance === 'object'
     ? wf.routingGovernance
     : null) as EvalWorkflowVersion['routingGovernance'];
+
+const normalizeFissionVariationPreset = (raw: unknown): FissionVariationPreset | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Record<string, unknown>;
+  const key = String(item.key || '').trim();
+  const valuesRaw = item.values;
+  if (!key || !valuesRaw || typeof valuesRaw !== 'object') return null;
+  const values: Record<string, string> = {};
+  for (const [field, value] of Object.entries(valuesRaw as Record<string, unknown>)) {
+    if (value !== null && value !== undefined && String(value).trim()) values[field] = String(value);
+  }
+  if (!Object.keys(values).length) return null;
+  return {
+    key,
+    label: String(item.label || key).trim(),
+    desc: String(item.description || item.desc || '').trim(),
+    values,
+  };
+};
+
+const getWorkflowVariationPresets = (wf: EvalWorkflowVersion | null | undefined): FissionVariationPreset[] => {
+  const raw = getWorkflowPresentation(wf)?.variationPresets;
+  const presets = Array.isArray(raw)
+    ? raw.map(normalizeFissionVariationPreset).filter((item): item is FissionVariationPreset => Boolean(item))
+    : [];
+  return presets.length ? presets : DEFAULT_COMFYUI_FISSION_V4_PRESETS;
+};
 
 const getWorkflowEvalExecution = (wf: EvalWorkflowVersion | null | undefined): Record<string, unknown> | null => {
   const metadata = wf?.metadata;
@@ -3018,13 +3052,16 @@ function ParamField({
 
 function ComfyuiFissionPresetPanel({
   current,
+  presets,
   onApply,
 }: {
   current: Record<string, string>;
+  presets: FissionVariationPreset[];
   onApply: (key: string, values: Record<string, string>) => void;
 }) {
+  if (!presets.length) return null;
   const activeKey =
-    COMFYUI_FISSION_V4_PRESETS.find((preset) =>
+    presets.find((preset) =>
       Object.entries(preset.values).every(([key, value]) => String(current[key] ?? '').trim() === value),
     )?.key || '';
 
@@ -3042,7 +3079,7 @@ function ComfyuiFissionPresetPanel({
         <Tag theme="primary" variant="light">ComfyUI 修补版</Tag>
       </div>
       <div className="podi-fission-presets__grid">
-        {COMFYUI_FISSION_V4_PRESETS.map((preset) => (
+        {presets.map((preset) => (
           <button
             key={preset.key}
             type="button"
@@ -4050,6 +4087,7 @@ export function App() {
     const text = `${selectedTool.workflow_id || ''} ${selectedTool.version || ''} ${execution?.version || ''} ${selectedTool.name || ''}`.toLowerCase();
     return text.includes('comfyui-vl-control-v2');
   }, [selectedTool]);
+  const selectedFissionVariationPresets = useMemo(() => getWorkflowVariationPresets(selectedTool), [selectedTool]);
   const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID;
   const isShengtuWorkflow = selectedTool?.workflow_id === SHENGTU_WORKFLOW_ID;
   const selectedModelValue = useMemo(() => {
@@ -8246,6 +8284,7 @@ export function App() {
                     {isComfyuiFissionControlV2 ? (
                       <ComfyuiFissionPresetPanel
                         current={formParams}
+                        presets={selectedFissionVariationPresets}
                         onApply={(key, values) => {
                           setFormParams((prev) => ({ ...prev, ...values, variation_preset: key }));
                           pushNotice('info', '已应用预设；你仍可以手动调整每个参数。');

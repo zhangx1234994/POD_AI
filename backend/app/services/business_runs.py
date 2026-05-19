@@ -55,6 +55,7 @@ from app.schemas.business import (
     BusinessDefaultApprovalDecisionRequest,
     BusinessRunCreateRequest,
 )
+from app.constants.business_api_contract import COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
 from app.services.api_key_selector import is_usable
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
@@ -78,6 +79,12 @@ VENDOR_KEY_CHECK_STALE_DAYS = 7
 RECIPE_EXECUTABLE_STEP_TYPES = {"ability_task", "comfyui_workflow", "vendor_api", "vl_analyze", "vl_analyze_image"}
 RECIPE_PASSIVE_STEP_TYPES = {"input_mapping", "output_mapping", "prompt_template", "note"}
 INTERNAL_NO_CHARGE_SOURCES = {"business-api-patrol"}
+COMFYUI_COLORLOCK_FISSION_ABILITY_IDS = {"comfyui_flux_strong_hq_softstyle_fission_colorlock_v2"}
+COMFYUI_FISSION_VARIATION_PRESET_VALUES_BY_KEY = {
+    str(item.get("key")): dict(item.get("values") or {})
+    for item in COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
+    if item.get("key") and isinstance(item.get("values"), dict)
+}
 INTERNAL_NO_CHARGE_TENANTS = {"podi-internal-patrol", "podi-internal-realtest"}
 INTERNAL_NO_CHARGE_CLIENTS = {"business-api-patrol", "codex-realtest"}
 NO_CHARGE_BILLING_MODES = {"no_charge", "no-charge", "free", "internal", "internal_patrol", "patrol", "test"}
@@ -4588,6 +4595,30 @@ class BusinessRunService:
         if keep_internal_n and "n" in inputs:
             inputs["n"] = 1
 
+    def _apply_fission_variation_preset(self, inputs: dict[str, Any], *, recipe: dict[str, Any] | None) -> None:
+        """Expand user-facing fission presets at the business-control layer.
+
+        The preset list lives in the public business API contract. This method only
+        materializes it for the ComfyUI color-lock fission line and never overrides
+        fields the caller explicitly supplied.
+        """
+
+        preset_key = self._first_string(inputs.get("variation_preset"), inputs.get("variationPreset"))
+        if not preset_key:
+            return
+        values = COMFYUI_FISSION_VARIATION_PRESET_VALUES_BY_KEY.get(preset_key)
+        if not values:
+            return
+        primary_ability_id = self._extract_primary_ability_id(recipe or {})
+        if primary_ability_id not in COMFYUI_COLORLOCK_FISSION_ABILITY_IDS:
+            return
+        profile_explicit = inputs.get("profile") not in (None, "", []) or inputs.get("profile_id") not in (None, "", [])
+        for key, value in values.items():
+            if key in {"profile", "profile_id"} and profile_explicit:
+                continue
+            if inputs.get(key) in (None, "", []):
+                inputs[key] = value
+
     def _build_ability_payload(
         self,
         *,
@@ -4697,6 +4728,7 @@ class BusinessRunService:
             if key not in inputs and key in flat_payload:
                 inputs[key] = flat_payload[key]
         if capability_key == "fission":
+            self._apply_fission_variation_preset(inputs, recipe=recipe)
             self._enforce_single_output_fission_inputs(inputs)
         if capability_key == "fission_evaluate":
             original_image = self._first_string(

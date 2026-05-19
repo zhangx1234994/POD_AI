@@ -31,6 +31,13 @@ export type EvalWorkflowVersion = {
     releaseTime?: string;
     updateTime?: string;
     updateNote?: string;
+    variationPresets?: Array<{
+      key: string;
+      label?: string;
+      description?: string;
+      desc?: string;
+      values?: Record<string, string | number | boolean | null>;
+    }>;
   } | null;
   usage?: {
     singleRunEnabled?: boolean;

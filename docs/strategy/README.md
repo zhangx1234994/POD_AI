@@ -10,6 +10,7 @@
 - `business-orchestration-workbench-v0.4-plan.md`：当前 v0.4 业务编排工作台产品化方案
 - `business-orchestration-workbench-v0.3-plan.md`：已完成的 v0.3 业务编排工作台与控制点去重阶段方案
 - `business-control-point-matrix-2026-05-19.md`：四个核心业务的控制点盘点矩阵，标明真源、兜底和后续去重动作
+- `control-point-and-file-index-2026-05-19.md`：按问题类型定位入口文件、真源文件和派生边界，避免一个问题修改多处或靠全局搜索排查
 - `business-control-plane-v0.2-plan.md`：已完成的 v0.2 业务控制面收敛版阶段方案
 - `business-orchestration-control-plane-v1.md`：控制权收敛、业务编排 DSL、可视化编排和 runId 排障规划背景，不直接作为执行清单
 - `mid-platform-gap-and-roadmap-2026-05-07.md`：中台目标差距分析、成熟度判断和后续分阶段开发方案

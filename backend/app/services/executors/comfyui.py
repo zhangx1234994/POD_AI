@@ -1532,8 +1532,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             overrides.setdefault("24", {})["batch_size"] = batch_size
             workflow_definition["_expected_image_count"] = batch_size
 
-        width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
-        height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        explicit_width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        explicit_height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        width = explicit_width
+        height = explicit_height
         if (width and not height) or (height and not width):
             try:
                 resp = httpx.get(image_url, timeout=30)
@@ -1553,6 +1555,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 node_inputs["width"] = width
             if height:
                 node_inputs["height"] = height
+            if explicit_width and explicit_height:
+                node_inputs["method"] = "fill / crop"
             overrides["12"] = node_inputs
 
         workflow_definition["output_node_ids"] = ["27"]
@@ -1675,8 +1679,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         overrides["27"] = {"batch_size": batch_size}
         overrides["30"] = {"method": colormatch_method, "strength": colormatch_strength_value}
 
-        width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
-        height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        explicit_width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        explicit_height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        width = explicit_width
+        height = explicit_height
         if (width and not height) or (height and not width):
             try:
                 resp = httpx.get(image_url, timeout=30)
@@ -1696,6 +1702,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 node_inputs["width"] = width
             if height:
                 node_inputs["height"] = height
+            if explicit_width and explicit_height:
+                node_inputs["method"] = "fill / crop"
             overrides["12"] = node_inputs
 
         workflow_definition["_max_output_images"] = 1
