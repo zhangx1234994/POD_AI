@@ -192,6 +192,7 @@ _BUSINESS_OPERATION_LABELS = {
     "fission_evaluate": "裂变质量评估",
     "outpaint": "扩图",
     "pattern_extract": "花纹提取",
+    "text_fission": "文字强化裂变",
 }
 
 
@@ -271,6 +272,8 @@ def _infer_eval_result_mode(schema: dict[str, Any] | None) -> str:
 
 
 def _business_variant_label(capability: BusinessCapability) -> str:
+    if capability.business_key == "text_fission":
+        return "文生图"
     label = str(capability.display_name or capability.version or "").strip()
     if "·" in label:
         return label.split("·", 1)[1].strip()
