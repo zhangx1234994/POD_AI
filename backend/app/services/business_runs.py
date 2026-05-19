@@ -1723,6 +1723,17 @@ class BusinessRunService:
                 )
             if not image_url:
                 raise HTTPException(status_code=400, detail="BUSINESS_IMAGE_URL_REQUIRED")
+            if business_key == "text_fission":
+                editable_prompt = self._first_string(
+                    payload_inputs.get("editable_prompt"),
+                    payload_inputs.get("editablePrompt"),
+                    payload.editable_prompt,
+                    payload.editablePrompt,
+                    payload.prompt,
+                    payload_inputs.get("prompt"),
+                )
+                if not editable_prompt:
+                    raise HTTPException(status_code=400, detail="TEXT_FISSION_PROMPT_REQUIRED")
 
             if capability is not None:
                 route_info = self._route_info(capability, selected_by=selected_by)

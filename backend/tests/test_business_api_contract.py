@@ -388,6 +388,31 @@ def test_text_fission_payload_requires_user_confirmed_prompt() -> None:
         raise AssertionError("expected TEXT_FISSION_PROMPT_REQUIRED")
 
 
+def test_business_text_fission_missing_prompt_does_not_create_queued_run() -> None:
+    request_id = "req_text_fission_missing_prompt_no_run"
+    with get_session() as session:
+        for row in session.execute(select(BusinessRun).where(BusinessRun.request_id == request_id)).scalars().all():
+            session.delete(row)
+        session.commit()
+
+    resp = client.post(
+        "/api/business/text-fission/runs",
+        json={
+            "imageUrl": "https://example.com/source.png",
+            "requestId": request_id,
+            "source": "contract-test",
+        },
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "TEXT_FISSION_PROMPT_REQUIRED"
+
+    with get_session() as session:
+        rows = session.execute(select(BusinessRun).where(BusinessRun.request_id == request_id)).scalars().all()
+    assert rows == []
+
+
 def test_admin_business_component_catalog_exposes_controlled_component_types() -> None:
     resp = client.get(
         "/api/admin/business/component-catalog",
