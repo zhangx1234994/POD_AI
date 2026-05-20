@@ -13,6 +13,7 @@ class ErrorPayload(BaseModel):
     errorCode: str
     message: str
     suggestion: str | None = None
+    source: dict[str, str] | None = None
 
 
 class ProviderInfo(BaseModel):

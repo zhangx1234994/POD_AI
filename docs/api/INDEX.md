@@ -19,6 +19,7 @@
 | 认证与用户 | `docs/api/modules/auth.md` |
 | 媒资与上传 | `docs/api/modules/media.md` |
 | 业务能力接口 | `docs/api/modules/business.md` |
+| 图编辑内部接入说明 | `docs/api/examples/image-edit-internal-handoff.md` |
 | 图裂变业务接入 Demo | `docs/api/examples/business-fission-quickstart.md` |
 | 图裂变三接口交付模板 | `docs/api/examples/fission-business-delivery/README.md` |
 | 图裂变交付契约图 | `docs/api/examples/fission-delivery-contract-2026-05-12.md` |

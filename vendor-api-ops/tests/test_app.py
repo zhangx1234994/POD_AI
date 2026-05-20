@@ -32,6 +32,7 @@ def test_provider_list_includes_expected_providers() -> None:
     assert body["service"] == "vendor-api-ops"
     providers = {item["provider"]: item for item in body["providers"]}
     assert providers["openai"]["requiresGlobalEgress"] is True
+    assert "batch_submit_poll" in providers["openai"]["executionModes"]
     assert providers["openai_compatible"]["requiresGlobalEgress"] is True
     assert providers["volcengine"]["supportedApiTypes"]
     assert providers["baidu"]["executionModes"] == ["sync_then_store"]
@@ -67,6 +68,29 @@ def test_service_token_required_for_sensitive_routes_when_configured(monkeypatch
 
         assert response.status_code == 200
         assert "items" in response.json()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_forbidden_client_returns_source_audit(monkeypatch, caplog) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("VENDOR_API_ALLOWED_CLIENTS", "127.0.0.1")
+    try:
+        client = TestClient(app)
+
+        with caplog.at_level("WARNING"):
+            response = client.get(
+                "/v1/keys",
+                headers={"user-agent": "pytest-agent", "x-forwarded-for": "203.0.113.10"},
+            )
+
+        assert response.status_code == 403
+        detail = response.json()["detail"]
+        assert detail["errorCode"] == "VENDOR_API_CLIENT_FORBIDDEN"
+        assert detail["source"]["clientHost"] == "testclient"
+        assert detail["source"]["path"] == "/v1/keys"
+        assert detail["source"]["xForwardedFor"] == "203.0.113.10"
+        assert "vendor-api-ops rejected non-allowlisted client" in caplog.text
     finally:
         get_settings.cache_clear()
 
@@ -474,6 +498,7 @@ def test_openai_image_edit_calls_real_contract(monkeypatch) -> None:
                 "mask_url": "https://example.com/mask.png",
                 "size": "1024x1024",
                 "quality": "auto",
+                "input_fidelity": "high",
             },
         },
     )
@@ -488,6 +513,7 @@ def test_openai_image_edit_calls_real_contract(monkeypatch) -> None:
     assert captured["data"]["model"] == "gpt-image-2"
     assert captured["data"]["prompt"] == "replace background"
     assert captured["data"]["size"] == "1024x1024"
+    assert "input_fidelity" not in captured["data"]
     assert [item[0] for item in captured["files"]] == ["image[]", "mask"]
 
 
@@ -543,6 +569,114 @@ def test_openai_image_generation_calls_real_contract(monkeypatch) -> None:
     }
     assert "images" not in captured["json"]
     assert "mask" not in captured["json"]
+
+
+def test_openai_image_generation_batch_submit_and_poll(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post("/v1/keys", json={"provider": "openai", "alias": "image-generate-batch", "key": "sk-test-image-batch"})
+    captured: dict[str, object] = {}
+
+    def fake_post(url, headers=None, json=None, data=None, files=None, timeout=None):
+        if url.endswith("/v1/files"):
+            captured["file_data"] = data
+            captured["file_tuple"] = files["file"]
+            return httpx.Response(
+                200,
+                json={"id": "file_batch_input"},
+                request=httpx.Request("POST", url),
+            )
+        if url.endswith("/v1/batches"):
+            captured["batch_json"] = json
+            return httpx.Response(
+                200,
+                json={
+                    "id": "batch_123",
+                    "status": "validating",
+                    "endpoint": "/v1/images/generations",
+                    "input_file_id": "file_batch_input",
+                },
+                request=httpx.Request("POST", url),
+            )
+        raise AssertionError(url)
+
+    def fake_get(url, headers=None, timeout=None):
+        if url.endswith("/v1/batches/batch_123"):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "batch_123",
+                    "status": "completed",
+                    "endpoint": "/v1/images/generations",
+                    "input_file_id": "file_batch_input",
+                    "output_file_id": "file_batch_output",
+                    "request_counts": {"total": 1, "completed": 1, "failed": 0},
+                },
+                request=httpx.Request("GET", url),
+            )
+        if url.endswith("/v1/files/file_batch_output/content"):
+            line = {
+                "custom_id": "case-001",
+                "response": {
+                    "status_code": 200,
+                    "body": {"data": [{"url": "https://example.com/batch-image.png", "revised_prompt": "batch revised"}]},
+                },
+                "error": None,
+            }
+            return httpx.Response(200, text=json.dumps(line), request=httpx.Request("GET", url))
+        raise AssertionError(url)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    submitted = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "openai",
+            "capabilityKey": "gpt_image_2_generate",
+            "model": "gpt-image-2",
+            "apiType": "image_generation",
+            "executionMode": "batch_submit_poll",
+            "inputs": {
+                "prompt": "low cost textile batch",
+                "size": "1024x1024",
+                "quality": "low",
+                "custom_id": "case-001",
+            },
+        },
+    )
+
+    assert submitted.status_code == 200
+    body = submitted.json()
+    assert body["status"] == "running"
+    assert body["vendorTaskId"] == "batch_123"
+    assert captured["file_data"] == {"purpose": "batch"}
+    file_name, file_bytes, file_type = captured["file_tuple"]
+    assert file_name == "openai_batch_input.jsonl"
+    assert file_type == "application/jsonl"
+    batch_line = json.loads(file_bytes.decode("utf-8").strip())
+    assert batch_line == {
+        "custom_id": "case-001",
+        "method": "POST",
+        "url": "/v1/images/generations",
+        "body": {
+            "model": "gpt-image-2",
+            "prompt": "low cost textile batch",
+            "size": "1024x1024",
+            "quality": "low",
+        },
+    }
+    assert captured["batch_json"]["input_file_id"] == "file_batch_input"
+    assert captured["batch_json"]["endpoint"] == "/v1/images/generations"
+    assert captured["batch_json"]["completion_window"] == "24h"
+
+    fetched = client.get(f"/v1/invocations/{body['vendorInvocationId']}")
+
+    assert fetched.status_code == 200
+    done = fetched.json()
+    assert done["status"] == "succeeded"
+    assert done["result"]["images"][0]["url"] == "https://example.com/batch-image.png"
+    assert done["result"]["images"][0]["metadata"]["customId"] == "case-001"
+    assert done["result"]["texts"] == ["batch revised"]
 
 
 def test_invocation_uses_request_credentials_without_persisting_secret(monkeypatch) -> None:

@@ -860,6 +860,23 @@ def _truth_capabilities_payload() -> dict:
                 default=True,
             ),
             _truth_capability(
+                business_key="image_edit",
+                version="gpt-image2-editor-v1",
+                primary_ability_id="openai_gpt_image_2_edit",
+                fields=[
+                    "imageUrl",
+                    "instruction",
+                    "editSkill",
+                    "selectionHints",
+                    "referenceImages",
+                    "maskUrl",
+                    "size",
+                    "quality",
+                    "output_format",
+                ],
+                default=True,
+            ),
+            _truth_capability(
                 business_key="outpaint",
                 version="v1",
                 primary_ability_id="ability_outpaint",
@@ -911,6 +928,20 @@ def _truth_openapi_payload(*, omit_field: str | None = None) -> dict:
             "/api/business/fission-evaluate/runs": schema(
                 common + ["originalImageUrl", "generatedImageUrl", "context"], required=["originalImageUrl", "generatedImageUrl"]
             ),
+            "/api/business/image-edit/runs": schema(
+                common
+                + [
+                    "instruction",
+                    "editSkill",
+                    "selectionHints",
+                    "referenceImages",
+                    "maskUrl",
+                    "size",
+                    "quality",
+                    "output_format",
+                ],
+                required=["imageUrl", "instruction"],
+            ),
             "/api/business/outpaint/runs": schema(
                 common + ["expand_left", "expand_right", "expand_top", "expand_bottom", "width", "height", "timeout"],
                 required=["imageUrl"],
@@ -928,6 +959,7 @@ def _truth_eval_catalog_payload(*, omit_workflow_id: str | None = None) -> list[
         ("business_fission_gpt_image2_vl_v1", "gpt-image2-vl-v2", ["url", "variation_strength", "quality", "size"]),
         ("business_fission_comfyui_vl_control_v1", "comfyui-vl-control-v2", ["url", "bili", "profile", "reference_lock", "color_lock"]),
         ("ability_fission_generated_image_evaluate_v1", "generated-image-eval-v1", ["original_image", "generated_image", "context"]),
+        ("business_image_edit_gpt_image2_editor_v1", "gpt-image2-editor-v1", ["url", "instruction", "editSkill", "size", "quality"]),
     ]
     return [
         {
@@ -1037,6 +1069,27 @@ def test_per_feature_release_audit_accepts_structured_checks() -> None:
         {
             "featureReleaseChecks": [
                 {
+                    "key": "image-edit-gpt-image2",
+                    "name": "图编辑 · GPT Image 2 通用改图",
+                    "entry": "/api/business/image-edit/runs",
+                    "status": "done",
+                    "mustCheck": ["技能", "尺寸", "mask", "参考图"],
+                    "releaseEvidence": "图编辑 runId",
+                    "currentRisk": "质量依赖用户标注",
+                    "summary": "结构化检查可用。",
+                    "blockers": [],
+                    "warnings": [],
+                    "evidence": [
+                        {
+                            "key": "contract",
+                            "title": "接口契约",
+                            "status": "done",
+                            "detail": "已覆盖",
+                            "action": "跑真实模型样例",
+                        }
+                    ],
+                },
+                {
                     "key": "gpt-image2-fission",
                     "name": "GPT Image 2 + VL 受控裂变",
                     "entry": "/api/business/fission/runs",
@@ -1125,7 +1178,7 @@ def test_per_feature_release_audit_accepts_structured_checks() -> None:
     )
 
     assert ok is True
-    assert "features=4" in detail
+    assert "features=5" in detail
     assert "attention=2" in detail
 
 

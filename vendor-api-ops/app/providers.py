@@ -38,7 +38,7 @@ PROVIDERS: dict[str, ProviderDefinition] = {
         requires_global_egress=True,
         supported_checks=("models",),
         supported_api_types=("image_generation", "image_edit", "chat_completions"),
-        execution_modes=("sync", "sync_then_store"),
+        execution_modes=("sync", "sync_then_store", "batch_submit_poll"),
     ),
     "openai_compatible": ProviderDefinition(
         provider="openai_compatible",

@@ -25,6 +25,7 @@ from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_logs import ability_log_service
 from app.services.integration_test import integration_test_service
 from app.services.api_key_selector import build_vendor_credentials
+from app.services.runtime_safety import log_background_worker_decision
 from app.services.task_id_codec import decode_task_id
 from app.services.task_status_contract import derive_ability_task_status
 from app.services.vendor_api_client import vendor_api_client
@@ -60,10 +61,15 @@ def _format_task_error(code: str, message: str) -> str:
 class AbilityTaskService:
     def __init__(self) -> None:
         settings = get_settings()
+        worker_decision = log_background_worker_decision("AbilityTaskService")
+        self._background_workers_enabled = worker_decision.enabled
+        self._executor: ThreadPoolExecutor | None = None
+        self._lock = threading.Lock()
+        if not self._background_workers_enabled:
+            return
         configured_workers = max(1, settings.ability_task_max_workers)
         max_workers = self._recommended_worker_pool_size(configured_workers)
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
-        self._lock = threading.Lock()
         self._cleanup_stale_running_tasks()
         self._start_cleanup_thread()
         self._start_finalize_thread()
@@ -75,6 +81,8 @@ class AbilityTaskService:
         )
 
     def enqueue(self, *, ability_id: str, payload: AbilityInvokeRequest, user: User | None) -> AbilityTask:
+        if self._executor is None:
+            raise HTTPException(status_code=503, detail="BACKGROUND_WORKERS_DISABLED")
         with get_session() as session:
             ability = session.get(Ability, ability_id)
             if not ability or ability.status != "active":

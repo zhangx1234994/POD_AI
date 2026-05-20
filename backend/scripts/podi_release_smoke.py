@@ -188,6 +188,14 @@ BUSINESS_TRUTH_SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "eval_version": "generated-image-eval-v1",
     },
     {
+        "key": "image_edit",
+        "version": "gpt-image2-editor-v1",
+        "label": "图编辑 · GPT Image 2 通用改图",
+        "submit_path": "/api/business/image-edit/runs",
+        "eval_workflow_id": "business_image_edit_gpt_image2_editor_v1",
+        "eval_version": "gpt-image2-editor-v1",
+    },
+    {
         "key": "outpaint",
         "version": None,
         "label": "扩图默认版",
@@ -227,6 +235,7 @@ PER_FEATURE_RELEASE_CHECKLIST_TOKENS = (
     "GPT Image 2 + VL 受控裂变",
     "ComfyUI 颜色锁定裂变",
     "裂变生成图评估",
+    "图编辑 · GPT Image 2 通用改图",
     "旧四方连续裂变",
     "String",
 )
@@ -1021,6 +1030,7 @@ def _validate_per_feature_release_audit(data: Any) -> tuple[bool, str]:
     if not isinstance(checks, list):
         return False, "featureReleaseChecks is missing or not a list"
     required_keys = {
+        "image-edit-gpt-image2",
         "gpt-image2-fission",
         "comfyui-colorlock-fission",
         "fission-score",

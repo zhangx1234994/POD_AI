@@ -62,6 +62,21 @@ def test_vl_workflow_routing_governance_uses_vendor_log_not_image_task() -> None
     assert governance["governanceStatus"] == "needs_vendor_governance"
 
 
+def test_image_edit_business_workflow_uses_business_run_tracking() -> None:
+    governance = resolve_eval_workflow_routing_governance(
+        workflow_id="business_image_edit_gpt_image2_editor_v1",
+        name="图编辑 · GPT Image 2 通用改图",
+        category="图编辑",
+        output_schema={"fields": [{"name": "imageUrls", "type": "array"}]},
+    )
+
+    assert governance["abilityType"] == "image_edit"
+    assert governance["entryMode"] == "business_api"
+    assert governance["executionSurface"] == "backend_orchestration"
+    assert governance["expectedTracking"] == "business_run"
+    assert governance["currentTrackingLabel"] == "已进入业务运行记录"
+
+
 def test_workflow_response_serializes_routing_governance_without_overloading_catalog_governance() -> None:
     governance = resolve_eval_workflow_routing_governance(
         workflow_id="7631838631375667200",

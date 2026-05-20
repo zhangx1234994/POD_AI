@@ -41,7 +41,8 @@
 | GPT Image 2 + VL 受控裂变 | `/api/business/fission/runs` | `imageUrl`、`variation_strength`、`quality`、`size`、`maskUrl`；一次请求固定一张图；尺寸默认跟原图；默认轻量返回。 | 已固化到交付目录 01 和管理端接口页。 |
 | ComfyUI 颜色锁定裂变 | `/api/business/fission/runs` | `bili` 是重绘幅度，不是相似度；`profile/variation_preset/reference_lock/color_lock` 映射正确；158/233 必须通过 workflow 节点兼容检查；OSS 回填正常。 | 已固化到交付目录 02；该新业务不依赖 233 缺失的 `String` 节点，继续保留双机路由。 |
 | 裂变生成图评估 | `/api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl`、`context`；`decision` 枚举可读；缺图返回 `VL_EVAL_IMAGE_REQUIRED`。 | 已固化到交付目录 03 和管理端接口页。 |
-| 文字强化裂变（文生图） | `/api/business/text-fission/prompts` + `/api/business/text-fission/runs` | 第一步返回可编辑提示词、识别文字清单和推荐路由；第二步必须显式传 `editable_prompt`，可选带回 `routeDecision/textItems`；不传宽高时跟随原图，手动传入时才覆盖；采样步数、强度、随机种子等内部参数不暴露给用户；默认查询轻量返回，调试版才返回步骤与路由；缺 `editable_prompt` 直接返回 `TEXT_FISSION_PROMPT_REQUIRED` 且不创建 queued 脏任务。 | 2026-05-19 已完成真实跑图、简版/调试版返回、缺参无副作用回归；文字密集图质量需工作流侧继续优化。 |
+| 文字强化裂变（文生图） | `/api/business/text-fission/prompts` + `/api/business/text-fission/runs` | 第一步返回可编辑提示词、识别文字清单和推荐路由；第二步必须显式传 `editable_prompt`，可选带回 `routeDecision/textItems`；不传宽高时跟随原图，手动传入时才覆盖；采样步数、强度、随机种子等内部参数不暴露给用户；默认查询轻量返回，调试版才返回步骤与路由；缺 `editable_prompt` 直接返回 `TEXT_FISSION_PROMPT_REQUIRED` 且不创建 queued 脏任务；第二步 `prompt_draft` 只能记录已确认草稿，不能再创建 VL 能力任务。 | 2026-05-19 已完成真实跑图、简版/调试版返回、缺参无副作用回归；线上验证 `runId=557ac9b903b84e8f9a2622aadf48c818`，步骤为 `prompt_draft=succeeded/confirmed`、`primary=succeeded`；文字密集图质量需工作流侧继续优化。 |
+| 图编辑 · GPT Image 2 通用改图 | `/api/business/image-edit/runs` + `/api/business/image-edit/component-config` | `imageUrl`、`instruction`、`editSkill`、`selectionHints`、`referenceImages`、`maskUrl`、`size`、`quality`；四个技能模式都要有明确错误码；默认一次一图；默认查询轻量返回，`detail=full` 才返回编译提示词和步骤详情；测评端必须是组件工作台，不是普通表单字段堆叠。 | 2026-05-19 已完成后端契约、业务版本 seed、测评端入口、管理端业务分类和 OpenAPI；上线前必须补真实 GPT Image 2 四模式样例与组件视觉走查。 |
 | 旧四方连续裂变 | Coze 工具箱 / 既有工作流 | `String`、`KSampler`、`SaveImage` 等节点存在；失败和回填可读；233/158 都必须通过 workflow compatibility。 | 纳入上线前 workflow compatibility 检查。2026-05-16 233 已恢复 `String` 并强制跑通旧四方/花纹扩图/FLUX2裂变+四方，允许恢复双机路由。 |
 
 ## 4. 当前 ComfyUI 节点差异策略
@@ -105,6 +106,7 @@
 - GPT Image 2 + VL 受控裂变
 - ComfyUI 颜色锁定裂变
 - 裂变生成图评估
+- 图编辑 · GPT Image 2 通用改图
 - 旧四方连续裂变
 
 后续新增业务能力时，必须同步补充后端审计规格、管理端展示、交付样例和 smoke 结构测试。

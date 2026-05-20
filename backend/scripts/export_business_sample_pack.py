@@ -486,7 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    args.limit = max(1, min(int(args.limit), 500))
+    args.limit = max(1, min(int(args.limit), 5000))
     args.scan_limit = max(args.limit, min(int(args.scan_limit), 10000))
     args.max_assets_per_kind = max(1, min(int(args.max_assets_per_kind), 50))
     try:

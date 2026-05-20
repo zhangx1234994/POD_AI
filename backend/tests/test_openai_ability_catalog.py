@@ -16,6 +16,22 @@ def test_openai_gpt_image_2_generation_ability_is_seeded() -> None:
     assert "transparent" not in {option["value"] for option in fields["background"]["options"]}
 
 
+def test_openai_gpt_image_2_batch_abilities_are_separate_from_realtime() -> None:
+    generation = OPENAI_IMAGE_ABILITIES["gpt_image_2_generate"]
+    generation_batch = OPENAI_IMAGE_ABILITIES["gpt_image_2_generate_batch"]
+    edit = OPENAI_IMAGE_ABILITIES["gpt_image_2_edit"]
+    edit_batch = OPENAI_IMAGE_ABILITIES["gpt_image_2_edit_batch"]
+
+    assert generation["metadata"]["execution_mode"] == "sync_then_store"
+    assert edit["metadata"]["execution_mode"] == "sync_then_store"
+    assert generation_batch["metadata"]["execution_mode"] == "batch_submit_poll"
+    assert edit_batch["metadata"]["execution_mode"] == "batch_submit_poll"
+    assert generation_batch["defaults"]["quality"] == "low"
+    assert edit_batch["defaults"]["quality"] == "low"
+    assert "batch_requests" in {item["name"] for item in generation_batch["input_schema"]["fields"]}
+    assert "batch_requests" in {item["name"] for item in edit_batch["input_schema"]["fields"]}
+
+
 def test_openai_gpt_image_2_edit_ability_keeps_mask_without_unsupported_fidelity() -> None:
     ability = OPENAI_IMAGE_ABILITIES["gpt_image_2_edit"]
     fields = {item["name"]: item for item in ability["input_schema"]["fields"]}

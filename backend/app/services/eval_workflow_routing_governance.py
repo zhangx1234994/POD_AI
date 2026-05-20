@@ -37,6 +37,8 @@ VL_WORKFLOW_IDS: set[str] = {
 BUSINESS_API_WORKFLOW_IDS: set[str] = {
     "business_fission_gpt_image2_vl_v1",
     "business_fission_comfyui_vl_control_v1",
+    "business_image_edit_gpt_image2_editor_v1",
+    "business_text_fission_qwen2512_text2img_user_editable_v1",
 }
 
 INTERNAL_TOOL_WORKFLOW_IDS: set[str] = {
@@ -74,6 +76,10 @@ def _ability_type_for(workflow_id: str, name: str, category: str) -> tuple[str, 
         return "image_ops", "图像原子处理"
     if "扩图" in text or "图延伸" in text or "outpaint" in text:
         return "outpaint", "扩图"
+    if "图编辑" in text or "图像编辑" in text or "改图" in text or "image_edit" in text or "editor" in text:
+        return "image_edit", "图编辑"
+    if "文字强化" in text or "文生图" in text or "text_fission" in text:
+        return "text_fission", "文字强化裂变"
     if "裂变" in text or "liebian" in text:
         return "fission", "图裂变"
     if "花纹提取" in text or "tiqu" in text:

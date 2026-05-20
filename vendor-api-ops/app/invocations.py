@@ -91,6 +91,13 @@ class InvocationStore:
             return None
         if record["provider"] == "kie" and record["status"] == "running" and record.get("vendor_task_id"):
             record = self._refresh_kie(record, credentials=credentials)
+        if (
+            record["provider"] in {"openai", "openai_compatible"}
+            and record["status"] == "running"
+            and record.get("vendor_task_id")
+            and record.get("execution_mode") == "batch_submit_poll"
+        ):
+            record = self._refresh_openai_batch(record, credentials=credentials)
         if record["provider"] == "volcengine" and record["status"] == "running" and record.get("vendor_task_id"):
             record = self._refresh_volcengine_video(record, credentials=credentials)
         return _response_from_record(record)
@@ -210,13 +217,20 @@ class InvocationStore:
         if provider == "kie":
             return self._submit_kie(record=record, request=request, execution_mode=execution_mode)
         if provider in {"openai", "openai_compatible"}:
-            return self._submit_openai(record=record, request=request, provider=provider)
+            return self._submit_openai(record=record, request=request, provider=provider, execution_mode=execution_mode)
         if provider == "volcengine":
             return self._submit_volcengine(record=record, request=request, execution_mode=execution_mode)
         if provider == "baidu":
             return self._submit_baidu(record=record, request=request)
 
-    def _submit_openai(self, *, record: dict[str, Any], request: InvocationRequest, provider: str) -> InvocationResponse:
+    def _submit_openai(
+        self,
+        *,
+        record: dict[str, Any],
+        request: InvocationRequest,
+        provider: str,
+        execution_mode: str,
+    ) -> InvocationResponse:
         key, key_limited = self._pick_runtime_key(
             provider=provider,
             model=request.model,
@@ -244,14 +258,24 @@ class InvocationStore:
 
         try:
             started = datetime.now(timezone.utc)
-            result, error, raw = openai_adapter.run(
-                settings=get_settings(),
-                provider=provider,
-                api_key=str(key["key"]),
-                request=request,
-            )
+            vendor_task_id: str | None = None
+            if execution_mode == "batch_submit_poll":
+                vendor_task_id, result, error, raw = openai_adapter.submit_batch(
+                    settings=get_settings(),
+                    provider=provider,
+                    api_key=str(key["key"]),
+                    request=request,
+                )
+                status = "running" if vendor_task_id and not error else "failed"
+            else:
+                result, error, raw = openai_adapter.run(
+                    settings=get_settings(),
+                    provider=provider,
+                    api_key=str(key["key"]),
+                    request=request,
+                )
+                status = "failed" if error else "succeeded"
             latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
-            status = "failed" if error else "succeeded"
             self._record_key_usage(key, error)
             vendor_storage.create_usage_log(
                 {
@@ -272,12 +296,68 @@ class InvocationStore:
             {
                 "status": status,
                 "success": 0 if error else 1,
+                "vendor_task_id": vendor_task_id,
                 "response": result.model_dump(mode="json", by_alias=True),
                 "error": error.model_dump(mode="json") if error else None,
-                "raw": raw,
+                "raw": {**raw, "executionMode": execution_mode},
             },
         )
         return _response_from_record(updated)
+
+    def _refresh_openai_batch(self, record: dict[str, Any], *, credentials: dict[str, Any] | None = None) -> dict[str, Any]:
+        provider = str(record.get("provider") or "openai")
+        key, key_limited = self._pick_runtime_key(
+            provider=provider,
+            model=record.get("model"),
+            credentials=credentials,
+            acquire_slot=True,
+        )
+        if not key or key_limited:
+            return record
+        try:
+            started = datetime.now(timezone.utc)
+            status, result, error, raw = openai_adapter.fetch_batch(
+                settings=get_settings(),
+                provider=provider,
+                api_key=str(key["key"]),
+                batch_id=str(record["vendor_task_id"]),
+            )
+            latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            vendor_storage.create_usage_log(
+                {
+                    "id": f"vlog_{uuid4().hex}",
+                    "invocation_id": record["id"],
+                    "provider": provider,
+                    "model": record.get("model"),
+                    "key_id": key.get("id"),
+                    "status": status,
+                    "error_code": error.code if error else None,
+                    "latency_ms": latency_ms,
+                }
+            )
+        finally:
+            self._release_runtime_key_slot(key)
+        if status in {"succeeded", "failed"}:
+            return vendor_storage.update_invocation(
+                record["id"],
+                {
+                    "status": status,
+                    "success": 1 if status == "succeeded" else 0,
+                    "response": result.model_dump(mode="json", by_alias=True),
+                    "error": error.model_dump(mode="json") if error else None,
+                    "raw": {**raw, "executionMode": record.get("execution_mode") or "batch_submit_poll"},
+                },
+            ) or record
+        return vendor_storage.update_invocation(
+            record["id"],
+            {
+                "status": "running",
+                "success": 1,
+                "response": result.model_dump(mode="json", by_alias=True),
+                "error": error.model_dump(mode="json") if error else None,
+                "raw": {**raw, "executionMode": record.get("execution_mode") or "batch_submit_poll"},
+            },
+        ) or record
 
     def _submit_volcengine(
         self,

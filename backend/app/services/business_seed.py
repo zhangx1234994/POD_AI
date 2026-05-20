@@ -96,6 +96,26 @@ GPT_IMAGE2_SIZE_OPTIONS: list[dict[str, str]] = [
     {"label": "9:16 竖图 2160x3840（高成本）", "value": "2160x3840"},
 ]
 
+IMAGE_EDIT_SKILL_OPTIONS: list[dict[str, str]] = [
+    {"label": "局部修改", "value": "local_modify"},
+    {"label": "参考图替换", "value": "reference_element_transfer"},
+    {"label": "删除修补", "value": "remove_inpaint"},
+    {"label": "补色校正", "value": "color_reference_correction"},
+]
+
+IMAGE_EDIT_QUALITY_OPTIONS: list[dict[str, str]] = [
+    {"label": "自动 auto", "value": "auto"},
+    {"label": "快速预览 preview", "value": "preview"},
+    {"label": "正式候选 production", "value": "production"},
+    {"label": "高质量 premium", "value": "premium"},
+]
+
+IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS: list[dict[str, str]] = [
+    {"label": "PNG", "value": "png"},
+    {"label": "JPEG", "value": "jpeg"},
+    {"label": "WebP", "value": "webp"},
+]
+
 
 GPT_IMAGE2_PATTERN_FISSION_VL_PROMPT = """你是一个专业的装饰图案、印花纹样、装饰插画与主视觉结构分析助手。
 
@@ -914,6 +934,79 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             ),
             "coze_strategy": "Coze 可只调用业务接口；测评端提供两步交互，业务方也可按 prompts -> runs 顺序接入。",
             "seed_version": 4,
+        },
+    ),
+    BusinessCapabilitySeed(
+        id="biz_image_edit_gpt_image2_editor_v1",
+        business_key="image_edit",
+        version="gpt-image2-editor-v1",
+        display_name="图编辑 · GPT Image 2 通用改图",
+        description="面向内部客户的组件型图编辑业务入口：前端组件收集主图、标注、参考图、蒙版和编辑指令，中台统一编译后调用 GPT Image 2 图片编辑能力。",
+        status="active",
+        is_default=True,
+        release_time=datetime(2026, 5, 19, 0, 0, 0),
+        recipe={
+            "mode": "single_ability_task",
+            "primaryAbilityId": "openai_gpt_image_2_edit",
+            "steps": [
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "GPT Image 2 图片编辑",
+                    "abilityId": "openai_gpt_image_2_edit",
+                }
+            ],
+            "promptCompiler": {
+                "id": "image_edit_prompt_compiler_v1",
+                "location": "backend.business_runs",
+            },
+            "vlAssist": {"enabled": False},
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "主图 URL Image URL", field_type="image", required=True, description="需要编辑的主图；测评端上传后会自动落 OSS。"),
+                _field("editSkill", "改图技能 Edit Skill", field_type="select", required=False, default="local_modify", description="首版统一叫改图，下方按技能分流。", options=IMAGE_EDIT_SKILL_OPTIONS),
+                _field("instruction", "编辑指令 Instruction", field_type="textarea", required=True, description="用业务语言描述想改哪里、改成什么；中台会结合标注和参考图编译。"),
+                _field("selectionHints", "区域标注 Selection Hints", field_type="json", required=False, description="点选、框选、圆选或手绘区域提示；只是告诉模型看哪里，不等同于蒙版。"),
+                _field("referenceImages", "参考图 Reference Images", field_type="json", required=False, description="参考图列表；参考图替换和补色校正必须提供。"),
+                _field("maskUrl", "蒙版 URL Mask URL", field_type="image", required=False, description="高级模式使用；只允许一个最终 alpha mask，尺寸必须和主图一致。"),
+                _field("size", "输出尺寸 Size", field_type="select", default="auto", description="默认跟随原图/自动；2K 以上高成本高耗时。高级自定义尺寸由后端按官方约束校验。", options=GPT_IMAGE2_SIZE_OPTIONS),
+                _field("quality", "质量档位 Quality", field_type="select", default="auto", description="preview=快速预览，production=正式候选，premium=高质量高成本。", options=IMAGE_EDIT_QUALITY_OPTIONS),
+                _field("output_format", "输出格式 Output Format", field_type="select", default="png", description="默认 PNG。", options=IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "image_edit",
+            "entry": "business-api",
+            "role": "gray_candidate",
+            "badge": "新版",
+            "isNewVersion": True,
+            "provider": "openai",
+            "model": "gpt-image-2",
+            "component": {
+                "type": "image-edit-workbench",
+                "hostedPath": "/image-edit",
+                "sourceAvailable": True,
+                "supportsMask": True,
+                "supportsReferenceImages": True,
+                "supportsSelectionHints": True,
+            },
+            "versionLine": _version_line(
+                "gpt-image2-editor",
+                "通用图编辑线",
+                "组件型改图入口，面向内部客户源码嵌入和中台托管两种接入方式。",
+                35,
+            ),
+            "versionLineage": _version_lineage(
+                decision="new_business_entry",
+                decision_note="图编辑是组件型业务，不合并到图裂变；首版只解决通用改图。",
+                change_summary="新增主图、标注、参考图、单蒙版和尺寸质量策略编译链路。",
+            ),
+            "quality_map": {"auto": "auto", "preview": "low", "production": "medium", "premium": "high"},
+            "coze_strategy": "Coze 可只调用图编辑业务 API；复杂画布交互由托管组件或业务方源码组件完成。",
+            "seed_version": 1,
         },
     ),
     BusinessCapabilitySeed(

@@ -92,6 +92,10 @@ class Settings(BaseSettings):
         env="DESKTOP_RELEASE_STORAGE_DIR",
     )
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
+    # Controls in-process background consumers/finalizers.
+    # "auto" keeps production/Linux hosts enabled, but prevents local macOS
+    # dev backends from consuming remote/production queues by accident.
+    background_workers_enabled: str = Field(default="auto", env="BACKGROUND_WORKERS_ENABLED")
     ability_task_max_workers: int = Field(default=24, env="ABILITY_TASK_MAX_WORKERS")
     # Legacy total worker cap for eval runs (kept for backward compatibility).
     # Keep this higher than the largest provider lane so eval can feed downstream

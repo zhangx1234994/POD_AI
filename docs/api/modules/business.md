@@ -22,12 +22,13 @@
 - 业务方登录账号调用时，只能使用账号绑定的 `tenantId/clientId`。如果传入其他业务方范围，会返回 `BUSINESS_USER_SCOPE_FORBIDDEN`；如果业务方账号没有绑定 `tenantId`，会返回 `BUSINESS_USER_SCOPE_REQUIRED`。
 - 管理员和服务 Token 可显式指定 `tenantId/clientId`，用于 Coze 工具箱、巡检脚本和后台代业务方提交。
 - 当前 API Key 先做身份识别和审计，不强制限流；业务方并发、日次数和额度限制仍优先走业务方配置。
+- 如果业务 API Key 已绑定 `tenantId/clientId`，业务方请求体里不要再传其他租户或客户端；否则会被业务范围校验拦截为 `BUSINESS_USER_SCOPE_FORBIDDEN`。这属于权限保护，不是生图链路异常。
 
 ---
 
 ## 0) 业务方快速接入口径
 
-业务方只需要理解三件事：
+业务方只需要理解四件事：
 
 1. 提交任务后保存 `runId`。
 2. 用 `runId` 轮询 `/api/business/runs/get`。
@@ -89,7 +90,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
     "status": "active",
     "tenantId": "tenant-a",
     "clientId": "open-api",
-    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract"],
+    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit"],
     "expireAt": "2026-12-31T23:59:59+08:00"
   }'
 ```
@@ -551,6 +552,13 @@ ComfyUI 颜色锁定版请求示例：
 
 用途：第二步，提交用户确认或修改后的提示词，创建 ComfyUI 文生图任务并返回 `runId`。这个接口不会再次调用 VL。
 
+链路说明：
+
+- 第一步 `/api/business/text-fission/prompts` 已经完成 VL 识别和提示词草稿生成。
+- 第二步只把用户确认后的 `editable_prompt`、`editable_negative_prompt`、可选 `routeDecision/textItems` 送入 ComfyUI 文生图能力。
+- 第二步返回的业务步骤中，`prompt_draft` 只作为“已确认草稿”的记录步骤，状态应为 `succeeded/confirmed`，不会再生成新的 VL 能力任务；真正出图步骤是 `primary`。
+- 如果看到第二步又出现新的 VL 排队任务，说明控制点回归，应按 Bug 处理。
+
 请求体：
 
 ```json
@@ -617,6 +625,228 @@ ComfyUI 颜色锁定版请求示例：
 - 一次请求固定生成 1 张图；如果需要多张，请提交多次，每次保存独立 `runId`。
 - `editable_prompt` 是唯一必须由用户确认的生成内容。前端/业务方可以展示第一步返回的草稿，但不要在第二步自动追加新的系统描述。
 - 不需要传 `bili/count/batch_size/n/steps/cfg/seed`；这些字段会被忽略或由中台默认策略控制，避免用户理解底层采样参数。
+- 2026-05-19 线上验证：`promptDraftId=2ddcef208ba6417eb19623149ee15860`，`runId=557ac9b903b84e8f9a2622aadf48c818`，`primary` 出图成功；同时验证了 API Key 绑定范围不匹配时会返回 `BUSINESS_USER_SCOPE_FORBIDDEN`。
+
+---
+
+## 3.2) 图编辑组件型业务
+
+业务名：图编辑。业务标识固定为 `image_edit`，当前默认版本为 `gpt-image2-editor-v1`。
+
+图编辑不是单个裸接口，而是“组件工作台 + 中台业务 API + GPT Image 2 编辑能力”的组合业务。业务方可以接入我们托管的组件，也可以拿源码组件放进自己的页面；两种方式都必须调用中台，不允许业务方直接调用 OpenAI。当前托管组件路径为 `/image-edit`，内部测试可直接打开该路径进入图编辑工作台。
+
+### GET /api/business/image-edit/component-config
+
+用途：组件启动时读取当前版本、可用技能、尺寸、质量档位、输出格式和页面文案。
+
+请求头：
+
+```http
+X-PODI-API-Key: podi_xxx
+```
+
+响应体：
+
+```json
+{
+  "businessKey": "image_edit",
+  "version": "gpt-image2-editor-v1",
+  "component": {
+    "type": "image-edit-workbench",
+    "hostedMode": true,
+    "sourceMode": true,
+    "auth": "business_api_key",
+    "title": "图编辑",
+    "defaultSkill": "local_modify",
+    "defaultSize": "auto",
+    "defaultQuality": "auto"
+  },
+  "skills": [
+    {
+      "value": "local_modify",
+      "label": "局部修改",
+      "description": "对主图中指定对象或区域做小范围改动。"
+    }
+  ],
+  "sizes": ["auto", "1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152", "3840x2160", "2160x3840"],
+  "customSizeConstraints": {
+    "max_edge": 3840,
+    "multiple_of": 16,
+    "max_aspect_ratio": 3,
+    "min_pixels": 655360,
+    "max_pixels": 8294400
+  },
+  "qualityLevels": ["auto", "preview", "production", "premium"],
+  "outputFormats": ["png", "jpeg", "webp"]
+}
+```
+
+### POST /api/business/image-edit/runs
+
+用途：提交一次图编辑任务。一次请求固定生成 1 张图；业务方需要多张图时请多次提交，每次保存独立 `runId`。
+
+最小请求：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/edit-input.png",
+  "editSkill": "local_modify",
+  "instruction": "把杯子上的蓝色花纹改成红色，保持杯子形状和背景不变",
+  "size": "auto",
+  "quality": "preview",
+  "output_format": "png",
+  "source": "partner-api",
+  "channel": "open-api",
+  "traceId": "trace-image-edit-001",
+  "requestId": "req-image-edit-001"
+}
+```
+
+带标注和参考图请求：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/edit-input.png",
+  "editSkill": "reference_element_transfer",
+  "instruction": "把主图中框选的花朵替换成参考图里的蓝色蝴蝶结，整体光影和视角保持一致",
+  "selectionHints": [
+    {
+      "type": "box",
+      "label": "要替换的花朵",
+      "x": 0.32,
+      "y": 0.41,
+      "width": 0.28,
+      "height": 0.24
+    }
+  ],
+  "referenceImages": [
+    {
+      "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/reference.png",
+      "role": "element_reference",
+      "label": "蓝色蝴蝶结参考"
+    }
+  ],
+  "size": "1536x1024",
+  "quality": "production",
+  "output_format": "png",
+  "traceId": "trace-image-edit-002"
+}
+```
+
+蒙版请求：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/edit-input.png",
+  "maskUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/edit-mask.png",
+  "editSkill": "remove_inpaint",
+  "instruction": "删除蒙版区域内的文字水印，并自然补齐背景纹理",
+  "size": "auto",
+  "quality": "preview",
+  "traceId": "trace-image-edit-mask-001"
+}
+```
+
+参数说明：
+
+| 参数 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `imageUrl` | 是 | 无 | 主图 URL，必须可被中台访问。 |
+| `instruction` | 是 | 无 | 用户编辑指令。组件可通过点选/框选/参考图辅助生成，但最终必须提交清晰文字。 |
+| `editSkill` | 否 | `local_modify` | 改图技能：`local_modify`、`reference_element_transfer`、`remove_inpaint`、`color_reference_correction`。 |
+| `selectionHints` | 否 | `[]` | 点选、框选、圆选等软标注，只用于告诉模型关注哪里。坐标建议使用 0-1 相对值。 |
+| `referenceImages` | 条件必填 | `[]` | 参考图列表；参考图替换、补色校正必须提供。 |
+| `maskUrl` | 否 | 空 | 单个最终合并后的 Alpha mask；尺寸必须和主图一致。 |
+| `size` | 否 | `auto` | 输出尺寸。可用预设或满足官方约束的自定义 `宽x高`。 |
+| `quality` | 否 | `auto` | `auto/preview/production/premium`，分别用于自动、快速预览、正式候选、高质量。 |
+| `output_format` | 否 | `png` | `png/jpeg/webp`。 |
+| `traceId/requestId` | 否 | 自动生成 | 业务排障字段，建议业务后端传入。 |
+
+尺寸约束：
+
+- 推荐默认 `auto`，页面显示为“跟随原图/自动”。
+- 常用预设：`1024x1024`、`1536x1024`、`1024x1536`、`2048x2048`、`2048x1152`、`3840x2160`、`2160x3840`。
+- 自定义尺寸：最大边不超过 3840；边长必须是 16 的倍数；长短边不超过 3:1；总像素在 655,360 到 8,294,400 之间。
+- 2K 和 4K 属于高成本/高耗时，组件默认不作为普通推荐。
+
+提交响应体：
+
+```json
+{
+  "runId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39",
+  "businessKey": "image_edit",
+  "version": "gpt-image2-editor-v1",
+  "status": "queued",
+  "taskStatus": "queued",
+  "traceId": "trace-image-edit-001",
+  "requestId": "req-image-edit-001",
+  "taskId": "t1.image_edit.default.xxx",
+  "retryAfterSeconds": 10,
+  "error": null,
+  "errorMessage": null,
+  "errorCode": null,
+  "debugUrl": null
+}
+```
+
+轮询请求：
+
+```json
+{
+  "runId": "提交接口返回的 runId"
+}
+```
+
+轮询成功响应重点字段：
+
+```json
+{
+  "runId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39",
+  "businessKey": "image_edit",
+  "version": "gpt-image2-editor-v1",
+  "status": "succeeded",
+  "taskStatus": "succeeded",
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/result/image-edit-output.png",
+  "imageUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/image-edit-output.png"],
+  "assets": [
+    {
+      "type": "image",
+      "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/result/image-edit-output.png",
+      "role": "output"
+    }
+  ],
+  "errorCode": null,
+  "errorMessage": null
+}
+```
+
+常见错误：
+
+- `BUSINESS_IMAGE_URL_REQUIRED`
+- `IMAGE_EDIT_INSTRUCTION_REQUIRED`
+- `IMAGE_EDIT_SKILL_INVALID`
+- `IMAGE_EDIT_REFERENCE_REQUIRED`
+- `IMAGE_EDIT_TARGET_REQUIRED`
+- `IMAGE_EDIT_SIZE_INVALID`
+- `IMAGE_EDIT_MASK_SIZE_MISMATCH`
+- `IMAGE_EDIT_MASK_ALPHA_REQUIRED`
+- `IMAGE_EDIT_QUALITY_INVALID`
+- `IMAGE_EDIT_OUTPUT_FORMAT_INVALID`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_RECIPE_INVALID`
+- `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
+- `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
+- `BUSINESS_API_KEY_INACTIVE`
+- `BUSINESS_API_KEY_EXPIRED`
+- `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED`
+- `BUSINESS_ABILITY_EXECUTION_FAILED`
+
+说明：
+
+- 默认查询返回轻量结果，不包含大段底层 payload。
+- 只有 `detail=full` 或调试场景才返回编译提示词、步骤详情、GPT Image 2 执行摘要、成本和错误详情。
+- 组件源码接入和托管组件接入必须使用同一套接口和同一套 API Key 权限。
+- 内部客户前端直连只限受控页面；更推荐业务方后端持有 API Key 调用中台。
 
 ---
 
@@ -1191,7 +1421,7 @@ OpenAPI 内每个工具都会枚举错误响应：
   "clientId": "coze-main",
   "displayName": "业务方 A · Coze 主工作流",
   "status": "active",
-  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint"],
+  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "image_edit"],
   "dailyRunLimit": 200,
   "dailyQuotaUnits": 200,
   "concurrentRunLimit": 5,
@@ -1205,7 +1435,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 - `tenantId` 是业务方 ID，必填。
 - `clientId` 是具体应用或工作流 ID，可为空；为空时表示该 `tenantId` 的默认策略。
-- `allowedBusinessKeys` 为空表示不限制业务能力；填值后只允许调用这些业务，例如 `fission/text_fission/fission_evaluate/outpaint`。
+- `allowedBusinessKeys` 为空表示不限制业务能力；填值后只允许调用这些业务，例如 `fission/text_fission/fission_evaluate/outpaint/image_edit`。
 - `dailyRunLimit` 限制当日提交次数。
 - `dailyQuotaUnits` 按估算额度限制当日用量；当前每次提交默认按 1 个额度估算，后续会接正式计费。
 - `concurrentRunLimit` 限制该业务方同时处于排队/运行中的任务数。
@@ -1261,7 +1491,7 @@ OpenAPI 内每个工具都会枚举错误响应：
   "status": "active",
   "tenantId": "tenant-a",
   "clientId": "open-api",
-  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint"],
+  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "image_edit"],
   "expireAt": "2026-12-31T23:59:59"
 }
 ```
@@ -1866,7 +2096,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 参数：
 
-- `business_key`：可选，`pattern_extract` / `fission` / `text_fission` / `fission_evaluate` / `outpaint`
+- `business_key`：可选，`pattern_extract` / `fission` / `text_fission` / `fission_evaluate` / `outpaint` / `image_edit`
 - `version`：可选，按业务版本过滤，例如 `v1`
 - `status`：可选，按运行状态过滤，常见值为 `queued` / `running` / `succeeded` / `failed` / `cancelled`
 - `billing_status`：可选，按计费状态过滤，取值为 `billable` / `unpriced` / `no_charge` / `billing_pending`
@@ -1919,7 +2149,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 参数：
 
 - `window_hours`：统计窗口，默认 24，范围 1-2160。
-- `business_key`：可选，`pattern_extract` / `fission` / `text_fission` / `fission_evaluate` / `outpaint`。
+- `business_key`：可选，`pattern_extract` / `fission` / `text_fission` / `fission_evaluate` / `outpaint` / `image_edit`。
 - `version`：可选，按业务版本过滤。
 - `status`：可选，按运行状态过滤。
 - `issue_category`：可选，按链路问题过滤，取值同 `/api/admin/business/runs`。

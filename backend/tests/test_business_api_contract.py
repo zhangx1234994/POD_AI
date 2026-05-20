@@ -27,6 +27,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
 
     assert "/api/business/pattern-extract/runs" in paths
     assert "/api/business/fission/runs" in paths
+    assert "/api/business/image-edit/runs" in paths
+    assert "/api/business/image-edit/component-config" in paths
     assert "/api/business/fission-evaluate/runs" in paths
     assert "/api/business/text-fission/prompts" in paths
     assert "/api/business/text-fission/runs" in paths
@@ -107,6 +109,47 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "border_or_layout",
         "unknown",
     ]
+    image_edit_schema = paths["/api/business/image-edit/runs"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert image_edit_schema["required"] == ["imageUrl", "instruction"]
+    assert {
+        "imageUrl",
+        "editSkill",
+        "instruction",
+        "selectionHints",
+        "referenceImages",
+        "maskUrl",
+        "maskMeta",
+        "size",
+        "quality",
+        "output_format",
+        "callbackUrl",
+        "traceId",
+        "requestId",
+        "tenantId",
+        "clientId",
+    }.issubset(image_edit_schema["properties"])
+    assert image_edit_schema["properties"]["editSkill"]["enum"] == [
+        "local_modify",
+        "reference_element_transfer",
+        "remove_inpaint",
+        "color_reference_correction",
+    ]
+    assert image_edit_schema["properties"]["quality"]["enum"] == ["auto", "preview", "production", "premium"]
+    assert image_edit_schema["properties"]["size"]["x-podi-presets"] == [
+        "auto",
+        "1024x1024",
+        "1536x1024",
+        "1024x1536",
+        "2048x2048",
+        "2048x1152",
+        "3840x2160",
+        "2160x3840",
+    ]
+    assert "enum" not in image_edit_schema["properties"]["size"]
+    assert image_edit_schema["properties"]["size"]["pattern"] == r"^(auto|[1-9]\d*x[1-9]\d*)$"
+    assert image_edit_schema["x-podi-custom-size-constraints"]["max_edge"] == 3840
     text_fission_prompt_schema = paths["/api/business/text-fission/prompts"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]
@@ -242,9 +285,44 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     text_fission_responses = paths["/api/business/text-fission/runs"]["post"]["responses"]
     assert "TEXT_FISSION_PROMPT_REQUIRED" in text_fission_responses["400"]["x-podi-errors"]
     assert "COMFYUI_PROMPT_REQUIRED" in text_fission_responses["400"]["x-podi-errors"]
+    image_edit_responses = paths["/api/business/image-edit/runs"]["post"]["responses"]
+    assert "IMAGE_EDIT_INSTRUCTION_REQUIRED" in image_edit_responses["400"]["x-podi-errors"]
+    assert "IMAGE_EDIT_REFERENCE_REQUIRED" in image_edit_responses["400"]["x-podi-errors"]
+    assert "IMAGE_EDIT_SIZE_INVALID" in image_edit_responses["400"]["x-podi-errors"]
+    assert "IMAGE_EDIT_MASK_SIZE_MISMATCH" in image_edit_responses["400"]["x-podi-errors"]
     prompt_responses = paths["/api/business/text-fission/prompts"]["post"]["responses"]
     assert "TEXT_FISSION_PROMPT_EMPTY" in prompt_responses["500"]["x-podi-errors"]
     assert "TEXT_FISSION_PROMPT_PREPARE_FAILED" in prompt_responses["500"]["x-podi-errors"]
+
+
+def test_image_edit_component_config_contract() -> None:
+    resp = client.get("/api/business/image-edit/component-config", headers={"x-real-ip": "127.0.0.1"})
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["businessKey"] == "image_edit"
+    assert data["defaultVersion"] == "gpt-image2-editor-v1"
+    assert data["component"]["type"] == "image-edit-workbench"
+    assert data["component"]["defaultSkill"] == "local_modify"
+    assert data["component"]["auth"] == "business_api_key"
+
+    skills = {item["value"]: item for item in data["skills"]}
+    assert set(skills) == {
+        "local_modify",
+        "reference_element_transfer",
+        "remove_inpaint",
+        "color_reference_correction",
+    }
+    assert skills["reference_element_transfer"]["requiresReference"] is True
+    assert skills["color_reference_correction"]["requiresReference"] is True
+    assert skills["remove_inpaint"]["requiresTargetHint"] is True
+
+    sizes = {item["value"] for item in data["sizes"]}
+    assert {"auto", "1024x1024", "2048x2048", "3840x2160", "2160x3840"}.issubset(sizes)
+    assert data["customSizeConstraints"]["max_edge"] == 3840
+    assert data["customSizeConstraints"]["multiple_of"] == 16
+    assert {item["value"] for item in data["qualityLevels"]} == {"auto", "preview", "production", "premium"}
+    assert data["outputFormats"] == ["png", "jpeg", "webp"]
 
 
 def test_business_delivery_contract_audit_exposes_enum_truth_source() -> None:
@@ -266,11 +344,14 @@ def test_business_delivery_contract_audit_exposes_enum_truth_source() -> None:
     assert contract["values"]["variationPresetDetails"][0]["values"]["profile"] == "pattern_risk_routed_v4"
     feature_checks = {item["key"]: item for item in payload["featureReleaseChecks"]}
     assert {
+        "image-edit-gpt-image2",
         "gpt-image2-fission",
         "comfyui-colorlock-fission",
         "fission-score",
         "legacy-seamless-fission",
     }.issubset(feature_checks)
+    assert feature_checks["image-edit-gpt-image2"]["entry"] == "/api/business/image-edit/runs"
+    assert "editSkill" in " ".join(feature_checks["image-edit-gpt-image2"]["mustCheck"])
     assert feature_checks["comfyui-colorlock-fission"]["entry"] == "/api/business/fission/runs"
     assert feature_checks["comfyui-colorlock-fission"]["mustCheck"]
     assert feature_checks["comfyui-colorlock-fission"]["evidence"]
@@ -434,6 +515,193 @@ def test_text_fission_payload_requires_user_confirmed_prompt() -> None:
         assert exc.detail == "TEXT_FISSION_PROMPT_REQUIRED"
     else:
         raise AssertionError("expected TEXT_FISSION_PROMPT_REQUIRED")
+
+
+def test_image_edit_payload_compiles_business_inputs_for_gpt_image2() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="把杯子改成蓝色陶瓷材质，保持背景不变。",
+        selectionHints=[{"type": "rect", "label": "杯子", "bbox": {"x": 10, "y": 20, "width": 100, "height": 160}}],
+        inputs={"input_fidelity": "high"},
+        quality="preview",
+        size="1024x1024",
+        output_format="png",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    assert request.inputs["image_url"] == "https://example.com/source.png"
+    assert request.inputs["model"] == "gpt-image-2"
+    assert request.inputs["quality"] == "low"
+    assert request.inputs["size"] == "1024x1024"
+    assert request.inputs["output_format"] == "png"
+    assert request.inputs["n"] == 1
+    assert "input_fidelity" not in request.inputs
+    assert "把杯子改成蓝色陶瓷材质" in request.inputs["prompt"]
+    assert "局部修改" in request.inputs["prompt"]
+    assert request.metadata["imageEditCompiler"]["editSkill"] == "local_modify"
+    assert request.metadata["imageEditCompiler"]["mappedQuality"] == "low"
+
+
+def test_image_edit_local_modify_filters_unreferenced_reference_images() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="把 @标注1 改成蓝色，不要使用参考图。",
+        selectionHints=[{"type": "rect", "label": "标注1", "bbox": {"x": 10, "y": 20, "width": 100, "height": 160}}],
+        referenceImages=[
+            {"url": "https://example.com/ref-1.png", "label": "参考图1"},
+            {"url": "https://example.com/ref-2.png", "label": "参考图2"},
+        ],
+    )
+
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    assert "image_urls" not in request.inputs
+    assert request.metadata["imageEditCompiler"]["referenceImages"] == []
+    assert len(request.metadata["imageEditCompiler"]["availableReferenceImages"]) == 2
+    assert request.metadata["imageEditCompiler"]["referenceFilterPolicy"] == "pass_only_explicitly_referenced"
+
+
+def test_image_edit_local_modify_keeps_explicit_reference_numbering() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="把 @标注1 改成 #2 的材质。",
+        selectionHints=[{"type": "point", "label": "标注1", "points": [{"x": 20, "y": 30}]}],
+        referenceImages=[
+            {"url": "https://example.com/ref-1.png", "label": "参考图1"},
+            {"url": "https://example.com/ref-2.png", "label": "参考图2"},
+            {"url": "https://example.com/ref-3.png", "label": "参考图3"},
+        ],
+    )
+
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    assert request.inputs["image_urls"] == ["https://example.com/ref-1.png", "https://example.com/ref-2.png"]
+    assert [item["url"] for item in request.metadata["imageEditCompiler"]["referenceImages"]] == [
+        "https://example.com/ref-1.png",
+        "https://example.com/ref-2.png",
+    ]
+
+
+def test_image_edit_reference_transfer_requires_reference_image() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="reference_element_transfer",
+        instruction="把包上的贴片换成参考图的花。",
+    )
+
+    try:
+        service._build_ability_payload(
+            capability_key="image_edit",
+            payload=payload,
+            image_url="https://example.com/source.png",
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "IMAGE_EDIT_REFERENCE_REQUIRED"
+    else:
+        raise AssertionError("expected IMAGE_EDIT_REFERENCE_REQUIRED")
+
+
+def test_image_edit_remove_inpaint_requires_target_hint_or_mask() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="remove_inpaint",
+        instruction="删除画面左侧的水印并补齐背景。",
+    )
+
+    try:
+        service._build_ability_payload(
+            capability_key="image_edit",
+            payload=payload,
+            image_url="https://example.com/source.png",
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "IMAGE_EDIT_TARGET_REQUIRED"
+    else:
+        raise AssertionError("expected IMAGE_EDIT_TARGET_REQUIRED")
+
+    masked_payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="remove_inpaint",
+        instruction="删除蒙版区域内的水印并补齐背景。",
+        mask_url="https://example.com/mask.png",
+    )
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=masked_payload,
+        image_url="https://example.com/source.png",
+    )
+    assert request.inputs["mask_url"] == "https://example.com/mask.png"
+    assert request.metadata["imageEditCompiler"]["editSkill"] == "remove_inpaint"
+
+
+def test_image_edit_custom_size_validation() -> None:
+    service = object.__new__(BusinessRunService)
+    good_payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="整体轻微提亮。",
+        size="1536x1024",
+    )
+    good = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=good_payload,
+        image_url="https://example.com/source.png",
+    )
+    assert good.inputs["size"] == "1536x1024"
+
+    custom_payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="整体轻微提亮。",
+        size="2928x2000",
+    )
+    custom = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=custom_payload,
+        image_url="https://example.com/source.png",
+    )
+    assert custom.inputs["size"] == "2928x2000"
+
+    bad_payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="整体轻微提亮。",
+        size="2001x2000",
+    )
+    try:
+        service._build_ability_payload(
+            capability_key="image_edit",
+            payload=bad_payload,
+            image_url="https://example.com/source.png",
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "IMAGE_EDIT_SIZE_INVALID"
+    else:
+        raise AssertionError("expected IMAGE_EDIT_SIZE_INVALID")
 
 
 def test_text_fission_prompt_text_content_list_is_display_safe() -> None:
@@ -1295,9 +1563,10 @@ def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch)
 
         def get_run(self, *, run_id, user):
             assert user is not None
-            assert run_id == "run_direct_fission"
+            assert run_id in {"run_direct_fission", "run_direct_image_edit"}
+            business_key = run_id.removeprefix("run_direct_")
             return _run_payload(
-                business_key="fission",
+                business_key=business_key,
                 payload=type(
                     "Payload",
                     (),
@@ -1362,6 +1631,20 @@ def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch)
     assert query_body["retryAfterSeconds"] == 10
     assert "routeInfo" not in query_body
     assert "steps" not in query_body
+
+    image_edit_query = client.post(
+        "/api/business/runs/get",
+        json={"runId": "run_direct_image_edit"},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert image_edit_query.status_code == 200
+    image_edit_body = image_edit_query.json()
+    assert image_edit_body["runId"] == "run_direct_image_edit"
+    assert image_edit_body["status"] == "queued"
+    assert image_edit_body["expectedImageCount"] == 1
+    assert "routeInfo" not in image_edit_body
+    assert "steps" not in image_edit_body
 
     full_query = client.post(
         "/api/business/runs/get",

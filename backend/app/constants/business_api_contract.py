@@ -26,6 +26,27 @@ GPT_IMAGE2_SIZE_VALUES = [
     "2160x3840",
 ]
 
+IMAGE_EDIT_SKILL_VALUES = [
+    "local_modify",
+    "reference_element_transfer",
+    "remove_inpaint",
+    "color_reference_correction",
+]
+
+IMAGE_EDIT_QUALITY_VALUES = ["auto", "preview", "production", "premium"]
+
+IMAGE_EDIT_SIZE_VALUES = GPT_IMAGE2_SIZE_VALUES
+
+IMAGE_EDIT_OUTPUT_FORMAT_VALUES = ["png", "jpeg", "webp"]
+
+IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS = {
+    "max_edge": 3840,
+    "multiple_of": 16,
+    "max_aspect_ratio": 3,
+    "min_pixels": 655_360,
+    "max_pixels": 8_294_400,
+}
+
 COMFYUI_FISSION_PROFILE_VALUES = [
     "pattern_risk_routed_v4",
     "pattern_color_lock_v2",
@@ -113,7 +134,7 @@ BUSINESS_CALLBACK_STATUS_VALUES = ["pending", "succeeded", "failed", "skipped"]
 BUSINESS_API_ENDPOINT_KIND_VALUES = ["submit", "poll", "callback"]
 BUSINESS_API_STATUS_GROUP_VALUES = ["success", "error"]
 BUSINESS_API_USAGE_ISSUE_CODES = ["HAS_ERROR", "POLL_WITHOUT_SUBMIT", "POLLING_TOO_FREQUENT"]
-BUSINESS_KEY_VALUES = ["pattern_extract", "fission", "text_fission", "fission_evaluate", "outpaint"]
+BUSINESS_KEY_VALUES = ["pattern_extract", "fission", "text_fission", "fission_evaluate", "outpaint", "image_edit"]
 
 BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "status / taskStatus", "value": "queued", "meaning": "已进入中台队列，还没开始执行。", "action": "按 retryAfterSeconds 继续查询。"},
@@ -121,12 +142,24 @@ BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "status / taskStatus", "value": "succeeded", "meaning": "任务成功，结果字段可读取。", "action": "读取 imageUrls / videoUrls / texts / resultPayload。"},
     {"field": "status / taskStatus", "value": "failed", "meaning": "任务失败或无法继续。", "action": "读取 errorCode / errorMessage，并按错误码处理。"},
     {"field": "businessKey", "value": "text_fission", "meaning": "文字强化裂变，两步式：先生成可编辑提示词，再提交文生图。", "action": "业务方先调 prompts，再把确认后的 editable_prompt 传给 runs。"},
+    {"field": "businessKey", "value": "image_edit", "meaning": "图编辑业务，前端组件收集主图、标注、参考图和编辑指令，中台编译后调用 GPT Image 2。", "action": "提交 /api/business/image-edit/runs，拿 runId 轮询 /api/business/runs/get。"},
+    {"field": "editSkill", "value": "local_modify", "meaning": "局部修改：对主图中指定对象或区域做小范围改动。", "action": "必须提供编辑指令；建议同时提供点选、框选或蒙版。"},
+    {"field": "editSkill", "value": "reference_element_transfer", "meaning": "参考图替换：用参考图的对象、材质或风格替换主图指定区域。", "action": "必须提供 referenceImages。"},
+    {"field": "editSkill", "value": "remove_inpaint", "meaning": "删除修补：删除指定对象并补齐背景。", "action": "必须提供编辑指令；建议同时提供点选、框选或蒙版。"},
+    {"field": "editSkill", "value": "color_reference_correction", "meaning": "补色校正：按参考图修正主图局部或整体颜色关系。", "action": "必须提供 referenceImages。"},
     {"field": "variation_strength", "value": "conservative", "meaning": "GPT Image 2 保守裂变，更接近原图。", "action": "希望变化小的时候使用。"},
     {"field": "variation_strength", "value": "same_series", "meaning": "GPT Image 2 同系列裂变，默认推荐。", "action": "常规业务优先使用。"},
     {"field": "variation_strength", "value": "creative_same_series", "meaning": "GPT Image 2 更开放的同系列变化。", "action": "需要更明显变化时使用。"},
     {"field": "quality", "value": "preview", "meaning": "快速预览档。", "action": "适合内部测试和批量初筛。"},
     {"field": "quality", "value": "candidate", "meaning": "候选质量档。", "action": "适合交给业务方看效果。"},
     {"field": "quality", "value": "premium", "meaning": "高质量档。", "action": "成本更高，正式精品样本再用。"},
+    {"field": "image_edit.quality", "value": "auto", "meaning": "图编辑自动档，由模型选择质量和耗时。", "action": "普通内部测试可用。"},
+    {"field": "image_edit.quality", "value": "preview", "meaning": "图编辑快速预览档，映射 OpenAI low。", "action": "批量初筛优先使用。"},
+    {"field": "image_edit.quality", "value": "production", "meaning": "图编辑正式候选档，映射 OpenAI medium。", "action": "给业务看效果优先使用。"},
+    {"field": "image_edit.quality", "value": "premium", "meaning": "图编辑高质量档，映射 OpenAI high。", "action": "成本更高，只在精品样本使用。"},
+    {"field": "image_edit.output_format", "value": "png", "meaning": "图编辑默认输出 PNG。", "action": "需要透明度或保真时优先使用。"},
+    {"field": "image_edit.output_format", "value": "jpeg", "meaning": "图编辑输出 JPEG。", "action": "需要更小文件且不需要透明通道时使用。"},
+    {"field": "image_edit.output_format", "value": "webp", "meaning": "图编辑输出 WebP。", "action": "内部页面或支持 WebP 的业务可使用。"},
     {"field": "size", "value": "auto", "meaning": "默认按原图尺寸和比例处理。", "action": "不确定尺寸时优先使用。"},
     {"field": "size", "value": "1024x1024 / 1536x1024 / 1024x1536", "meaning": "常用 1K 正方形、横图、竖图。", "action": "业务明确尺寸时传入。"},
     {"field": "profile", "value": "pattern_risk_routed_v4", "meaning": "ComfyUI 智能风险路由，默认推荐。", "action": "常规裂变优先使用。"},
@@ -157,6 +190,8 @@ REQUIRED_BUSINESS_API_ENUM_FIELDS = [
     "status / taskStatus",
     "variation_strength",
     "quality",
+    "editSkill",
+    "image_edit.quality",
     "size",
     "profile",
     "variation_preset",
@@ -190,6 +225,22 @@ def business_api_enum_doc_tokens() -> list[str]:
         "TEXT_FISSION_PROMPT_PREPARE_FAILED",
         "COMFYUI_QUEUE_FULL",
         "POLLING_TOO_FREQUENT",
+        "gpt-image2-editor-v1",
+        "image_edit",
+        "local_modify",
+        "reference_element_transfer",
+        "remove_inpaint",
+        "color_reference_correction",
+        "IMAGE_EDIT_INSTRUCTION_REQUIRED",
+        "IMAGE_EDIT_SKILL_INVALID",
+        "IMAGE_EDIT_REFERENCE_REQUIRED",
+        "IMAGE_EDIT_TARGET_REQUIRED",
+        "IMAGE_EDIT_SIZE_INVALID",
+        "IMAGE_EDIT_MASK_SIZE_MISMATCH",
+        "IMAGE_EDIT_MASK_ALPHA_REQUIRED",
+        "IMAGE_EDIT_QUALITY_INVALID",
+        "IMAGE_EDIT_OUTPUT_FORMAT_INVALID",
+        "image_edit.output_format",
     ]:
         add_token(token)
     for item in BUSINESS_API_ENUM_DOCS:
@@ -216,6 +267,11 @@ def business_api_contract_payload() -> dict[str, Any]:
             "variation_strength": GPT_IMAGE2_VARIATION_STRENGTH_VALUES,
             "quality": GPT_IMAGE2_QUALITY_VALUES,
             "size": GPT_IMAGE2_SIZE_VALUES,
+            "imageEditSkill": IMAGE_EDIT_SKILL_VALUES,
+            "imageEditQuality": IMAGE_EDIT_QUALITY_VALUES,
+            "imageEditSize": IMAGE_EDIT_SIZE_VALUES,
+            "imageEditOutputFormat": IMAGE_EDIT_OUTPUT_FORMAT_VALUES,
+            "imageEditCustomSizeConstraints": IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
             "profile": COMFYUI_FISSION_PROFILE_VALUES,
             "variation_preset": COMFYUI_FISSION_VARIATION_PRESET_VALUES,
             "variationPresetDetails": COMFYUI_FISSION_VARIATION_PRESET_CONFIGS,

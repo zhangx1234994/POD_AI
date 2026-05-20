@@ -99,8 +99,9 @@ curl -sS -X POST http://127.0.0.1:8310/v1/invocations \
   }'
 ```
 
-`sync`/`sync_then_store` returns `succeeded`; `async_submit_poll` and
-`callback` return `running` with `vendorInvocationId` and `vendorTaskId`.
+`sync`/`sync_then_store` returns `succeeded`; `async_submit_poll`,
+`batch_submit_poll`, and `callback` return `running` with
+`vendorInvocationId` and `vendorTaskId`.
 Backend stores the platform task and polls this service, not the vendor
 directly.
 
@@ -138,11 +139,39 @@ OpenAI image generation/editing now uses the real Images API style contract:
 
 - Generation: `POST /v1/images/generations`
 - Edit: `POST /v1/images/edits`
+- Batch: `executionMode=batch_submit_poll` submits `/v1/batches` and polls the
+  returned batch id. This is for offline regression or large internal batches,
+  not realtime user editing. OpenAI's Batch API has lower unit cost but uses a
+  24h completion window.
 - Edit inputs support `images: [{"image_url": "..."}]` and optional `mask: {"image_url": "..."}`
 - GPT Image 2 abilities currently exposed by backend:
   - `openai_gpt_image_2_generate`: text to image.
   - `openai_gpt_image_2_edit`: image edit with optional mask and reference images.
 - GPT Image 2 does not expose transparent background or `input_fidelity` in our form schema; unsupported parameters should not be forwarded.
+
+Batch invocation example:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8310/v1/invocations \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "provider":"openai",
+    "capabilityKey":"gpt_image_2_generate",
+    "model":"gpt-image-2",
+    "apiType":"image_generation",
+    "executionMode":"batch_submit_poll",
+    "inputs":{
+      "prompt":"low cost textile batch",
+      "size":"1024x1024",
+      "quality":"low",
+      "custom_id":"case-001"
+    }
+  }'
+```
+
+For multiple items, pass `inputs.batch_requests` as an array. Each item may
+provide `custom_id` and normal image parameters; the batch output is mapped
+back by `custom_id`.
 
 正常生产调用由 backend 随请求传入 OpenAI Key。`OPENAI_API_KEY` 和
 `OPENAI_COMPATIBLE_API_KEY` 只作为本地联调或旧调用兼容兜底。

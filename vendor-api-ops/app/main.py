@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 
 from app.config import get_settings
@@ -23,6 +25,25 @@ from app.schemas import (
 )
 
 app = FastAPI(title="PODI Vendor API Ops", version="0.1.0")
+logger = logging.getLogger(__name__)
+
+
+def _request_source(request: Request) -> dict[str, str]:
+    source: dict[str, str] = {
+        "clientHost": request.client.host if request.client else "",
+        "method": request.method,
+        "path": request.url.path,
+    }
+    user_agent = request.headers.get("user-agent")
+    forwarded_for = request.headers.get("x-forwarded-for")
+    real_ip = request.headers.get("x-real-ip")
+    if user_agent:
+        source["userAgent"] = user_agent[:160]
+    if forwarded_for:
+        source["xForwardedFor"] = forwarded_for[:160]
+    if real_ip:
+        source["xRealIp"] = real_ip[:80]
+    return source
 
 
 def require_allowed_client(request: Request) -> None:
@@ -31,12 +52,15 @@ def require_allowed_client(request: Request) -> None:
     allowed = {item.strip() for item in settings.allowed_clients.split(",") if item.strip()}
     if client_host in allowed:
         return
+    source = _request_source(request)
+    logger.warning("vendor-api-ops rejected non-allowlisted client: %s", source)
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=ErrorPayload(
             errorCode="VENDOR_API_CLIENT_FORBIDDEN",
             message="vendor-api-ops only accepts requests from backend allowlisted hosts.",
             suggestion="Route calls through the backend service or add the backend host to VENDOR_API_ALLOWED_CLIENTS.",
+            source=source,
         ).model_dump(),
     )
 

@@ -6,6 +6,7 @@ from app.services.eval_seed import (
     PROMPT_OUTPUT_WORKFLOW_IDS,
 )
 from app.services.eval_workflow_presentation import resolve_eval_workflow_presentation
+from app.routers.evals_public import _BUSINESS_OPERATION_LABELS
 
 
 def _field_by_name(workflow: dict, name: str) -> dict:
@@ -252,6 +253,35 @@ def test_text_fission_user_editable_eval_entry_is_two_step_business_api():
     assert _field_by_name(workflow, "height").get("defaultValue") == ""
     assert "跟随原图高度" in _field_by_name(workflow, "height").get("description", "")
     assert workflow["metadata"]["presentation"]["supports_batch"] is False
+
+
+def test_image_edit_eval_entry_is_component_business_api():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_image_edit_gpt_image2_editor_v1"]
+
+    assert workflow["category"] == "图编辑"
+    assert workflow["name"] == "图编辑 · GPT Image 2 通用改图"
+    assert workflow["metadata"]["eval_execution"] == {
+        "mode": "business_run",
+        "business_key": "image_edit",
+        "version": "gpt-image2-editor-v1",
+    }
+    fields = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [field.get("name") for field in fields if isinstance(field, dict)]
+    assert {
+        "url",
+        "editSkill",
+        "instruction",
+        "selectionHints",
+        "referenceImages",
+        "maskUrl",
+        "size",
+        "quality",
+        "output_format",
+    }.issubset(names)
+    assert _field_by_name(workflow, "editSkill").get("defaultValue") == "local_modify"
+    assert _field_by_name(workflow, "size").get("defaultValue") == "auto"
+    assert "组件工作台" in workflow["metadata"]["presentation"]["badges"]
+    assert _BUSINESS_OPERATION_LABELS["image_edit"] == "图编辑"
 
 
 def test_eval_presentation_keeps_new_as_badge_not_name():

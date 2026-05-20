@@ -1,6 +1,7 @@
 export const evalBusinessCategoryOrder = [
   '花纹提取',
   '图裂变',
+  '图编辑',
   '扩图',
   '连续图',
   '抠图',
@@ -19,6 +20,7 @@ export const normalizeEvalBusinessCategory = (category: string | undefined | nul
   if (c === '花纹提取类' || c === 'pattern_extract' || c === 'pattern' || c === 'pattern-extract') return '花纹提取';
   if (c === '图延伸类' || c === 'image_extend' || c === 'image_extension' || c === '图扩展' || c === '图延伸') return '扩图';
   if (c === '四方/两方连续图类' || c === 'continuous' || c === 'continuous_pattern' || c === 'lianxu') return '连续图';
+  if (c === 'image_edit' || c === 'image-editor' || c === 'image_editor' || c === '图像编辑' || c === '改图') return '图编辑';
   if (c === 'image_fission' || c === 'fission' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') {
     return '图裂变';
   }

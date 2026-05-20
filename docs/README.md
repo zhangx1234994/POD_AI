@@ -108,6 +108,7 @@
 | 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
 | 业务主线契约 | `docs/standards/business-mainline-contract.md` | 固定业务入口、runId、业务版本、处理步骤、回填、回调、计费和页面动线 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
+| 图编辑内部接入说明 | `docs/api/examples/image-edit-internal-handoff.md` | 图编辑组件型业务的 API Key、提交、轮询、参数、错误和封版检查 |
 | 图裂变交付契约图 | `docs/api/examples/fission-delivery-contract-2026-05-12.md` | 两个裂变接口和裂变评分的排队轮询、类图关系、参数聚合规则 |
 | 图裂变业务交付包模板 | `docs/api/examples/fission-business-delivery/README.md` | 给业务方交付的三个接口独立文档和 JSON 样例，不包含真实 Key |
 | 业务接口分类 | `docs/standards/business-interface-taxonomy.md` | 业务分类、Coze/原生/原子能力/测评入口的统一归属 |

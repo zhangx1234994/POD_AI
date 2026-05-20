@@ -29,6 +29,7 @@ from app.services.ability_task_service import get_ability_task_service
 from app.services.business_runs import get_business_run_service
 from app.services.coze_client import coze_client
 from app.services.integration_test import integration_test_service
+from app.services.runtime_safety import log_background_worker_decision
 from app.services.task_id_codec import decode_task_id
 
 
@@ -50,6 +51,8 @@ class EvalService:
     def __init__(self) -> None:
         self._logger = logging.getLogger(__name__)
         settings = get_settings()
+        worker_decision = log_background_worker_decision("EvalService")
+        self._background_workers_enabled = worker_decision.enabled
         total_workers = max(1, int(getattr(settings, "eval_run_max_workers", 12)))
         comfyui_workers = max(1, int(getattr(settings, "eval_comfyui_run_max_workers", 10)))
         commercial_workers = max(1, int(getattr(settings, "eval_commercial_run_max_workers", 4)))
@@ -65,6 +68,8 @@ class EvalService:
         }
         self._lock = threading.Lock()
         self._thread_started = False
+        if not self._background_workers_enabled:
+            return
         # Best-effort: never block API startup on evaluation bookkeeping.
         # (In reload mode, mapper initialization can be sensitive to import order.)
         try:
@@ -254,6 +259,8 @@ class EvalService:
         return max(0, int((datetime.utcnow() - created_at).total_seconds() * 1000))
 
     def _submit_run(self, run_id: str, parameters: dict[str, Any] | None) -> None:
+        if not self._background_workers_enabled:
+            raise RuntimeError("BACKGROUND_WORKERS_DISABLED")
         lane = self._lane_from_parameters(parameters)
         executor = self._lane_executors.get(lane) or self._lane_executors["default"]
         executor.submit(self._execute_run, run_id)
@@ -268,6 +275,8 @@ class EvalService:
         created_by: str,
         db: Session,
     ) -> EvalRun:
+        if not self._background_workers_enabled:
+            raise RuntimeError("BACKGROUND_WORKERS_DISABLED")
         workflow_version = db.get(EvalWorkflowVersion, workflow_version_id)
         if not workflow_version:
             raise ValueError(f"Workflow version {workflow_version_id} not found")

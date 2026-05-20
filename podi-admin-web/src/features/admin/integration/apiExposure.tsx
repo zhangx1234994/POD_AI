@@ -171,6 +171,13 @@ const BUSINESS_INTERFACE_GROUPS: BusinessInterfaceGroup[] = [
     accent: 'success',
   },
   {
+    key: 'image_edit',
+    name: '图编辑',
+    summary: '组件型通用改图入口，支持标注、参考图、蒙版和编辑指令。',
+    nativeStatus: 'ready',
+    accent: 'success',
+  },
+  {
     key: 'fission_evaluate',
     name: '裂变评分',
     summary: '评估裂变结果质量和逻辑合理性，辅助业务决定是否重跑。',
@@ -241,6 +248,15 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     purpose: '提交图裂变任务，返回 runId 后查询结果。',
     audience: '业务主入口',
     businessKey: 'fission',
+  },
+  {
+    key: 'image-edit-run',
+    name: '图编辑',
+    method: 'POST',
+    path: '/api/business/image-edit/runs',
+    purpose: '提交组件型改图任务，返回 runId 后查询结果。',
+    audience: '业务主入口 / 托管组件',
+    businessKey: 'image_edit',
   },
   {
     key: 'fission-evaluate-run',
@@ -940,7 +956,7 @@ const DEFAULT_BUSINESS_API_KEY_FORM: BusinessApiKeyFormState = {
   key: '',
   tenantId: '',
   clientId: '',
-  allowedBusinessKeys: 'fission,fission_evaluate,outpaint,pattern_extract',
+  allowedBusinessKeys: 'fission,image_edit,fission_evaluate,outpaint,pattern_extract,text_fission',
   expireAt: '',
 };
 
@@ -986,6 +1002,7 @@ function businessStatusTheme(status: BusinessInterfaceGroup['nativeStatus']): 's
 function inferAbilityBusinessKey(ability: PublicAbility): string {
   const text = `${ability.id} ${ability.displayName} ${ability.category} ${ability.provider} ${ability.abilityType}`.toLowerCase();
   if (/花纹|印花|pattern|yinhua/.test(text)) return 'pattern_extract';
+  if (/图编辑|图像编辑|改图|image[-_ ]?edit|editor/.test(text)) return 'image_edit';
   if (/裂变|fission|variation|softstyle|e7/.test(text)) return 'fission';
   if (/扩图|延伸|outpaint|extend|klein/.test(text)) return 'outpaint';
   if (/连续|四方|两方|seamless|lianxu/.test(text)) return 'seamless_pattern';
@@ -2295,7 +2312,7 @@ export function ApiExposurePanel({
                     placeholder="留空表示全部；多个用逗号分隔"
                     onChange={(value) => updateBusinessApiKeyForm('allowedBusinessKeys', String(value))}
                   />
-                  <small>常用：fission、fission_evaluate、outpaint、pattern_extract。</small>
+                  <small>常用：fission、image_edit、fission_evaluate、outpaint、pattern_extract、text_fission。</small>
                 </div>
                 <div className="podi-business-api-key-form__field">
                   <label>过期时间</label>
@@ -2477,6 +2494,7 @@ export function ApiExposurePanel({
               >
                 <option value="all">全部业务</option>
                 <option value="fission">图裂变</option>
+                <option value="image_edit">图编辑</option>
                 <option value="fission_evaluate">裂变评分</option>
                 <option value="outpaint">扩图</option>
                 <option value="pattern_extract">花纹提取</option>

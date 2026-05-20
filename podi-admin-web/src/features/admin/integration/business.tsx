@@ -4858,17 +4858,19 @@ const businessCapabilityGroupHint = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'pattern_extract') return '从原图中提取可复用花纹资产，是后续裂变和扩图的上游入口。';
   if (key === 'fission') return '围绕原图生成多张变化图，是当前最核心的业务入口。';
+  if (key === 'image_edit') return '通用改图组件入口，承接主图、标注、参考图、蒙版和编辑指令。';
   if (key === 'fission_evaluate') return '评估裂变结果质量和逻辑合理性，作为图裂变的质检接口。';
   if (key === 'outpaint') return '在原图基础上向外扩展画面，主要服务构图补全和素材延展。';
   return '承载一个对业务方稳定暴露的功能入口，底层能力可以独立换版本。';
 };
 
-const businessOrchestrationKeys = ['pattern_extract', 'fission', 'fission_evaluate', 'outpaint'] as const;
+const businessOrchestrationKeys = ['pattern_extract', 'fission', 'image_edit', 'fission_evaluate', 'outpaint'] as const;
 
 const businessApiEntryPath = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'pattern_extract') return '/api/business/pattern-extract/runs';
   if (key === 'fission') return '/api/business/fission/runs';
+  if (key === 'image_edit') return '/api/business/image-edit/runs';
   if (key === 'fission_evaluate') return '/api/business/fission-evaluate/runs';
   if (key === 'outpaint') return '/api/business/outpaint/runs';
   return '/api/business/{business}/runs';
@@ -4880,6 +4882,7 @@ const businessDraftRunRequiresGeneratedImage = (businessKey?: string | null) =>
 const businessEntryUsageHint = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'fission') return '业务方、测评端和新的 Coze 工具箱都应收敛到这里，再由中台切版本。';
+  if (key === 'image_edit') return '业务方可嵌入托管组件或源码组件；两者都调用同一个中台业务 API。';
   if (key === 'fission_evaluate') return '通常在裂变完成后调用，用于判断结果是否可用或是否需要重跑。';
   if (key === 'pattern_extract') return '作为素材生产上游入口，可被裂变、扩图或人工流程复用。';
   if (key === 'outpaint') return '对业务方保持固定入口，底层可以在 ComfyUI 或商业模型间切换。';
@@ -5123,6 +5126,7 @@ const businessCapabilityMediaLabel = (item: BusinessCapability) => {
   const key = canonicalBusinessKey(item.businessKey);
   if (key === 'pattern_extract') return '输入图片 · 输出花纹图';
   if (key === 'fission') return '输入图片 · 输出多张图';
+  if (key === 'image_edit') return '输入主图/参考图 · 输出改图结果';
   if (key === 'fission_evaluate') return '输入原图和结果图 · 输出评分';
   if (key === 'outpaint') return '输入图片 · 输出扩展图';
   const output = item.outputSchema || {};

@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -58,7 +59,14 @@ from app.schemas.business import (
     BusinessRunCreateRequest,
     TextFissionPromptRequest,
 )
-from app.constants.business_api_contract import COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
+from app.constants.business_api_contract import (
+    COMFYUI_FISSION_VARIATION_PRESET_CONFIGS,
+    IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
+    IMAGE_EDIT_OUTPUT_FORMAT_VALUES,
+    IMAGE_EDIT_QUALITY_VALUES,
+    IMAGE_EDIT_SIZE_VALUES,
+    IMAGE_EDIT_SKILL_VALUES,
+)
 from app.services.api_key_selector import is_usable
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_invocation import ability_invocation_service
@@ -72,6 +80,7 @@ from app.services.pattern_fission_prompt import TEMPLATE_ALIASES as PATTERN_FISS
 from app.services.pattern_fission_prompt import TEMPLATE_ID as PATTERN_FISSION_TEMPLATE_ID
 from app.services.pattern_fission_prompt import compile_pattern_fission_prompt
 from app.services.routing_governance import normalize_ability_routing
+from app.services.runtime_safety import log_background_worker_decision
 from app.services.task_id_codec import encode_task_id
 from app.services.wallet import wallet_service
 
@@ -92,12 +101,33 @@ COMFYUI_FISSION_VARIATION_PRESET_VALUES_BY_KEY = {
 INTERNAL_NO_CHARGE_TENANTS = {"podi-internal-patrol", "podi-internal-realtest"}
 INTERNAL_NO_CHARGE_CLIENTS = {"business-api-patrol", "codex-realtest"}
 NO_CHARGE_BILLING_MODES = {"no_charge", "no-charge", "free", "internal", "internal_patrol", "patrol", "test"}
+IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS = {"reference_element_transfer", "color_reference_correction"}
+IMAGE_EDIT_TARGET_HINT_REQUIRED_SKILLS = {"remove_inpaint"}
+IMAGE_EDIT_SKILL_LABELS = {
+    "local_modify": "局部修改",
+    "reference_element_transfer": "参考图替换",
+    "remove_inpaint": "删除修补",
+    "color_reference_correction": "补色校正",
+}
+IMAGE_EDIT_QUALITY_MAP = {
+    "auto": "auto",
+    "preview": "low",
+    "production": "medium",
+    "candidate": "medium",
+    "premium": "high",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+}
 
 
 class BusinessRunService:
     def __init__(self) -> None:
+        worker_decision = log_background_worker_decision("BusinessRunService")
+        self._background_workers_enabled = worker_decision.enabled
         self._thread_started = False
-        self._start_finalize_thread()
+        if self._background_workers_enabled:
+            self._start_finalize_thread()
 
     def list_capabilities(self) -> list[BusinessCapability]:
         with get_session() as session:
@@ -1685,6 +1715,8 @@ class BusinessRunService:
         user: User | None,
         source: str = "business-api",
     ) -> BusinessRun:
+        if not getattr(self, "_background_workers_enabled", True):
+            raise HTTPException(status_code=503, detail="BACKGROUND_WORKERS_DISABLED")
         return self._create_run_internal(
             business_key=business_key,
             capability_id=None,
@@ -1703,6 +1735,8 @@ class BusinessRunService:
         user: User | None,
         source: str = "admin-draft-run",
     ) -> BusinessRun:
+        if not getattr(self, "_background_workers_enabled", True):
+            raise HTTPException(status_code=503, detail="BACKGROUND_WORKERS_DISABLED")
         return self._create_run_internal(
             business_key=None,
             capability_id=capability_id,
@@ -1781,6 +1815,8 @@ class BusinessRunService:
                 )
                 if not editable_prompt:
                     raise HTTPException(status_code=400, detail="TEXT_FISSION_PROMPT_REQUIRED")
+            if business_key == "image_edit":
+                self._compile_image_edit_inputs(payload=payload, image_url=image_url, validate_media=True)
 
             if capability is not None:
                 route_info = self._route_info(capability, selected_by=selected_by)
@@ -1869,6 +1905,7 @@ class BusinessRunService:
             image_url=image_url,
             route_info=route_info,
             trace_context=trace_context,
+            recipe=recipe,
         )
         self._submit_primary_ability(
             run_id=run_id,
@@ -5002,6 +5039,24 @@ class BusinessRunService:
                 "palette_card",
                 "risk_notes",
             }
+        elif capability_key == "image_edit":
+            pass_keys = {
+                "image_url",
+                "imageUrl",
+                "image_urls",
+                "imageUrls",
+                "input_urls",
+                "prompt",
+                "model",
+                "size",
+                "quality",
+                "background",
+                "output_format",
+                "output_compression",
+                "n",
+                "mask_url",
+                "maskUrl",
+            }
         else:
             pass_keys = set(inputs)
         flat_payload = payload.model_dump(exclude_none=True, by_alias=True)
@@ -5085,6 +5140,14 @@ class BusinessRunService:
             # 本业务接口固定单次产出 1 张，避免一个 runId 对多张图造成回填和验收歧义。
             for noisy_key in ("count", "batch", "batch_size", "n", "steps", "cfg", "seed"):
                 inputs.pop(noisy_key, None)
+        image_edit_compiled: dict[str, Any] | None = None
+        if capability_key == "image_edit":
+            image_edit_compiled = self._compile_image_edit_inputs(
+                payload=payload,
+                image_url=image_url,
+                validate_media=False,
+            )
+            inputs.update(image_edit_compiled["ability_inputs"])
         if vl_summary and self._should_apply_vl_to_primary(recipe or {}):
             self._apply_vl_summary_to_inputs(
                 capability_key=capability_key,
@@ -5111,7 +5174,354 @@ class BusinessRunService:
                 "clientId": (trace_context or {}).get("clientId"),
                 "channel": (trace_context or {}).get("channel"),
                 "source": (trace_context or {}).get("source"),
+                **({"imageEditCompiler": image_edit_compiled.get("metadata")} if image_edit_compiled else {}),
             },
+        )
+
+    def _compile_image_edit_inputs(
+        self,
+        *,
+        payload: BusinessRunCreateRequest,
+        image_url: str,
+        validate_media: bool = False,
+    ) -> dict[str, Any]:
+        request_inputs = payload.inputs or {}
+        skill = self._first_string(
+            payload.editSkill,
+            payload.edit_skill,
+            request_inputs.get("editSkill"),
+            request_inputs.get("edit_skill"),
+            request_inputs.get("skill"),
+            request_inputs.get("mode"),
+        ) or "local_modify"
+        skill = skill.strip()
+        if skill not in IMAGE_EDIT_SKILL_VALUES:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_SKILL_INVALID")
+
+        instruction = self._first_string(
+            payload.instruction,
+            request_inputs.get("instruction"),
+            request_inputs.get("editInstruction"),
+            request_inputs.get("edit_instruction"),
+            payload.prompt,
+            request_inputs.get("prompt"),
+        )
+        if not instruction:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_INSTRUCTION_REQUIRED")
+
+        selection_hints = self._normalize_image_edit_selection_hints(
+            payload.selectionHints,
+            payload.selection_hints,
+            request_inputs.get("selectionHints"),
+            request_inputs.get("selection_hints"),
+            request_inputs.get("marks"),
+        )
+        reference_images = self._normalize_image_edit_reference_images(
+            payload.referenceImages,
+            payload.reference_images,
+            request_inputs.get("referenceImages"),
+            request_inputs.get("reference_images"),
+            request_inputs.get("image_urls"),
+            request_inputs.get("imageUrls"),
+            request_inputs.get("input_urls"),
+        )
+        mask_url = self._first_string(
+            payload.maskUrl,
+            payload.mask_url,
+            request_inputs.get("maskUrl"),
+            request_inputs.get("mask_url"),
+        )
+
+        if skill in IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS and not reference_images:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_REFERENCE_REQUIRED")
+        if skill in IMAGE_EDIT_TARGET_HINT_REQUIRED_SKILLS and not selection_hints and not mask_url:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_TARGET_REQUIRED")
+        selected_reference_images = self._select_image_edit_reference_images(
+            skill=skill,
+            instruction=instruction,
+            reference_images=reference_images,
+        )
+
+        size = self._validate_image_edit_size(
+            self._first_string(payload.size, request_inputs.get("size")) or "auto"
+        )
+        quality = str(
+            self._first_string(payload.quality, request_inputs.get("quality")) or "auto"
+        ).strip()
+        if quality not in IMAGE_EDIT_QUALITY_VALUES and quality not in {"low", "medium", "high"}:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_QUALITY_INVALID")
+        output_format = str(
+            self._first_string(payload.outputFormat, payload.output_format, request_inputs.get("outputFormat"), request_inputs.get("output_format"))
+            or "png"
+        ).strip().lower()
+        if output_format not in IMAGE_EDIT_OUTPUT_FORMAT_VALUES:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_OUTPUT_FORMAT_INVALID")
+
+        mask_meta = self._first_value(payload.maskMeta, payload.mask_meta, request_inputs.get("maskMeta"), request_inputs.get("mask_meta"))
+        if mask_url and validate_media:
+            self._validate_image_edit_mask(image_url=image_url, mask_url=mask_url, mask_meta=mask_meta)
+
+        prompt = self._build_image_edit_compiled_prompt(
+            skill=skill,
+            instruction=instruction,
+            selection_hints=selection_hints,
+            reference_images=selected_reference_images,
+            mask_url=mask_url,
+            source_image_url=image_url,
+        )
+        ability_inputs: dict[str, Any] = {
+            "image_url": image_url,
+            "prompt": prompt,
+            "model": "gpt-image-2",
+            "size": size,
+            "quality": IMAGE_EDIT_QUALITY_MAP.get(quality, "auto"),
+            "background": "auto",
+            "output_format": output_format,
+            "n": 1,
+        }
+        if selected_reference_images:
+            ability_inputs["image_urls"] = [item["url"] for item in selected_reference_images if item.get("url")]
+        if mask_url:
+            ability_inputs["mask_url"] = mask_url
+        return {
+            "ability_inputs": ability_inputs,
+            "metadata": {
+                "editSkill": skill,
+                "editSkillLabel": IMAGE_EDIT_SKILL_LABELS.get(skill, skill),
+                "instruction": instruction,
+                "selectionHints": selection_hints,
+                "referenceImages": selected_reference_images,
+                "availableReferenceImages": reference_images,
+                "referenceFilterPolicy": (
+                    "pass_all_required_by_skill"
+                    if skill in IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS
+                    else "pass_only_explicitly_referenced"
+                ),
+                "maskUrl": mask_url,
+                "maskMeta": mask_meta if isinstance(mask_meta, dict) else None,
+                "size": size,
+                "quality": quality,
+                "mappedQuality": ability_inputs["quality"],
+                "outputFormat": output_format,
+                "compiledPrompt": prompt,
+                "compilerVersion": "image_edit_prompt_compiler_v1",
+            },
+        }
+
+    @staticmethod
+    def _normalize_image_edit_selection_hints(*values: Any) -> list[dict[str, Any]]:
+        hints: list[dict[str, Any]] = []
+
+        def add(raw: Any, index: int | None = None) -> None:
+            if raw in (None, "", []):
+                return
+            if isinstance(raw, str):
+                text = raw.strip()
+                if not text:
+                    return
+                if text.startswith("[") or text.startswith("{"):
+                    try:
+                        add(json.loads(text), index=index)
+                        return
+                    except Exception:
+                        pass
+                hints.append({"type": "text", "label": f"标注{index or len(hints) + 1}", "description": text})
+                return
+            if isinstance(raw, list):
+                for idx, item in enumerate(raw, start=1):
+                    add(item, index=idx)
+                return
+            if isinstance(raw, dict):
+                if isinstance(raw.get("items"), list):
+                    add(raw.get("items"), index=index)
+                    return
+                item = {
+                    "type": str(raw.get("type") or raw.get("shape") or "region").strip(),
+                    "label": str(raw.get("label") or raw.get("name") or f"标注{index or len(hints) + 1}").strip(),
+                }
+                for key in ("points", "bbox", "bounds", "center", "radius", "description", "imageSize", "image_size"):
+                    if raw.get(key) not in (None, "", []):
+                        item[key] = raw.get(key)
+                hints.append(item)
+
+        for value in values:
+            add(value)
+        return hints[:20]
+
+    @staticmethod
+    def _normalize_image_edit_reference_images(*values: Any) -> list[dict[str, Any]]:
+        refs: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add(raw: Any, index: int | None = None) -> None:
+            if raw in (None, "", []):
+                return
+            if isinstance(raw, str):
+                text = raw.strip()
+                if not text:
+                    return
+                if text.startswith("[") or text.startswith("{"):
+                    try:
+                        add(json.loads(text), index=index)
+                        return
+                    except Exception:
+                        pass
+                for part in text.replace(",", "\n").splitlines():
+                    url = part.strip()
+                    if url:
+                        add({"url": url}, index=index)
+                return
+            if isinstance(raw, list):
+                for idx, item in enumerate(raw, start=1):
+                    add(item, index=idx)
+                return
+            if isinstance(raw, dict):
+                nested = raw.get("items") or raw.get("images") or raw.get("referenceImages") or raw.get("reference_images")
+                if isinstance(nested, list):
+                    add(nested, index=index)
+                    return
+                url = str(raw.get("url") or raw.get("imageUrl") or raw.get("image_url") or raw.get("ossUrl") or raw.get("sourceUrl") or "").strip()
+                if not url or url in seen:
+                    return
+                seen.add(url)
+                refs.append(
+                    {
+                        "url": url,
+                        "role": str(raw.get("role") or "reference").strip(),
+                        "label": str(raw.get("label") or raw.get("name") or f"参考图{len(refs) + 1}").strip(),
+                    }
+                )
+
+        for value in values:
+            add(value)
+        return refs[:8]
+
+    @staticmethod
+    def _select_image_edit_reference_images(
+        *,
+        skill: str,
+        instruction: str,
+        reference_images: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not reference_images:
+            return []
+        if skill in IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS:
+            return reference_images
+        text = str(instruction or "")
+        indexes: set[int] = set()
+        for match in re.finditer(r"#(?:参考图)?\s*(\d+)", text):
+            try:
+                value = int(match.group(1))
+            except ValueError:
+                continue
+            if value > 0:
+                indexes.add(value - 1)
+        for idx, item in enumerate(reference_images):
+            label = str(item.get("label") or "").strip()
+            if label and (f"#{label}" in text or label in text):
+                indexes.add(idx)
+        if not indexes:
+            return []
+        # Preserve original order and include earlier references when needed so
+        # user-visible #1/#2 numbering still matches model image order.
+        max_index = min(max(indexes), len(reference_images) - 1)
+        return reference_images[: max_index + 1]
+
+    def _validate_image_edit_size(self, value: str) -> str:
+        size = str(value or "auto").strip().lower()
+        if size == "auto" or size in IMAGE_EDIT_SIZE_VALUES:
+            return size
+        if "x" not in size:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_SIZE_INVALID")
+        left, right = size.split("x", 1)
+        try:
+            width = int(left)
+            height = int(right)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_SIZE_INVALID") from None
+        constraints = IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS
+        if width <= 0 or height <= 0:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_SIZE_INVALID")
+        if max(width, height) > int(constraints["max_edge"]):
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_SIZE_INVALID")
+        if width % int(constraints["multiple_of"]) != 0 or height % int(constraints["multiple_of"]) != 0:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_SIZE_INVALID")
+        if max(width, height) / max(1, min(width, height)) > float(constraints["max_aspect_ratio"]):
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_SIZE_INVALID")
+        pixels = width * height
+        if pixels < int(constraints["min_pixels"]) or pixels > int(constraints["max_pixels"]):
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_SIZE_INVALID")
+        return f"{width}x{height}"
+
+    def _validate_image_edit_mask(self, *, image_url: str, mask_url: str, mask_meta: Any | None) -> None:
+        source_size: tuple[int, int] | None = None
+        if isinstance(mask_meta, dict):
+            source_w = self._coerce_positive_int(mask_meta.get("sourceWidth") or mask_meta.get("source_width"))
+            source_h = self._coerce_positive_int(mask_meta.get("sourceHeight") or mask_meta.get("source_height"))
+            mask_w = self._coerce_positive_int(mask_meta.get("width") or mask_meta.get("maskWidth") or mask_meta.get("mask_width"))
+            mask_h = self._coerce_positive_int(mask_meta.get("height") or mask_meta.get("maskHeight") or mask_meta.get("mask_height"))
+            if source_w and source_h and mask_w and mask_h and (source_w != mask_w or source_h != mask_h):
+                raise HTTPException(status_code=400, detail="IMAGE_EDIT_MASK_SIZE_MISMATCH")
+        source_info = self._read_remote_image_info(image_url)
+        mask_info = self._read_remote_image_info(mask_url)
+        if source_info:
+            source_size = (int(source_info["width"]), int(source_info["height"]))
+        if mask_info:
+            if source_size and (int(mask_info["width"]), int(mask_info["height"])) != source_size:
+                raise HTTPException(status_code=400, detail="IMAGE_EDIT_MASK_SIZE_MISMATCH")
+            if mask_info.get("has_alpha") is False:
+                raise HTTPException(status_code=400, detail="IMAGE_EDIT_MASK_ALPHA_REQUIRED")
+
+    @staticmethod
+    def _coerce_positive_int(value: Any) -> int | None:
+        if value in (None, "", []):
+            return None
+        try:
+            number = int(float(str(value).strip()))
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    @staticmethod
+    def _build_image_edit_compiled_prompt(
+        *,
+        skill: str,
+        instruction: str,
+        selection_hints: list[dict[str, Any]],
+        reference_images: list[dict[str, Any]],
+        mask_url: str | None,
+        source_image_url: str,
+    ) -> str:
+        skill_label = IMAGE_EDIT_SKILL_LABELS.get(skill, skill)
+
+        def dump_compact(value: Any) -> str:
+            try:
+                return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            except Exception:
+                return str(value)
+
+        hint_lines = [
+            f"{idx}. {dump_compact(item)}"
+            for idx, item in enumerate(selection_hints, start=1)
+        ] or ["无；如果没有标注，请按用户指令作用于最合理的目标区域。"]
+        ref_lines = [
+            f"图{idx + 1}={item.get('label') or f'参考图{idx}'}：{item.get('url')}"
+            for idx, item in enumerate(reference_images, start=1)
+        ] or ["无"]
+        return "\n".join(
+            [
+                "你是专业图像编辑助手。只输出最终编辑后的图片，不输出说明文字。",
+                f"任务模式：{skill_label}（{skill}）。",
+                "图像顺序：图1是主图，所有编辑只作用于图1；后续图片只作为参考，不要直接拼贴。",
+                f"主图 URL：{source_image_url}",
+                f"用户编辑指令：{instruction.strip()}",
+                "标注/区域提示：",
+                *hint_lines,
+                "参考图：",
+                *ref_lines,
+                f"蒙版：{'已提供，优先按 alpha mask 限定编辑范围。' if mask_url else '未提供，按标注提示和用户指令判断目标区域。'}",
+                "编辑要求：保持未指定区域不变，保持整体光照、透视、材质和风格一致；参考图只提取对象、颜色或材质特征，不可生硬拼贴；不要改变画面比例，除非请求参数显式指定尺寸。",
+            ]
         )
 
     def _fill_text_fission_original_size(self, *, inputs: dict[str, Any], image_url: str) -> None:
@@ -5159,6 +5569,23 @@ class BusinessRunService:
         except Exception:
             return None
         return None
+
+    @staticmethod
+    def _read_remote_image_info(url: str) -> dict[str, Any] | None:
+        target = str(url or "").strip()
+        if not target:
+            return None
+        try:
+            response = httpx.get(target, timeout=15, follow_redirects=True)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content))
+            width, height = image.size
+            if width <= 0 or height <= 0:
+                return None
+            has_alpha = "A" in image.getbands() or "transparency" in image.info
+            return {"width": int(width), "height": int(height), "has_alpha": bool(has_alpha)}
+        except Exception:
+            return None
 
     def _build_step_ability_payload(
         self,

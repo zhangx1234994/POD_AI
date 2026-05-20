@@ -88,6 +88,7 @@
 - **已暴露能力**：
   - `openai_gpt_image_2_generate`：文生图，底层调用 `/v1/images/generations`。
   - `openai_gpt_image_2_edit`：图片编辑/蒙版/多参考图，底层调用 `/v1/images/edits`。
+- **批量低成本能力**：`vendor-api-ops` 已支持 `executionMode=batch_submit_poll`，通过 OpenAI Batch API 提交 `/v1/images/generations` 或 `/v1/images/edits`。该模式成本更低，但完成窗口是 24h，只用于离线批量回归、测评大批量任务或非实时业务，不替代实时图编辑节点。
 - **业务编排**：图裂变已保留 `biz_fission_v2_openai_gpt_image2_vl`（`gpt-image2-vl-v1`）作为旧灰度候选，并新增 `biz_fission_v5_openai_gpt_image2_controlled`（`gpt-image2-vl-v2`）作为当前受控版。v2 不让业务方直接拼 OpenAI 参数，而是先跑 `vl_analyze_image` 生成客观图案识别卡，再由中台完成图案类型路由、定量提示词编译和 GPT Image 2 图片编辑调用。
 - **参数边界**：GPT Image 2 当前表单支持 `prompt`、`size`、`quality`、`background=auto|opaque`、`output_format`、`output_compression`、`n`；编辑能力额外支持 `image_url`、`mask_url`、`image_urls`。不向用户暴露透明背景和 `input_fidelity`，避免官方不支持参数导致失败。
 - **错误处理**：Key 缺失返回 `VENDOR_API_KEY_MISSING`，Key 禁用/无效返回 `VENDOR_API_KEY_DISABLED`，OpenAI 限流返回 `VENDOR_API_RATE_LIMITED`，网络或代理超时返回 `VENDOR_API_TIMEOUT`。

@@ -149,6 +149,15 @@
 | TEXT_FISSION_PROMPT_REQUIRED | 文字强化裂变缺少用户确认后的提示词 | 400，第二步 `/api/business/text-fission/runs` 必须传 `editable_prompt` 或兼容字段 |
 | TEXT_FISSION_PROMPT_EMPTY | VL 返回结果中没有可用的可编辑提示词 | 500，第一步 `/api/business/text-fission/prompts` 返回异常 |
 | TEXT_FISSION_PROMPT_PREPARE_FAILED | 文字强化裂变提示词草稿生成失败 | 500，第一步调用 VL 或解析结构化结果失败 |
+| IMAGE_EDIT_INSTRUCTION_REQUIRED | 图编辑缺少编辑指令 | 400，`/api/business/image-edit/runs` 必须传 `instruction` 或兼容字段 |
+| IMAGE_EDIT_SKILL_INVALID | 图编辑技能枚举非法 | 400，允许 `local_modify` / `reference_element_transfer` / `remove_inpaint` / `color_reference_correction` |
+| IMAGE_EDIT_REFERENCE_REQUIRED | 图编辑缺少参考图 | 400，参考图替换和补色校正必须传 `referenceImages` |
+| IMAGE_EDIT_TARGET_REQUIRED | 图编辑缺少目标区域 | 400，删除修补必须传 `selectionHints` 或 `maskUrl` |
+| IMAGE_EDIT_SIZE_INVALID | 图编辑尺寸非法 | 400，自定义尺寸必须满足最大边、16 倍数、比例和总像素约束 |
+| IMAGE_EDIT_MASK_SIZE_MISMATCH | 图编辑蒙版尺寸与主图不一致 | 400，mask 必须与主图同尺寸 |
+| IMAGE_EDIT_MASK_ALPHA_REQUIRED | 图编辑蒙版缺少 Alpha 通道 | 400，mask 必须是有效透明蒙版 |
+| IMAGE_EDIT_QUALITY_INVALID | 图编辑质量档位非法 | 400，允许 `auto` / `preview` / `production` / `premium` |
+| IMAGE_EDIT_OUTPUT_FORMAT_INVALID | 图编辑输出格式非法 | 400，允许 `png` / `jpeg` / `webp` |
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
 | BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |
 | BUSINESS_RUN_FORBIDDEN | 业务任务无访问权限 | 403 |

@@ -28,6 +28,11 @@ from app.constants.business_api_contract import (
     GPT_IMAGE2_QUALITY_VALUES,
     GPT_IMAGE2_SIZE_VALUES,
     GPT_IMAGE2_VARIATION_STRENGTH_VALUES,
+    IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
+    IMAGE_EDIT_OUTPUT_FORMAT_VALUES,
+    IMAGE_EDIT_QUALITY_VALUES,
+    IMAGE_EDIT_SIZE_VALUES,
+    IMAGE_EDIT_SKILL_VALUES,
     business_api_contract_payload,
 )
 from app.constants.business_components import business_component_catalog_payload
@@ -173,7 +178,7 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
         "debugUrl": full.get("debugUrl"),
         "debugResponse": error_message,
         "retryAfterSeconds": 10 if status in {"queued", "running"} else None,
-        "expectedImageCount": 1 if business_key == "fission" else None,
+        "expectedImageCount": 1 if business_key in {"fission", "image_edit", "text_fission", "pattern_extract", "outpaint"} else None,
         "logId": full.get("abilityLogId"),
         "traceId": full.get("traceId"),
         "requestId": full.get("requestId"),
@@ -798,6 +803,94 @@ def create_outpaint_run(
     return _create_business_run_with_usage(request=request, business_key="outpaint", payload=payload, user=user)
 
 
+@router.post("/image-edit/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_image_edit_run(
+    payload: schemas.BusinessRunCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    return _create_business_run_with_usage(request=request, business_key="image_edit", payload=payload, user=user)
+
+
+@router.get("/image-edit/component-config", response_model=dict[str, Any], response_model_by_alias=False)
+def get_image_edit_component_config(
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    _ = user
+    _business_key_allowed_for_api_key(request, "image_edit")
+    payload = {
+        "businessKey": "image_edit",
+        "businessName": "图编辑",
+        "defaultVersion": "gpt-image2-editor-v1",
+        "component": {
+            "type": "image-edit-workbench",
+            "hostedMode": True,
+            "sourceMode": True,
+            "auth": "business_api_key",
+            "title": "图编辑",
+            "defaultSkill": "local_modify",
+            "defaultSize": "auto",
+            "defaultQuality": "auto",
+        },
+        "skills": [
+            {
+                "value": "local_modify",
+                "label": "局部修改",
+                "description": "对主图中指定对象或区域做小范围改动。",
+                "requiresReference": False,
+                "requiresTargetHint": False,
+            },
+            {
+                "value": "reference_element_transfer",
+                "label": "参考图替换",
+                "description": "用参考图的对象、材质或风格替换主图指定区域。",
+                "requiresReference": True,
+                "requiresTargetHint": False,
+            },
+            {
+                "value": "remove_inpaint",
+                "label": "删除修补",
+                "description": "删除指定对象并补齐背景。",
+                "requiresReference": False,
+                "requiresTargetHint": True,
+            },
+            {
+                "value": "color_reference_correction",
+                "label": "补色校正",
+                "description": "按参考图修正主图局部或整体颜色关系。",
+                "requiresReference": True,
+                "requiresTargetHint": False,
+            },
+        ],
+        "sizes": [
+            {"value": "auto", "label": "跟随原图/自动", "costLevel": "normal"},
+            {"value": "1024x1024", "label": "1K 方图", "costLevel": "normal"},
+            {"value": "1536x1024", "label": "1K 横图", "costLevel": "normal"},
+            {"value": "1024x1536", "label": "1K 竖图", "costLevel": "normal"},
+            {"value": "2048x2048", "label": "2K 方图", "costLevel": "high"},
+            {"value": "2048x1152", "label": "2K 横图", "costLevel": "high"},
+            {"value": "3840x2160", "label": "4K 横图", "costLevel": "very_high"},
+            {"value": "2160x3840", "label": "4K 竖图", "costLevel": "very_high"},
+        ],
+        "customSizeConstraints": IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
+        "qualityLevels": [
+            {"value": "auto", "label": "自动"},
+            {"value": "preview", "label": "快速预览"},
+            {"value": "production", "label": "正式候选"},
+            {"value": "premium", "label": "高质量"},
+        ],
+        "outputFormats": IMAGE_EDIT_OUTPUT_FORMAT_VALUES,
+        "copy": {
+            "instructionPlaceholder": "例如：把左侧杯子改成蓝色陶瓷材质，保持背景和光照不变。",
+            "maskHint": "蒙版只允许一个最终 alpha mask，多次涂抹请在组件内合并。",
+            "referenceHint": "参考图只在技能需要或用户明确引用时传入模型。",
+        },
+    }
+    _record_business_api_key_usage(request, status_code=200, business_key="image_edit", request_payload={"config": True})
+    return payload
+
+
 @router.post("/pattern-extract/runs", response_model=dict[str, Any], response_model_by_alias=False)
 def create_pattern_extract_run(
     payload: schemas.BusinessRunCreateRequest,
@@ -1147,6 +1240,68 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "maskUrl": {"type": "string", "nullable": True, "description": "可选蒙版 URL；用于局部编辑。"},
         },
     }
+    image_edit_submit_schema = {
+        "type": "object",
+        "required": ["imageUrl", "instruction"],
+        "properties": {
+            **base_submit_properties,
+            "editSkill": {
+                "type": "string",
+                "nullable": True,
+                "description": "改图技能。默认 local_modify；参考图替换和补色校正必须提供 referenceImages。",
+                "enum": IMAGE_EDIT_SKILL_VALUES,
+                "default": "local_modify",
+            },
+            "instruction": {
+                "type": "string",
+                "description": "用户编辑指令。用业务语言描述要改哪里、改成什么；中台会结合标注和参考图编译成模型提示词。",
+            },
+            "selectionHints": {
+                "oneOf": [{"type": "array", "items": {"type": "object"}}, {"type": "object"}, {"type": "string"}],
+                "nullable": True,
+                "description": "点选、框选、圆选或手绘区域提示；只是告诉模型看哪里，不等同于蒙版。",
+            },
+            "referenceImages": {
+                "oneOf": [{"type": "array", "items": {"type": "object"}}, {"type": "array", "items": {"type": "string"}}, {"type": "string"}],
+                "nullable": True,
+                "description": "参考图列表；reference_element_transfer 和 color_reference_correction 必填。",
+            },
+            "maskUrl": {
+                "type": "string",
+                "nullable": True,
+                "description": "高级模式使用的单个 alpha mask。尺寸必须与主图一致；多个笔刷区域应在前端合并成一个蒙版。",
+            },
+            "maskMeta": {
+                "type": "object",
+                "nullable": True,
+                "description": "蒙版元信息，可包含 sourceWidth/sourceHeight/width/height，便于后端提前校验。",
+            },
+            "size": {
+                "type": "string",
+                "nullable": True,
+                "description": "输出尺寸。默认 auto=跟随原图/自动；自定义尺寸必须满足最大边、16 倍数、长短边比例和像素总量约束。",
+                "default": "auto",
+                "examples": IMAGE_EDIT_SIZE_VALUES,
+                "pattern": r"^(auto|[1-9]\d*x[1-9]\d*)$",
+                "x-podi-presets": IMAGE_EDIT_SIZE_VALUES,
+            },
+            "quality": {
+                "type": "string",
+                "nullable": True,
+                "description": "质量档位：auto / preview / production / premium；2K 以上建议 production 或 premium。",
+                "enum": IMAGE_EDIT_QUALITY_VALUES,
+                "default": "auto",
+            },
+            "output_format": {
+                "type": "string",
+                "nullable": True,
+                "description": "输出格式，默认 png。",
+                "enum": IMAGE_EDIT_OUTPUT_FORMAT_VALUES,
+                "default": "png",
+            },
+        },
+        "x-podi-custom-size-constraints": IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
+    }
     text_fission_prompt_schema = {
         "type": "object",
         "required": ["imageUrl"],
@@ -1367,6 +1522,13 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     )
     fission_submit_schema = _merge_business_capability_schema("fission", fission_submit_schema)
     fission_route_preview_schema = _merge_business_capability_schema("fission", fission_route_preview_schema, required_override=[])
+    image_edit_submit_schema = _merge_business_capability_schema("image_edit", image_edit_submit_schema)
+    image_edit_size_schema = image_edit_submit_schema.get("properties", {}).get("size")
+    if isinstance(image_edit_size_schema, dict):
+        image_edit_size_schema.pop("enum", None)
+        image_edit_size_schema["examples"] = IMAGE_EDIT_SIZE_VALUES
+        image_edit_size_schema["x-podi-presets"] = IMAGE_EDIT_SIZE_VALUES
+        image_edit_size_schema["pattern"] = r"^(auto|[1-9]\d*x[1-9]\d*)$"
     text_fission_submit_schema = _merge_business_capability_schema("text_fission", text_fission_submit_schema)
     fission_evaluate_submit_schema = _merge_business_capability_schema("fission_evaluate", fission_evaluate_submit_schema)
     outpaint_submit_schema = _merge_business_capability_schema("outpaint", outpaint_submit_schema)
@@ -1405,6 +1567,43 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "source": "partner-api",
                 "channel": "open-api",
                 "requestId": "biz-request-002",
+            },
+        },
+    }
+    image_edit_examples = {
+        "local_modify": {
+            "summary": "局部修改",
+            "value": {
+                "imageUrl": "https://example.com/product.png",
+                "version": "gpt-image2-editor-v1",
+                "editSkill": "local_modify",
+                "instruction": "把左侧杯子改成蓝色陶瓷材质，保持桌面、阴影和背景不变。",
+                "selectionHints": [
+                    {
+                        "type": "rect",
+                        "label": "杯子区域",
+                        "bbox": {"x": 120, "y": 180, "width": 260, "height": 320},
+                        "imageSize": {"width": 1024, "height": 1024},
+                    }
+                ],
+                "size": "auto",
+                "quality": "preview",
+                "output_format": "png",
+                "source": "partner-api",
+                "channel": "open-api",
+                "requestId": "biz-image-edit-001",
+            },
+        },
+        "reference_transfer": {
+            "summary": "参考图替换",
+            "value": {
+                "imageUrl": "https://example.com/product.png",
+                "editSkill": "reference_element_transfer",
+                "instruction": "把主图里选中的装饰贴片替换成参考图的花朵元素，保持产品透视和光照。",
+                "selectionHints": [{"type": "point", "label": "贴片中心", "points": [{"x": 512, "y": 420}]}],
+                "referenceImages": [{"url": "https://example.com/reference-flower.png", "label": "花朵参考"}],
+                "quality": "production",
+                "size": "auto",
             },
         },
     }
@@ -1548,6 +1747,15 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "BUSINESS_RECIPE_INVALID",
             "BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE",
             "COMFYUI_IMAGE_REQUIRED",
+            "IMAGE_EDIT_INSTRUCTION_REQUIRED",
+            "IMAGE_EDIT_SKILL_INVALID",
+            "IMAGE_EDIT_REFERENCE_REQUIRED",
+            "IMAGE_EDIT_TARGET_REQUIRED",
+            "IMAGE_EDIT_SIZE_INVALID",
+            "IMAGE_EDIT_MASK_SIZE_MISMATCH",
+            "IMAGE_EDIT_MASK_ALPHA_REQUIRED",
+            "IMAGE_EDIT_QUALITY_INVALID",
+            "IMAGE_EDIT_OUTPUT_FORMAT_INVALID",
         ],
         "404": ["BUSINESS_CAPABILITY_NOT_FOUND"],
         "429": ["VENDOR_API_CONCURRENCY_LIMITED", "VENDOR_API_KEY_CONCURRENCY_LIMITED"],
@@ -1577,7 +1785,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "info": {
             "title": "PODI Business APIs",
             "version": "0.1.0",
-            "description": "业务层稳定入口：花纹提取、图裂变、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
+            "description": "业务层稳定入口：花纹提取、图裂变、图编辑、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
         "components": {
@@ -1633,6 +1841,66 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                         errors_by_status=submit_errors,
                         success_schema=submit_response_schema,
                     ),
+                }
+            },
+            "/api/business/image-edit/runs": {
+                "post": {
+                    "operationId": "podi_business_image_edit_run",
+                    "summary": "PODI · 图编辑",
+                    "description": "提交图编辑业务任务。业务方或托管组件传主图、编辑指令、标注、参考图和可选蒙版；中台编译后调用 GPT Image 2 图片编辑。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": image_edit_submit_schema,
+                                "examples": image_edit_examples,
+                            }
+                        },
+                    },
+                    "x-codeSamples": [
+                        {
+                            "lang": "curl",
+                            "label": "提交图编辑任务",
+                            "source": "curl -X POST \"$PODI_BASE_URL/api/business/image-edit/runs\" \\\n  -H \"X-PODI-API-Key: $PODI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"imageUrl\":\"https://example.com/product.png\",\"editSkill\":\"local_modify\",\"instruction\":\"把左侧杯子改成蓝色陶瓷材质，保持背景不变\",\"size\":\"auto\",\"quality\":\"preview\"}'",
+                        }
+                    ],
+                    "responses": _business_responses(
+                        success_description="Business run accepted",
+                        errors_by_status=submit_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
+            "/api/business/image-edit/component-config": {
+                "get": {
+                    "operationId": "podi_business_image_edit_component_config",
+                    "summary": "PODI · 图编辑组件配置",
+                    "description": "返回托管组件和源码组件共用的技能、尺寸、质量档位、文案和约束。业务方不要硬编码这些枚举。",
+                    "security": business_api_key_security,
+                    "responses": {
+                        "200": {
+                            "description": "Image edit component config",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "businessKey": {"type": "string", "enum": ["image_edit"]},
+                                            "defaultVersion": {"type": "string"},
+                                            "skills": {"type": "array", "items": {"type": "object"}},
+                                            "sizes": {"type": "array", "items": {"type": "object"}},
+                                            "customSizeConstraints": {"type": "object"},
+                                            "qualityLevels": {"type": "array", "items": {"type": "object"}},
+                                            "outputFormats": {"type": "array", "items": {"type": "string"}},
+                                        },
+                                    }
+                                }
+                            },
+                        },
+                        "401": {"description": "未认证"},
+                        "403": {"description": "API Key 不允许访问 image_edit"},
+                    },
                 }
             },
             "/api/business/text-fission/prompts": {
@@ -1823,6 +2091,24 @@ admin_router = APIRouter(prefix="/admin/business", dependencies=[Depends(require
 
 
 FEATURE_RELEASE_AUDIT_SPECS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "image-edit-gpt-image2",
+        "name": "图编辑 · GPT Image 2 通用改图",
+        "entry": "/api/business/image-edit/runs",
+        "businessKey": "image_edit",
+        "version": "gpt-image2-editor-v1",
+        "deliveryKey": "image-edit-gpt-image2",
+        "expectedResult": "image",
+        "costSensitive": True,
+        "mustCheck": [
+            "参数：imageUrl、editSkill、instruction、selectionHints、referenceImages、maskUrl、size、quality",
+            "模式：局部修改、参考图替换、删除修补、补色校正均有明确错误码",
+            "结果：默认轻量返回，detail=full 才返回编译提示词和步骤详情",
+            "页面：测评端是组件工作台，不用普通表单堆字段",
+        ],
+        "releaseEvidence": "图编辑组件任务 runId + GPT Image 2 能力调用记录 + OSS 结果图",
+        "currentRisk": "图编辑质量依赖用户标注和提示词；平台重点确认编译、尺寸、mask、参考图和回填链路。",
+    },
     {
         "key": "gpt-image2-fission",
         "name": "GPT Image 2 + VL 受控裂变",

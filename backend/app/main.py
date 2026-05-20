@@ -1,9 +1,12 @@
 """FastAPI 主入口，聚合各领域路由。"""
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.db import get_session
+from app.services.runtime_safety import get_background_worker_decision
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_runs import get_business_run_service
 from app.services.business_seed import ensure_default_business_capabilities
@@ -33,6 +36,8 @@ from app.routers import (
     business,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title="PODI Backend", version="0.1.0")
@@ -43,9 +48,13 @@ def create_app() -> FastAPI:
             ensure_default_executors(session)
             ensure_default_business_capabilities(session)
         # Instantiate background queues once per process so pending tasks/runs are resumed.
-        get_ability_task_service()
-        get_business_run_service()
-        get_eval_service()
+        worker_decision = get_background_worker_decision()
+        if worker_decision.enabled:
+            get_ability_task_service()
+            get_business_run_service()
+            get_eval_service()
+        else:
+            logger.warning("Backend background queues not started: %s", worker_decision.reason)
 
     app.add_middleware(
         CORSMiddleware,

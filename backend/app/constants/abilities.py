@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from textwrap import dedent
 from typing import Any, TypedDict
 
@@ -1019,14 +1020,41 @@ def _openai_image_generation_schema() -> dict[str, Any]:
     }
 
 
-def _openai_metadata(*, model_id: str, api_type: str, seed_version: int = 1) -> dict[str, Any]:
+def _openai_batch_schema(base_schema: dict[str, Any]) -> dict[str, Any]:
+    schema = deepcopy(base_schema)
+    fields = list(schema.get("fields") or [])
+    fields.append(
+        {
+            "name": "batch_requests",
+            "type": "textarea",
+            "label": _compose_bilingual_label("批量请求 JSON", "Batch Requests JSON"),
+            "description": _compose_bilingual_label(
+                "离线批量模式使用。填写数组，每项可包含 custom_id、prompt、image_url、mask_url、size、quality 等参数；不填则按当前表单生成 1 条批量任务。",
+                "Offline batch mode only. Provide an array of items with custom_id, prompt, image_url, mask_url, size, quality, etc.; leave empty to create one batch item from this form.",
+            ),
+            "placeholder": '[{"custom_id":"case-001","prompt":"生成低成本测试图","size":"1024x1024","quality":"low"}]',
+            "required": False,
+            "advanced": True,
+        }
+    )
+    schema["fields"] = fields
+    return schema
+
+
+def _openai_metadata(
+    *,
+    model_id: str,
+    api_type: str,
+    seed_version: int = 1,
+    execution_mode: str = "sync_then_store",
+) -> dict[str, Any]:
     return {
         "executor_type": "vendor_api",
         "executor_tag": "global-egress",
         "provider_family": "openai",
         "model_id": model_id,
         "api_type": api_type,
-        "execution_mode": "sync_then_store",
+        "execution_mode": execution_mode,
         "requires_image_input": api_type == "image_edit",
         "supports_vision": True,
         "supports_mask": api_type == "image_edit",
@@ -2413,6 +2441,27 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "input_schema": _openai_image_generation_schema(),
         "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_generation", seed_version=1),
     },
+    "gpt_image_2_generate_batch": {
+        "endpoint": "/v1/images/generations",
+        "defaults": {
+            "model": "gpt-image-2",
+            "size": "1024x1024",
+            "quality": "low",
+            "background": "auto",
+            "output_format": "png",
+            "n": 1,
+        },
+        "display_name": "OpenAI · GPT Image 2 文生图批量低成本",
+        "description": "GPT Image 2 离线批量文生图能力；走 OpenAI Batch API，适合批量回归和非实时任务，不用于即时编辑。",
+        "category": "image_generation",
+        "input_schema": _openai_batch_schema(_openai_image_generation_schema()),
+        "metadata": _openai_metadata(
+            model_id="gpt-image-2",
+            api_type="image_generation",
+            execution_mode="batch_submit_poll",
+            seed_version=1,
+        ),
+    },
     "gpt_image_2_edit": {
         "endpoint": "/v1/images/edits",
         "defaults": {
@@ -2428,6 +2477,27 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "category": "image_generation",
         "input_schema": _openai_image_edit_schema(),
         "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=3),
+    },
+    "gpt_image_2_edit_batch": {
+        "endpoint": "/v1/images/edits",
+        "defaults": {
+            "model": "gpt-image-2",
+            "size": "auto",
+            "quality": "low",
+            "background": "auto",
+            "output_format": "png",
+            "n": 1,
+        },
+        "display_name": "OpenAI · GPT Image 2 图片编辑批量低成本",
+        "description": "GPT Image 2 离线批量图片编辑能力；走 OpenAI Batch API，适合测评大批量和非实时任务，不替代实时图编辑。",
+        "category": "image_generation",
+        "input_schema": _openai_batch_schema(_openai_image_edit_schema()),
+        "metadata": _openai_metadata(
+            model_id="gpt-image-2",
+            api_type="image_edit",
+            execution_mode="batch_submit_poll",
+            seed_version=1,
+        ),
     },
 }
 

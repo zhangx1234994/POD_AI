@@ -37,23 +37,23 @@ import type { ComfyuiQueueSummary, EvalOperationsHealth, EvalRun, EvalWorkflowVe
 import { EvalShell } from './layouts/EvalShell';
 import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
 import { mapStatusToBadge } from './features/eval/shared/status';
+import { ImageEditWorkbench } from './features/image-edit/ImageEditWorkbench';
+import {
+  buildImageEditTaskSummary,
+  formatEditorToolLabel,
+  getImageEditQuickPrompts,
+  IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS,
+  IMAGE_EDIT_SKILL_OPTIONS,
+  selectEditorReferenceUrlsForSkill,
+  serializeEditorSelectionHints,
+  normalizeImageEditQuality,
+} from './features/image-edit/model';
+import type { ImageEditMark as EditorMark, ImageEditPoint as EditorPoint, ImageEditTool as EditorTool } from './features/image-edit/model';
 import type { ThemeMode } from './types/ui';
 import { toDisplayErrorMessage } from './utils/errorMessageMap';
 
 type RunWithLatest = EvalRun & {
   latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
-};
-
-type EditorTool = 'point' | 'rect' | 'circle' | 'freehand';
-
-type EditorPoint = { x: number; y: number };
-
-type EditorMark = {
-  id: string;
-  name: string;
-  type: EditorTool;
-  points: EditorPoint[];
-  created_at: number;
 };
 
 type PromptHint = {
@@ -283,6 +283,7 @@ type RemoteLoadError = {
 const CATEGORY_ORDER = [
   '花纹提取',
   '图裂变',
+  '图编辑',
   '扩图',
   '连续图',
   '抠图',
@@ -294,13 +295,21 @@ const CATEGORY_ORDER = [
   '平台工具',
 ];
 const DEFAULT_CATEGORY = '图裂变';
-const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '扩图', '连续图']);
+const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '图编辑', '扩图', '连续图']);
 type EvalView = 'home' | 'tool' | 'tasks' | 'admin' | 'docs' | 'loraBatch';
 const EVAL_VIEW_SET = new Set<EvalView>(['home', 'tool', 'tasks', 'admin', 'docs', 'loraBatch']);
+
+const isHostedImageEditPath = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return window.location.pathname.replace(/\/+$/, '') === '/image-edit';
+};
 
 const readEvalQuery = () => {
   if (typeof window === 'undefined') {
     return { view: 'home' as EvalView, category: DEFAULT_CATEGORY, toolId: '' };
+  }
+  if (isHostedImageEditPath()) {
+    return { view: 'home' as EvalView, category: '图编辑', toolId: '' };
   }
   const params = new URLSearchParams(window.location.search);
   const viewRaw = String(params.get('view') || '').trim();
@@ -312,6 +321,7 @@ const readEvalQuery = () => {
 };
 
 const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
+const IMAGE_EDIT_WORKFLOW_ID = 'business_image_edit_gpt_image2_editor_v1';
 const SHENGTU_WORKFLOW_ID = '7602916576198656000';
 const LORA_BATCH_MAX_TASKS = 5000;
 const TOOL_MULTI_IMAGE_MAX = 50;
@@ -628,6 +638,7 @@ const normalizeCategory = (category: string | undefined | null): string => {
   if (c === '花纹提取类' || c === 'pattern_extract' || c === 'pattern' || c === 'pattern-extract') return '花纹提取';
   if (c === '图延伸类' || c === 'image_extend' || c === 'image_extension' || c === '图扩展' || c === '图延伸') return '扩图';
   if (c === '四方/两方连续图类' || c === 'continuous_pattern' || c === 'continuous' || c === 'lianxu') return '连续图';
+  if (c === 'image_edit' || c === 'image-editor' || c === 'image_editor' || c === '图像编辑' || c === '改图') return '图编辑';
   if (c === 'image_fission' || c === 'fission' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
   if (c === 'cutout' || c === 'background_remove' || c === 'matting') return '抠图';
   if (c === 'image_composition' || c === 'composition' || c === 'fusion') return '图像融合';
@@ -691,10 +702,16 @@ const getWorkflowEvalExecution = (wf: EvalWorkflowVersion | null | undefined): R
   return execution && typeof execution === 'object' ? execution : null;
 };
 
+const isImageEditWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
+  const execution = getWorkflowEvalExecution(wf);
+  const text = `${wf?.workflow_id || ''} ${wf?.name || ''} ${wf?.version || ''} ${wf?.category || ''}`.toLowerCase();
+  return execution?.business_key === 'image_edit' || wf?.workflow_id === IMAGE_EDIT_WORKFLOW_ID || /image[_-]?edit|图编辑|图像编辑|改图/.test(text);
+};
+
 const isBusinessApiWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
   const routing = getWorkflowRoutingGovernance(wf);
   const execution = getWorkflowEvalExecution(wf);
-  return routing?.entryMode === 'business_api' || execution?.mode === 'business_run';
+  return routing?.entryMode === 'business_api' || execution?.mode === 'business_run' || isImageEditWorkflow(wf);
 };
 
 const isTextFissionEditableWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
@@ -772,6 +789,7 @@ const inferWorkflowCategory = (
     .toLowerCase();
 
   if (/花纹|印花|pattern|yinhua/.test(text)) return '花纹提取';
+  if (/图编辑|图像编辑|改图|image[-_ ]?edit|editor/.test(text)) return '图编辑';
   if (/裂变|fission|variation|softstyle|e7|flux-strong/.test(text)) return '图裂变';
   if (/扩图|延伸|outpaint|extend|extension|klein/.test(text)) return '扩图';
   if (/连续|四方|两方|seamless|lianxu/.test(text)) return '连续图';
@@ -796,8 +814,10 @@ const getWorkflowSortOrder = (wf: EvalWorkflowVersion | null | undefined): numbe
 const getWorkflowUsageHint = (wf: EvalWorkflowVersion | null | undefined): string =>
   String(getWorkflowPresentation(wf)?.usageHint || wf?.notes || '暂无说明，点击进入查看参数与结果。').trim();
 
-const getWorkflowOperationLabel = (wf: EvalWorkflowVersion | null | undefined): string =>
-  String(getWorkflowPresentation(wf)?.operationLabel || '').trim();
+const getWorkflowOperationLabel = (wf: EvalWorkflowVersion | null | undefined): string => {
+  if (isImageEditWorkflow(wf)) return '图编辑';
+  return String(getWorkflowPresentation(wf)?.operationLabel || '').trim();
+};
 
 const getWorkflowVariantLabel = (wf: EvalWorkflowVersion | null | undefined): string =>
   String(getWorkflowPresentation(wf)?.variantLabel || '').trim();
@@ -863,6 +883,12 @@ const categoryVisualMeta: Record<string, { icon: ReactNode; accent: string; summ
     accent: '#f59e0b',
     summary: '强调多样性与可控变体，避免主体语义漂移。',
     cover: 'linear-gradient(120deg, rgba(245,158,11,0.18), rgba(217,119,6,0.08))',
+  },
+  图编辑: {
+    icon: <ImageEditIcon size="18px" />,
+    accent: '#2563eb',
+    summary: '验证局部改图、参考图替换、删除修补和补色校正。',
+    cover: 'linear-gradient(120deg, rgba(37,99,235,0.18), rgba(29,78,216,0.08))',
   },
   扩图: {
     icon: <ImageEditIcon size="18px" />,
@@ -1126,6 +1152,7 @@ const getWorkflowResultModeLabel = (mode: string): string => {
 };
 
 const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
+  if (isImageEditWorkflow(wf)) return '主图 + 圈选区域 + 参考图 + 改图目标';
   const text = getSchemaFields(wf.parameters_schema)
     .map((field) => `${field.name} ${field.label || ''} ${field.description || ''}`)
     .join(' ')
@@ -1143,6 +1170,7 @@ const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
 };
 
 const getWorkflowOutputSummary = (wf: EvalWorkflowVersion): string => {
+  if (isImageEditWorkflow(wf)) return '改图结果';
   const resultMode = String(getWorkflowPresentation(wf)?.resultMode || '').trim();
   const resultModeLabel = getWorkflowResultModeLabel(resultMode);
   if (resultModeLabel) return resultModeLabel;
@@ -1619,21 +1647,6 @@ const extractOutputField = (value: unknown, key: string): string => {
     return '';
   }
   return '';
-};
-
-const formatEditorToolLabel = (tool: EditorTool): string => {
-  switch (tool) {
-    case 'point':
-      return '点选';
-    case 'rect':
-      return '矩形框选';
-    case 'circle':
-      return '圆形框选';
-    case 'freehand':
-      return '手绘';
-    default:
-      return '标注';
-  }
 };
 
 const formatLoraBatchStatusLabel = (status: LoraBatchItemStatus): string => {
@@ -2147,7 +2160,7 @@ const buildBusinessApiOutputDocText = (wf: EvalWorkflowVersion): string => {
   ].join('\n');
 };
 
-const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
+const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string, paramsOverride?: Record<string, unknown>) => {
   const execution = getWorkflowEvalExecution(wf);
   const businessKey = String(execution?.business_key || 'fission').trim() || 'fission';
   const businessVersion = String(execution?.version || wf.version || '').trim();
@@ -2173,6 +2186,12 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   }
 
   if (!paramsExample.imageUrl) paramsExample.imageUrl = urlExample || 'https://...';
+  if (paramsOverride) {
+    for (const [key, value] of Object.entries(paramsOverride)) {
+      if (value === undefined) continue;
+      paramsExample[key] = value;
+    }
+  }
   if (businessVersion) paramsExample.version = businessVersion;
   paramsExample.source = 'partner-api';
   paramsExample.channel = 'open-api';
@@ -2947,6 +2966,7 @@ function ToolCard({
   const recentOutputLabel = getWorkflowRecentOutputLabel(metric);
   const governance = getWorkflowGovernance(wf);
   const routingGovernance = getWorkflowRoutingGovernance(wf);
+  const imageEditWorkflow = isImageEditWorkflow(wf);
   const roleLabel = String(governance?.roleLabel || '可测版本').trim();
   const roleReason = String(governance?.roleReason || '').trim();
   const roleTheme = getWorkflowGovernanceTheme(governance?.role);
@@ -2954,8 +2974,8 @@ function ToolCard({
   const isAuxiliary = role === 'auxiliary';
   const isInternalTesting = isWorkflowInternalTesting(wf);
   const routingTheme = getWorkflowRoutingGovernanceTheme(routingGovernance?.governanceStatus);
-  const executionLabel = String(routingGovernance?.executionLabel || '执行面待确认').trim();
-  const trackingLabel = String(routingGovernance?.currentTrackingLabel || '追踪待确认').trim();
+  const executionLabel = imageEditWorkflow ? '中台业务编排 · GPT Image 2' : String(routingGovernance?.executionLabel || '执行面待确认').trim();
+  const trackingLabel = imageEditWorkflow ? '中台 runId 追踪' : String(routingGovernance?.currentTrackingLabel || '追踪待确认').trim();
   const badges = getWorkflowBadges(wf);
   const cornerBadge = getWorkflowCornerBadge(wf);
   const panelStyle = {
@@ -4222,7 +4242,25 @@ export function App() {
   }, [selectedTool]);
   const isTextFissionEditable = useMemo(() => isTextFissionEditableWorkflow(selectedTool), [selectedTool]);
   const selectedFissionVariationPresets = useMemo(() => getWorkflowVariationPresets(selectedTool), [selectedTool]);
-  const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID;
+  const isImageEditBusinessWorkflow = useMemo(() => {
+    return isImageEditWorkflow(selectedTool);
+  }, [selectedTool]);
+  const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID || isImageEditBusinessWorkflow;
+  const selectedImageEditSkill = useMemo(
+    () => String((formParams as any)?.editSkill || 'local_modify').trim() || 'local_modify',
+    [formParams],
+  );
+  const selectedImageEditSkillConfig = useMemo(
+    () => IMAGE_EDIT_SKILL_OPTIONS.find((item) => item.value === selectedImageEditSkill) || IMAGE_EDIT_SKILL_OPTIONS[0],
+    [selectedImageEditSkill],
+  );
+  const editorRefsForPayload = useMemo(
+    () =>
+      isImageEditBusinessWorkflow
+        ? selectEditorReferenceUrlsForSkill(selectedImageEditSkill, editorPrompt, editorRefs)
+        : editorRefs,
+    [editorPrompt, editorRefs, isImageEditBusinessWorkflow, selectedImageEditSkill],
+  );
   const isShengtuWorkflow = selectedTool?.workflow_id === SHENGTU_WORKFLOW_ID;
   const selectedModelValue = useMemo(() => {
     if (!isShengtuWorkflow) return '';
@@ -4265,11 +4303,11 @@ export function App() {
     return buildEditorPrompt({
       rawPrompt: editorPrompt,
       marks: editorMarks,
-      refUrls: editorRefs,
+      refUrls: editorRefsForPayload,
       mainUrl: formUrl.trim(),
       imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
     });
-  }, [editorPrompt, editorMarks, editorRefs, formUrl, editorImageMeta, isAiEditor]);
+  }, [editorPrompt, editorMarks, editorRefsForPayload, formUrl, editorImageMeta, isAiEditor]);
 
   const updateEditorPromptHint = useCallback(
     (value: string) => {
@@ -5127,12 +5165,19 @@ export function App() {
         defaults[f.name] = '';
       }
     }
+    const workflowIsImageEditBusiness = isImageEditWorkflow(wf);
     if (wf.workflow_id === AI_EDITOR_WORKFLOW_ID) {
       defaults.aspect_ratio = '';
       defaults.resolution = '';
     }
+    if (workflowIsImageEditBusiness) {
+      defaults.editSkill = defaults.editSkill || 'local_modify';
+      defaults.size = defaults.size || 'auto';
+      defaults.quality = defaults.quality || 'auto';
+      defaults.output_format = defaults.output_format || 'png';
+    }
     setFormParams(defaults);
-    if (wf.workflow_id === AI_EDITOR_WORKFLOW_ID) {
+    if (wf.workflow_id === AI_EDITOR_WORKFLOW_ID || workflowIsImageEditBusiness) {
       setEditorTool('rect');
       setEditorPrompt('');
       setEditorPromptHint(null);
@@ -5146,6 +5191,16 @@ export function App() {
     setActiveView('tool');
   };
 
+  useEffect(() => {
+    if (!isHostedImageEditPath()) return;
+    if (selectedTool && isImageEditWorkflow(selectedTool)) return;
+    const matched = displayWorkflows.find((wf) => isImageEditWorkflow(wf));
+    if (!matched) return;
+    openTool(matched);
+    setActiveCategory('图编辑');
+    setShowIntegrationDoc(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayWorkflows, selectedTool?.id]);
 
 
   const parseImageUrlList = useCallback((raw: string): string[] => {
@@ -5395,7 +5450,7 @@ export function App() {
     const seq = editorIdRef.current++;
     return {
       id: `mark_${Date.now()}_${seq}`,
-      name: `标注${seq}`,
+      name: `区域${seq}`,
       type: tool,
       points,
       created_at: Date.now(),
@@ -5489,10 +5544,24 @@ export function App() {
       return;
     }
     if (isAiEditor && !editorPrompt.trim()) {
-      pushNotice('error', '请先填写提示词');
+      pushNotice('error', isImageEditBusinessWorkflow ? '请先填写改图目标' : '请先填写提示词');
       return;
     }
-    if (isAiEditor) {
+    if (isImageEditBusinessWorkflow) {
+      const maskUrl = String((formParams as any).maskUrl || (formParams as any).mask_url || '').trim();
+      if (
+        (selectedImageEditSkill === 'reference_element_transfer' || selectedImageEditSkill === 'color_reference_correction') &&
+        editorRefs.length === 0
+      ) {
+        pushNotice('error', '当前改图技能需要至少上传 1 张参考图。');
+        return;
+      }
+      if (selectedImageEditSkill === 'remove_inpaint' && editorMarks.length === 0 && !maskUrl) {
+        pushNotice('error', '删除修补需要先在主图上标注要删除的位置，或提供一张蒙版。');
+        return;
+      }
+    }
+    if (isAiEditor && !isImageEditBusinessWorkflow) {
       const refsCount = editorRefs.length;
       const matches = Array.from(editorPrompt.matchAll(/#(\d+)/g));
       if (matches.length > 0) {
@@ -5501,7 +5570,7 @@ export function App() {
           .filter((n) => Number.isFinite(n) && n > 0);
         const maxRef = nums.length > 0 ? Math.max(...nums) : 0;
         if (maxRef > refsCount) {
-          pushNotice('error', `提示词引用了 #${maxRef}，但当前仅有 ${refsCount} 张参考图。`);
+                      pushNotice('error', `编辑指令引用了 #${maxRef}，但当前仅有 ${refsCount} 张参考图。`);
           return;
         }
       }
@@ -5513,6 +5582,7 @@ export function App() {
       if (!(f as any)?.required) continue;
       if (isPrimaryImageField(f.name) || f.name === 'prompt') continue;
       if (isAiEditor && f.name === 'prompt') continue;
+      if (isImageEditBusinessWorkflow && f.name === 'instruction') continue;
       const modelAware = resolveModelAwareField(f, selectedModelValue);
       if (modelAware.disabled) continue;
       const v = String((formParams as any)?.[f.name] ?? '').trim();
@@ -5575,21 +5645,39 @@ export function App() {
           parameters.url = currentUrl;
         }
         if (isAiEditor) {
-          const prompt = buildEditorPrompt({
-            rawPrompt: editorPrompt,
-            marks: editorMarks,
-            refUrls: editorRefs,
-            mainUrl: currentUrl,
-            imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
-          });
-          parameters.prompt = prompt;
-          if (editorRefs.length > 0) {
-            parameters.image_urls = editorRefs.join(',');
+          if (isImageEditBusinessWorkflow) {
+            parameters.instruction = editorPrompt.trim();
+            parameters.editSkill = selectedImageEditSkill;
+            const selectionHints = serializeEditorSelectionHints(editorMarks, {
+              width: editorImageMeta.naturalW,
+              height: editorImageMeta.naturalH,
+            });
+            if (selectionHints.length > 0) parameters.selectionHints = selectionHints;
+            if (editorRefsForPayload.length > 0) {
+              parameters.referenceImages = editorRefsForPayload.map((url, idx) => ({
+                url,
+                role: 'reference',
+                label: `参考图${idx + 1}`,
+              }));
+            }
+          } else {
+            const prompt = buildEditorPrompt({
+              rawPrompt: editorPrompt,
+              marks: editorMarks,
+              refUrls: editorRefs,
+              mainUrl: currentUrl,
+              imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
+            });
+            parameters.prompt = prompt;
+            if (editorRefs.length > 0) {
+              parameters.image_urls = editorRefs.join(',');
+            }
           }
         }
         for (const [k, v] of Object.entries(formParams)) {
           if (isTextFissionEditable && TEXT_FISSION_INTERNAL_PARAM_NAMES.has(k)) continue;
           if (isAiEditor && (k === 'prompt' || k === 'image_urls')) continue;
+          if (isImageEditBusinessWorkflow && ['instruction', 'selectionHints', 'referenceImages'].includes(k)) continue;
           if (isShengtuWorkflow) {
             const field = toolFields.find((f) => f.name === k);
             if (field) {
@@ -7856,13 +7944,70 @@ export function App() {
     const selectedToolGovernance = getWorkflowGovernance(selectedTool);
     const selectedToolRoleTheme = getWorkflowGovernanceTheme(selectedToolGovernance?.role);
     const selectedToolRoutingTheme = getWorkflowRoutingGovernanceTheme(selectedToolRouting?.governanceStatus);
-    const selectedToolExecutionLabel = String(selectedToolRouting?.executionLabel || '执行面待确认').trim();
-    const selectedToolTrackingLabel = String(selectedToolRouting?.currentTrackingLabel || '追踪待确认').trim();
+    const selectedToolExecutionLabel = isImageEditBusinessWorkflow
+      ? '中台业务编排 · GPT Image 2'
+      : String(selectedToolRouting?.executionLabel || '执行面待确认').trim();
+    const selectedToolTrackingLabel = isImageEditBusinessWorkflow
+      ? '中台 runId 追踪'
+      : String(selectedToolRouting?.currentTrackingLabel || '追踪待确认').trim();
     const selectedToolRoleLabel = String(selectedToolGovernance?.roleLabel || '可测版本').trim();
     const selectedToolUsesBusinessApi = isBusinessApiWorkflow(selectedTool);
-    const doc = isAiEditor
-      ? buildAiEditorDoc(selectedTool, formUrl.trim(), editorPromptPreview, editorRefs)
-      : selectedToolUsesBusinessApi
+    const imageEditMaskUrl = String((formParams as any).maskUrl || (formParams as any).mask_url || '').trim();
+    const imageEditSelectionHintsForPayload = isImageEditBusinessWorkflow
+      ? serializeEditorSelectionHints(editorMarks, {
+          width: editorImageMeta.naturalW,
+          height: editorImageMeta.naturalH,
+        })
+      : [];
+    const imageEditDocParams = isImageEditBusinessWorkflow
+      ? {
+          imageUrl: formUrl.trim() || 'https://...',
+          editSkill: selectedImageEditSkill,
+          instruction: editorPrompt.trim() || '<填写改图目标>',
+          selectionHints: imageEditSelectionHintsForPayload,
+          referenceImages: editorRefsForPayload.map((url, idx) => ({
+            url,
+            role: 'reference',
+            label: `参考图${idx + 1}`,
+          })),
+          maskUrl: imageEditMaskUrl,
+          size: String((formParams as any).size || 'auto'),
+          quality: String((formParams as any).quality || 'auto'),
+          output_format: String((formParams as any).output_format || 'png'),
+        }
+      : undefined;
+    const imageEditBlockingReason = (() => {
+      if (!isImageEditBusinessWorkflow) return '';
+      if (!formUrl.trim()) return '请先上传或粘贴主图 URL。';
+      if (!editorPrompt.trim()) return '请先填写改图目标。';
+      if (IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS.has(selectedImageEditSkill) && editorRefs.length === 0) {
+        return '当前改图方式需要至少 1 张参考图。';
+      }
+      if (selectedImageEditSkill === 'remove_inpaint' && editorMarks.length === 0 && !imageEditMaskUrl) {
+        return '删除修补需要先标注要删除的位置，或提供一张蒙版。';
+      }
+      return '';
+    })();
+    const aiEditorBlockingReason = isAiEditor && !isImageEditBusinessWorkflow && !editorPrompt.trim() ? '请先填写提示词。' : '';
+    const runBlockingReason = imageEditBlockingReason || aiEditorBlockingReason || (!formUrl.trim() ? '请先上传或粘贴主图 URL。' : '');
+    const imageEditTaskSummary = isImageEditBusinessWorkflow
+      ? buildImageEditTaskSummary({
+          skillLabel: selectedImageEditSkillConfig.label,
+          prompt: editorPrompt,
+          marks: editorMarks,
+          refs: editorRefsForPayload,
+          maskUrl: imageEditMaskUrl,
+          size: String((formParams as any).size || 'auto'),
+          quality: String((formParams as any).quality || 'auto'),
+          mainUrl: formUrl,
+        })
+      : '';
+    const imageEditQuickPrompts = isImageEditBusinessWorkflow ? getImageEditQuickPrompts(selectedImageEditSkill) : [];
+    const doc = isImageEditBusinessWorkflow
+      ? buildBusinessApiDoc(selectedTool, formUrl.trim(), imageEditDocParams)
+      : isAiEditor
+        ? buildAiEditorDoc(selectedTool, formUrl.trim(), editorPromptPreview, editorRefs)
+        : selectedToolUsesBusinessApi
         ? buildBusinessApiDoc(selectedTool, formUrl.trim())
         : buildCozeDoc(selectedTool, formUrl.trim());
     const integrationDocTitle = selectedToolUsesBusinessApi
@@ -7974,20 +8119,22 @@ export function App() {
         {selectedToolUpdateNote ? (
           <Alert theme="info" message={`版本更新说明：${selectedToolUpdateNote}`} />
         ) : null}
-        <StepGuide
-          title="单次评测流程"
-          hint="保持同一流程可以减少误操作，结果更容易横向对比。"
-          steps={[
-            { title: '准备输入', description: '填写 URL / 提示词 / 业务参数。' },
-            { title: '提交运行', description: '点击开始生成并等待状态变更。' },
-            { title: '查看结果', description: '右侧查看最新出图、错误信息与调试链接。' },
-            { title: '历史打标', description: '在底部历史记录中评分并沉淀备注。' },
-          ]}
-        />
+        {isImageEditBusinessWorkflow ? null : (
+          <StepGuide
+            title="单次评测流程"
+            hint="保持同一流程可以减少误操作，结果更容易横向对比。"
+            steps={[
+              { title: '准备输入', description: '填写 URL / 提示词 / 业务参数。' },
+              { title: '提交运行', description: '点击开始生成并等待状态变更。' },
+              { title: '查看结果', description: '右侧查看最新出图、错误信息与调试链接。' },
+              { title: '历史打标', description: '在底部历史记录中评分并沉淀备注。' },
+            ]}
+          />
+        )}
 
         <Row gutter={[16, 16]} className="podi-eval-workbench">
           {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
-          <Col xs={12} xl={4}>
+          <Col xs={12} xl={isImageEditBusinessWorkflow ? 7 : 4}>
             <Card
               bordered
               className="podi-eval-panel podi-eval-panel--input"
@@ -7999,7 +8146,121 @@ export function App() {
               }
             >
               {isAiEditor ? (
+                isImageEditBusinessWorkflow ? (
+                  <ImageEditWorkbench
+                    value={{
+                      imageUrl: formUrl,
+                      editSkill: selectedImageEditSkill,
+                      instruction: editorPrompt,
+                      marks: editorMarks,
+                      referenceUrls: editorRefs,
+                      maskUrl: imageEditMaskUrl,
+                      size: String((formParams as any).size || 'auto'),
+                      quality: normalizeImageEditQuality(String((formParams as any).quality || 'auto')),
+                      outputFormat: String((formParams as any).output_format || 'png'),
+                    }}
+                    onChange={(next) => {
+                      setFormUrl(next.imageUrl);
+                      setEditorPrompt(next.instruction);
+                      setEditorMarks(next.marks);
+                      setEditorRefs(next.referenceUrls);
+                      setFormParams((prev) => {
+                        const params = {
+                          ...prev,
+                          editSkill: next.editSkill,
+                          maskUrl: next.maskUrl,
+                          size: next.size,
+                          quality: next.quality,
+                          output_format: next.outputFormat,
+                        };
+                        delete (params as any).mask_url;
+                        return params;
+                      });
+                    }}
+                    onUploadImage={async (file) => {
+                      setUploading(true);
+                      try {
+                        const res = await evalApi.uploadImage(file);
+                        return res.url;
+                      } finally {
+                        setUploading(false);
+                      }
+                    }}
+                    onPreviewImage={(url, title) => setLightbox({ url, title })}
+                    onImageMetaChange={setEditorImageMeta}
+                    onSubmit={() => void runTool()}
+                    submitting={isRunning}
+                    uploading={uploading}
+                    blockingReason={runBlockingReason}
+                    taskSummary={imageEditTaskSummary}
+                    payloadPreview={imageEditDocParams}
+                    advancedSlot={
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        {toolFields
+                          .filter((f) => !isPrimaryImageField(f.name))
+                          .filter(
+                            (f) =>
+                              ![
+                                'prompt',
+                                'image_urls',
+                                'instruction',
+                                'selectionHints',
+                                'referenceImages',
+                                'editSkill',
+                                'maskUrl',
+                                'mask_url',
+                                'size',
+                                'quality',
+                                'output_format',
+                                'outputFormat',
+                              ].includes(f.name),
+                          )
+                          .map((f) => (
+                            <ParamField
+                              key={f.name}
+                              field={f}
+                              value={formParams[f.name] ?? ''}
+                              onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))}
+                            />
+                          ))}
+                      </Space>
+                    }
+                    docSlot={
+                      <IntegrationDocBlock
+                        doc={doc}
+                        title={integrationDocTitle}
+                        description={integrationDocDescription}
+                        expanded={showIntegrationDoc}
+                        onToggle={() => setShowIntegrationDoc((prev) => !prev)}
+                        onCopy={copyIntegrationDoc}
+                      />
+                    }
+                  />
+                ) : (
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  {isImageEditBusinessWorkflow ? (
+                    <Card bordered title="第 1 步：选择这次要怎么改">
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        <Select
+                          value={selectedImageEditSkill}
+                          onChange={(v) => setFormParams((p) => ({ ...p, editSkill: String(v || 'local_modify') }))}
+                          options={IMAGE_EDIT_SKILL_OPTIONS.map((item) => ({
+                            label: item.label,
+                            value: item.value,
+                          }))}
+                        />
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {selectedImageEditSkillConfig.description}
+                        </Typography.Text>
+                        {editorRefs.length > 0 && editorRefsForPayload.length < editorRefs.length ? (
+                          <Alert
+                            theme="info"
+                            message={`当前改图方式不会自动使用参考图；如果要让模型参考图片，请切换到“参考图替换”或“补色校正”。`}
+                          />
+                        ) : null}
+                      </Space>
+                    </Card>
+                  ) : null}
                   <Space direction="vertical" size={4} style={{ width: '100%' }}>
                     <Typography.Text>
                       主图 URL <Typography.Text theme="error">*</Typography.Text>
@@ -8048,7 +8309,7 @@ export function App() {
                     </Space>
                   </Space>
 
-                  <Card bordered title="标注区域（点选 / 矩形 / 圆形 / 手绘）">
+                  <Card bordered title="第 2 步：圈出要改的位置（可选）">
                     <Space direction="vertical" size="small" style={{ width: '100%' }}>
                       <Space breakLine>
                         {(['point', 'rect', 'circle', 'freehand'] as EditorTool[]).map((tool) => (
@@ -8074,7 +8335,7 @@ export function App() {
                         </Button>
                       </Space>
                       <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                        标注会生成 @标注1/@标注2…，可在提示词里直接使用。
+                        直接在主图上圈目标即可；系统会自动把位置带入请求，不需要在文字里写标记。
                       </Typography.Text>
                       {formUrl.trim() ? (
                         <div
@@ -8112,7 +8373,7 @@ export function App() {
                                   <g key={mark.id}>
                                     <circle cx={pts[0].x} cy={pts[0].y} r={4} fill="#f97316" />
                                     <text x={pts[0].x + 6} y={pts[0].y - 6} fontSize="12" fill="#f97316">
-                                      @{label}
+                                      {isImageEditBusinessWorkflow ? label : `@${label}`}
                                     </text>
                                   </g>
                                 );
@@ -8129,7 +8390,7 @@ export function App() {
                                     <g key={mark.id}>
                                       <rect x={left} y={top} width={w} height={h} fill="none" stroke="#38bdf8" strokeWidth={2} />
                                       <text x={left + 4} y={top - 6} fontSize="12" fill="#38bdf8">
-                                        @{label}
+                                        {isImageEditBusinessWorkflow ? label : `@${label}`}
                                       </text>
                                     </g>
                                   );
@@ -8141,7 +8402,7 @@ export function App() {
                                   <g key={mark.id}>
                                     <circle cx={cx} cy={cy} r={r} fill="none" stroke="#a855f7" strokeWidth={2} />
                                     <text x={cx + r + 4} y={cy} fontSize="12" fill="#a855f7">
-                                      @{label}
+                                      {isImageEditBusinessWorkflow ? label : `@${label}`}
                                     </text>
                                   </g>
                                 );
@@ -8153,7 +8414,7 @@ export function App() {
                                   <g key={mark.id}>
                                     <path d={path} fill="none" stroke="#22c55e" strokeWidth={2} />
                                     <text x={first.x + 6} y={first.y - 6} fontSize="12" fill="#22c55e">
-                                      @{label}
+                                      {isImageEditBusinessWorkflow ? label : `@${label}`}
                                     </text>
                                   </g>
                                 );
@@ -8168,9 +8429,9 @@ export function App() {
                     </Space>
                   </Card>
 
-                  <Card bordered title={`标注列表（${editorMarks.length}）`}>
+                  <Card bordered title={`已圈选位置（${editorMarks.length}）`}>
                     {editorMarks.length === 0 ? (
-                      <Typography.Text theme="secondary">暂无标注。</Typography.Text>
+                      <Typography.Text theme="secondary">未圈选时，系统会按整图和文字说明理解。</Typography.Text>
                     ) : (
                       <Space direction="vertical" size="small" style={{ width: '100%' }}>
                         {editorMarks.map((mark, idx) => (
@@ -8188,17 +8449,21 @@ export function App() {
                               <Tag variant="light">{formatEditorToolLabel(mark.type)}</Tag>
                             </Space>
                             <Space>
-                              <Button
-                                size="small"
-                                variant="outline"
-                                onClick={() =>
-                                  setEditorPrompt((prev) =>
-                                    `${prev}${prev.trim() ? ' ' : ''}@${mark.name || `标注${idx + 1}`}`.trim(),
-                                  )
-                                }
-                              >
-                                插入 @标注
-                              </Button>
+                              {isImageEditBusinessWorkflow ? (
+                                <Tag variant="light">自动带入位置</Tag>
+                              ) : (
+                                <Button
+                                  size="small"
+                                  variant="outline"
+                                  onClick={() =>
+                                    setEditorPrompt((prev) =>
+                                      `${prev}${prev.trim() ? ' ' : ''}@${mark.name || `标注${idx + 1}`}`.trim(),
+                                    )
+                                  }
+                                >
+                                  插入 @标注
+                                </Button>
+                              )}
                               <Button
                                 size="small"
                                 theme="danger"
@@ -8214,8 +8479,11 @@ export function App() {
                     )}
                   </Card>
 
-                  <Card bordered title={`参考图（${editorRefs.length}）`}>
+                  <Card bordered title={`第 3 步：添加参考图（${editorRefs.length}）`}>
                     <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                        参考图会按当前改图方式自动使用；参考图替换和补色校正必须添加参考图。
+                      </Typography.Text>
                       <Space align="center" style={{ width: '100%' }}>
                         <Input
                           value={editorRefDraft}
@@ -8268,20 +8536,26 @@ export function App() {
                                   src={url}
                                   alt={`ref-${idx + 1}`}
                                   style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, cursor: 'pointer' }}
-                                  onClick={() => setLightbox({ url, title: `参考图 #${idx + 1}` })}
+                                  onClick={() => setLightbox({ url, title: `参考图 ${idx + 1}` })}
                                 />
-                                <Typography.Text theme="secondary">#{idx + 1}（图{idx + 2}）</Typography.Text>
+                                <Typography.Text theme="secondary">参考图 {idx + 1}</Typography.Text>
                               </Space>
                               <Space>
-                                <Button
-                                  size="small"
-                                  variant="outline"
-                                  onClick={() =>
-                                    setEditorPrompt((prev) => `${prev}${prev.trim() ? ' ' : ''}#${idx + 1}`.trim())
-                                  }
-                                >
-                                  插入 #参考图
-                                </Button>
+                                {isImageEditBusinessWorkflow ? (
+                                  <Tag theme={editorRefsForPayload.includes(url) ? 'success' : 'default'} variant="light">
+                                    {editorRefsForPayload.includes(url) ? '本次使用' : '仅保存'}
+                                  </Tag>
+                                ) : (
+                                  <Button
+                                    size="small"
+                                    variant="outline"
+                                    onClick={() =>
+                                      setEditorPrompt((prev) => `${prev}${prev.trim() ? ' ' : ''}#${idx + 1}`.trim())
+                                    }
+                                  >
+                                    插入 #参考图
+                                  </Button>
+                                )}
                                 <Button
                                   size="small"
                                   theme="danger"
@@ -8298,7 +8572,7 @@ export function App() {
                     </Space>
                   </Card>
 
-                  <Card bordered title="提示词（可用 @标注 / #参考图）">
+                  <Card bordered title={isImageEditBusinessWorkflow ? '第 4 步：描述想改成什么' : '提示词（可用 @标注 / #参考图）'}>
                     <Space direction="vertical" size="small" style={{ width: '100%' }}>
                       <Textarea
                         ref={editorPromptRef as any}
@@ -8311,9 +8585,22 @@ export function App() {
                         onKeyup={() => updateEditorPromptHint(editorPromptRef.current?.value || editorPrompt)}
                         onClick={() => updateEditorPromptHint(editorPromptRef.current?.value || editorPrompt)}
                         autosize={{ minRows: 4, maxRows: 10 }}
-                        placeholder="例如：@标注1 把这段文字改成“新年快乐”，参考 #1 的字体风格"
+                        placeholder={
+                          isImageEditBusinessWorkflow
+                            ? '例如：把圈出的杯子改成蓝色陶瓷材质，其他区域保持不变。'
+                          : '例如：@标注1 把这段文字改成“新年快乐”，参考 #1 的字体风格'
+                        }
                       />
-                      {editorPromptHint ? (
+                      {isImageEditBusinessWorkflow ? (
+                        <Space breakLine size="small">
+                          {imageEditQuickPrompts.map((text) => (
+                            <Button key={text} size="small" variant="outline" onClick={() => setEditorPrompt(text)}>
+                              {text}
+                            </Button>
+                          ))}
+                        </Space>
+                      ) : null}
+                      {!isImageEditBusinessWorkflow && editorPromptHint ? (
                         <div
                           style={{
                             border: '1px solid var(--td-border-level-1-color)',
@@ -8348,12 +8635,14 @@ export function App() {
                         </div>
                       ) : null}
                       <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                        提示词会自动拼接“图像编号 + 标注说明 + 参考图映射 + 原图尺寸”，并将 #1/#2 改写为 图2/图3。
+                        {isImageEditBusinessWorkflow
+                          ? '只写业务目标即可。圈选位置和参考图会由系统自动整理进请求，不需要手写位置编号或参考图编号。'
+                          : '提示词会自动拼接“图像编号 + 标注说明 + 参考图映射 + 原图尺寸”，并将 #1/#2 改写为 图2/图3。'}
                       </Typography.Text>
                     </Space>
                   </Card>
 
-                  <Card bordered title="提示词重组预览（发送给 Coze）">
+                  <Card bordered title={isImageEditBusinessWorkflow ? '本次任务摘要（自动整理）' : '提示词重组预览（发送给 Coze）'}>
                     <pre
                       style={{
                         maxHeight: 240,
@@ -8367,14 +8656,15 @@ export function App() {
                         whiteSpace: 'pre-wrap',
                       }}
                     >
-                      {editorPromptPreview || '（暂无内容）'}
+                      {(isImageEditBusinessWorkflow ? imageEditTaskSummary : editorPromptPreview) || '（暂无内容）'}
                     </pre>
                   </Card>
 
                   <Card bordered title="高级参数（可选）">
                     <Space direction="vertical" size="large" style={{ width: '100%' }}>
                       {toolFields
-                        .filter((f) => !['url', 'Url', 'prompt', 'image_urls'].includes(f.name))
+                        .filter((f) => !isPrimaryImageField(f.name))
+                        .filter((f) => !['prompt', 'image_urls', 'instruction', 'selectionHints', 'referenceImages', 'editSkill'].includes(f.name))
                         .map((f) => (
                           <ParamField
                             key={f.name}
@@ -8388,17 +8678,17 @@ export function App() {
 
                   <div className="podi-run-action-bar">
                     <div>
-                      <Typography.Text strong>{formUrl.trim() ? '输入已就绪' : '等待主图'}</Typography.Text>
+                      <Typography.Text strong>{runBlockingReason ? '等待输入' : '输入已就绪'}</Typography.Text>
                       <div>
                         <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {formUrl.trim() ? '可提交运行；建议单次先看结果，再批量放量。' : '请先上传或粘贴主图 URL。'}
+                          {runBlockingReason || '可提交运行；建议单次先看结果，再批量放量。'}
                         </Typography.Text>
                       </div>
                     </div>
                     <Button
                       theme="primary"
                       loading={isRunning}
-                      disabled={isRunning || !formUrl.trim()}
+                      disabled={isRunning || Boolean(runBlockingReason)}
                       onClick={() => void runTool()}
                     >
                       开始生成
@@ -8414,6 +8704,7 @@ export function App() {
                     onCopy={copyIntegrationDoc}
                   />
                 </Space>
+                )
               ) : (
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                   {requiresImage ? (
@@ -8792,7 +9083,7 @@ export function App() {
             </Card>
           </Col>
 
-          <Col xs={12} xl={8}>
+          <Col xs={12} xl={isImageEditBusinessWorkflow ? 5 : 8}>
             <Card
               bordered
               className="podi-eval-panel podi-eval-panel--result"

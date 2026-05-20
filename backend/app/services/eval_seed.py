@@ -64,6 +64,7 @@ ALLOWED_EVAL_CATEGORIES: set[str] = {
     "图延伸类",
     "四方/两方连续图类",
     "图裂变",
+    "图编辑",
     "图像理解",
     "通用类",
 }
@@ -167,6 +168,8 @@ def _normalize_eval_category(category: str | None) -> str:
         return "四方/两方连续图类"
     if c in {"图裂变", "liebiam", "liebain", "variation", "image_variation"}:
         return "图裂变"
+    if c in {"图编辑", "图像编辑", "改图", "image_edit", "image-editor", "image_editor", "editor"}:
+        return "图编辑"
     if c in {"图像理解", "vision_analysis", "vision", "vl", "image_quality_evaluation", "quality_evaluation"}:
         return "图像理解"
     if c in {"general", "common"}:
@@ -1667,6 +1670,106 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 "mode": "business_run",
                 "business_key": "fission",
                 "version": "comfyui-vl-control-v2",
+            },
+        },
+    },
+    # 图编辑 / 中台原生业务接口：GPT Image 2 组件工作台
+    {
+        "category": "图编辑",
+        "name": "图编辑 · GPT Image 2 通用改图",
+        "version": "gpt-image2-editor-v1",
+        "workflow_id": "business_image_edit_gpt_image2_editor_v1",
+        "status": "active",
+        "notes": "中台原生组件型图编辑业务接口。测评端使用画布工作台收集主图、标注、参考图、单蒙版和编辑指令，再提交到 /api/business/image-edit/runs。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "主图 URL", "type": "image", "required": True, "description": "需要编辑的主图；测评端上传后自动写入。"},
+                {
+                    "name": "editSkill",
+                    "label": "改图技能",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "local_modify",
+                    "description": "首版统一叫改图；根据实际场景选择技能。",
+                    "options": [
+                        {"label": "局部修改", "value": "local_modify"},
+                        {"label": "参考图替换", "value": "reference_element_transfer"},
+                        {"label": "删除修补", "value": "remove_inpaint"},
+                        {"label": "补色校正", "value": "color_reference_correction"},
+                    ],
+                },
+                {"name": "instruction", "label": "编辑指令", "type": "textarea", "required": True, "defaultValue": "", "description": "用自然语言描述要改哪里、改成什么；标注和参考图会随请求一起提交。"},
+                {"name": "selectionHints", "label": "区域标注", "type": "json", "required": False, "defaultValue": "", "description": "测评端画布自动生成；手工调试时可填写 JSON。"},
+                {"name": "referenceImages", "label": "参考图", "type": "json", "required": False, "defaultValue": "", "description": "参考图替换和补色校正必须提供；测评端可上传多张参考图。"},
+                {"name": "maskUrl", "label": "蒙版 URL", "type": "image", "required": False, "defaultValue": "", "description": "高级模式可选；只允许一个最终 alpha mask，尺寸必须和主图一致。"},
+                {
+                    "name": "size",
+                    "label": "输出尺寸",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "description": "默认跟随原图/自动；2K 以上高成本高耗时。",
+                    "options": GPT_IMAGE2_SIZE_OPTIONS,
+                },
+                {
+                    "name": "quality",
+                    "label": "质量档位",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "description": "preview=快速预览，production=正式候选，premium=高质量高成本。",
+                    "options": [
+                        {"label": "自动", "value": "auto"},
+                        {"label": "快速预览", "value": "preview"},
+                        {"label": "正式候选", "value": "production"},
+                        {"label": "高质量", "value": "premium"},
+                    ],
+                },
+                {
+                    "name": "output_format",
+                    "label": "输出格式",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "png",
+                    "options": [
+                        {"label": "PNG", "value": "png"},
+                        {"label": "JPEG", "value": "jpeg"},
+                        {"label": "WebP", "value": "webp"},
+                    ],
+                },
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "imageUrls", "type": "array", "description": "中台 OSS 结果图"},
+                {"name": "runId", "type": "text", "description": "业务运行 ID"},
+                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "category_label": "图编辑",
+                "operation_label": "图编辑",
+                "variant_label": "GPT Image 2 通用改图",
+                "badges": ["新版", "组件工作台", "原生业务接口"],
+                "release_time": "2026-05-19",
+                "update_time": "2026-05-19",
+                "supports_batch": False,
+                "result_mode": "image",
+                "usage_hint": "用于验证通用改图组件：主图、标注、参考图、蒙版和编辑指令会由中台统一编译。",
+                "sort_order": 10,
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-05-19 新接入，先验证组件交互、尺寸、mask、参考图和结果回填。",
+            },
+            "eval_execution": {
+                "mode": "business_run",
+                "business_key": "image_edit",
+                "version": "gpt-image2-editor-v1",
             },
         },
     },
