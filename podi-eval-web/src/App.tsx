@@ -40,6 +40,7 @@ import { mapStatusToBadge } from './features/eval/shared/status';
 import { ImageEditWorkbench } from './features/image-edit/ImageEditWorkbench';
 import {
   buildImageEditTaskSummary,
+  formatEditorReferenceMention,
   formatEditorToolLabel,
   getImageEditQuickPrompts,
   IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS,
@@ -5656,7 +5657,8 @@ export function App() {
             if (editorRefsForPayload.length > 0) {
               parameters.referenceImages = editorRefsForPayload.map((url, idx) => ({
                 url,
-                role: 'reference',
+                role: selectedImageEditSkill === 'color_reference_correction' ? 'color_reference' : 'reference',
+                mention: formatEditorReferenceMention(idx),
                 label: `参考图${idx + 1}`,
               }));
             }
@@ -7967,7 +7969,8 @@ export function App() {
           selectionHints: imageEditSelectionHintsForPayload,
           referenceImages: editorRefsForPayload.map((url, idx) => ({
             url,
-            role: 'reference',
+            role: selectedImageEditSkill === 'color_reference_correction' ? 'color_reference' : 'reference',
+            mention: formatEditorReferenceMention(idx),
             label: `参考图${idx + 1}`,
           })),
           maskUrl: imageEditMaskUrl,

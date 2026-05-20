@@ -522,8 +522,16 @@ def test_image_edit_payload_compiles_business_inputs_for_gpt_image2() -> None:
     payload = BusinessRunCreateRequest(
         imageUrl="https://example.com/source.png",
         editSkill="local_modify",
-        instruction="把杯子改成蓝色陶瓷材质，保持背景不变。",
-        selectionHints=[{"type": "rect", "label": "杯子", "bbox": {"x": 10, "y": 20, "width": 100, "height": 160}}],
+        instruction="把 @标注1 改成蓝色陶瓷材质，保持背景不变。",
+        selectionHints=[
+            {
+                "type": "rect",
+                "label": "杯子",
+                "mention": "@标注1",
+                "geometryText": "@rect(10,20 → 110,180)",
+                "bbox": {"x": 10, "y": 20, "width": 100, "height": 160},
+            }
+        ],
         inputs={"input_fidelity": "high"},
         quality="preview",
         size="1024x1024",
@@ -543,9 +551,13 @@ def test_image_edit_payload_compiles_business_inputs_for_gpt_image2() -> None:
     assert request.inputs["output_format"] == "png"
     assert request.inputs["n"] == 1
     assert "input_fidelity" not in request.inputs
-    assert "把杯子改成蓝色陶瓷材质" in request.inputs["prompt"]
+    assert "把 @标注1 改成蓝色陶瓷材质" in request.inputs["prompt"]
     assert "局部修改" in request.inputs["prompt"]
+    assert "@标注1" in request.inputs["prompt"]
+    assert "@rect(10,20 → 110,180)" in request.inputs["prompt"]
     assert request.metadata["imageEditCompiler"]["editSkill"] == "local_modify"
+    assert request.metadata["imageEditCompiler"]["selectionHints"][0]["mention"] == "@标注1"
+    assert request.metadata["imageEditCompiler"]["selectionHints"][0]["geometryText"] == "@rect(10,20 → 110,180)"
     assert request.metadata["imageEditCompiler"]["mappedQuality"] == "low"
 
 
@@ -599,6 +611,30 @@ def test_image_edit_local_modify_keeps_explicit_reference_numbering() -> None:
         "https://example.com/ref-1.png",
         "https://example.com/ref-2.png",
     ]
+
+
+def test_image_edit_local_modify_keeps_explicit_reference_mentions() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="把 @标注1 按 #参考图2 的材质重做。",
+        selectionHints=[{"type": "point", "label": "标注1", "mention": "@标注1", "points": [{"x": 20, "y": 30}]}],
+        referenceImages=[
+            {"url": "https://example.com/ref-1.png", "label": "参考图1", "mention": "#参考图1"},
+            {"url": "https://example.com/ref-2.png", "label": "参考图2", "mention": "#参考图2"},
+        ],
+    )
+
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    assert request.inputs["image_urls"] == ["https://example.com/ref-1.png", "https://example.com/ref-2.png"]
+    assert request.metadata["imageEditCompiler"]["referenceImages"][1]["mention"] == "#参考图2"
+    assert "#参考图2" in request.inputs["prompt"]
 
 
 def test_image_edit_reference_transfer_requires_reference_image() -> None:

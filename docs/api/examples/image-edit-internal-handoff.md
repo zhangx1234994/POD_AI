@@ -120,7 +120,12 @@ export function ImageEditPage() {
         editSkill: value.editSkill,
         instruction: value.instruction,
         selectionHints: serializeEditorSelectionHints(value.marks, { width: 0, height: 0 }),
-        referenceImages: value.referenceUrls.map((url, index) => ({ url, role: `reference_${index + 1}` })),
+        referenceImages: value.referenceUrls.map((url, index) => ({
+          url,
+          role: 'reference',
+          label: `参考图${index + 1}`,
+          mention: `#参考图${index + 1}`,
+        })),
         maskUrl: value.maskUrl || undefined,
         size: value.size || 'auto',
         quality: value.quality || 'preview',
@@ -238,8 +243,8 @@ curl -X POST "$PODI_BACKEND/api/business/runs/get" \
 | `imageUrl` | 是 | 无 | 主图 URL，必须可被中台访问。 |
 | `instruction` | 是 | 无 | 用户编辑指令。描述要改哪里、改成什么。 |
 | `editSkill` | 否 | `local_modify` | 改图技能，见下方枚举。 |
-| `selectionHints` | 否 | `[]` | 点选、框选、圆选等软标注，只用于告诉模型关注哪里，不是硬蒙版。 |
-| `referenceImages` | 条件必填 | `[]` | 参考图列表。参考图替换、补色校正必须提供。 |
+| `selectionHints` | 否 | `[]` | 点选、框选、圆选等软标注，只用于告诉模型关注哪里，不是硬蒙版；每条需要有 `mention`，例如 `@标注1`。 |
+| `referenceImages` | 条件必填 | `[]` | 参考图列表。参考图替换、补色校正必须提供；每条需要有 `mention`，例如 `#参考图1`。 |
 | `maskUrl` | 否 | 空 | 单个最终 alpha 蒙版。多个笔刷区域必须在前端合并成一个蒙版。 |
 | `maskMeta` | 否 | 空 | 蒙版元信息，可包含 `sourceWidth/sourceHeight/width/height`，用于提前校验尺寸。 |
 | `size` | 否 | `auto` | 输出尺寸。默认跟随原图/自动。 |
@@ -252,6 +257,42 @@ curl -X POST "$PODI_BACKEND/api/business/runs/get" \
 
 ## 7. 技能枚举
 
+标注与引用规则：
+
+- 前端每次点选、框选、圆选、手绘后，必须在页面上生成一条“标注区域”记录。
+- 标注记录用 `@标注1`、`@标注2` 这类名称引用，不能只在图上显示一个点。
+- 参考图用 `#参考图1`、`#参考图2` 这类名称引用。
+- 用户在编辑指令里输入 `@` 应看到标注清单，输入 `#` 应看到参考图清单。
+- 后端会把 `selectionHints[].mention`、`selectionHints[].geometryText`、`referenceImages[].mention` 编译进最终提示词。
+- 非强依赖参考图的技能，只会把指令里明确引用的参考图传给模型，避免无关参考图干扰结果。
+
+`selectionHints` 示例：
+
+```json
+[
+  {
+    "type": "point",
+    "label": "标注1",
+    "mention": "@标注1",
+    "geometryText": "@point(560,610)",
+    "points": [{ "x": 560, "y": 610 }]
+  }
+]
+```
+
+`referenceImages` 示例：
+
+```json
+[
+  {
+    "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/reference-1.png",
+    "role": "reference",
+    "label": "参考图1",
+    "mention": "#参考图1"
+  }
+]
+```
+
 | `editSkill` | 中文名 | 是否需要参考图 | 是否需要标注或蒙版 | 说明 |
 | --- | --- | --- | --- | --- |
 | `local_modify` | 局部修改 | 否 | 否 | 改颜色、形态、局部细节。没有标注时模型按指令判断目标区域。 |
@@ -262,7 +303,7 @@ curl -X POST "$PODI_BACKEND/api/business/runs/get" \
 参考图过滤规则：
 
 - `reference_element_transfer` 和 `color_reference_correction` 默认传入参考图。
-- 其他技能只传入编辑指令中明确引用的参考图，例如 `#1`、`#参考图1`。
+- 其他技能只传入编辑指令中明确引用的参考图，例如 `#参考图1`。
 - 未传入模型的参考图仍会保留在调试信息里，方便排查。
 
 ## 8. 尺寸、质量和格式

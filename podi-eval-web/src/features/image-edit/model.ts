@@ -88,10 +88,30 @@ export const formatEditorToolLabel = (tool: ImageEditTool): string => {
   }
 };
 
+export const formatEditorMarkMention = (_mark: ImageEditMark, index: number): string => `@标注${index + 1}`;
+
+export const formatEditorReferenceMention = (index: number): string => `#参考图${index + 1}`;
+
+export const summarizeEditorMarkGeometry = (mark: ImageEditMark): string => {
+  const points = mark.points || [];
+  const first = points[0];
+  const second = points[1];
+  const fmt = (value: number) => Math.round(Number(value || 0));
+  if (mark.type === 'point' && first) return `@point(${fmt(first.x)},${fmt(first.y)})`;
+  if (mark.type === 'rect' && first && second) {
+    return `@rect(${fmt(first.x)},${fmt(first.y)} → ${fmt(second.x)},${fmt(second.y)})`;
+  }
+  if (mark.type === 'circle' && first && second) {
+    return `@circle(${fmt(first.x)},${fmt(first.y)} → ${fmt(second.x)},${fmt(second.y)})`;
+  }
+  if (mark.type === 'freehand') return `@path(${points.length}点)`;
+  return '@region';
+};
+
 export const selectEditorReferenceUrlsForSkill = (skill: string, prompt: string, refs: string[]): string[] => {
   if (IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS.has(skill)) return refs;
   if (!prompt) return [];
-  return [];
+  return refs.filter((_, index) => prompt.includes(formatEditorReferenceMention(index)));
 };
 
 export const getImageEditQuickPrompts = (skill: string): string[] => {
@@ -122,6 +142,8 @@ export const serializeEditorSelectionHints = (
   return marks.map((mark, index) => ({
     type: mark.type,
     label: mark.name || `标注${index + 1}`,
+    mention: formatEditorMarkMention(mark, index),
+    geometryText: summarizeEditorMarkGeometry(mark),
     points: (mark.points || []).map((point) => ({
       x: Math.round(Number(point.x || 0)),
       y: Math.round(Number(point.y || 0)),
@@ -147,11 +169,16 @@ export const buildImageEditTaskSummary = (args: {
         ? `使用 ${args.marks.length} 个圈选区域定位修改位置`
         : '未圈选位置，按整图/文字说明理解';
   const refs = args.refs.length > 0 ? `已加入 ${args.refs.length} 张参考图` : '未加入参考图';
+  const marks =
+    args.marks.length > 0
+      ? args.marks.map((mark, index) => `${formatEditorMarkMention(mark, index)} ${summarizeEditorMarkGeometry(mark)}`).join('；')
+      : '未标注';
   return [
     `改图方式：${args.skillLabel}`,
     `主图：${args.mainUrl.trim() ? '已提供' : '待提供'}`,
     `修改目标：${args.prompt.trim() || '待填写'}`,
     `修改范围：${scope}`,
+    `标注清单：${marks}`,
     `参考图：${refs}`,
     `输出：尺寸 ${args.size || 'auto'}，质量 ${args.quality || 'auto'}`,
     '',

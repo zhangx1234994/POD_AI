@@ -5,6 +5,8 @@ import { ImageEditIcon } from 'tdesign-icons-react';
 import './image-edit.css';
 import {
   formatEditorToolLabel,
+  formatEditorMarkMention,
+  formatEditorReferenceMention,
   getImageEditQuickPrompts,
   IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS,
   IMAGE_EDIT_QUALITY_OPTIONS,
@@ -12,6 +14,7 @@ import {
   IMAGE_EDIT_SIZE_OPTIONS,
   IMAGE_EDIT_SKILL_OPTIONS,
   normalizeImageEditQuality,
+  summarizeEditorMarkGeometry,
 } from './model';
 import type { ImageEditMark, ImageEditPoint, ImageEditTool } from './model';
 
@@ -84,6 +87,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
   const [activeTool, setActiveTool] = useState<ImageEditTool>('rect');
   const [drawing, setDrawing] = useState<ImageEditMark | null>(null);
   const [referenceDraft, setReferenceDraft] = useState('');
+  const [mentionMenu, setMentionMenu] = useState<'mark' | 'reference' | null>(null);
   const [imageMeta, setImageMeta] = useState({ displayW: 0, displayH: 0, naturalW: 0, naturalH: 0 });
   const idRef = useRef(1);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -109,6 +113,26 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
   const outputQuality = normalizeImageEditQuality(value.quality);
   const outputFormat = String(value.outputFormat || 'png');
   const customSizeValue = IMAGE_EDIT_SIZE_OPTIONS.some((item) => item.value === outputSize) ? '' : outputSize;
+  const markMentionItems = useMemo(
+    () =>
+      value.marks.map((mark, index) => ({
+        id: mark.id,
+        token: formatEditorMarkMention(mark, index),
+        label: mark.name || `标注 ${index + 1}`,
+        meta: `${formatEditorToolLabel(mark.type)} · ${summarizeEditorMarkGeometry(mark)}`,
+      })),
+    [value.marks],
+  );
+  const referenceMentionItems = useMemo(
+    () =>
+      value.referenceUrls.map((url, index) => ({
+        id: `${url}-${index}`,
+        token: formatEditorReferenceMention(index),
+        label: `参考图 ${index + 1}`,
+        meta: url,
+      })),
+    [value.referenceUrls],
+  );
 
   const syncImageMeta = useCallback(() => {
     const img = imageRef.current;
@@ -231,6 +255,38 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     if (!url) return;
     emit({ referenceUrls: value.referenceUrls.includes(url) ? value.referenceUrls : [...value.referenceUrls, url] });
     setReferenceDraft('');
+  };
+
+  const updateInstruction = (next: string) => {
+    emit({ instruction: next });
+    const trimmedTail = next.slice(Math.max(0, next.length - 24));
+    if (/@[^\s@#]*$/.test(trimmedTail)) {
+      setMentionMenu('mark');
+      return;
+    }
+    if (/#[^\s@#]*$/.test(trimmedTail)) {
+      setMentionMenu('reference');
+      return;
+    }
+    setMentionMenu(null);
+  };
+
+  const insertMention = (token: string) => {
+    const text = String(value.instruction || '');
+    const prefix = token.startsWith('@') ? '@' : '#';
+    const lastIndex = text.lastIndexOf(prefix);
+    let next = '';
+    if (lastIndex >= 0 && !/\s/.test(text.slice(lastIndex))) {
+      next = `${text.slice(0, lastIndex)}${token} `;
+    } else {
+      next = `${text}${text && !text.endsWith(' ') ? ' ' : ''}${token} `;
+    }
+    emit({ instruction: next });
+    setMentionMenu(null);
+  };
+
+  const removeMark = (markId: string) => {
+    emit({ marks: value.marks.filter((item) => item.id !== markId) });
   };
 
   const renderMark = (mark: ImageEditMark, index: number) => {
@@ -403,6 +459,36 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
               </div>
             )}
           </div>
+
+          <div className="podi-image-edit-workbench__region-panel">
+            <div className="podi-image-edit-workbench__region-head">
+              <strong>@ 标注区域</strong>
+              <span>{value.marks.length}</span>
+            </div>
+            {value.marks.length === 0 ? (
+              <div className="podi-image-edit-workbench__region-empty">暂无标注。使用点选、矩形、圆形或手绘在图上标出要修改的位置。</div>
+            ) : (
+              <div className="podi-image-edit-workbench__region-list">
+                {value.marks.map((mark, index) => (
+                  <div key={mark.id} className="podi-image-edit-workbench__region-card">
+                    <span className="podi-image-edit-workbench__region-dot" style={{ backgroundColor: getMarkColor(mark.type) }} />
+                    <div>
+                      <strong>{mark.name || `标注 ${index + 1}`}</strong>
+                      <small>
+                        {formatEditorToolLabel(mark.type)} · {summarizeEditorMarkGeometry(mark)}
+                      </small>
+                    </div>
+                    <button type="button" onClick={() => insertMention(formatEditorMarkMention(mark, index))}>
+                      {formatEditorMarkMention(mark, index)}
+                    </button>
+                    <button type="button" aria-label="删除标注" onClick={() => removeMark(mark.id)}>
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <aside className="podi-image-edit-workbench__inspector">
@@ -411,12 +497,44 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
               <Tag theme={referenceRequired ? 'warning' : 'success'} variant="light">
                 {selectedSkillConfig.label}
               </Tag>
-              <Textarea
-                value={value.instruction}
-                onChange={(next) => emit({ instruction: String(next) })}
-                autosize={{ minRows: 4, maxRows: 8 }}
-                placeholder="例如：把圈出的杯子改成蓝色陶瓷材质，其他区域保持不变。"
-              />
+              <div className="podi-image-edit-workbench__composer">
+                <Textarea
+                  value={value.instruction}
+                  onChange={(next) => updateInstruction(String(next))}
+                  autosize={{ minRows: 5, maxRows: 9 }}
+                  placeholder="例如：把 @标注1 改成蓝色陶瓷材质，或参考 #参考图1 的配色。输入 @ 选择标注，输入 # 选择参考图。"
+                  onFocus={() => {
+                    if (/@[^\s@#]*$/.test(value.instruction)) setMentionMenu('mark');
+                    if (/#[^\s@#]*$/.test(value.instruction)) setMentionMenu('reference');
+                  }}
+                />
+                {mentionMenu ? (
+                  <div className="podi-image-edit-workbench__mention-menu">
+                    {(mentionMenu === 'mark' ? markMentionItems : referenceMentionItems).length === 0 ? (
+                      <div className="podi-image-edit-workbench__mention-empty">
+                        {mentionMenu === 'mark' ? '暂无标注区域，先在左侧图片上点选或框选。' : '暂无参考图，先上传或粘贴参考图。'}
+                      </div>
+                    ) : (
+                      (mentionMenu === 'mark' ? markMentionItems : referenceMentionItems).map((item) => (
+                        <button key={item.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(item.token)}>
+                          <strong>{item.token}</strong>
+                          <span>{item.label}</span>
+                          <small>{item.meta}</small>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </div>
+              <div className="podi-image-edit-workbench__composer-hint">
+                <span>可引用：</span>
+                <button type="button" onClick={() => setMentionMenu('mark')}>
+                  @ 标注区域
+                </button>
+                <button type="button" onClick={() => setMentionMenu('reference')}>
+                  # 参考图
+                </button>
+              </div>
               <Space breakLine size="small">
                 {quickPrompts.map((text) => (
                   <Button key={text} size="small" variant="outline" onClick={() => emit({ instruction: text })}>
@@ -468,11 +586,14 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                         <img src={url} alt={`参考图 ${index + 1}`} />
                       </button>
                       <div>
-                        <Typography.Text>参考图 {index + 1}</Typography.Text>
+                        <Typography.Text>{formatEditorReferenceMention(index)} · 参考图 {index + 1}</Typography.Text>
                         <Typography.Text theme="secondary" ellipsis>
                           {url}
                         </Typography.Text>
                       </div>
+                      <Button size="small" variant="outline" onClick={() => insertMention(formatEditorReferenceMention(index))}>
+                        引用
+                      </Button>
                       <Button
                         size="small"
                         theme="danger"

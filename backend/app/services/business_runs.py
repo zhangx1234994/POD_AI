@@ -5339,7 +5339,19 @@ class BusinessRunService:
                     "type": str(raw.get("type") or raw.get("shape") or "region").strip(),
                     "label": str(raw.get("label") or raw.get("name") or f"标注{index or len(hints) + 1}").strip(),
                 }
-                for key in ("points", "bbox", "bounds", "center", "radius", "description", "imageSize", "image_size"):
+                for key in (
+                    "mention",
+                    "geometryText",
+                    "geometry_text",
+                    "points",
+                    "bbox",
+                    "bounds",
+                    "center",
+                    "radius",
+                    "description",
+                    "imageSize",
+                    "image_size",
+                ):
                     if raw.get(key) not in (None, "", []):
                         item[key] = raw.get(key)
                 hints.append(item)
@@ -5389,6 +5401,8 @@ class BusinessRunService:
                         "url": url,
                         "role": str(raw.get("role") or "reference").strip(),
                         "label": str(raw.get("label") or raw.get("name") or f"参考图{len(refs) + 1}").strip(),
+                        "mention": str(raw.get("mention") or f"#参考图{len(refs) + 1}").strip(),
+                        "use_scope": str(raw.get("use_scope") or raw.get("useScope") or "").strip() or None,
                     }
                 )
 
@@ -5418,7 +5432,10 @@ class BusinessRunService:
                 indexes.add(value - 1)
         for idx, item in enumerate(reference_images):
             label = str(item.get("label") or "").strip()
+            mention = str(item.get("mention") or "").strip()
             if label and (f"#{label}" in text or label in text):
+                indexes.add(idx)
+            if mention and mention in text:
                 indexes.add(idx)
         if not indexes:
             return []
@@ -5505,7 +5522,7 @@ class BusinessRunService:
             for idx, item in enumerate(selection_hints, start=1)
         ] or ["无；如果没有标注，请按用户指令作用于最合理的目标区域。"]
         ref_lines = [
-            f"图{idx + 1}={item.get('label') or f'参考图{idx}'}：{item.get('url')}"
+            f"图{idx + 1}={item.get('mention') or item.get('label') or f'参考图{idx}'}：{item.get('url')}"
             for idx, item in enumerate(reference_images, start=1)
         ] or ["无"]
         return "\n".join(
