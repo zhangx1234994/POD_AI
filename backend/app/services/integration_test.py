@@ -192,6 +192,28 @@ class IntegrationTestService:
                     choices[input_name] = values
         return choices
 
+    @classmethod
+    def _build_comfyui_object_info_index(cls, object_info: dict[str, Any]) -> dict[str, Any]:
+        """Precompute the expensive parts of a ComfyUI object_info payload.
+
+        Production object_info responses can be large. Building finite model
+        choice lists for every workflow node repeatedly makes release checks
+        slow and can exceed the smoke-test timeout.
+        """
+
+        node_keys: set[str] = {str(key) for key in object_info.keys() if isinstance(key, str)}
+        choice_inputs: dict[str, dict[str, set[str]]] = {}
+        for class_type in node_keys:
+            raw_choices = cls._extract_comfyui_choice_inputs(class_type, object_info.get(class_type))
+            if not raw_choices:
+                continue
+            choice_inputs[class_type] = {
+                input_name: set(values)
+                for input_name, values in raw_choices.items()
+                if values
+            }
+        return {"nodeKeys": node_keys, "choiceInputs": choice_inputs}
+
     @staticmethod
     def _extract_comfyui_workflow_requirements(graph: dict[str, Any]) -> dict[str, Any]:
         nodes: list[dict[str, str]] = []
@@ -210,9 +232,25 @@ class IntegrationTestService:
         graph: dict[str, Any],
         object_info: dict[str, Any],
     ) -> dict[str, Any]:
+        return cls._check_comfyui_graph_compatibility_with_index(
+            graph,
+            cls._build_comfyui_object_info_index(object_info),
+        )
+
+    @classmethod
+    def _check_comfyui_graph_compatibility_with_index(
+        cls,
+        graph: dict[str, Any],
+        object_info_index: dict[str, Any],
+    ) -> dict[str, Any]:
         missing_nodes: list[dict[str, str]] = []
         missing_models: list[dict[str, str]] = []
-        object_node_keys = {str(key) for key in object_info.keys() if isinstance(key, str)}
+        object_node_keys = object_info_index.get("nodeKeys")
+        if not isinstance(object_node_keys, set):
+            object_node_keys = set(object_node_keys or [])
+        choice_inputs_by_class = object_info_index.get("choiceInputs")
+        if not isinstance(choice_inputs_by_class, dict):
+            choice_inputs_by_class = {}
 
         for node_id, node in sorted(graph.items(), key=lambda item: str(item[0])):
             if not isinstance(node, dict):
@@ -227,7 +265,7 @@ class IntegrationTestService:
             inputs = node.get("inputs")
             if not isinstance(inputs, dict):
                 continue
-            choice_inputs = cls._extract_comfyui_choice_inputs(class_type, object_info.get(class_type))
+            choice_inputs = choice_inputs_by_class.get(class_type)
             if not choice_inputs:
                 continue
             for input_name, value in inputs.items():
@@ -319,7 +357,7 @@ class IntegrationTestService:
             if binding.executor_id not in ids:
                 ids.append(binding.executor_id)
 
-        object_info_by_executor: dict[str, dict[str, Any] | None] = {}
+        object_info_index_by_executor: dict[str, dict[str, Any] | None] = {}
         server_payloads: list[dict[str, Any]] = []
         active_executor_ids = [executor.id for executor in executor_rows]
 
@@ -360,7 +398,11 @@ class IntegrationTestService:
         if executor_rows:
             with ThreadPoolExecutor(max_workers=min(8, len(executor_rows))) as pool:
                 for executor_id, object_info, payload in pool.map(fetch_executor_object_info, executor_rows):
-                    object_info_by_executor[executor_id] = object_info
+                    object_info_index_by_executor[executor_id] = (
+                        self._build_comfyui_object_info_index(object_info)
+                        if object_info is not None
+                        else None
+                    )
                     server_payloads.append(payload)
             executor_order = {executor_id: index for index, executor_id in enumerate(active_executor_ids)}
             server_payloads.sort(key=lambda item: executor_order.get(str(item.get("executorId") or ""), 9999))
@@ -407,8 +449,8 @@ class IntegrationTestService:
             compatible_ids: list[str] = []
             incompatible_ids: list[str] = []
             for executor_id in expected_ids:
-                executor_info = object_info_by_executor.get(executor_id)
-                if executor_info is None:
+                executor_info_index = object_info_index_by_executor.get(executor_id)
+                if executor_info_index is None:
                     server_checks.append(
                         {
                             "executorId": executor_id,
@@ -421,7 +463,7 @@ class IntegrationTestService:
                     )
                     incompatible_ids.append(executor_id)
                     continue
-                check = self._check_comfyui_graph_compatibility(graph, executor_info)
+                check = self._check_comfyui_graph_compatibility_with_index(graph, executor_info_index)
                 server_checks.append(
                     {
                         "executorId": executor_id,
