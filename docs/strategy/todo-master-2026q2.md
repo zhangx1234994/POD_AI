@@ -114,6 +114,11 @@
 - 进展（2026-05-20）：图编辑前端开始按“可交付组件能力”收敛，新增 `podi-eval-web/src/features/image-edit/model.ts`、`ImageEditWorkbench.tsx` 和 `image-edit.css`；测评端入口复用该组件，枚举、尺寸、质量、区域标注序列化、任务摘要和组件样式从组件目录派生，后续源码交付与托管组件使用同一套边界。
 - 进展（2026-05-20）：图编辑组件参数口径完成一次对齐，前端质量档位改为中台业务值 `auto/preview/production/premium`，并补充自定义尺寸输入和源码嵌入最小示例。
 
+10. `done` 当前项目回顾与文档降噪
+- 目标：整理当前待办、复盘近期工作方法，删除已经被唯一 TODO 和正式方案替代的旧文档，减少上线文和恢复上下文噪音。
+- 完成（2026-05-22）：新增 `docs/strategy/project-current-review-2026-05-22.md`，重写 `docs/README.md` 与 `docs/strategy/README.md`，删除 `docs/backlog.md`、`docs/wip/admin-ia-draft.md`、`docs/wip/auth-billing-model-draft.md`、`docs/strategy/doc-cleanup-inventory-2026-04-30.md`。
+- 验收：恢复开发时先读当前回顾、唯一 TODO 和 v0.4 方案；旧 backlog/WIP 不再进入当前阅读路径。
+
 ## 已完成执行单（2026-05-19 v0.3 业务编排工作台与控制点去重版）
 
 说明：v0.3 已完成本地开发和验证，保留为阶段记录，不再作为当前开发 TODO。

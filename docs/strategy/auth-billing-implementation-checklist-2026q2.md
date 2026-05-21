@@ -1,9 +1,7 @@
 # 认证与计费实施清单（2026Q2）
 
-> 目标：把 `auth-billing-model-draft` 从“文档方案”推进到“可执行开发任务”。
-> 输入文档：
-> - `docs/wip/auth-billing-model-draft.md`
-> - `docs/strategy/auth-scheme-decision-2026q2.md`
+> 目标：把认证与计费能力推进到可执行开发任务。
+> 输入文档：`docs/strategy/auth-scheme-decision-2026q2.md`。旧 WIP 草稿已删除，避免和当前实现重复。
 
 ## 1) 实施顺序（必须按阶段推进）
 

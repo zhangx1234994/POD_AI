@@ -1,4 +1,4 @@
-# 文档清理台账（2026-05-18）
+# 文档清理台账（2026-05-18，2026-05-22 更新）
 
 目的：把当前有效文档、历史资料和阶段记录分开，减少开发和上线时被过期信息误导。
 
@@ -74,6 +74,12 @@
 | 新增 v0.4 方案入口 | `business-orchestration-workbench-v0.4-plan.md` 成为当前执行方案 |
 | v0.3 降级为阶段记录 | v0.3 已完成的组件目录、草稿门禁和 runId 父子链路作为 v0.4 基础 |
 | 更新唯一 TODO 当前焦点 | 当前执行单切换到 v0.4 业务编排工作台产品化版 |
+| 2026-05-22 新增当前项目回顾 | `docs/strategy/project-current-review-2026-05-22.md` 成为恢复上下文的第一入口 |
+| 2026-05-22 重写总索引 | `docs/README.md` 缩短为当前阅读路径、真源、模块入口和历史资料说明 |
+| 2026-05-22 重写战略索引 | `docs/strategy/README.md` 只保留当前必读、阶段记录和使用规则 |
+| 2026-05-22 删除旧 backlog | 删除 `docs/backlog.md`，当前待办只认 `docs/strategy/todo-master-2026q2.md` |
+| 2026-05-22 删除旧 WIP 草稿 | 删除 `docs/wip/admin-ia-draft.md`、`docs/wip/auth-billing-model-draft.md`，对应内容已被正式方案和实现替代 |
+| 2026-05-22 删除旧清理台账 | 删除 `docs/strategy/doc-cleanup-inventory-2026-04-30.md`，避免两个清理台账并存造成噪音 |
 
 ## 6. 后续可继续清理
 
@@ -81,7 +87,7 @@
 
 1. `docs/strategy/coze-*.md` 中的迁移过程文档，可汇总成一个 Coze 阶段归档索引。
 2. `docs/client/` 下早期测试入口文档，可继续保留但不要出现在总索引阅读顺序里。
-3. `docs/wip/` 中未进入 TODO 的草案，可按月整理到 archive 或删除。
+3. `docs/wip/` 目前不再作为当前入口；后续如新增草案，必须在进入开发前迁移到唯一 TODO 或正式方案。
 4. 旧发布记录和旧巡检报告保留审计价值，不做物理删除。
 
 ## 7. 判断规则
