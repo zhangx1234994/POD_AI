@@ -1259,7 +1259,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "selectionHints": {
                 "oneOf": [{"type": "array", "items": {"type": "object"}}, {"type": "object"}, {"type": "string"}],
                 "nullable": True,
-                "description": "点选、框选、圆选或手绘区域提示；只是告诉模型看哪里，不等同于蒙版。",
+                "description": "点选、框选、圆选或手绘区域提示；中台会自动生成红色编号定位图帮助模型理解位置，但它仍不等同于蒙版。",
             },
             "referenceImages": {
                 "oneOf": [{"type": "array", "items": {"type": "object"}}, {"type": "array", "items": {"type": "string"}}, {"type": "string"}],

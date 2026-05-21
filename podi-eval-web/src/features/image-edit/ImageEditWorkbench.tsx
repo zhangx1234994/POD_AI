@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
-import { Alert, Button, Card, Input, Select, Space, Tag, Textarea, Typography } from 'tdesign-react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
+import { Alert, Button, Input, Select, Space, Textarea, Typography } from 'tdesign-react';
 import { ImageEditIcon } from 'tdesign-icons-react';
 import './image-edit.css';
 import {
@@ -39,10 +39,7 @@ export type ImageEditWorkbenchProps = {
   submitting?: boolean;
   uploading?: boolean;
   blockingReason?: string;
-  taskSummary?: string;
-  payloadPreview?: unknown;
   advancedSlot?: ReactNode;
-  docSlot?: ReactNode;
   onImageMetaChange?: (meta: { displayW: number; displayH: number; naturalW: number; naturalH: number }) => void;
 };
 
@@ -50,14 +47,6 @@ const normalizeSkill = (value: string): string => {
   const raw = String(value || '').trim();
   if (IMAGE_EDIT_SKILL_OPTIONS.some((item) => item.value === raw)) return raw;
   return IMAGE_EDIT_SKILL_OPTIONS[0].value;
-};
-
-const formatJson = (value: unknown): string => {
-  try {
-    return JSON.stringify(value || {}, null, 2);
-  } catch {
-    return String(value || '');
-  }
 };
 
 const getMarkColor = (tool: ImageEditTool): string => {
@@ -77,10 +66,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     submitting = false,
     uploading = false,
     blockingReason = '',
-    taskSummary = '',
-    payloadPreview,
     advancedSlot,
-    docSlot,
     onImageMetaChange,
   } = props;
 
@@ -89,6 +75,10 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
   const [referenceDraft, setReferenceDraft] = useState('');
   const [mentionMenu, setMentionMenu] = useState<'mark' | 'reference' | null>(null);
   const [imageMeta, setImageMeta] = useState({ displayW: 0, displayH: 0, naturalW: 0, naturalH: 0 });
+  const [workspaceZoom, setWorkspaceZoom] = useState(1);
+  const [focusMode, setFocusMode] = useState(false);
+  const [referencePanelOpen, setReferencePanelOpen] = useState(false);
+  const [outputPanelOpen, setOutputPanelOpen] = useState(false);
   const idRef = useRef(1);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
@@ -118,7 +108,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
       value.marks.map((mark, index) => ({
         id: mark.id,
         token: formatEditorMarkMention(mark, index),
-        label: mark.name || `标注 ${index + 1}`,
+        label: `标注 ${index + 1}`,
         meta: `${formatEditorToolLabel(mark.type)} · ${summarizeEditorMarkGeometry(mark)}`,
       })),
     [value.marks],
@@ -138,16 +128,19 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     const img = imageRef.current;
     if (!img) return;
     const rect = img.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+    const zoom = Math.max(0.5, workspaceZoom || 1);
+    const displayW = img.offsetWidth || rect.width / zoom;
+    const displayH = img.offsetHeight || rect.height / zoom;
+    if (!displayW || !displayH) return;
     const nextMeta = {
-      displayW: rect.width,
-      displayH: rect.height,
-      naturalW: img.naturalWidth || rect.width,
-      naturalH: img.naturalHeight || rect.height,
+      displayW,
+      displayH,
+      naturalW: img.naturalWidth || displayW,
+      naturalH: img.naturalHeight || displayH,
     };
     setImageMeta(nextMeta);
     onImageMetaChange?.(nextMeta);
-  }, [onImageMetaChange]);
+  }, [onImageMetaChange, workspaceZoom]);
 
   useEffect(() => {
     if (!value.imageUrl.trim()) return;
@@ -157,14 +150,21 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     return () => window.removeEventListener('resize', handleResize);
   }, [syncImageMeta, value.imageUrl]);
 
+  useEffect(() => {
+    if (referenceRequired || value.referenceUrls.length > 0) setReferencePanelOpen(true);
+  }, [referenceRequired, value.referenceUrls.length]);
+
   const getDisplayPoint = (evt: ReactMouseEvent): ImageEditPoint | null => {
     const stage = stageRef.current;
     if (!stage) return null;
     const rect = stage.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
+    const zoom = Math.max(0.5, workspaceZoom || 1);
+    const width = stage.offsetWidth || rect.width / zoom;
+    const height = stage.offsetHeight || rect.height / zoom;
     return {
-      x: Math.max(0, Math.min(rect.width, evt.clientX - rect.left)),
-      y: Math.max(0, Math.min(rect.height, evt.clientY - rect.top)),
+      x: Math.max(0, Math.min(width, (evt.clientX - rect.left) / zoom)),
+      y: Math.max(0, Math.min(height, (evt.clientY - rect.top) / zoom)),
     };
   };
 
@@ -188,7 +188,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     const seq = idRef.current++;
     return {
       id: `image_edit_mark_${Date.now()}_${seq}`,
-      name: `区域${seq}`,
+      name: `标注${seq}`,
       type: tool,
       points,
       created_at: Date.now(),
@@ -291,7 +291,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
 
   const renderMark = (mark: ImageEditMark, index: number) => {
     const points = mark.points.map(toDisplayPoint);
-    const label = mark.name || `区域${index + 1}`;
+    const label = formatEditorMarkMention(mark, index);
     const color = getMarkColor(mark.type);
     if (mark.type === 'point' && points[0]) {
       return (
@@ -346,16 +346,21 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     return null;
   };
 
+  const updateWorkspaceZoom = (delta: number) => {
+    setWorkspaceZoom((current) => Math.min(1.35, Math.max(0.75, Number((current + delta).toFixed(2)))));
+  };
+  const workspaceZoomPercent = Math.round(workspaceZoom * 100);
+
   return (
-    <div className="podi-image-edit-workbench">
+    <div className={`podi-image-edit-workbench${focusMode ? ' is-focus-mode' : ''}`}>
       <div className="podi-image-edit-workbench__header">
         <div className="podi-image-edit-workbench__title">
           <span className="podi-image-edit-workbench__icon">
             <ImageEditIcon />
           </span>
           <div>
-            <Typography.Text strong>图编辑组件工作台</Typography.Text>
-            <Typography.Text theme="secondary">主图、选择区域、参考图和改图目标会被统一编译成中台任务。</Typography.Text>
+            <Typography.Text strong>AI 图编辑工作台</Typography.Text>
+            <Typography.Text theme="secondary">把主图、标注/蒙版、参考图和改图目标说清楚，中台会统一编译成可追踪任务。</Typography.Text>
           </div>
         </div>
         <Button theme="primary" loading={submitting} disabled={submitting || Boolean(blockingReason)} onClick={onSubmit}>
@@ -363,21 +368,36 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
         </Button>
       </div>
 
-      <div className="podi-image-edit-workbench__modes">
-        {IMAGE_EDIT_SKILL_OPTIONS.map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            className={item.value === selectedSkill ? 'is-active' : ''}
-            onClick={() => emit({ editSkill: item.value })}
-          >
-            <strong>{item.label}</strong>
-            <span>{item.description}</span>
-          </button>
-        ))}
-      </div>
+      <div className="podi-image-edit-workbench__editor-shell">
+        <div className="podi-image-edit-workbench__workspace-bar">
+          <div className="podi-image-edit-workbench__clarity-strip" aria-label="图编辑输入结构">
+            <span>主图</span>
+            <span>标注 / 蒙版</span>
+            <span>参考图</span>
+            <strong>一句话说清楚要怎么改</strong>
+          </div>
+          <div className="podi-image-edit-workbench__zoom-controls" aria-label="画布缩放">
+            <button type="button" onClick={() => setFocusMode((open) => !open)}>
+              {focusMode ? '退出大画布' : '打开大画布'}
+            </button>
+            <button type="button" onClick={() => updateWorkspaceZoom(-0.1)}>
+              -
+            </button>
+            <strong>{workspaceZoomPercent}%</strong>
+            <button type="button" onClick={() => updateWorkspaceZoom(0.1)}>
+              +
+            </button>
+            <button type="button" onClick={() => setWorkspaceZoom(1)}>
+              重置
+            </button>
+          </div>
+        </div>
 
-      <div className="podi-image-edit-workbench__grid">
+        <div className="podi-image-edit-workbench__viewport">
+          <div
+            className="podi-image-edit-workbench__surface"
+            style={{ '--podi-image-edit-zoom': workspaceZoom } as CSSProperties}
+          >
         <div className="podi-image-edit-workbench__canvas">
           <div className="podi-image-edit-workbench__canvas-toolbar">
             <Input
@@ -473,7 +493,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                   <div key={mark.id} className="podi-image-edit-workbench__region-card">
                     <span className="podi-image-edit-workbench__region-dot" style={{ backgroundColor: getMarkColor(mark.type) }} />
                     <div>
-                      <strong>{mark.name || `标注 ${index + 1}`}</strong>
+                      <strong>{formatEditorMarkMention(mark, index)}</strong>
                       <small>
                         {formatEditorToolLabel(mark.type)} · {summarizeEditorMarkGeometry(mark)}
                       </small>
@@ -489,43 +509,65 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
               </div>
             )}
           </div>
-        </div>
 
-        <aside className="podi-image-edit-workbench__inspector">
-          <Card bordered title="改图目标">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Tag theme={referenceRequired ? 'warning' : 'success'} variant="light">
-                {selectedSkillConfig.label}
-              </Tag>
-              <div className="podi-image-edit-workbench__composer">
-                <Textarea
-                  value={value.instruction}
-                  onChange={(next) => updateInstruction(String(next))}
-                  autosize={{ minRows: 5, maxRows: 9 }}
-                  placeholder="例如：把 @标注1 改成蓝色陶瓷材质，或参考 #参考图1 的配色。输入 @ 选择标注，输入 # 选择参考图。"
-                  onFocus={() => {
-                    if (/@[^\s@#]*$/.test(value.instruction)) setMentionMenu('mark');
-                    if (/#[^\s@#]*$/.test(value.instruction)) setMentionMenu('reference');
-                  }}
-                />
-                {mentionMenu ? (
-                  <div className="podi-image-edit-workbench__mention-menu">
-                    {(mentionMenu === 'mark' ? markMentionItems : referenceMentionItems).length === 0 ? (
-                      <div className="podi-image-edit-workbench__mention-empty">
-                        {mentionMenu === 'mark' ? '暂无标注区域，先在左侧图片上点选或框选。' : '暂无参考图，先上传或粘贴参考图。'}
-                      </div>
-                    ) : (
-                      (mentionMenu === 'mark' ? markMentionItems : referenceMentionItems).map((item) => (
-                        <button key={item.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(item.token)}>
-                          <strong>{item.token}</strong>
-                          <span>{item.label}</span>
-                          <small>{item.meta}</small>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                ) : null}
+          <section className="podi-image-edit-workbench__prompt-dock">
+            <div className="podi-image-edit-workbench__prompt-head">
+              <div>
+                <Typography.Text strong>改图指令</Typography.Text>
+                <Typography.Text theme="secondary">看完图、圈好位置后，在这里说清楚要怎么改。</Typography.Text>
               </div>
+              <div className="podi-image-edit-workbench__prompt-actions">
+                <Select
+                  value={selectedSkill}
+                  options={IMAGE_EDIT_SKILL_OPTIONS.map((item) => ({
+                    label: item.label,
+                    value: item.value,
+                  }))}
+                  onChange={(next) => emit({ editSkill: String(next || 'local_modify') })}
+                />
+                <button type="button" onClick={() => setReferencePanelOpen((open) => !open)}>
+                  管理参考图{value.referenceUrls.length ? ` ${value.referenceUrls.length}` : ''}
+                </button>
+                <button type="button" onClick={() => setOutputPanelOpen((open) => !open)}>
+                  输出设置
+                </button>
+              </div>
+            </div>
+
+            <div className="podi-image-edit-workbench__composer podi-image-edit-workbench__composer--command">
+              <Textarea
+                value={value.instruction}
+                onChange={(next) => updateInstruction(String(next))}
+                autosize={{ minRows: 3, maxRows: 6 }}
+                placeholder="例如：把 @标注1 改成蓝色陶瓷材质，其他区域保持不变。输入 @ 选择标注，输入 # 选择参考图。"
+                onFocus={() => {
+                  if (/@[^\s@#]*$/.test(value.instruction)) setMentionMenu('mark');
+                  if (/#[^\s@#]*$/.test(value.instruction)) setMentionMenu('reference');
+                }}
+              />
+              {mentionMenu ? (
+                <div className="podi-image-edit-workbench__mention-menu">
+                  {(mentionMenu === 'mark' ? markMentionItems : referenceMentionItems).length === 0 ? (
+                    <div className="podi-image-edit-workbench__mention-empty">
+                      {mentionMenu === 'mark' ? '暂无标注区域，先在主图上点选或框选。' : '暂无参考图，先上传或粘贴参考图。'}
+                    </div>
+                  ) : (
+                    (mentionMenu === 'mark' ? markMentionItems : referenceMentionItems).map((item) => (
+                      <button key={item.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(item.token)}>
+                        <strong>{item.token}</strong>
+                        <span>{item.label}</span>
+                        <small>{item.meta}</small>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="podi-image-edit-workbench__prompt-foot">
+              <Typography.Text theme={referenceRequired ? 'warning' : 'secondary'}>
+                {referenceRequired ? '当前改图意图需要参考图；上传后可用 #参考图1 引用。' : selectedSkillConfig.description}
+              </Typography.Text>
               <div className="podi-image-edit-workbench__composer-hint">
                 <span>可引用：</span>
                 <button type="button" onClick={() => setMentionMenu('mark')}>
@@ -535,18 +577,53 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                   # 参考图
                 </button>
               </div>
-              <Space breakLine size="small">
-                {quickPrompts.map((text) => (
-                  <Button key={text} size="small" variant="outline" onClick={() => emit({ instruction: text })}>
-                    {text}
-                  </Button>
-                ))}
-              </Space>
-            </Space>
-          </Card>
+            </div>
 
-          <Card bordered title={`参考图（${value.referenceUrls.length}）`}>
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Space breakLine size="small">
+              {quickPrompts.map((text) => (
+                <Button key={text} size="small" variant="outline" onClick={() => emit({ instruction: text })}>
+                  {text}
+                </Button>
+              ))}
+            </Space>
+
+            {outputPanelOpen ? (
+              <div className="podi-image-edit-workbench__inline-settings">
+                <Select value={customSizeValue ? undefined : outputSize} options={IMAGE_EDIT_SIZE_OPTIONS} onChange={(next) => emit({ size: String(next || 'auto') })} />
+                <Input
+                  value={customSizeValue}
+                  onChange={(next) => emit({ size: String(next || '').trim() || 'auto' })}
+                  placeholder="自定义尺寸，例如 2000x1600。留空时使用上方预设。"
+                  clearable
+                />
+                <Select value={outputQuality} options={IMAGE_EDIT_QUALITY_OPTIONS} onChange={(next) => emit({ quality: String(next || 'auto') })} />
+                <Select value={outputFormat} options={IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS} onChange={(next) => emit({ outputFormat: String(next || 'png') })} />
+                <Input
+                  value={value.maskUrl}
+                  onChange={(next) => emit({ maskUrl: String(next) })}
+                  placeholder="可选：蒙版 URL。只有蒙版才会硬限制修改区域。"
+                  clearable
+                />
+                {advancedSlot}
+              </div>
+            ) : null}
+          </section>
+
+          <div className={`podi-image-edit-workbench__fold-panel${referencePanelOpen ? ' is-open' : ''}`}>
+            <button
+              type="button"
+              className="podi-image-edit-workbench__fold-head"
+              aria-expanded={referencePanelOpen}
+              onClick={() => setReferencePanelOpen((open) => !open)}
+            >
+              <span>
+                <strong>参考图</strong>
+                <small>{value.referenceUrls.length > 0 ? `${value.referenceUrls.length} 张` : referenceRequired ? '当前意图必填' : '可选'}</small>
+              </span>
+              <em>{referencePanelOpen ? '收起' : '展开'}</em>
+            </button>
+            {referencePanelOpen ? (
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
               {referenceRequired ? <Alert theme="warning" message="当前模式必须上传参考图。" /> : null}
               <Space align="center" style={{ width: '100%' }}>
                 <Input
@@ -606,56 +683,14 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                   ))}
                 </div>
               )}
-            </Space>
-          </Card>
-
-          <Card bordered title="输出设置">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Select value={customSizeValue ? undefined : outputSize} options={IMAGE_EDIT_SIZE_OPTIONS} onChange={(next) => emit({ size: String(next || 'auto') })} />
-              <Input
-                value={customSizeValue}
-                onChange={(next) => emit({ size: String(next || '').trim() || 'auto' })}
-                placeholder="自定义尺寸，例如 2000x1600。留空时使用上方预设。"
-                clearable
-              />
-              <Select
-                value={outputQuality}
-                options={IMAGE_EDIT_QUALITY_OPTIONS}
-                onChange={(next) => emit({ quality: String(next || 'auto') })}
-              />
-              <Select
-                value={outputFormat}
-                options={IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS}
-                onChange={(next) => emit({ outputFormat: String(next || 'png') })}
-              />
-              <Input
-                value={value.maskUrl}
-                onChange={(next) => emit({ maskUrl: String(next) })}
-                placeholder="可选：蒙版 URL。只有蒙版才会硬限制修改区域。"
-                clearable
-              />
-              {advancedSlot}
-            </Space>
-          </Card>
-
-          <Card bordered title="任务检查">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              {blockingReason ? (
-                <Alert theme="warning" message={blockingReason} />
-              ) : (
-                <Alert theme="success" message="输入已就绪，可以提交一次可复盘的图编辑任务。" />
-              )}
-              <pre className="podi-image-edit-workbench__summary">{taskSummary || '暂无任务摘要。'}</pre>
-              <details className="podi-image-edit-workbench__payload">
-                <summary>查看请求预览</summary>
-                <pre>{formatJson(payloadPreview)}</pre>
-              </details>
-            </Space>
-          </Card>
-        </aside>
+              </Space>
+            ) : null}
+          </div>
+        </div>
+          </div>
+        </div>
       </div>
 
-      {docSlot}
     </div>
   );
 }

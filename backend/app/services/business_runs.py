@@ -19,7 +19,7 @@ from uuid import uuid4
 
 import httpx
 from fastapi import HTTPException
-from PIL import Image
+from PIL import Image, ImageDraw
 from sqlalchemy import and_, case, func, not_, or_, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import load_only
@@ -81,6 +81,7 @@ from app.services.pattern_fission_prompt import TEMPLATE_ID as PATTERN_FISSION_T
 from app.services.pattern_fission_prompt import compile_pattern_fission_prompt
 from app.services.routing_governance import normalize_ability_routing
 from app.services.runtime_safety import log_background_worker_decision
+from app.services.oss import oss_service
 from app.services.task_id_codec import encode_task_id
 from app.services.wallet import wallet_service
 
@@ -1906,6 +1907,7 @@ class BusinessRunService:
             route_info=route_info,
             trace_context=trace_context,
             recipe=recipe,
+            include_image_edit_visual_hint=True,
         )
         self._submit_primary_ability(
             run_id=run_id,
@@ -2354,6 +2356,7 @@ class BusinessRunService:
             trace_context=trace_context,
             recipe=recipe,
             vl_summary=vl_summary,
+            include_image_edit_visual_hint=True,
         )
         return self._submit_primary_ability(
             run_id=run_id,
@@ -4920,6 +4923,7 @@ class BusinessRunService:
         trace_context: dict[str, Any] | None = None,
         recipe: dict[str, Any] | None = None,
         vl_summary: dict[str, Any] | None = None,
+        include_image_edit_visual_hint: bool = False,
     ) -> AbilityInvokeRequest:
         inputs: dict[str, Any] = dict(payload.inputs or {})
         if capability_key == "fission":
@@ -5146,6 +5150,8 @@ class BusinessRunService:
                 payload=payload,
                 image_url=image_url,
                 validate_media=False,
+                include_visual_hint=include_image_edit_visual_hint,
+                trace_context=trace_context,
             )
             inputs.update(image_edit_compiled["ability_inputs"])
         if vl_summary and self._should_apply_vl_to_primary(recipe or {}):
@@ -5184,6 +5190,8 @@ class BusinessRunService:
         payload: BusinessRunCreateRequest,
         image_url: str,
         validate_media: bool = False,
+        include_visual_hint: bool = False,
+        trace_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         request_inputs = payload.inputs or {}
         skill = self._first_string(
@@ -5241,6 +5249,15 @@ class BusinessRunService:
             instruction=instruction,
             reference_images=reference_images,
         )
+        annotation_image = (
+            self._build_image_edit_annotation_image(
+                source_image_url=image_url,
+                selection_hints=selection_hints,
+                trace_context=trace_context,
+            )
+            if include_visual_hint and selection_hints
+            else None
+        )
 
         size = self._validate_image_edit_size(
             self._first_string(payload.size, request_inputs.get("size")) or "auto"
@@ -5266,6 +5283,7 @@ class BusinessRunService:
             instruction=instruction,
             selection_hints=selection_hints,
             reference_images=selected_reference_images,
+            annotation_image=annotation_image,
             mask_url=mask_url,
             source_image_url=image_url,
         )
@@ -5281,6 +5299,8 @@ class BusinessRunService:
         }
         if selected_reference_images:
             ability_inputs["image_urls"] = [item["url"] for item in selected_reference_images if item.get("url")]
+        if annotation_image and annotation_image.get("url"):
+            ability_inputs["image_urls"] = [annotation_image["url"], *ability_inputs.get("image_urls", [])]
         if mask_url:
             ability_inputs["mask_url"] = mask_url
         return {
@@ -5292,6 +5312,29 @@ class BusinessRunService:
                 "selectionHints": selection_hints,
                 "referenceImages": selected_reference_images,
                 "availableReferenceImages": reference_images,
+                "annotationImage": annotation_image,
+                "visualHintPolicy": (
+                    "generated_annotation_overlay"
+                    if annotation_image
+                    else ("text_only_fallback" if selection_hints else "no_selection_hint")
+                ),
+                "modelInputImages": [
+                    {"role": "source", "url": image_url, "position": "图1"},
+                    *(
+                        [{"role": "annotation_overlay", "url": annotation_image["url"], "position": "图2"}]
+                        if annotation_image and annotation_image.get("url")
+                        else []
+                    ),
+                    *[
+                        {
+                            "role": "reference",
+                            "url": item.get("url"),
+                            "position": f"图{idx + (3 if annotation_image else 2)}",
+                            "mention": item.get("mention"),
+                        }
+                        for idx, item in enumerate(selected_reference_images)
+                    ],
+                ],
                 "referenceFilterPolicy": (
                     "pass_all_required_by_skill"
                     if skill in IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS
@@ -5410,6 +5453,213 @@ class BusinessRunService:
             add(value)
         return refs[:8]
 
+    def _build_image_edit_annotation_image(
+        self,
+        *,
+        source_image_url: str,
+        selection_hints: list[dict[str, Any]],
+        trace_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Render user marks into a visible locator image for the editing model.
+
+        Coordinates in text are weak. The extra image gives GPT Image 2 a visual
+        reference for which object each @标注 points at, while the prompt tells it
+        not to copy red circles or labels into the output.
+        """
+
+        if not source_image_url or not selection_hints:
+            return None
+        try:
+            response = httpx.get(source_image_url, timeout=20, follow_redirects=True)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content)).convert("RGBA")
+            width, height = image.size
+            if width <= 0 or height <= 0:
+                return None
+
+            overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+            line_width = max(6, round(min(width, height) * 0.004))
+            point_radius = max(22, round(min(width, height) * 0.022))
+            red = (239, 68, 68, 255)
+            red_fill = (239, 68, 68, 45)
+            label_bg = (220, 38, 38, 245)
+            white = (255, 255, 255, 255)
+
+            for index, hint in enumerate(selection_hints[:20], start=1):
+                shape = str(hint.get("type") or "region").strip().lower()
+                label = str(index)
+                bounds = self._image_edit_hint_bounds(hint, width=width, height=height)
+                center = self._image_edit_hint_center(hint, width=width, height=height)
+                if shape == "point" and center:
+                    x, y = center
+                    draw.ellipse(
+                        (x - point_radius, y - point_radius, x + point_radius, y + point_radius),
+                        outline=red,
+                        width=line_width,
+                    )
+                    draw.line((x - point_radius, y, x + point_radius, y), fill=red, width=max(2, line_width // 2))
+                    draw.line((x, y - point_radius, x, y + point_radius), fill=red, width=max(2, line_width // 2))
+                    self._draw_image_edit_annotation_label(
+                        draw,
+                        label=label,
+                        x=x + point_radius + 8,
+                        y=y - point_radius - 8,
+                        fill=label_bg,
+                        text_fill=white,
+                    )
+                    continue
+                if shape in {"rect", "rectangle", "box", "circle", "ellipse", "freehand", "path", "region"} and bounds:
+                    left, top, right, bottom = bounds
+                    if shape in {"circle", "ellipse"}:
+                        draw.ellipse((left, top, right, bottom), outline=red, width=line_width, fill=red_fill)
+                    else:
+                        draw.rectangle((left, top, right, bottom), outline=red, width=line_width, fill=red_fill)
+                    self._draw_image_edit_annotation_label(
+                        draw,
+                        label=label,
+                        x=left + 8,
+                        y=max(8, top - point_radius - 8),
+                        fill=label_bg,
+                        text_fill=white,
+                    )
+                    continue
+                if center:
+                    x, y = center
+                    draw.ellipse(
+                        (x - point_radius, y - point_radius, x + point_radius, y + point_radius),
+                        outline=red,
+                        width=line_width,
+                    )
+                    self._draw_image_edit_annotation_label(
+                        draw,
+                        label=label,
+                        x=x + point_radius + 8,
+                        y=y - point_radius - 8,
+                        fill=label_bg,
+                        text_fill=white,
+                    )
+
+            composed = Image.alpha_composite(image, overlay).convert("RGB")
+            buffer = BytesIO()
+            composed.save(buffer, format="PNG")
+            upload = oss_service.upload_bytes(
+                user_id=str((trace_context or {}).get("tenantId") or "system"),
+                filename=f"image-edit-annotation-{uuid4().hex[:10]}.png",
+                data=buffer.getvalue(),
+                content_type="image/png",
+            )
+            return {
+                "url": upload.get("url"),
+                "ossKey": upload.get("objectKey"),
+                "role": "annotation_overlay",
+                "label": "标注定位图",
+                "description": "红色编号只用于定位 @标注，不应出现在最终结果图。",
+            }
+        except Exception as exc:  # noqa: BLE001 - visual hints must not block editing fallback.
+            logger.warning("image_edit annotation overlay generation failed: %s", exc)
+            return None
+
+    @staticmethod
+    def _draw_image_edit_annotation_label(
+        draw: ImageDraw.ImageDraw,
+        *,
+        label: str,
+        x: float,
+        y: float,
+        fill: tuple[int, int, int, int],
+        text_fill: tuple[int, int, int, int],
+    ) -> None:
+        x = max(6, float(x))
+        y = max(6, float(y))
+        text = str(label or "")
+        pad_x = 10
+        pad_y = 7
+        try:
+            bbox = draw.textbbox((0, 0), text)
+            text_w = max(16, bbox[2] - bbox[0])
+            text_h = max(16, bbox[3] - bbox[1])
+        except Exception:
+            text_w = 18
+            text_h = 18
+        box = (x, y, x + text_w + pad_x * 2, y + text_h + pad_y * 2)
+        draw.rounded_rectangle(box, radius=8, fill=fill)
+        draw.text((x + pad_x, y + pad_y), text, fill=text_fill)
+
+    @staticmethod
+    def _image_edit_hint_center(hint: dict[str, Any], *, width: int, height: int) -> tuple[float, float] | None:
+        points = hint.get("points")
+        if isinstance(points, list) and points:
+            first = points[0]
+            if isinstance(first, dict):
+                x = BusinessRunService._first_number(first.get("x"))
+                y = BusinessRunService._first_number(first.get("y"))
+                if x is not None and y is not None:
+                    return BusinessRunService._clamp_point(x, y, width=width, height=height)
+        center = hint.get("center")
+        if isinstance(center, dict):
+            x = BusinessRunService._first_number(center.get("x"))
+            y = BusinessRunService._first_number(center.get("y"))
+            if x is not None and y is not None:
+                return BusinessRunService._clamp_point(x, y, width=width, height=height)
+        bounds = BusinessRunService._image_edit_hint_bounds(hint, width=width, height=height)
+        if bounds:
+            left, top, right, bottom = bounds
+            return ((left + right) / 2, (top + bottom) / 2)
+        return None
+
+    @staticmethod
+    def _image_edit_hint_bounds(hint: dict[str, Any], *, width: int, height: int) -> tuple[float, float, float, float] | None:
+        bbox = hint.get("bbox") or hint.get("bounds")
+        if isinstance(bbox, dict):
+            x = BusinessRunService._first_number(bbox.get("x"), bbox.get("left"))
+            y = BusinessRunService._first_number(bbox.get("y"), bbox.get("top"))
+            w = BusinessRunService._first_number(bbox.get("width"), bbox.get("w"))
+            h = BusinessRunService._first_number(bbox.get("height"), bbox.get("h"))
+            right = BusinessRunService._first_number(bbox.get("right"))
+            bottom = BusinessRunService._first_number(bbox.get("bottom"))
+            if x is not None and y is not None:
+                if w is not None and h is not None:
+                    return BusinessRunService._clamp_bounds(x, y, x + w, y + h, width=width, height=height)
+                if right is not None and bottom is not None:
+                    return BusinessRunService._clamp_bounds(x, y, right, bottom, width=width, height=height)
+        points = hint.get("points")
+        if isinstance(points, list) and len(points) >= 2:
+            coords: list[tuple[float, float]] = []
+            for item in points:
+                if not isinstance(item, dict):
+                    continue
+                x = BusinessRunService._first_number(item.get("x"))
+                y = BusinessRunService._first_number(item.get("y"))
+                if x is not None and y is not None:
+                    coords.append(BusinessRunService._clamp_point(x, y, width=width, height=height))
+            if coords:
+                xs = [item[0] for item in coords]
+                ys = [item[1] for item in coords]
+                return BusinessRunService._clamp_bounds(min(xs), min(ys), max(xs), max(ys), width=width, height=height)
+        return None
+
+    @staticmethod
+    def _clamp_point(x: float, y: float, *, width: int, height: int) -> tuple[float, float]:
+        return (
+            max(0.0, min(float(width - 1), float(x))),
+            max(0.0, min(float(height - 1), float(y))),
+        )
+
+    @staticmethod
+    def _clamp_bounds(
+        left: float,
+        top: float,
+        right: float,
+        bottom: float,
+        *,
+        width: int,
+        height: int,
+    ) -> tuple[float, float, float, float]:
+        x1, y1 = BusinessRunService._clamp_point(left, top, width=width, height=height)
+        x2, y2 = BusinessRunService._clamp_point(right, bottom, width=width, height=height)
+        return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
+
     @staticmethod
     def _select_image_edit_reference_images(
         *,
@@ -5506,40 +5756,59 @@ class BusinessRunService:
         instruction: str,
         selection_hints: list[dict[str, Any]],
         reference_images: list[dict[str, Any]],
+        annotation_image: dict[str, Any] | None,
         mask_url: str | None,
         source_image_url: str,
     ) -> str:
         skill_label = IMAGE_EDIT_SKILL_LABELS.get(skill, skill)
 
-        def dump_compact(value: Any) -> str:
-            try:
-                return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-            except Exception:
-                return str(value)
-
         hint_lines = [
-            f"{idx}. {dump_compact(item)}"
+            BusinessRunService._format_image_edit_hint_line(item, index=idx)
             for idx, item in enumerate(selection_hints, start=1)
         ] or ["无；如果没有标注，请按用户指令作用于最合理的目标区域。"]
+        ref_offset = 2 if annotation_image else 1
         ref_lines = [
-            f"图{idx + 1}={item.get('mention') or item.get('label') or f'参考图{idx}'}：{item.get('url')}"
+            f"图{idx + ref_offset}={item.get('mention') or item.get('label') or f'参考图{idx}'}：{item.get('url')}"
             for idx, item in enumerate(reference_images, start=1)
         ] or ["无"]
+        image_order = "图1 是主图。"
+        if annotation_image:
+            image_order += " 图2 是红色编号标注定位图，只用于理解 @标注 的位置，不要把红圈、编号或文字画进最终结果。"
+            if reference_images:
+                image_order += " 图3 及之后是用户参考图。"
+        elif reference_images:
+            image_order += " 图2 及之后是用户参考图。"
         return "\n".join(
             [
                 "你是专业图像编辑助手。只输出最终编辑后的图片，不输出说明文字。",
                 f"任务模式：{skill_label}（{skill}）。",
-                "图像顺序：图1是主图，所有编辑只作用于图1；后续图片只作为参考，不要直接拼贴。",
+                f"图像顺序：{image_order} 所有编辑只作用于图1；后续图片只作为定位或参考，不要直接拼贴。",
                 f"主图 URL：{source_image_url}",
                 f"用户编辑指令：{instruction.strip()}",
                 "标注/区域提示：",
                 *hint_lines,
+                "执行规则：如果用户说“改成/换成”，请替换对应 @标注 所在的完整对象，不要在旁边额外新增对象；多个 @标注 要分别处理，不要把一个标注的颜色或对象扩散到其他区域。",
                 "参考图：",
                 *ref_lines,
+                f"标注定位图：{'已提供红色编号辅助图，红色编号 1/2/3... 与 @标注1/@标注2/@标注3... 一一对应。' if annotation_image else '未提供，只能按文字坐标理解。'}",
                 f"蒙版：{'已提供，优先按 alpha mask 限定编辑范围。' if mask_url else '未提供，按标注提示和用户指令判断目标区域。'}",
                 "编辑要求：保持未指定区域不变，保持整体光照、透视、材质和风格一致；参考图只提取对象、颜色或材质特征，不可生硬拼贴；不要改变画面比例，除非请求参数显式指定尺寸。",
             ]
         )
+
+    @staticmethod
+    def _format_image_edit_hint_line(item: dict[str, Any], *, index: int) -> str:
+        mention = str(item.get("mention") or f"@标注{index}").strip()
+        label = str(item.get("label") or mention).strip()
+        shape = str(item.get("type") or "region").strip()
+        geometry = str(item.get("geometryText") or item.get("geometry_text") or "").strip()
+        if not geometry:
+            points = item.get("points")
+            if isinstance(points, list) and points:
+                geometry = f"{len(points)} 个点"
+            elif item.get("bbox") or item.get("bounds"):
+                geometry = "框选区域"
+        return f"{index}. {mention}：红色编号 {index}；类型={shape}；名称={label}；位置={geometry or '见标注定位图'}。"
 
     def _fill_text_fission_original_size(self, *, inputs: dict[str, Any], image_url: str) -> None:
         """Text-to-image fission should keep source aspect by default.

@@ -141,7 +141,7 @@ export const serializeEditorSelectionHints = (
   const height = Math.round(Number(imageSize.height || 0));
   return marks.map((mark, index) => ({
     type: mark.type,
-    label: mark.name || `标注${index + 1}`,
+    label: `标注${index + 1}`,
     mention: formatEditorMarkMention(mark, index),
     geometryText: summarizeEditorMarkGeometry(mark),
     points: (mark.points || []).map((point) => ({
@@ -182,6 +182,6 @@ export const buildImageEditTaskSummary = (args: {
     `参考图：${refs}`,
     `输出：尺寸 ${args.size || 'auto'}，质量 ${args.quality || 'auto'}`,
     '',
-    '说明：页面会自动把主图、圈选区域、参考图和修改目标整理成模型请求；用户不需要手写位置编号或参考图编号。圈选区域只是告诉模型“看哪里”，蒙版才是硬限制。',
+    '说明：提交后，中台会自动生成一张红色编号的标注定位图传给模型，帮助模型理解 @标注 对应位置；蒙版仍然是唯一硬限制。',
   ].join('\n');
 };

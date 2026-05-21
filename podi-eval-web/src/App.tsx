@@ -3795,6 +3795,7 @@ export function App() {
   const [selectedTool, setSelectedTool] = useState<EvalWorkflowVersion | null>(null);
   const [pendingToolId, setPendingToolId] = useState<string>(initialQuery.toolId);
   const [showIntegrationDoc, setShowIntegrationDoc] = useState(false);
+  const [showImageEditTaskDoc, setShowImageEditTaskDoc] = useState(false);
 
   const [formUrl, setFormUrl] = useState('');
   const [formParams, setFormParams] = useState<Record<string, string>>({});
@@ -3962,6 +3963,7 @@ export function App() {
     if (!matched) return;
     setSelectedTool(matched);
     setShowIntegrationDoc(false);
+    setShowImageEditTaskDoc(false);
     setActiveCategory(getWorkflowCategory(matched));
     setActiveView('tool');
     setPendingToolId('');
@@ -5152,6 +5154,7 @@ export function App() {
     setFilterRating('all');
     setFilterUnrated(false);
     setShowIntegrationDoc(false);
+    setShowImageEditTaskDoc(false);
     setSearch('');
     const defaults: Record<string, string> = {};
     for (const f of getFields(wf)) {
@@ -5200,6 +5203,7 @@ export function App() {
     openTool(matched);
     setActiveCategory('图编辑');
     setShowIntegrationDoc(false);
+    setShowImageEditTaskDoc(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayWorkflows, selectedTool?.id]);
 
@@ -8013,6 +8017,13 @@ export function App() {
         : selectedToolUsesBusinessApi
         ? buildBusinessApiDoc(selectedTool, formUrl.trim())
         : buildCozeDoc(selectedTool, formUrl.trim());
+    const imageEditTaskDoc = isImageEditBusinessWorkflow
+      ? [
+          `输入状态：${runBlockingReason ? `暂不可提交：${runBlockingReason}` : '可提交'}`,
+          `任务摘要：\n${imageEditTaskSummary || '暂无任务摘要。'}`,
+          `请求预览：\n${formatJsonPreview(imageEditDocParams, 4000)}`,
+        ].join('\n\n')
+      : '';
     const integrationDocTitle = selectedToolUsesBusinessApi
       ? '业务接入文档（中台业务 API）'
       : '业务接入文档（Coze OpenAPI）';
@@ -8023,6 +8034,14 @@ export function App() {
       try {
         await navigator.clipboard.writeText(doc);
         pushNotice('success', '已复制到剪贴板');
+      } catch {
+        pushNotice('error', '复制失败（浏览器不支持或权限不足）');
+      }
+    };
+    const copyImageEditTaskDoc = async () => {
+      try {
+        await navigator.clipboard.writeText(imageEditTaskDoc);
+        pushNotice('success', '已复制任务检查内容');
       } catch {
         pushNotice('error', '复制失败（浏览器不支持或权限不足）');
       }
@@ -8137,10 +8156,10 @@ export function App() {
 
         <Row gutter={[16, 16]} className="podi-eval-workbench">
           {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
-          <Col xs={12} xl={isImageEditBusinessWorkflow ? 7 : 4}>
+          <Col xs={12} xl={isImageEditBusinessWorkflow ? 12 : 4}>
             <Card
               bordered
-              className="podi-eval-panel podi-eval-panel--input"
+              className={`podi-eval-panel podi-eval-panel--input${isImageEditBusinessWorkflow ? ' podi-eval-panel--image-edit-input' : ''}`}
               title={
                 <div className="podi-panel-title">
                   <strong>输入与运行</strong>
@@ -8150,6 +8169,7 @@ export function App() {
             >
               {isAiEditor ? (
                 isImageEditBusinessWorkflow ? (
+                  <>
                   <ImageEditWorkbench
                     value={{
                       imageUrl: formUrl,
@@ -8195,8 +8215,6 @@ export function App() {
                     submitting={isRunning}
                     uploading={uploading}
                     blockingReason={runBlockingReason}
-                    taskSummary={imageEditTaskSummary}
-                    payloadPreview={imageEditDocParams}
                     advancedSlot={
                       <Space direction="vertical" size="small" style={{ width: '100%' }}>
                         {toolFields
@@ -8228,17 +8246,26 @@ export function App() {
                           ))}
                       </Space>
                     }
-                    docSlot={
-                      <IntegrationDocBlock
-                        doc={doc}
-                        title={integrationDocTitle}
-                        description={integrationDocDescription}
-                        expanded={showIntegrationDoc}
-                        onToggle={() => setShowIntegrationDoc((prev) => !prev)}
-                        onCopy={copyIntegrationDoc}
-                      />
-                    }
                   />
+                  <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 12 }}>
+                    <IntegrationDocBlock
+                      doc={imageEditTaskDoc}
+                      title="任务检查（测评端）"
+                      description="只服务内部测试排障，不属于可嵌入图编辑组件。"
+                      expanded={showImageEditTaskDoc}
+                      onToggle={() => setShowImageEditTaskDoc((prev) => !prev)}
+                      onCopy={copyImageEditTaskDoc}
+                    />
+                    <IntegrationDocBlock
+                      doc={doc}
+                      title={integrationDocTitle}
+                      description={integrationDocDescription}
+                      expanded={showIntegrationDoc}
+                      onToggle={() => setShowIntegrationDoc((prev) => !prev)}
+                      onCopy={copyIntegrationDoc}
+                    />
+                  </Space>
+                  </>
                 ) : (
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                   {isImageEditBusinessWorkflow ? (
@@ -9086,19 +9113,21 @@ export function App() {
             </Card>
           </Col>
 
-          <Col xs={12} xl={isImageEditBusinessWorkflow ? 5 : 8}>
+          <Col xs={12} xl={isImageEditBusinessWorkflow ? 12 : 8}>
             <Card
               bordered
-              className="podi-eval-panel podi-eval-panel--result"
+              className={`podi-eval-panel podi-eval-panel--result${isImageEditBusinessWorkflow ? ' podi-eval-panel--result-dock' : ''}`}
               title={
                 <div className="podi-panel-title">
-                  <strong>结果与排障</strong>
-                  <span>看当前任务状态、出图数量、调试链接和失败提示。</span>
+                  <strong>{isImageEditBusinessWorkflow ? '结果预览' : '结果与排障'}</strong>
+                  <span>{isImageEditBusinessWorkflow ? '看当前状态、结果图和必要错误。' : '看当前任务状态、出图数量、调试链接和失败提示。'}</span>
                 </div>
               }
             >
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Typography.Text theme="secondary">图片可放大预览；视频、文字/VL 和结构化结果会单独展示。下方历史可筛选/打标。</Typography.Text>
+                {isImageEditBusinessWorkflow ? null : (
+                  <Typography.Text theme="secondary">图片可放大预览；视频、文字/VL 和结构化结果会单独展示。下方历史可筛选/打标。</Typography.Text>
+                )}
                   {(() => {
                     const latest = toolRuns[0] || null;
                     const status = String(latest?.status || '');

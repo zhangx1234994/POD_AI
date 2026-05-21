@@ -87,6 +87,22 @@
   background: color-mix(in srgb, var(--td-bg-color-container) 90%, var(--td-bg-color-secondarycontainer));
 }
 
+.podi-eval-panel--image-edit-input > .t-card__body {
+  padding: 12px;
+}
+
+.podi-eval-panel--image-edit-input > .t-card__header {
+  min-height: 46px;
+}
+
+.podi-eval-panel--result-dock {
+  margin-top: 2px;
+}
+
+.podi-eval-panel--result-dock .podi-latest-output-grid--focus .podi-compare-stage {
+  min-height: clamp(520px, 62vh, 820px);
+}
+
 .podi-run-action-bar {
   display: flex;
   align-items: center;

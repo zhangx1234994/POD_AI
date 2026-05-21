@@ -1,8 +1,10 @@
 import json
 from datetime import datetime, timezone
+from io import BytesIO
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import select
 
 from app.constants.business_api_contract import business_api_contract_payload
@@ -559,6 +561,64 @@ def test_image_edit_payload_compiles_business_inputs_for_gpt_image2() -> None:
     assert request.metadata["imageEditCompiler"]["selectionHints"][0]["mention"] == "@标注1"
     assert request.metadata["imageEditCompiler"]["selectionHints"][0]["geometryText"] == "@rect(10,20 → 110,180)"
     assert request.metadata["imageEditCompiler"]["mappedQuality"] == "low"
+
+
+def test_image_edit_visual_annotation_overlay_is_added_when_enabled(monkeypatch) -> None:
+    source = Image.new("RGB", (320, 240), "white")
+    buffer = BytesIO()
+    source.save(buffer, format="PNG")
+
+    class FakeResponse:
+        content = buffer.getvalue()
+
+        def raise_for_status(self) -> None:
+            return None
+
+    captured_upload: dict[str, object] = {}
+
+    def fake_get(*args, **kwargs):
+        return FakeResponse()
+
+    def fake_upload_bytes(**kwargs):
+        captured_upload.update(kwargs)
+        return {"url": "https://oss.example.com/image-edit-annotation.png", "objectKey": "system/annotation.png"}
+
+    monkeypatch.setattr(business_runs_module.httpx, "get", fake_get)
+    monkeypatch.setattr(business_runs_module.oss_service, "upload_bytes", fake_upload_bytes)
+
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="把 @标注1 改成绿色，保持其他位置不变。",
+        selectionHints=[
+            {
+                "type": "point",
+                "label": "标注1",
+                "mention": "@标注1",
+                "geometryText": "@point(120,80)",
+                "points": [{"x": 120, "y": 80}],
+            }
+        ],
+        quality="preview",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        include_image_edit_visual_hint=True,
+    )
+
+    assert captured_upload["content_type"] == "image/png"
+    assert request.inputs["image_urls"] == ["https://oss.example.com/image-edit-annotation.png"]
+    compiler = request.metadata["imageEditCompiler"]
+    assert compiler["visualHintPolicy"] == "generated_annotation_overlay"
+    assert compiler["annotationImage"]["url"] == "https://oss.example.com/image-edit-annotation.png"
+    assert compiler["modelInputImages"][1]["role"] == "annotation_overlay"
+    assert "图2 是红色编号标注定位图" in request.inputs["prompt"]
+    assert "红色编号 1" in request.inputs["prompt"]
+    assert "不要把红圈、编号或文字画进最终结果" in request.inputs["prompt"]
 
 
 def test_image_edit_local_modify_filters_unreferenced_reference_images() -> None:
