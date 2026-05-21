@@ -3355,16 +3355,6 @@ def admin_bulk_retry_business_run_callbacks(
     )
 
 
-@admin_router.post("/runs/{run_id}/retest", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
-def admin_retest_business_run(
-    run_id: str,
-    user: User = Depends(_resolve_business_user),
-) -> schemas.BusinessRunRead:
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
-    return get_business_run_service().retest_run(run_id, actor=user)
-
-
 @admin_router.post(
     "/runs/bulk/retest",
     response_model=schemas.BusinessRunBulkActionResponse,
@@ -3381,6 +3371,16 @@ def admin_bulk_retest_business_runs(
         actor=user,
         only_failed=payload.onlyFailed,
     )
+
+
+@admin_router.post("/runs/{run_id}/retest", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def admin_retest_business_run(
+    run_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().retest_run(run_id, actor=user)
 
 
 @admin_router.post(

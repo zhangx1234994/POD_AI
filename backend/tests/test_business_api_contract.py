@@ -2019,3 +2019,48 @@ def test_coze_task_get_keeps_task_not_found_for_unknown_ids(monkeypatch) -> None
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == "TASK_NOT_FOUND"
+
+
+def test_admin_business_bulk_retest_route_is_not_shadowed(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeBusinessRunService:
+        def bulk_retest_runs(self, run_ids, *, actor, only_failed):
+            captured["run_ids"] = run_ids
+            captured["actor_role"] = getattr(actor, "role", None)
+            captured["only_failed"] = only_failed
+            return {
+                "action": "retest",
+                "total": len(run_ids),
+                "succeeded": len(run_ids),
+                "failed": 0,
+                "items": [
+                    {
+                        "run_id": run_id,
+                        "new_run_id": f"new_{run_id}",
+                        "ok": True,
+                        "status": "queued",
+                        "message": "已创建新的复测任务。",
+                    }
+                    for run_id in run_ids
+                ],
+            }
+
+    monkeypatch.setattr("app.routers.business.get_business_run_service", lambda: FakeBusinessRunService())
+
+    resp = client.post(
+        "/api/admin/business/runs/bulk/retest",
+        json={"runIds": ["run_a", "run_b"], "onlyFailed": True},
+        headers={"Authorization": "Bearer podi-test-service-token", "x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["action"] == "retest"
+    assert body["total"] == 2
+    assert body["items"][0]["runId"] == "run_a"
+    assert captured == {
+        "run_ids": ["run_a", "run_b"],
+        "actor_role": "admin",
+        "only_failed": True,
+    }
