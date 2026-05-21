@@ -1098,6 +1098,33 @@ def test_business_run_records_recipe_steps(monkeypatch) -> None:
     assert [node["id"] for node in run["orchestration_graph"]["nodes"]] == ["entry", "primary", "result"]
 
 
+def test_business_capability_graph_includes_recent_step_evidence(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):
+            return {"id": "task_runtime_evidence", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+    service = BusinessRunService()
+
+    run = service.create_run(
+        business_key="fission",
+        payload=BusinessRunCreateRequest(imageUrl="https://example.com/evidence.png"),
+        user=None,
+    )
+    listed = {item["id"]: item for item in service.list_capabilities()}
+    primary_node = next(
+        node for node in listed["biz_fission_old"]["orchestration_graph"]["nodes"] if node["id"] == "primary"
+    )
+
+    evidence = primary_node["runtimeEvidence"]
+    assert evidence["total"] == 1
+    assert evidence["queued"] == 1
+    assert evidence["latest"]["runId"] == run["id"]
+    assert evidence["latest"]["abilityTaskId"] == "task_runtime_evidence"
+
+
 def test_business_admin_draft_run_uses_selected_draft_capability(monkeypatch) -> None:
     install_business_db(monkeypatch)
 

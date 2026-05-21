@@ -6222,6 +6222,140 @@ class BusinessRunService:
             rows.append({key: value for key, value in item.items() if value is not None})
         return rows
 
+    @staticmethod
+    def _recipe_step_runtime_evidence(
+        *,
+        session,
+        business_version_id: str | None,
+        steps: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        if session is None or not business_version_id or not steps:
+            return {}
+        step_ids = {
+            str(step.get("id") or "").strip()
+            for step in steps
+            if str(step.get("id") or "").strip()
+        }
+        ability_ids = {
+            str(step.get("abilityId") or "").strip()
+            for step in steps
+            if str(step.get("abilityId") or "").strip()
+        }
+        if not step_ids and not ability_ids:
+            return {}
+
+        conditions = []
+        if step_ids:
+            conditions.append(BusinessRunStep.step_id.in_(step_ids))
+        if ability_ids:
+            conditions.append(BusinessRunStep.ability_id.in_(ability_ids))
+        if not conditions:
+            return {}
+
+        rows = (
+            session.execute(
+                select(BusinessRunStep, BusinessRun)
+                .join(BusinessRun, BusinessRun.id == BusinessRunStep.run_id)
+                .where(
+                    BusinessRun.business_version_id == business_version_id,
+                    or_(*conditions),
+                )
+                .order_by(BusinessRunStep.created_at.desc())
+                .limit(240)
+            )
+            .all()
+        )
+        if not rows:
+            return {}
+
+        now = datetime.utcnow()
+        window_hours = 24
+        since = now - timedelta(hours=window_hours)
+        evidence: dict[str, dict[str, Any]] = {}
+        step_id_to_node = {
+            str(step.get("id") or "").strip(): BusinessRunService._graph_node_id(
+                step.get("id"), fallback=f"step_{step.get('order') or index + 1}"
+            )
+            for index, step in enumerate(steps)
+            if str(step.get("id") or "").strip()
+        }
+        ability_to_nodes: dict[str, list[str]] = {}
+        for index, step in enumerate(steps):
+            ability_id = str(step.get("abilityId") or "").strip()
+            if not ability_id:
+                continue
+            node_id = BusinessRunService._graph_node_id(
+                step.get("id"),
+                fallback=f"step_{step.get('order') or index + 1}",
+            )
+            ability_to_nodes.setdefault(ability_id, []).append(node_id)
+
+        def sample(step_row: BusinessRunStep, run_row: BusinessRun) -> dict[str, Any]:
+            return {
+                key: value
+                for key, value in {
+                    "runId": run_row.id,
+                    "status": step_row.status,
+                    "runStatus": run_row.status,
+                    "createdAt": step_row.created_at,
+                    "finishedAt": step_row.finished_at,
+                    "durationMs": step_row.duration_ms,
+                    "abilityTaskId": step_row.ability_task_id,
+                    "abilityLogId": step_row.ability_log_id,
+                    "error": step_row.error_message or run_row.error_message,
+                }.items()
+                if value not in (None, "", [])
+            }
+
+        for step_row, run_row in rows:
+            candidate_node_ids: list[str] = []
+            if step_row.step_id:
+                node_id = step_id_to_node.get(str(step_row.step_id).strip())
+                if node_id:
+                    candidate_node_ids.append(node_id)
+            if step_row.ability_id:
+                candidate_node_ids.extend(ability_to_nodes.get(str(step_row.ability_id).strip(), []))
+            for node_id in dict.fromkeys(candidate_node_ids):
+                item = evidence.setdefault(
+                    node_id,
+                    {
+                        "windowHours": window_hours,
+                        "total": 0,
+                        "succeeded": 0,
+                        "failed": 0,
+                        "running": 0,
+                        "queued": 0,
+                        "latest": None,
+                        "latestSuccess": None,
+                        "latestFailure": None,
+                    },
+                )
+                created_at = step_row.created_at
+                if created_at and created_at >= since:
+                    item["total"] += 1
+                    status = str(step_row.status or "").strip().lower()
+                    if status in {"succeeded", "success", "completed"}:
+                        item["succeeded"] += 1
+                    elif status in {"failed", "error", "timeout", "cancelled"}:
+                        item["failed"] += 1
+                    elif status == "running":
+                        item["running"] += 1
+                    elif status in {"queued", "pending"}:
+                        item["queued"] += 1
+                current_sample = sample(step_row, run_row)
+                if item["latest"] is None:
+                    item["latest"] = current_sample
+                status = str(step_row.status or "").strip().lower()
+                if item["latestSuccess"] is None and status in {"succeeded", "success", "completed"}:
+                    item["latestSuccess"] = current_sample
+                if item["latestFailure"] is None and status in {"failed", "error", "timeout", "cancelled"}:
+                    item["latestFailure"] = current_sample
+
+        return {
+            node_id: {key: value for key, value in item.items() if value not in (None, "", [])}
+            for node_id, item in evidence.items()
+        }
+
     def _build_recipe_orchestration_graph(
         self,
         recipe: dict[str, Any],
@@ -6233,6 +6367,11 @@ class BusinessRunService:
         business_display_name: str | None = None,
     ) -> dict[str, Any]:
         steps = self._recipe_steps_to_dict(recipe, session=session)
+        runtime_evidence = self._recipe_step_runtime_evidence(
+            session=session,
+            business_version_id=business_version_id,
+            steps=steps,
+        )
         nodes: list[dict[str, Any]] = [
             {
                 "id": "entry",
@@ -6272,6 +6411,7 @@ class BusinessRunService:
                         "routing": step.get("routing"),
                         "recipeInputs": step.get("recipeInputs"),
                         "recipeOutputs": step.get("recipeOutputs"),
+                        "runtimeEvidence": runtime_evidence.get(node_id),
                     }
                 )
             )

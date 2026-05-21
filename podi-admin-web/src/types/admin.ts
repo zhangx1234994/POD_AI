@@ -1522,6 +1522,31 @@ export interface BusinessOrchestrationNode {
   textCount?: number | null;
   callbackStatus?: string | null;
   callbackHttpStatus?: number | null;
+  runtimeEvidence?: BusinessOrchestrationNodeRuntimeEvidence | null;
+}
+
+export interface BusinessOrchestrationNodeRunSample {
+  runId?: string | null;
+  status?: string | null;
+  runStatus?: string | null;
+  createdAt?: string | null;
+  finishedAt?: string | null;
+  durationMs?: number | null;
+  abilityTaskId?: string | null;
+  abilityLogId?: number | null;
+  error?: string | null;
+}
+
+export interface BusinessOrchestrationNodeRuntimeEvidence {
+  windowHours?: number | null;
+  total?: number | null;
+  succeeded?: number | null;
+  failed?: number | null;
+  running?: number | null;
+  queued?: number | null;
+  latest?: BusinessOrchestrationNodeRunSample | null;
+  latestSuccess?: BusinessOrchestrationNodeRunSample | null;
+  latestFailure?: BusinessOrchestrationNodeRunSample | null;
 }
 
 export interface BusinessOrchestrationEdge {

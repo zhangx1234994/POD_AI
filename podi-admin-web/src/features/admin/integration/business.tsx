@@ -23,6 +23,7 @@ import type {
   BusinessOrchestrationEdge,
   BusinessOrchestrationGraph,
   BusinessOrchestrationNode,
+  BusinessOrchestrationNodeRunSample,
   BusinessRecipeStep,
   BusinessRun,
   BusinessRunStep,
@@ -4545,12 +4546,72 @@ const BusinessGraphJsonBlock = ({ title, value }: { title: string; value?: unkno
   );
 };
 
+const formatBusinessGraphTime = (
+  value?: string | null,
+  formatDateTime?: (value?: string | null) => string,
+) => {
+  if (!value) return '—';
+  if (formatDateTime) return formatDateTime(value);
+  return value;
+};
+
+const BusinessGraphRunSample = ({
+  title,
+  sample,
+  formatDateTime,
+  onOpenBusinessRun,
+}: {
+  title: string;
+  sample?: BusinessOrchestrationNodeRunSample | null;
+  formatDateTime?: (value?: string | null) => string;
+  onOpenBusinessRun?: (runId: string) => void;
+}) => {
+  if (!sample?.runId) {
+    return (
+      <div className="podi-business-flow-detail__sample is-empty">
+        <Typography.Text strong>{title}</Typography.Text>
+        <Typography.Text theme="secondary">暂无样本</Typography.Text>
+      </div>
+    );
+  }
+  const status = String(sample.status || sample.runStatus || '').trim();
+  const failed = ['failed', 'error', 'timeout', 'cancelled'].includes(status.toLowerCase());
+  return (
+    <div className={`podi-business-flow-detail__sample ${failed ? 'is-failed' : ''}`}>
+      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+        <Typography.Text strong>{title}</Typography.Text>
+        <Tag theme={failed ? 'danger' : 'success'} variant="light" size="small">
+          {status ? businessRunStepStatusLabel(status) : '已记录'}
+        </Tag>
+      </Space>
+      <Typography.Text code>{formatShortBusinessId(sample.runId)}</Typography.Text>
+      <Typography.Text theme="secondary">
+        时间：{formatBusinessGraphTime(sample.finishedAt || sample.createdAt, formatDateTime)}
+      </Typography.Text>
+      <Typography.Text theme="secondary">
+        耗时：{sample.durationMs ? formatDurationMs(sample.durationMs) : '—'}
+        {sample.abilityLogId ? ` · 日志 ${sample.abilityLogId}` : ''}
+      </Typography.Text>
+      {sample.error ? <Typography.Text theme="error">{sample.error}</Typography.Text> : null}
+      {onOpenBusinessRun ? (
+        <Button size="small" variant="outline" onClick={() => onOpenBusinessRun(sample.runId as string)}>
+          打开 runId
+        </Button>
+      ) : null}
+    </div>
+  );
+};
+
 const BusinessGraphSelectedNodePanel = ({
   node,
   graph,
+  formatDateTime,
+  onOpenBusinessRun,
 }: {
   node?: BusinessOrchestrationNode | null;
   graph?: BusinessOrchestrationGraph | null;
+  formatDateTime?: (value?: string | null) => string;
+  onOpenBusinessRun?: (runId: string) => void;
 }) => {
   if (!node) {
     return (
@@ -4564,6 +4625,7 @@ const BusinessGraphSelectedNodePanel = ({
   const routingSummary = businessGraphRoutingSummary(node.routing);
   const flowLabel = businessGraphNodeFlowLabel(node, graph);
   const actionAdvice = businessGraphNodeActionAdvice(node, graph);
+  const runtimeEvidence = node.runtimeEvidence;
   return (
     <aside className="podi-business-flow-detail">
       <div className="podi-business-flow-detail__head">
@@ -4586,6 +4648,36 @@ const BusinessGraphSelectedNodePanel = ({
         <Typography.Text theme="secondary">上一步：{flowLabel.incoming}</Typography.Text>
         <Typography.Text theme="secondary">下一步：{flowLabel.outgoing}</Typography.Text>
       </div>
+      {runtimeEvidence ? (
+        <div className="podi-business-flow-detail__block">
+          <Typography.Text strong>最近运行</Typography.Text>
+          <Typography.Text theme="secondary">
+            近 {runtimeEvidence.windowHours || 24} 小时：总计 {runtimeEvidence.total || 0}，成功{' '}
+            {runtimeEvidence.succeeded || 0}，失败 {runtimeEvidence.failed || 0}，排队/运行{' '}
+            {Number(runtimeEvidence.queued || 0) + Number(runtimeEvidence.running || 0)}。
+          </Typography.Text>
+          <div className="podi-business-flow-detail__samples">
+            <BusinessGraphRunSample
+              title="最近一次"
+              sample={runtimeEvidence.latest}
+              formatDateTime={formatDateTime}
+              onOpenBusinessRun={onOpenBusinessRun}
+            />
+            <BusinessGraphRunSample
+              title="成功样本"
+              sample={runtimeEvidence.latestSuccess}
+              formatDateTime={formatDateTime}
+              onOpenBusinessRun={onOpenBusinessRun}
+            />
+            <BusinessGraphRunSample
+              title="失败样本"
+              sample={runtimeEvidence.latestFailure}
+              formatDateTime={formatDateTime}
+              onOpenBusinessRun={onOpenBusinessRun}
+            />
+          </div>
+        </div>
+      ) : null}
       <Alert theme={node.error ? 'error' : 'info'} message={`建议：${actionAdvice}`} />
       {schemaSummary ? (
         <div className="podi-business-flow-detail__block">
@@ -4681,11 +4773,15 @@ export const BusinessOrchestrationGraphView = ({
   fallbackSteps,
   compact = false,
   showRuntime = false,
+  formatDateTime,
+  onOpenBusinessRun,
 }: {
   graph?: BusinessOrchestrationGraph | null;
   fallbackSteps?: BusinessRecipeFlowStep[] | null;
   compact?: boolean;
   showRuntime?: boolean;
+  formatDateTime?: (value?: string | null) => string;
+  onOpenBusinessRun?: (runId: string) => void;
 }) => {
   const effectiveGraph =
     graph && (graph.nodes || []).some((node) => node && node.enabled !== false)
@@ -4834,7 +4930,12 @@ export const BusinessOrchestrationGraphView = ({
               <Controls showInteractive={false} />
             </ReactFlow>
           </div>
-          <BusinessGraphSelectedNodePanel node={selectedNode} graph={effectiveGraph} />
+          <BusinessGraphSelectedNodePanel
+            node={selectedNode}
+            graph={effectiveGraph}
+            formatDateTime={formatDateTime}
+            onOpenBusinessRun={onOpenBusinessRun}
+          />
         </div>
       )}
     </div>
@@ -5516,12 +5617,14 @@ export const BusinessOrchestrationMapPanel = ({
   summary,
   formatDateTime,
   capabilitiesLoading = false,
+  onOpenBusinessRun,
 }: {
   capabilities: BusinessCapability[];
   pendingApprovals: BusinessDefaultApproval[];
   summary?: BusinessUsageSummaryResponse | null;
   formatDateTime: (value?: string | null) => string;
   capabilitiesLoading?: boolean;
+  onOpenBusinessRun?: (runId: string) => void;
 }) => {
   const [selectedBusinessKey, setSelectedBusinessKey] = useState<(typeof businessOrchestrationKeys)[number]>('fission');
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, string>>({});
@@ -5764,6 +5867,8 @@ export const BusinessOrchestrationMapPanel = ({
               <BusinessOrchestrationGraphView
                 graph={selectedCapability?.orchestrationGraph}
                 fallbackSteps={selectedCapability?.recipeSteps || []}
+                formatDateTime={formatDateTime}
+                onOpenBusinessRun={onOpenBusinessRun}
               />
             </div>
           </section>

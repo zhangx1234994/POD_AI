@@ -973,6 +973,32 @@ html.t-theme-dark {
   gap: 6px;
 }
 
+.podi-business-flow-detail__samples {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.podi-business-flow-detail__sample {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, var(--td-success-color) 22%, var(--td-border-level-1-color));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--td-success-color) 7%, var(--td-bg-color-container));
+  padding: 9px;
+}
+
+.podi-business-flow-detail__sample.is-failed {
+  border-color: color-mix(in srgb, var(--td-error-color) 28%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--td-error-color) 7%, var(--td-bg-color-container));
+}
+
+.podi-business-flow-detail__sample.is-empty {
+  border-color: var(--td-border-level-1-color);
+  background: color-mix(in srgb, var(--td-bg-color-page) 78%, var(--td-bg-color-container));
+}
+
 .podi-business-flow-detail__block pre {
   max-height: 180px;
   margin: 0;
@@ -1331,6 +1357,10 @@ html.t-theme-dark {
 
   .podi-business-flow-detail {
     max-height: none;
+  }
+
+  .podi-business-flow-detail__samples {
+    grid-template-columns: 1fr;
   }
 }
 

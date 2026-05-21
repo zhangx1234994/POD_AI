@@ -6581,6 +6581,7 @@ const extractErrorMessage = (error: unknown): string => {
                       summary={businessUsageSummary}
                       formatDateTime={formatDateTime}
                       capabilitiesLoading={loading && businessCapabilities.length === 0}
+                      onOpenBusinessRun={handleOpenBusinessRunDetailById}
                     />
                   </>
                 ) : null}
