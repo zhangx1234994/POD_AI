@@ -34,8 +34,28 @@ CONTROL_ARCHIVE="$ARCHIVE_DIR/podi-control-plane-$COMMIT.tgz"
 WEB_ARCHIVE="$ARCHIVE_DIR/podi-web-dist-$COMMIT.tgz"
 REMOTE_ARCHIVE_DIR="$TARGET_ROOT/.deploy_tmp/$COMMIT"
 
-SSH_BASE=(ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no)
-SCP_BASE=(scp -P "$SSH_PORT" -o StrictHostKeyChecking=no)
+SSH_CONNECT_TIMEOUT_SECONDS="${SSH_CONNECT_TIMEOUT_SECONDS:-15}"
+SSH_SERVER_ALIVE_INTERVAL_SECONDS="${SSH_SERVER_ALIVE_INTERVAL_SECONDS:-10}"
+SSH_SERVER_ALIVE_COUNT_MAX="${SSH_SERVER_ALIVE_COUNT_MAX:-3}"
+
+SSH_BASE=(
+  ssh
+  -p "$SSH_PORT"
+  -o StrictHostKeyChecking=no
+  -o ConnectTimeout="$SSH_CONNECT_TIMEOUT_SECONDS"
+  -o ServerAliveInterval="$SSH_SERVER_ALIVE_INTERVAL_SECONDS"
+  -o ServerAliveCountMax="$SSH_SERVER_ALIVE_COUNT_MAX"
+  -o NumberOfPasswordPrompts=1
+)
+SCP_BASE=(
+  scp
+  -P "$SSH_PORT"
+  -o StrictHostKeyChecking=no
+  -o ConnectTimeout="$SSH_CONNECT_TIMEOUT_SECONDS"
+  -o ServerAliveInterval="$SSH_SERVER_ALIVE_INTERVAL_SECONDS"
+  -o ServerAliveCountMax="$SSH_SERVER_ALIVE_COUNT_MAX"
+  -o NumberOfPasswordPrompts=1
+)
 if [[ -n "${SSHPASS:-}" ]]; then
   if ! command -v sshpass >/dev/null 2>&1; then
     echo "[release-114] ERROR: SSHPASS is set but sshpass is not installed." >&2
