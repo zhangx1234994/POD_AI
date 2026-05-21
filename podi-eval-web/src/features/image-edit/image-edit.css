@@ -143,12 +143,11 @@
 
 .podi-image-edit-workbench__surface {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(286px, 320px);
   gap: 10px;
   align-items: start;
   width: 100%;
   min-width: 0;
-  zoom: var(--podi-image-edit-zoom, 1);
 }
 
 .podi-image-edit-workbench__surface .t-card {
@@ -193,6 +192,7 @@
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   background-size: 16px 16px;
   cursor: crosshair;
+  zoom: var(--podi-image-edit-zoom, 1);
 }
 
 .podi-image-edit-workbench__stage img {
@@ -337,6 +337,11 @@
   background: var(--td-bg-color-container);
 }
 
+.podi-image-edit-workbench__ref.is-active {
+  border-color: color-mix(in srgb, var(--td-brand-color) 44%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--td-brand-color) 7%, var(--td-bg-color-container));
+}
+
 .podi-image-edit-workbench__ref button:first-child {
   border: 0;
   background: transparent;
@@ -391,10 +396,149 @@
 
 .podi-image-edit-workbench__prompt-actions {
   display: grid;
-  grid-template-columns: 168px auto auto;
+  grid-template-columns: 168px auto;
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+}
+
+.podi-image-edit-workbench__side-rail {
+  position: sticky;
+  top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+  min-width: 0;
+}
+
+.podi-image-edit-workbench__rail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 96%, var(--td-bg-color-secondarycontainer));
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+  padding: 12px;
+}
+
+.podi-image-edit-workbench__rail-card.is-reference {
+  border-color: color-mix(in srgb, var(--td-brand-color) 18%, var(--td-border-level-1-color));
+}
+
+.podi-image-edit-workbench__rail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.podi-image-edit-workbench__rail-head > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.podi-image-edit-workbench__ref-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.podi-image-edit-workbench__ref-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.podi-image-edit-workbench__ref-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.podi-image-edit-workbench__ref-preview-toolbar > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.podi-image-edit-workbench__ref-preview-toolbar button {
+  width: 28px;
+  height: 26px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 999px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+}
+
+.podi-image-edit-workbench__ref-preview-toolbar strong {
+  min-width: 42px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.podi-image-edit-workbench__ref-preview-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 210px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 14px;
+  background:
+    linear-gradient(45deg, color-mix(in srgb, var(--td-bg-color-secondarycontainer) 72%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--td-bg-color-secondarycontainer) 72%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--td-bg-color-secondarycontainer) 72%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--td-bg-color-secondarycontainer) 72%, transparent) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  cursor: zoom-in;
+  padding: 12px;
+}
+
+.podi-image-edit-workbench__ref-preview-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  transform-origin: center;
+  transition: transform 160ms ease;
+}
+
+.podi-image-edit-workbench__ref-preview > .t-button {
+  width: 100%;
+}
+
+.podi-image-edit-workbench__ref-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 190px;
+  gap: 6px;
+  border: 1px dashed var(--td-border-level-1-color);
+  border-radius: 14px;
+  color: var(--td-text-color-secondary);
+  padding: 18px;
+  text-align: center;
+}
+
+.podi-image-edit-workbench__side-rail .podi-image-edit-workbench__ref {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+
+.podi-image-edit-workbench__side-rail .podi-image-edit-workbench__ref > .t-button {
+  width: 100%;
 }
 
 .podi-image-edit-workbench__prompt-actions button {
@@ -431,59 +575,6 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.podi-image-edit-workbench__fold-panel {
-  overflow: hidden;
-  border: 1px solid var(--td-border-level-1-color);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--td-bg-color-container) 94%, var(--td-bg-color-secondarycontainer));
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-}
-
-.podi-image-edit-workbench__fold-panel.is-open {
-  padding-bottom: 12px;
-}
-
-.podi-image-edit-workbench__fold-panel > .t-space {
-  padding: 0 12px;
-}
-
-.podi-image-edit-workbench__fold-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--td-text-color-primary);
-  cursor: pointer;
-  padding: 12px;
-  text-align: left;
-}
-
-.podi-image-edit-workbench__fold-head span {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 2px;
-}
-
-.podi-image-edit-workbench__fold-head small {
-  overflow: hidden;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  font-weight: 400;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.podi-image-edit-workbench__fold-head em {
-  flex: 0 0 auto;
-  color: var(--td-brand-color);
-  font-size: 12px;
-  font-style: normal;
 }
 
 .podi-image-edit-workbench__mention-menu {
@@ -580,6 +671,11 @@
     min-width: 0;
   }
 
+  .podi-image-edit-workbench__side-rail {
+    position: static;
+    max-height: none;
+  }
+
   .podi-image-edit-workbench__workspace-bar {
     align-items: stretch;
     flex-direction: column;
@@ -607,6 +703,11 @@
   .podi-image-edit-workbench__surface {
     grid-template-columns: 1fr;
     min-width: 0;
+  }
+
+  .podi-image-edit-workbench__side-rail {
+    position: static;
+    max-height: none;
   }
 
   .podi-image-edit-workbench__workspace-bar {
