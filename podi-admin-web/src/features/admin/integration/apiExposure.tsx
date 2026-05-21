@@ -1282,6 +1282,7 @@ export function ApiExposurePanel({
   const [businessApiUsageFilters, setBusinessApiUsageFilters] = useState<BusinessApiUsageFilters>(
     DEFAULT_BUSINESS_API_USAGE_FILTERS,
   );
+  const [businessApiQuickLookup, setBusinessApiQuickLookup] = useState('');
   const [businessApiKeyLoading, setBusinessApiKeyLoading] = useState(false);
   const [businessApiUsageExporting, setBusinessApiUsageExporting] = useState(false);
   const [businessApiKeySaving, setBusinessApiKeySaving] = useState(false);
@@ -1356,6 +1357,24 @@ export function ApiExposurePanel({
   const resetBusinessApiUsageFilters = () => {
     setBusinessApiKeyUsagePage(1);
     setBusinessApiUsageFilters(DEFAULT_BUSINESS_API_USAGE_FILTERS);
+    setBusinessApiQuickLookup('');
+  };
+
+  const applyBusinessApiQuickLookup = (field: 'runId' | 'requestId' | 'traceId') => {
+    const value = businessApiQuickLookup.trim();
+    if (!value) {
+      setBusinessApiKeyError('请先粘贴 runId、requestId 或 traceId。');
+      return;
+    }
+    setBusinessApiKeyUsagePage(1);
+    setBusinessApiKeyError('');
+    setBusinessApiUsageFilters((prev) => ({
+      ...prev,
+      windowHours: '0',
+      runId: field === 'runId' ? value : '',
+      requestId: field === 'requestId' ? value : '',
+      traceId: field === 'traceId' ? value : '',
+    }));
   };
 
   const handleExportBusinessApiUsage = async () => {
@@ -1391,6 +1410,22 @@ export function ApiExposurePanel({
       return;
     }
     onCopy(normalized);
+  };
+
+  const handleCopyBusinessApiRunEvidence = (row: BusinessApiKeyUsageRunGroup) => {
+    const issue = businessApiUsageIssue(row);
+    onCopy(
+      [
+        `runId: ${row.runId || '-'}`,
+        `业务: ${businessKeyLabel(row.businessKey || '')}`,
+        `版本: ${row.runVersion || '-'}`,
+        `状态: ${businessApiRunStatusLabel(row.runStatus)}`,
+        `调用方: ${row.apiKeyName || '-'} ${row.apiKeyPreview || ''}`.trim(),
+        `提交/轮询/回调/异常: ${row.submitCount || 0}/${row.pollCount || 0}/${row.callbackCount || 0}/${row.errorCount || 0}`,
+        `结果: ${businessApiRunResultLabel(row)}`,
+        `提示: ${issue.hint || '暂无异常'}`,
+      ].join('\n'),
+    );
   };
 
   const handleGenerateBusinessApiKey = () => {
@@ -1484,6 +1519,8 @@ export function ApiExposurePanel({
         ? businessApiKeyUsageSummary.pollCount
         : 0;
   const businessApiPollingTooFrequent = businessApiPollingRatio >= 30;
+  const highlightedBusinessApiRun =
+    businessApiKeyUsageGroups.find((row) => businessApiUsageIssue(row).needsAttention) || businessApiKeyUsageGroups[0] || null;
   const businessApiStatusDocs =
     businessDeliveryAudit?.enumDocs && businessDeliveryAudit.enumDocs.length > 0
       ? businessDeliveryAudit.enumDocs
@@ -2259,6 +2296,69 @@ export function ApiExposurePanel({
               <small>聚合后仍需排查</small>
             </div>
           </div>
+          <div className="podi-business-api-trace-console">
+            <div className="podi-business-api-trace-console__lookup">
+              <Typography.Text strong>业务方反馈编号</Typography.Text>
+              <Typography.Text theme="secondary">
+                对方只要给 runId、requestId 或 traceId，就先在这里查；系统会取消时间窗口限制，避免旧任务查不到。
+              </Typography.Text>
+              <div className="podi-business-api-trace-console__input">
+                <Input
+                  value={businessApiQuickLookup}
+                  placeholder="粘贴 runId / requestId / traceId"
+                  onChange={(value) => setBusinessApiQuickLookup(String(value))}
+                  onEnter={() => applyBusinessApiQuickLookup('runId')}
+                />
+                <Button theme="primary" onClick={() => applyBusinessApiQuickLookup('runId')}>
+                  按 runId 查
+                </Button>
+                <Button variant="outline" onClick={() => applyBusinessApiQuickLookup('requestId')}>
+                  按 requestId 查
+                </Button>
+                <Button variant="outline" onClick={() => applyBusinessApiQuickLookup('traceId')}>
+                  按 traceId 查
+                </Button>
+              </div>
+            </div>
+            <div className="podi-business-api-trace-console__focus">
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Typography.Text strong>当前优先排查</Typography.Text>
+                {highlightedBusinessApiRun?.runId ? (
+                  <Button size="small" variant="text" onClick={() => handleCopyBusinessApiRunEvidence(highlightedBusinessApiRun)}>
+                    复制排障摘要
+                  </Button>
+                ) : null}
+              </Space>
+              {highlightedBusinessApiRun ? (
+                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                  <Space size={6} breakLine>
+                    <Tag theme={businessApiUsageIssue(highlightedBusinessApiRun).needsAttention ? 'warning' : 'success'} variant="light">
+                      {businessApiUsageIssue(highlightedBusinessApiRun).needsAttention ? '需要处理' : '链路正常'}
+                    </Tag>
+                    <Typography.Text code>{highlightedBusinessApiRun.runId || '-'}</Typography.Text>
+                    {highlightedBusinessApiRun.runId ? (
+                      <Button size="small" variant="text" onClick={() => handleOpenBusinessRun(highlightedBusinessApiRun.runId)}>
+                        打开任务详情
+                      </Button>
+                    ) : null}
+                  </Space>
+                  <Typography.Text>
+                    {businessKeyLabel(highlightedBusinessApiRun.businessKey || '')} ·{' '}
+                    {businessApiRunStatusLabel(highlightedBusinessApiRun.runStatus)} · {businessApiRunResultLabel(highlightedBusinessApiRun)}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">
+                    提交 {highlightedBusinessApiRun.submitCount || 0} 次，轮询 {highlightedBusinessApiRun.pollCount || 0} 次，回调{' '}
+                    {highlightedBusinessApiRun.callbackCount || 0} 次，异常 {highlightedBusinessApiRun.errorCount || 0} 次。
+                  </Typography.Text>
+                  <Typography.Text theme={businessApiUsageIssue(highlightedBusinessApiRun).needsAttention ? 'warning' : 'secondary'}>
+                    下一步：{businessApiUsageIssue(highlightedBusinessApiRun).hint || '打开任务详情，确认结果图、成本和底层能力日志。'}
+                  </Typography.Text>
+                </Space>
+              ) : (
+                <Typography.Text theme="secondary">当前筛选范围内暂无可排查的 runId。</Typography.Text>
+              )}
+            </div>
+          </div>
           <details className="podi-business-api-key-admin">
             <summary>
               <span>Key 管理（低频操作）</span>
@@ -2583,6 +2683,11 @@ export function ApiExposurePanel({
                       {row.runId ? (
                         <Button size="small" variant="text" onClick={() => handleOpenBusinessRun(row.runId)}>
                           打开任务
+                        </Button>
+                      ) : null}
+                      {row.runId ? (
+                        <Button size="small" variant="text" onClick={() => handleCopyBusinessApiRunEvidence(row)}>
+                          复制摘要
                         </Button>
                       ) : null}
                     </Space>
