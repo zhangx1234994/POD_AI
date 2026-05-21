@@ -60,6 +60,7 @@ import {
   businessCapabilityHasRollbackEvidence,
   businessCapabilityRollbackEvidenceLabel,
 } from './businessReleaseEvidence';
+import { createBusinessCapabilityFormState } from './businessDashboardState';
 export {
   businessBillingStatusLabel,
   businessBillingStatusTheme,
@@ -5617,6 +5618,12 @@ export const BusinessOrchestrationMapPanel = ({
   summary,
   formatDateTime,
   capabilitiesLoading = false,
+  isReadOnly = false,
+  actionLoadingId,
+  abilityOptions,
+  vlAbilityOptions,
+  onCreateDraft,
+  onSaveDraftRecipe,
   onOpenBusinessRun,
 }: {
   capabilities: BusinessCapability[];
@@ -5624,10 +5631,22 @@ export const BusinessOrchestrationMapPanel = ({
   summary?: BusinessUsageSummaryResponse | null;
   formatDateTime: (value?: string | null) => string;
   capabilitiesLoading?: boolean;
+  isReadOnly?: boolean;
+  actionLoadingId?: string | null;
+  abilityOptions: BusinessSelectOption[];
+  vlAbilityOptions: BusinessSelectOption[];
+  onCreateDraft?: (item: BusinessCapability) => Promise<BusinessCapability | null>;
+  onSaveDraftRecipe?: (
+    item: BusinessCapability,
+    payload: { recipe: Record<string, unknown>; primaryAbilityId?: string | null; note?: string | null },
+  ) => Promise<BusinessCapability | null>;
   onOpenBusinessRun?: (runId: string) => void;
 }) => {
   const [selectedBusinessKey, setSelectedBusinessKey] = useState<(typeof businessOrchestrationKeys)[number]>('fission');
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, string>>({});
+  const [draftEditorTarget, setDraftEditorTarget] = useState<BusinessCapability | null>(null);
+  const [draftEditorForm, setDraftEditorForm] = useState<BusinessCapabilityFormState | null>(null);
+  const [draftEditorError, setDraftEditorError] = useState<string | null>(null);
   if (capabilitiesLoading && capabilities.length === 0) {
     return (
       <Card
@@ -5707,27 +5726,64 @@ export const BusinessOrchestrationMapPanel = ({
   const selectedCapabilityRelation = selectedCapability
     ? businessCapabilityVersionRelationLabel(selectedCapability, selectedVersionItems)
     : '还没有可查看的业务版本。';
+  const openDraftEditor = (item: BusinessCapability) => {
+    setDraftEditorTarget(item);
+    setDraftEditorForm(createBusinessCapabilityFormState(item));
+    setDraftEditorError(null);
+  };
+  const createDraftAndEdit = async (item: BusinessCapability) => {
+    if (!onCreateDraft) return;
+    const draft = await onCreateDraft(item);
+    if (!draft) return;
+    setSelectedCapabilityIds((prev) => ({ ...prev, [canonicalBusinessKey(draft.businessKey)]: draft.id }));
+    openDraftEditor(draft);
+  };
+  const saveDraftRecipe = async () => {
+    if (!draftEditorTarget || !draftEditorForm || !onSaveDraftRecipe) return;
+    const parsed = parseBusinessDraftRecipe(draftEditorForm.recipeText);
+    if (!parsed.ok) {
+      setDraftEditorError(parsed.error);
+      return;
+    }
+    const steps = Array.isArray(parsed.recipe.steps) ? parsed.recipe.steps : [];
+    if (steps.length === 0) {
+      setDraftEditorError('草稿配方至少需要一个可执行步骤。');
+      return;
+    }
+    const saved = await onSaveDraftRecipe(draftEditorTarget, {
+      recipe: parsed.recipe,
+      primaryAbilityId: draftEditorForm.primaryAbilityId || null,
+      note: '在业务链路图中调整草稿配方。',
+    });
+    if (!saved) return;
+    setSelectedCapabilityIds((prev) => ({ ...prev, [canonicalBusinessKey(saved.businessKey)]: saved.id }));
+    setDraftEditorTarget(null);
+    setDraftEditorForm(null);
+    setDraftEditorError(null);
+  };
+  const draftEditorBusy = Boolean(draftEditorTarget && actionLoadingId === `save-draft-recipe:${draftEditorTarget.id}`);
 
   return (
-    <Card
-      bordered
-      className="podi-business-workflow-map-card"
-      title={
-        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-          <div>
-            <Typography.Text strong>业务链路图</Typography.Text>
+    <>
+      <Card
+        bordered
+        className="podi-business-workflow-map-card"
+        title={
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <div>
-              <Typography.Text theme="secondary">
-                只看当前选中业务的编排链路。入口状态、调用次数和接口问题回到“业务调用”查看。
-              </Typography.Text>
+              <Typography.Text strong>业务链路图</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  只看当前选中业务的编排链路。入口状态、调用次数和接口问题回到“业务调用”查看。
+                </Typography.Text>
+              </div>
             </div>
-          </div>
-          <Tag theme="primary" variant="light">
-            组件化编排视角
-          </Tag>
-        </Space>
-      }
-    >
+            <Tag theme="primary" variant="light">
+              组件化编排视角
+            </Tag>
+          </Space>
+        }
+      >
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
         <div className="podi-business-workflow-map-hint">
           一条业务调用只对应一个 runId；图片理解、生图、评分、回填都挂在这条业务链下面。
@@ -5828,6 +5884,39 @@ export const BusinessOrchestrationMapPanel = ({
                 >
                   {selectedCapabilityRisk.detail || selectedRow.suggestion}
                 </Typography.Text>
+                {selectedCapability ? (
+                  <div className="podi-business-workflow-focus__block">
+                    <Typography.Text theme="secondary">编排修改</Typography.Text>
+                    {selectedCapability.status === 'draft' ? (
+                      <>
+                        <Alert theme="success" message="当前是草稿版本，可以在这里调整步骤和能力绑定；保存后不会影响线上默认版本。" />
+                        <Button
+                          theme="primary"
+                          variant="outline"
+                          disabled={isReadOnly}
+                          onClick={() => openDraftEditor(selectedCapability)}
+                        >
+                          编辑草稿步骤
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Alert theme="info" message="当前版本只读。要改编排，先复制为草稿，试运行和验收通过后再申请切默认。" />
+                        <Button
+                          theme="primary"
+                          variant="outline"
+                          loading={actionLoadingId === `create-draft:${selectedCapability.id}`}
+                          disabled={isReadOnly || !onCreateDraft || Boolean(actionLoadingId)}
+                          onClick={() => {
+                            void createDraftAndEdit(selectedCapability);
+                          }}
+                        >
+                          复制为草稿并编辑
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </Space>
             </aside>
             <div className="podi-business-workflow-focus__canvas">
@@ -5874,7 +5963,43 @@ export const BusinessOrchestrationMapPanel = ({
           </section>
         ) : null}
       </Space>
-    </Card>
+      </Card>
+      <Dialog
+        visible={Boolean(draftEditorTarget && draftEditorForm)}
+        header={draftEditorTarget ? `编辑草稿编排：${draftEditorTarget.displayName}` : '编辑草稿编排'}
+        width={980}
+        onClose={() => {
+          setDraftEditorTarget(null);
+          setDraftEditorForm(null);
+          setDraftEditorError(null);
+        }}
+        onConfirm={() => {
+          void saveDraftRecipe();
+        }}
+        confirmBtn={draftEditorBusy ? '保存中...' : '保存草稿配方'}
+        cancelBtn="取消"
+      >
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          {draftEditorError ? <Alert theme="error" message={draftEditorError} /> : null}
+          <Alert
+            theme="info"
+            message="这里只改草稿版本的步骤和能力绑定。保存后先试运行，再记录验收；不会直接影响业务方正在调用的默认版本。"
+          />
+          {draftEditorForm ? (
+            <BusinessRecipeDraftEditor
+              form={draftEditorForm}
+              abilityOptions={abilityOptions}
+              vlAbilityOptions={vlAbilityOptions}
+              disabled={draftEditorBusy}
+              onChange={(next) => {
+                setDraftEditorForm(next);
+                setDraftEditorError(null);
+              }}
+            />
+          ) : null}
+        </Space>
+      </Dialog>
+    </>
   );
 };
 

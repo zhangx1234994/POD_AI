@@ -5044,6 +5044,8 @@ export function IntegrationDashboard({
   const {
     resetBusinessForm,
     handleBusinessEdit,
+    handleBusinessCreateDraft,
+    handleBusinessDraftRecipeUpdate,
     handleBusinessSetDefault,
     handleBusinessDefaultApprovalDecision,
     handleBusinessToggleActive,
@@ -6581,6 +6583,12 @@ const extractErrorMessage = (error: unknown): string => {
                       summary={businessUsageSummary}
                       formatDateTime={formatDateTime}
                       capabilitiesLoading={loading && businessCapabilities.length === 0}
+                      isReadOnly={isBusinessReadOnly}
+                      actionLoadingId={businessActionLoadingId}
+                      abilityOptions={businessAbilityOptions}
+                      vlAbilityOptions={businessVlAbilityOptions}
+                      onCreateDraft={handleBusinessCreateDraft}
+                      onSaveDraftRecipe={handleBusinessDraftRecipeUpdate}
                       onOpenBusinessRun={handleOpenBusinessRunDetailById}
                     />
                   </>

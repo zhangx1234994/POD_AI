@@ -98,6 +98,49 @@ export const useBusinessDashboardActions = ({
     [setBusinessActionError, setBusinessDialogOpen, setBusinessForm, setBusinessFormError],
   );
 
+  const handleBusinessCreateDraft = useCallback(
+    async (item: BusinessCapability) => {
+      setBusinessActionError(null);
+      setBusinessActionLoadingId(`create-draft:${item.id}`);
+      try {
+        const draft = await adminApi.createBusinessCapabilityDraft(item.id, {
+          note: `从 ${businessKeyLabel(item.businessKey)} ${item.version} 复制草稿，用于业务链路图调整。`,
+        });
+        await load();
+        return draft;
+      } catch (error: any) {
+        console.error('create business draft failed', error);
+        setBusinessActionError(error?.message || '复制草稿失败，请检查服务日志。');
+        return null;
+      } finally {
+        setBusinessActionLoadingId(null);
+      }
+    },
+    [load, setBusinessActionError, setBusinessActionLoadingId],
+  );
+
+  const handleBusinessDraftRecipeUpdate = useCallback(
+    async (
+      item: BusinessCapability,
+      payload: { recipe: Record<string, unknown>; primaryAbilityId?: string | null; note?: string | null },
+    ) => {
+      setBusinessActionError(null);
+      setBusinessActionLoadingId(`save-draft-recipe:${item.id}`);
+      try {
+        const draft = await adminApi.updateBusinessCapabilityDraftRecipe(item.id, payload);
+        await load();
+        return draft;
+      } catch (error: any) {
+        console.error('save business draft recipe failed', error);
+        setBusinessActionError(error?.message || '保存草稿配方失败，请检查服务日志。');
+        return null;
+      } finally {
+        setBusinessActionLoadingId(null);
+      }
+    },
+    [load, setBusinessActionError, setBusinessActionLoadingId],
+  );
+
   const handleBusinessSetDefault = useCallback(
     async (item: BusinessCapability) => {
       setBusinessActionError(null);
@@ -568,6 +611,8 @@ export const useBusinessDashboardActions = ({
   return {
     resetBusinessForm,
     handleBusinessEdit,
+    handleBusinessCreateDraft,
+    handleBusinessDraftRecipeUpdate,
     handleBusinessSetDefault,
     handleBusinessDefaultApprovalDecision,
     handleBusinessToggleActive,

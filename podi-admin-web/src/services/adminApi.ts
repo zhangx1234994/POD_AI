@@ -1160,6 +1160,19 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+  createBusinessCapabilityDraft: (id: string, payload?: { version?: string; displayName?: string; note?: string }) =>
+    request<BusinessCapability>(`/api/admin/business/capabilities/${encodeURIComponent(id)}/drafts`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  updateBusinessCapabilityDraftRecipe: (
+    id: string,
+    payload: { recipe: Record<string, unknown>; primaryAbilityId?: string | null; note?: string | null },
+  ) =>
+    request<BusinessCapability>(`/api/admin/business/capability-drafts/${encodeURIComponent(id)}/recipe`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   runBusinessCapabilityDraft: (id: string, payload: Record<string, unknown>) =>
     request<BusinessRun>(`/api/admin/business/capabilities/${encodeURIComponent(id)}/draft-run`, {
       method: 'POST',
