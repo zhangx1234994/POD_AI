@@ -12,7 +12,7 @@ from app.core.db import get_session
 from app.main import app
 from app.models.integration import ApiKey, BusinessApiKeyUsageLog, BusinessRun, BusinessRunStep
 from app.models.user import User
-from app.routers.business import _business_delivery_contract_audit
+from app.routers.business import _business_delivery_contract_audit, _business_run_light_response
 from app.schemas.business import BusinessRunCreateRequest
 from app.services import business_runs as business_runs_module
 from app.services.business_runs import BusinessRunService
@@ -1038,6 +1038,45 @@ def test_business_run_get_requires_run_id() -> None:
 
     assert resp.status_code == 400
     assert resp.json()["detail"] == "BUSINESS_RUN_ID_REQUIRED"
+
+
+def test_business_run_light_response_omits_result_payload_when_media_exists() -> None:
+    response = _business_run_light_response(
+        {
+            "id": "run_image_edit",
+            "runId": "run_image_edit",
+            "businessKey": "image_edit",
+            "status": "succeeded",
+            "source": "test",
+            "imageUrls": ["https://oss.example.com/result.png"],
+            "resultPayload": {
+                "assets": [{"url": "https://oss.example.com/result.png"}],
+                "images": [{"url": "https://oss.example.com/result.png"}],
+            },
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+    )
+
+    assert response["imageUrls"] == ["https://oss.example.com/result.png"]
+    assert "resultPayload" not in response
+
+
+def test_business_run_light_response_keeps_structured_result_without_media() -> None:
+    response = _business_run_light_response(
+        {
+            "id": "run_score",
+            "runId": "run_score",
+            "businessKey": "fission_evaluate",
+            "status": "succeeded",
+            "source": "test",
+            "resultPayload": {"score": 82, "decision": "pass"},
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+    )
+
+    assert response["resultPayload"] == {"score": 82, "decision": "pass"}
 
 
 def test_business_run_get_hides_internal_database_errors(monkeypatch) -> None:

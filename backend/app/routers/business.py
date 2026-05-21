@@ -188,7 +188,7 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
         "finishedAt": full.get("finishedAt"),
     }
     result_payload = _business_structured_result_payload(full, texts)
-    if isinstance(result_payload, dict) and result_payload:
+    if not image_urls and not video_urls and isinstance(result_payload, dict) and result_payload:
         result["resultPayload"] = _compact_business_payload(result_payload)
     return result
 
