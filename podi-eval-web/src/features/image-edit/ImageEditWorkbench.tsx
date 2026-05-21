@@ -79,18 +79,22 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
   const [focusMode, setFocusMode] = useState(false);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
   const [referenceZoom, setReferenceZoom] = useState(1);
+  const [referenceFormOpen, setReferenceFormOpen] = useState(false);
   const [outputPanelOpen, setOutputPanelOpen] = useState(false);
   const idRef = useRef(1);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const valueRef = useRef(value);
+  const drawingRef = useRef<ImageEditMark | null>(null);
+  valueRef.current = value;
 
   const emit = useCallback(
     (patch: Partial<ImageEditWorkbenchValue>) => {
-      onChange({ ...value, ...patch });
+      onChange({ ...valueRef.current, ...patch });
     },
-    [onChange, value],
+    [onChange],
   );
 
   const selectedSkill = normalizeSkill(value.editSkill);
@@ -157,6 +161,16 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     }
   }, [selectedReferenceIndex, value.referenceUrls.length]);
 
+  useEffect(() => {
+    if (referenceRequired && value.referenceUrls.length === 0) {
+      setReferenceFormOpen(true);
+    }
+  }, [referenceRequired, value.referenceUrls.length]);
+
+  useEffect(() => {
+    drawingRef.current = drawing;
+  }, [drawing]);
+
   const getDisplayPoint = (evt: ReactMouseEvent): ImageEditPoint | null => {
     const stage = stageRef.current;
     if (!stage) return null;
@@ -198,37 +212,62 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     };
   };
 
+  const upsertMark = useCallback(
+    (mark: ImageEditMark) => {
+      const marks = valueRef.current.marks;
+      const exists = marks.some((item) => item.id === mark.id);
+      emit({ marks: exists ? marks.map((item) => (item.id === mark.id ? mark : item)) : [...marks, mark] });
+    },
+    [emit],
+  );
+
+  const removeMarkById = useCallback(
+    (markId: string) => {
+      emit({ marks: valueRef.current.marks.filter((item) => item.id !== markId) });
+    },
+    [emit],
+  );
+
   const handlePointerDown = (evt: ReactMouseEvent) => {
     if (!value.imageUrl.trim()) return;
     const displayPoint = getDisplayPoint(evt);
     if (!displayPoint) return;
     const point = toOrigPoint(displayPoint);
     if (activeTool === 'point') {
-      emit({ marks: [...value.marks, createMark('point', [point])] });
+      emit({ marks: [...valueRef.current.marks, createMark('point', [point])] });
       return;
     }
-    setDrawing(createMark(activeTool, [point]));
+    const mark = createMark(activeTool, [point]);
+    drawingRef.current = mark;
+    setDrawing(mark);
   };
 
   const handlePointerMove = (evt: ReactMouseEvent) => {
-    if (!drawing) return;
+    if (!drawingRef.current) return;
     const displayPoint = getDisplayPoint(evt);
     if (!displayPoint) return;
     const point = toOrigPoint(displayPoint);
     setDrawing((prev) => {
-      if (!prev) return prev;
-      if (prev.type === 'freehand') {
-        const last = prev.points[prev.points.length - 1];
+      const current = prev || drawingRef.current;
+      if (!current) return prev;
+      let next = current;
+      if (current.type === 'freehand') {
+        const last = current.points[current.points.length - 1];
         if (last && Math.hypot(point.x - last.x, point.y - last.y) < 4) return prev;
-        return { ...prev, points: [...prev.points, point] };
+        next = { ...current, points: [...current.points, point] };
+      } else {
+        next = { ...current, points: [current.points[0], point] };
       }
-      return { ...prev, points: [prev.points[0], point] };
+      drawingRef.current = next;
+      if (next.points.length >= 2) upsertMark(next);
+      return next;
     });
   };
 
   const finalizeDrawing = () => {
-    if (!drawing) return;
-    const mark = drawing;
+    const mark = drawingRef.current;
+    if (!mark) return;
+    drawingRef.current = null;
     let shouldAdd = true;
     if ((mark.type === 'rect' || mark.type === 'circle') && mark.points.length >= 2) {
       const a = mark.points[0];
@@ -237,7 +276,8 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     }
     if ((mark.type === 'rect' || mark.type === 'circle') && mark.points.length < 2) shouldAdd = false;
     if (mark.type === 'freehand' && mark.points.length < 2) shouldAdd = false;
-    if (shouldAdd) emit({ marks: [...value.marks, mark] });
+    if (shouldAdd) upsertMark(mark);
+    else removeMarkById(mark.id);
     setDrawing(null);
   };
 
@@ -252,6 +292,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     const url = await onUploadImage(file);
     setSelectedReferenceIndex(value.referenceUrls.length);
     setReferenceZoom(1);
+    setReferenceFormOpen(false);
     emit({ referenceUrls: [...value.referenceUrls, url] });
   };
 
@@ -266,6 +307,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
       emit({ referenceUrls: [...value.referenceUrls, url] });
     }
     setReferenceZoom(1);
+    setReferenceFormOpen(false);
     setReferenceDraft('');
   };
 
@@ -273,6 +315,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     const nextReferences = value.referenceUrls.filter((_, idx) => idx !== index);
     setSelectedReferenceIndex(Math.min(index, Math.max(0, nextReferences.length - 1)));
     setReferenceZoom(1);
+    if (referenceRequired && nextReferences.length === 0) setReferenceFormOpen(true);
     emit({ referenceUrls: nextReferences });
   };
 
@@ -394,12 +437,6 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
 
       <div className="podi-image-edit-workbench__editor-shell">
         <div className="podi-image-edit-workbench__workspace-bar">
-          <div className="podi-image-edit-workbench__clarity-strip" aria-label="图编辑输入结构">
-            <span>主图</span>
-            <span>标注 / 蒙版</span>
-            <span>参考图</span>
-            <strong>一句话说清楚要怎么改</strong>
-          </div>
           <div className="podi-image-edit-workbench__zoom-controls" aria-label="画布缩放">
             <button type="button" onClick={() => setFocusMode((open) => !open)}>
               {focusMode ? '退出大画布' : '打开大画布'}
@@ -471,6 +508,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                 className={`podi-image-edit-workbench__stage ${value.imageUrl.trim() ? '' : 'is-empty'}`}
                 onMouseDown={handlePointerDown}
                 onMouseMove={handlePointerMove}
+                onMouseUpCapture={finalizeDrawing}
                 onMouseUp={finalizeDrawing}
                 onMouseLeave={finalizeDrawing}
               >
@@ -487,7 +525,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                       }}
                     />
                     <svg width={imageMeta.displayW || '100%'} height={imageMeta.displayH || '100%'}>
-                      {[...value.marks, ...(drawing ? [drawing] : [])].map(renderMark)}
+                      {[...value.marks, ...(drawing && !value.marks.some((mark) => mark.id === drawing.id) ? [drawing] : [])].map(renderMark)}
                     </svg>
                   </>
                 ) : (
@@ -546,8 +584,8 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                       }))}
                       onChange={(next) => emit({ editSkill: String(next || 'local_modify') })}
                     />
-                    <button type="button" onClick={() => setOutputPanelOpen((open) => !open)}>
-                      输出设置
+                    <button type="button" aria-expanded={outputPanelOpen} onClick={() => setOutputPanelOpen((open) => !open)}>
+                      {outputPanelOpen ? '收起输出设置' : '输出设置'}
                     </button>
                   </div>
                 </div>
@@ -607,21 +645,36 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
 
                 {outputPanelOpen ? (
                   <div className="podi-image-edit-workbench__inline-settings">
-                    <Select value={customSizeValue ? undefined : outputSize} options={IMAGE_EDIT_SIZE_OPTIONS} onChange={(next) => emit({ size: String(next || 'auto') })} />
-                    <Input
-                      value={customSizeValue}
-                      onChange={(next) => emit({ size: String(next || '').trim() || 'auto' })}
-                      placeholder="自定义尺寸，例如 2000x1600。留空时使用上方预设。"
-                      clearable
-                    />
-                    <Select value={outputQuality} options={IMAGE_EDIT_QUALITY_OPTIONS} onChange={(next) => emit({ quality: String(next || 'auto') })} />
-                    <Select value={outputFormat} options={IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS} onChange={(next) => emit({ outputFormat: String(next || 'png') })} />
-                    <Input
-                      value={value.maskUrl}
-                      onChange={(next) => emit({ maskUrl: String(next) })}
-                      placeholder="可选：蒙版 URL。只有蒙版才会硬限制修改区域。"
-                      clearable
-                    />
+                    <div className="podi-image-edit-workbench__setting-field">
+                      <span>尺寸预设</span>
+                      <Select value={customSizeValue ? undefined : outputSize} options={IMAGE_EDIT_SIZE_OPTIONS} onChange={(next) => emit({ size: String(next || 'auto') })} />
+                    </div>
+                    <div className="podi-image-edit-workbench__setting-field">
+                      <span>自定义尺寸</span>
+                      <Input
+                        value={customSizeValue}
+                        onChange={(next) => emit({ size: String(next || '').trim() || 'auto' })}
+                        placeholder="例如 2000x1600，留空使用预设"
+                        clearable
+                      />
+                    </div>
+                    <div className="podi-image-edit-workbench__setting-field">
+                      <span>质量档位</span>
+                      <Select value={outputQuality} options={IMAGE_EDIT_QUALITY_OPTIONS} onChange={(next) => emit({ quality: String(next || 'auto') })} />
+                    </div>
+                    <div className="podi-image-edit-workbench__setting-field">
+                      <span>输出格式</span>
+                      <Select value={outputFormat} options={IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS} onChange={(next) => emit({ outputFormat: String(next || 'png') })} />
+                    </div>
+                    <div className="podi-image-edit-workbench__setting-field is-wide">
+                      <span>蒙版 URL</span>
+                      <Input
+                        value={value.maskUrl}
+                        onChange={(next) => emit({ maskUrl: String(next) })}
+                        placeholder="可选；只有蒙版才会硬限制修改区域"
+                        clearable
+                      />
+                    </div>
                     {advancedSlot}
                   </div>
                 ) : null}
@@ -636,17 +689,30 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                       {value.referenceUrls.length > 0 ? `${value.referenceUrls.length} 张，可用 #参考图 引用` : referenceRequired ? '当前意图需要参考图' : '可选，用于颜色、材质或元素参照'}
                     </Typography.Text>
                   </div>
-                  <Button size="small" theme="primary" variant="outline" loading={uploading} onClick={() => referenceInputRef.current?.click()}>
-                    上传参考图
+                  <Button
+                    size="small"
+                    theme="primary"
+                    variant={referenceFormOpen ? 'base' : 'outline'}
+                    aria-expanded={referenceFormOpen}
+                    onClick={() => setReferenceFormOpen((open) => !open)}
+                  >
+                    {referenceFormOpen ? '收起' : '添加参考图'}
                   </Button>
                 </div>
                 {referenceRequired ? <Alert theme="warning" message="当前改图意图必须提供参考图。" /> : null}
-                <div className="podi-image-edit-workbench__ref-input-row">
-                  <Input value={referenceDraft} onChange={(next) => setReferenceDraft(String(next))} placeholder="粘贴参考图 URL" clearable />
-                  <Button variant="outline" onClick={addReferenceDraft}>
-                    添加链接
-                  </Button>
-                </div>
+                {referenceFormOpen ? (
+                  <div className="podi-image-edit-workbench__ref-form">
+                    <Button variant="outline" loading={uploading} onClick={() => referenceInputRef.current?.click()}>
+                      上传本地参考图
+                    </Button>
+                    <div className="podi-image-edit-workbench__ref-input-row">
+                      <Input value={referenceDraft} onChange={(next) => setReferenceDraft(String(next))} placeholder="或粘贴参考图 URL" clearable />
+                      <Button variant="outline" onClick={addReferenceDraft}>
+                        添加链接
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 <input
                   ref={referenceInputRef}
                   type="file"
@@ -686,9 +752,14 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                   <div className="podi-image-edit-workbench__ref-empty">
                     <Typography.Text strong>这里放参考图</Typography.Text>
                     <Typography.Text theme="secondary">上传后可直接预览、缩放，并在指令里用 #参考图1 引用。</Typography.Text>
-                    <Button size="small" variant="outline" loading={uploading} onClick={() => referenceInputRef.current?.click()}>
-                      上传参考图
-                    </Button>
+                    <div className="podi-image-edit-workbench__ref-empty-actions">
+                      <Button size="small" variant="outline" loading={uploading} onClick={() => referenceInputRef.current?.click()}>
+                        上传参考图
+                      </Button>
+                      <Button size="small" variant="outline" onClick={() => setReferenceFormOpen(true)}>
+                        粘贴链接
+                      </Button>
+                    </div>
                   </div>
                 )}
                 {value.referenceUrls.length > 0 ? (
