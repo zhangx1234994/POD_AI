@@ -6533,19 +6533,42 @@ class BusinessRunService:
         if not conditions:
             return {}
 
-        rows = (
+        # Keep this query index-friendly. Sorting joined step rows across all
+        # historical runs has triggered MySQL "Out of sort memory" on 114 even
+        # with modest data volume, so first narrow by recent runs and only sort
+        # the small in-memory result set.
+        recent_runs = (
             session.execute(
-                select(BusinessRunStep, BusinessRun)
-                .join(BusinessRun, BusinessRun.id == BusinessRunStep.run_id)
-                .where(
-                    BusinessRun.business_version_id == business_version_id,
-                    or_(*conditions),
-                )
-                .order_by(BusinessRunStep.created_at.desc())
+                select(BusinessRun)
+                .where(BusinessRun.business_version_id == business_version_id)
+                .order_by(BusinessRun.created_at.desc())
                 .limit(240)
             )
+            .scalars()
             .all()
         )
+        run_by_id = {str(row.id): row for row in recent_runs if row.id}
+        if not run_by_id:
+            return {}
+        step_rows = (
+            session.execute(
+                select(BusinessRunStep)
+                .where(
+                    BusinessRunStep.run_id.in_(run_by_id.keys()),
+                    or_(*conditions),
+                )
+                .limit(480)
+            )
+            .scalars()
+            .all()
+        )
+        rows = [
+            (step_row, run_by_id[str(step_row.run_id)])
+            for step_row in step_rows
+            if step_row.run_id and str(step_row.run_id) in run_by_id
+        ]
+        rows.sort(key=lambda item: item[0].created_at or item[1].created_at or datetime.min, reverse=True)
+        rows = rows[:240]
         if not rows:
             return {}
 

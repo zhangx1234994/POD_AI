@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -1113,7 +1113,16 @@ def test_business_capability_graph_includes_recent_step_evidence(monkeypatch) ->
         payload=BusinessRunCreateRequest(imageUrl="https://example.com/evidence.png"),
         user=None,
     )
+    captured_sql: list[str] = []
+
+    def capture_sql(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        captured_sql.append(" ".join(str(statement).lower().split()))
+
+    with business_runs_module.get_session() as session:
+        engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", capture_sql)
     listed = {item["id"]: item for item in service.list_capabilities()}
+    event.remove(engine, "before_cursor_execute", capture_sql)
     primary_node = next(
         node for node in listed["biz_fission_old"]["orchestration_graph"]["nodes"] if node["id"] == "primary"
     )
@@ -1123,6 +1132,11 @@ def test_business_capability_graph_includes_recent_step_evidence(monkeypatch) ->
     assert evidence["queued"] == 1
     assert evidence["latest"]["runId"] == run["id"]
     assert evidence["latest"]["abilityTaskId"] == "task_runtime_evidence"
+    assert not any(
+        "from business_run_steps join business_runs" in statement
+        or "from business_run_steps inner join business_runs" in statement
+        for statement in captured_sql
+    )
 
 
 def test_business_admin_draft_run_uses_selected_draft_capability(monkeypatch) -> None:
