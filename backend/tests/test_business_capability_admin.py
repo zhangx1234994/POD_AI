@@ -1135,6 +1135,8 @@ def test_business_capability_graph_includes_recent_step_evidence(monkeypatch) ->
     assert not any(
         "from business_run_steps join business_runs" in statement
         or "from business_run_steps inner join business_runs" in statement
+        or "business_run_steps.step_id in" in statement
+        or "business_run_steps.ability_id in" in statement
         for statement in captured_sql
     )
 

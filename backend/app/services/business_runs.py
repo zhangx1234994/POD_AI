@@ -6553,19 +6553,22 @@ class BusinessRunService:
         step_rows = (
             session.execute(
                 select(BusinessRunStep)
-                .where(
-                    BusinessRunStep.run_id.in_(run_by_id.keys()),
-                    or_(*conditions),
-                )
-                .limit(480)
+                .where(BusinessRunStep.run_id.in_(run_by_id.keys()))
+                .limit(1200)
             )
             .scalars()
             .all()
         )
+        step_id_set = set(step_ids)
+        ability_id_set = set(ability_ids)
         rows = [
             (step_row, run_by_id[str(step_row.run_id)])
             for step_row in step_rows
             if step_row.run_id and str(step_row.run_id) in run_by_id
+            and (
+                (step_row.step_id and str(step_row.step_id).strip() in step_id_set)
+                or (step_row.ability_id and str(step_row.ability_id).strip() in ability_id_set)
+            )
         ]
         rows.sort(key=lambda item: item[0].created_at or item[1].created_at or datetime.min, reverse=True)
         rows = rows[:240]
