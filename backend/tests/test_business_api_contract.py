@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 from io import BytesIO
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -619,6 +620,144 @@ def test_image_edit_visual_annotation_overlay_is_added_when_enabled(monkeypatch)
     assert "图2 是红色编号标注定位图" in request.inputs["prompt"]
     assert "红色编号 1" in request.inputs["prompt"]
     assert "不要把红圈、编号或文字画进最终结果" in request.inputs["prompt"]
+
+
+def test_image_edit_auto_mask_uses_transparent_edit_area(monkeypatch) -> None:
+    source = Image.new("RGB", (120, 80), "white")
+    buffer = BytesIO()
+    source.save(buffer, format="PNG")
+
+    class FakeResponse:
+        content = buffer.getvalue()
+
+        def raise_for_status(self) -> None:
+            return None
+
+    captured_upload: dict[str, object] = {}
+
+    def fake_get(*args, **kwargs):  # noqa: ANN002, ANN003
+        return FakeResponse()
+
+    def fake_upload_bytes(**kwargs):
+        captured_upload.update(kwargs)
+        return {"url": "https://oss.example.com/image-edit-mask.png", "objectKey": "system/mask.png"}
+
+    monkeypatch.setattr(business_runs_module.httpx, "get", fake_get)
+    monkeypatch.setattr(business_runs_module.oss_service, "upload_bytes", fake_upload_bytes)
+
+    service = object.__new__(BusinessRunService)
+    result = service._build_image_edit_selection_mask(
+        source_image_url="https://example.com/source.png",
+        selection_hints=[{"type": "point", "label": "标注1", "points": [{"x": 60, "y": 40}]}],
+    )
+
+    mask = Image.open(BytesIO(captured_upload["data"])).convert("RGBA")
+    assert result["url"] == "https://oss.example.com/image-edit-mask.png"
+    assert mask.size == (120, 80)
+    assert mask.getpixel((60, 40))[3] == 0
+    assert mask.getpixel((0, 0))[3] == 255
+
+
+def test_image_edit_ignores_unreferenced_selection_hints(monkeypatch) -> None:
+    captured_hints: dict[str, object] = {}
+
+    def fake_annotation(self, *, source_image_url, selection_hints, trace_context=None):  # noqa: ANN001
+        captured_hints["selection_hints"] = selection_hints
+        return {"url": "https://oss.example.com/annotation.png", "role": "annotation_overlay"}
+
+    def fake_mask(self, *, source_image_url, selection_hints, trace_context=None):  # noqa: ANN001
+        captured_hints["mask_selection_hints"] = selection_hints
+        return {"url": "https://oss.example.com/mask.png", "role": "selection_alpha_mask"}
+
+    monkeypatch.setattr(BusinessRunService, "_build_image_edit_annotation_image", fake_annotation)
+    monkeypatch.setattr(BusinessRunService, "_build_image_edit_selection_mask", fake_mask)
+
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="@标注1 改成西瓜，@标注2 改成乒乓球，@标注3 保持不变。",
+        selectionHints=[
+            {"type": "point", "label": "标注1", "mention": "@标注1", "points": [{"x": 100, "y": 100}]},
+            {"type": "point", "label": "标注2", "mention": "@标注2", "points": [{"x": 200, "y": 200}]},
+            {"type": "point", "label": "标注3", "mention": "@标注3", "points": [{"x": 300, "y": 300}]},
+        ],
+    )
+
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        include_image_edit_visual_hint=True,
+    )
+
+    compiler = request.metadata["imageEditCompiler"]
+    assert compiler["selectionHintPolicy"] == "only_instruction_referenced_editable"
+    assert [item["mention"] for item in compiler["selectionHints"]] == ["@标注1", "@标注2"]
+    assert [item["mention"] for item in compiler["protectedSelectionHints"]] == ["@标注3"]
+    assert compiler["protectedMentioned"] == ["@标注3", "@标记3"]
+    assert [item["mention"] for item in captured_hints["selection_hints"]] == ["@标注1", "@标注2"]
+    assert [item["mention"] for item in captured_hints["mask_selection_hints"]] == ["@标注1", "@标注2"]
+    assert request.inputs["mask_url"] == "https://oss.example.com/mask.png"
+    assert compiler["maskPolicy"] == "auto_selection_alpha_mask"
+    assert "未被本次指令引用的标注（禁止修改）" in request.inputs["prompt"]
+    assert "只允许修改用户编辑指令中明确引用的 @标注" in request.inputs["prompt"]
+    assert "只生成单独的乒乓球" in request.inputs["prompt"]
+
+
+def test_image_edit_rejects_when_only_protected_hint_is_mentioned() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="@标注3 保持不变。",
+        selectionHints=[
+            {"type": "point", "label": "标注1", "mention": "@标注1", "points": [{"x": 100, "y": 100}]},
+            {"type": "point", "label": "标注2", "mention": "@标注2", "points": [{"x": 200, "y": 200}]},
+            {"type": "point", "label": "标注3", "mention": "@标注3", "points": [{"x": 300, "y": 300}]},
+        ],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        service._build_ability_payload(
+            capability_key="image_edit",
+            payload=payload,
+            image_url="https://example.com/source.png",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "IMAGE_EDIT_TARGET_REQUIRED"
+
+
+def test_image_edit_user_mask_takes_priority(monkeypatch) -> None:
+    def fail_auto_mask(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("auto mask should not run when user mask exists")
+
+    monkeypatch.setattr(BusinessRunService, "_build_image_edit_selection_mask", fail_auto_mask)
+
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="local_modify",
+        instruction="把 @标注1 改成蓝色。",
+        maskUrl="https://example.com/user-mask.png",
+        selectionHints=[
+            {"type": "rect", "label": "标注1", "mention": "@标注1", "bbox": {"x": 10, "y": 20, "width": 100, "height": 120}},
+        ],
+    )
+
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    compiler = request.metadata["imageEditCompiler"]
+    assert request.inputs["mask_url"] == "https://example.com/user-mask.png"
+    assert compiler["maskUrl"] == "https://example.com/user-mask.png"
+    assert compiler["userMaskUrl"] == "https://example.com/user-mask.png"
+    assert compiler["autoMask"] is None
+    assert compiler["maskPolicy"] == "user_mask"
 
 
 def test_image_edit_local_modify_filters_unreferenced_reference_images() -> None:

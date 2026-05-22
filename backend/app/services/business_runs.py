@@ -5224,6 +5224,12 @@ class BusinessRunService:
             request_inputs.get("selection_hints"),
             request_inputs.get("marks"),
         )
+        selection_partition = self._partition_image_edit_selection_hints(
+            instruction=instruction,
+            selection_hints=selection_hints,
+        )
+        editable_selection_hints = selection_partition["editable"]
+        protected_selection_hints = selection_partition["protected"]
         reference_images = self._normalize_image_edit_reference_images(
             payload.referenceImages,
             payload.reference_images,
@@ -5242,7 +5248,13 @@ class BusinessRunService:
 
         if skill in IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS and not reference_images:
             raise HTTPException(status_code=400, detail="IMAGE_EDIT_REFERENCE_REQUIRED")
-        if skill in IMAGE_EDIT_TARGET_HINT_REQUIRED_SKILLS and not selection_hints and not mask_url:
+        if (
+            selection_hints
+            and selection_partition["policy"] == "no_editable_selection_hint"
+            and not mask_url
+        ):
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_TARGET_REQUIRED")
+        if skill in IMAGE_EDIT_TARGET_HINT_REQUIRED_SKILLS and not editable_selection_hints and not mask_url:
             raise HTTPException(status_code=400, detail="IMAGE_EDIT_TARGET_REQUIRED")
         selected_reference_images = self._select_image_edit_reference_images(
             skill=skill,
@@ -5252,10 +5264,10 @@ class BusinessRunService:
         annotation_image = (
             self._build_image_edit_annotation_image(
                 source_image_url=image_url,
-                selection_hints=selection_hints,
+                selection_hints=editable_selection_hints,
                 trace_context=trace_context,
             )
-            if include_visual_hint and selection_hints
+            if include_visual_hint and editable_selection_hints
             else None
         )
 
@@ -5278,13 +5290,25 @@ class BusinessRunService:
         if mask_url and validate_media:
             self._validate_image_edit_mask(image_url=image_url, mask_url=mask_url, mask_meta=mask_meta)
 
+        auto_mask = None
+        effective_mask_url = mask_url
+        if not mask_url and editable_selection_hints:
+            auto_mask = self._build_image_edit_selection_mask(
+                source_image_url=image_url,
+                selection_hints=editable_selection_hints,
+                trace_context=trace_context,
+            )
+            if auto_mask and auto_mask.get("url"):
+                effective_mask_url = str(auto_mask["url"])
+
         prompt = self._build_image_edit_compiled_prompt(
             skill=skill,
             instruction=instruction,
-            selection_hints=selection_hints,
+            selection_hints=editable_selection_hints,
+            protected_selection_hints=protected_selection_hints,
             reference_images=selected_reference_images,
             annotation_image=annotation_image,
-            mask_url=mask_url,
+            mask_url=effective_mask_url,
             source_image_url=image_url,
         )
         ability_inputs: dict[str, Any] = {
@@ -5301,22 +5325,27 @@ class BusinessRunService:
             ability_inputs["image_urls"] = [item["url"] for item in selected_reference_images if item.get("url")]
         if annotation_image and annotation_image.get("url"):
             ability_inputs["image_urls"] = [annotation_image["url"], *ability_inputs.get("image_urls", [])]
-        if mask_url:
-            ability_inputs["mask_url"] = mask_url
+        if effective_mask_url:
+            ability_inputs["mask_url"] = effective_mask_url
         return {
             "ability_inputs": ability_inputs,
             "metadata": {
                 "editSkill": skill,
                 "editSkillLabel": IMAGE_EDIT_SKILL_LABELS.get(skill, skill),
                 "instruction": instruction,
-                "selectionHints": selection_hints,
+                "selectionHints": editable_selection_hints,
+                "allSelectionHints": selection_hints,
+                "protectedSelectionHints": protected_selection_hints,
+                "selectionHintPolicy": selection_partition["policy"],
+                "protectedMentioned": selection_partition.get("protectedMentioned", []),
                 "referenceImages": selected_reference_images,
                 "availableReferenceImages": reference_images,
                 "annotationImage": annotation_image,
+                "autoMask": auto_mask,
                 "visualHintPolicy": (
                     "generated_annotation_overlay"
                     if annotation_image
-                    else ("text_only_fallback" if selection_hints else "no_selection_hint")
+                    else ("text_only_fallback" if editable_selection_hints else "no_selection_hint")
                 ),
                 "modelInputImages": [
                     {"role": "source", "url": image_url, "position": "图1"},
@@ -5340,8 +5369,14 @@ class BusinessRunService:
                     if skill in IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS
                     else "pass_only_explicitly_referenced"
                 ),
-                "maskUrl": mask_url,
+                "maskUrl": effective_mask_url,
+                "userMaskUrl": mask_url,
                 "maskMeta": mask_meta if isinstance(mask_meta, dict) else None,
+                "maskPolicy": (
+                    "user_mask"
+                    if mask_url
+                    else ("auto_selection_alpha_mask" if auto_mask and auto_mask.get("url") else "no_mask")
+                ),
                 "size": size,
                 "quality": quality,
                 "mappedQuality": ability_inputs["quality"],
@@ -5452,6 +5487,211 @@ class BusinessRunService:
         for value in values:
             add(value)
         return refs[:8]
+
+    @staticmethod
+    def _partition_image_edit_selection_hints(
+        *,
+        instruction: str,
+        selection_hints: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if not selection_hints:
+            return {"editable": [], "protected": [], "policy": "no_selection_hint", "mentioned": []}
+        mention_intents = BusinessRunService._extract_image_edit_instruction_mention_intents(instruction)
+        editable_mentions = mention_intents["editable"]
+        protected_mentions = mention_intents["protected"]
+        mentioned = [*editable_mentions, *protected_mentions]
+        prepared: list[dict[str, Any]] = []
+        for index, hint in enumerate(selection_hints, start=1):
+            item = dict(hint)
+            item.setdefault("_selectionIndex", index)
+            prepared.append(item)
+        if not mentioned:
+            return {
+                "editable": prepared,
+                "protected": [],
+                "policy": "all_selected_editable_no_explicit_mention",
+                "mentioned": [],
+            }
+
+        editable: list[dict[str, Any]] = []
+        protected: list[dict[str, Any]] = []
+        editable_mentioned_set = set(editable_mentions)
+        protected_mentioned_set = set(protected_mentions)
+        for item in prepared:
+            identities = BusinessRunService._image_edit_hint_identities(item)
+            if identities & protected_mentioned_set:
+                protected.append(item)
+            elif identities & editable_mentioned_set:
+                editable.append(item)
+            else:
+                protected.append(item)
+        if not editable:
+            return {
+                "editable": [],
+                "protected": protected or prepared,
+                "policy": "no_editable_selection_hint",
+                "mentioned": mentioned,
+                "protectedMentioned": protected_mentions,
+            }
+        return {
+            "editable": editable,
+            "protected": protected,
+            "policy": "only_instruction_referenced_editable",
+            "mentioned": mentioned,
+            "protectedMentioned": protected_mentions,
+        }
+
+    @staticmethod
+    def _extract_image_edit_instruction_mention_intents(instruction: str) -> dict[str, list[str]]:
+        text = str(instruction or "")
+        editable: list[str] = []
+        protected: list[str] = []
+        seen_editable: set[str] = set()
+        seen_protected: set[str] = set()
+        for match in re.finditer(r"@(标注|标记)\s*(\d+)", text):
+            number = str(int(match.group(2)))
+            token_pair = (f"@标注{number}", f"@标记{number}")
+            clause = BusinessRunService._image_edit_instruction_clause(text, match.start(), match.end())
+            is_protected = BusinessRunService._image_edit_clause_is_protection_only(clause)
+            target = protected if is_protected else editable
+            seen = seen_protected if is_protected else seen_editable
+            for token in token_pair:
+                if token not in seen:
+                    seen.add(token)
+                    target.append(token)
+        return {"editable": editable, "protected": protected}
+
+    @staticmethod
+    def _image_edit_instruction_clause(text: str, start: int, end: int) -> str:
+        left = max(text.rfind(mark, 0, start) for mark in ("，", ",", "。", "；", ";", "\n"))
+        right_candidates = [text.find(mark, end) for mark in ("，", ",", "。", "；", ";", "\n")]
+        right_values = [item for item in right_candidates if item >= 0]
+        right = min(right_values) if right_values else len(text)
+        return text[left + 1 : right]
+
+    @staticmethod
+    def _image_edit_clause_is_protection_only(clause: str) -> bool:
+        text = str(clause or "")
+        protect_terms = (
+            "保持不变",
+            "不要改",
+            "不要修改",
+            "不修改",
+            "别改",
+            "禁止修改",
+            "不处理",
+            "保留",
+            "不动",
+            "维持原样",
+        )
+        edit_terms = ("改成", "改为", "换成", "替换", "删除", "删掉", "去掉", "变成", "调整", "优化", "修补", "补色")
+        has_protect = any(term in text for term in protect_terms) or re.search(r"(?<!保持)不变", text) is not None
+        has_edit = any(term in text for term in edit_terms)
+        return bool(has_protect and not has_edit)
+
+    @staticmethod
+    def _image_edit_hint_identities(item: dict[str, Any]) -> set[str]:
+        identities: set[str] = set()
+        for key in ("mention", "label", "name"):
+            raw = str(item.get(key) or "").strip()
+            if not raw:
+                continue
+            normalized = raw if raw.startswith("@") else f"@{raw}"
+            identities.add(normalized)
+            match = re.search(r"(标注|标记)\s*(\d+)", raw)
+            if match:
+                number = str(int(match.group(2)))
+                identities.add(f"@标注{number}")
+                identities.add(f"@标记{number}")
+        selection_index = item.get("_selectionIndex")
+        try:
+            number = int(selection_index)
+        except (TypeError, ValueError):
+            number = 0
+        if number > 0:
+            identities.add(f"@标注{number}")
+            identities.add(f"@标记{number}")
+        return identities
+
+    def _build_image_edit_selection_mask(
+        self,
+        *,
+        source_image_url: str,
+        selection_hints: list[dict[str, Any]],
+        trace_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Build an alpha mask from editable marks.
+
+        OpenAI image edits use transparent mask pixels as the editable area.
+        Everything else stays opaque so unmentioned regions are protected by
+        the API contract, not just by prompt wording.
+        """
+
+        if not source_image_url or not selection_hints:
+            return None
+        try:
+            response = httpx.get(source_image_url, timeout=20, follow_redirects=True)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content)).convert("RGBA")
+            width, height = image.size
+            if width <= 0 or height <= 0:
+                return None
+
+            mask = Image.new("RGBA", image.size, (0, 0, 0, 255))
+            draw = ImageDraw.Draw(mask)
+            transparent = (0, 0, 0, 0)
+            base_padding = max(8, round(min(width, height) * 0.012))
+            point_radius = max(28, round(min(width, height) * 0.035))
+
+            for hint in selection_hints[:20]:
+                shape = str(hint.get("type") or "region").strip().lower()
+                center = self._image_edit_hint_center(hint, width=width, height=height)
+                bounds = self._image_edit_hint_bounds(hint, width=width, height=height)
+                if shape == "point" and center:
+                    x, y = center
+                    draw.ellipse(
+                        (x - point_radius, y - point_radius, x + point_radius, y + point_radius),
+                        fill=transparent,
+                    )
+                    continue
+                if bounds:
+                    padded = self._pad_image_edit_bounds(
+                        bounds,
+                        width=width,
+                        height=height,
+                        padding=base_padding,
+                    )
+                    if shape in {"circle", "ellipse"}:
+                        draw.ellipse(padded, fill=transparent)
+                    else:
+                        draw.rectangle(padded, fill=transparent)
+                    continue
+                if center:
+                    x, y = center
+                    draw.ellipse(
+                        (x - point_radius, y - point_radius, x + point_radius, y + point_radius),
+                        fill=transparent,
+                    )
+
+            buffer = BytesIO()
+            mask.save(buffer, format="PNG")
+            upload = oss_service.upload_bytes(
+                user_id=str((trace_context or {}).get("tenantId") or "system"),
+                filename=f"image-edit-mask-{uuid4().hex[:10]}.png",
+                data=buffer.getvalue(),
+                content_type="image/png",
+            )
+            return {
+                "url": upload.get("url"),
+                "ossKey": upload.get("objectKey"),
+                "role": "selection_alpha_mask",
+                "label": "自动标注蒙版",
+                "editableSelectionCount": len(selection_hints),
+                "description": "透明区域为本次允许编辑的标注范围；不透明区域保持不变。",
+            }
+        except Exception as exc:  # noqa: BLE001 - fall back to prompt/annotation if mask generation fails.
+            logger.warning("image_edit selection mask generation failed: %s", exc)
+            return None
 
     def _build_image_edit_annotation_image(
         self,
@@ -5661,6 +5901,24 @@ class BusinessRunService:
         return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
 
     @staticmethod
+    def _pad_image_edit_bounds(
+        bounds: tuple[float, float, float, float],
+        *,
+        width: int,
+        height: int,
+        padding: int,
+    ) -> tuple[float, float, float, float]:
+        left, top, right, bottom = bounds
+        return BusinessRunService._clamp_bounds(
+            left - padding,
+            top - padding,
+            right + padding,
+            bottom + padding,
+            width=width,
+            height=height,
+        )
+
+    @staticmethod
     def _select_image_edit_reference_images(
         *,
         skill: str,
@@ -5755,6 +6013,7 @@ class BusinessRunService:
         skill: str,
         instruction: str,
         selection_hints: list[dict[str, Any]],
+        protected_selection_hints: list[dict[str, Any]],
         reference_images: list[dict[str, Any]],
         annotation_image: dict[str, Any] | None,
         mask_url: str | None,
@@ -5766,6 +6025,11 @@ class BusinessRunService:
             BusinessRunService._format_image_edit_hint_line(item, index=idx)
             for idx, item in enumerate(selection_hints, start=1)
         ] or ["无；如果没有标注，请按用户指令作用于最合理的目标区域。"]
+        protected_lines = [
+            BusinessRunService._format_image_edit_hint_line(item, index=int(item.get("_selectionIndex") or idx))
+            for idx, item in enumerate(protected_selection_hints, start=1)
+        ]
+        extra_rules = BusinessRunService._build_image_edit_extra_rules(instruction)
         ref_offset = 2 if annotation_image else 1
         ref_lines = [
             f"图{idx + ref_offset}={item.get('mention') or item.get('label') or f'参考图{idx}'}：{item.get('url')}"
@@ -5787,11 +6051,18 @@ class BusinessRunService:
                 f"用户编辑指令：{instruction.strip()}",
                 "标注/区域提示：",
                 *hint_lines,
-                "执行规则：如果用户说“改成/换成”，请替换对应 @标注 所在的完整对象，不要在旁边额外新增对象；多个 @标注 要分别处理，不要把一个标注的颜色或对象扩散到其他区域。",
+                *(
+                    ["未被本次指令引用的标注（禁止修改）：", *protected_lines]
+                    if protected_lines
+                    else []
+                ),
+                "执行规则：只允许修改用户编辑指令中明确引用的 @标注；如果用户说“改成/换成”，请替换对应 @标注 所在的完整对象，不要在旁边额外新增对象；多个 @标注 要分别处理，不要把一个标注的颜色或对象扩散到其他区域。",
+                "保护规则：未被用户编辑指令明确引用的标注、相同或相似对象、背景、文字、边框和装饰元素都必须保持不变。",
+                *extra_rules,
                 "参考图：",
                 *ref_lines,
                 f"标注定位图：{'已提供红色编号辅助图，红色编号 1/2/3... 与 @标注1/@标注2/@标注3... 一一对应。' if annotation_image else '未提供，只能按文字坐标理解。'}",
-                f"蒙版：{'已提供，优先按 alpha mask 限定编辑范围。' if mask_url else '未提供，按标注提示和用户指令判断目标区域。'}",
+                f"蒙版：{'已提供；只允许修改 alpha mask 的透明区域，不透明区域必须保持不变。' if mask_url else '未提供，按标注提示和用户指令判断目标区域。'}",
                 "编辑要求：保持未指定区域不变，保持整体光照、透视、材质和风格一致；参考图只提取对象、颜色或材质特征，不可生硬拼贴；不要改变画面比例，除非请求参数显式指定尺寸。",
             ]
         )
@@ -5809,6 +6080,16 @@ class BusinessRunService:
             elif item.get("bbox") or item.get("bounds"):
                 geometry = "框选区域"
         return f"{index}. {mention}：红色编号 {index}；类型={shape}；名称={label}；位置={geometry or '见标注定位图'}。"
+
+    @staticmethod
+    def _build_image_edit_extra_rules(instruction: str) -> list[str]:
+        text = str(instruction or "")
+        rules: list[str] = []
+        if "乒乓球" in text or "兵乓球" in text:
+            rules.append("特别约束：如果目标是乒乓球，只生成单独的乒乓球；不要生成球拍、手、人物、球网、文字或任何额外运动装备。")
+        if "删掉" in text or "删除" in text or "去掉" in text:
+            rules.append("删除约束：只清除被明确引用的目标对象，并用周围背景自然补齐；不要删除其他相似对象。")
+        return rules
 
     def _fill_text_fission_original_size(self, *, inputs: dict[str, Any], image_url: str) -> None:
         """Text-to-image fission should keep source aspect by default.
