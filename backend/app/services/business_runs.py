@@ -6539,12 +6539,16 @@ class BusinessRunService:
         # the small in-memory result set.
         recent_runs = (
             session.execute(
-                select(BusinessRun)
+                select(
+                    BusinessRun.id,
+                    BusinessRun.status,
+                    BusinessRun.created_at,
+                    BusinessRun.error_message,
+                )
                 .where(BusinessRun.business_version_id == business_version_id)
                 .order_by(BusinessRun.created_at.desc())
                 .limit(240)
             )
-            .scalars()
             .all()
         )
         run_by_id = {str(row.id): row for row in recent_runs if row.id}
@@ -6552,11 +6556,22 @@ class BusinessRunService:
             return {}
         step_rows = (
             session.execute(
-                select(BusinessRunStep)
+                select(
+                    BusinessRunStep.id,
+                    BusinessRunStep.run_id,
+                    BusinessRunStep.step_id,
+                    BusinessRunStep.ability_id,
+                    BusinessRunStep.status,
+                    BusinessRunStep.created_at,
+                    BusinessRunStep.finished_at,
+                    BusinessRunStep.duration_ms,
+                    BusinessRunStep.ability_task_id,
+                    BusinessRunStep.ability_log_id,
+                    BusinessRunStep.error_message,
+                )
                 .where(BusinessRunStep.run_id.in_(run_by_id.keys()))
                 .limit(1200)
             )
-            .scalars()
             .all()
         )
         step_id_set = set(step_ids)
