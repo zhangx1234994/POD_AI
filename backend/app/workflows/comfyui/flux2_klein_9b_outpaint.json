@@ -14,7 +14,7 @@
   },
   "76": {
     "inputs": {
-      "image": "comfyui_0001.png"
+      "image": "001.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -23,7 +23,7 @@
   },
   "99": {
     "inputs": {
-      "seed": 946723155501693
+      "seed": 880043007869760
     },
     "class_type": "easy seed",
     "_meta": {
@@ -32,11 +32,11 @@
   },
   "102": {
     "inputs": {
-      "left": 408,
+      "left": 304,
       "top": 0,
-      "right": 408,
+      "right": 0,
       "bottom": 0,
-      "feathering": 0,
+      "feathering": 20,
       "image": [
         "76",
         0
@@ -47,11 +47,22 @@
       "title": "外补画板"
     }
   },
+  "103": {
+    "inputs": {
+      "images": [
+        "104",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "预览图像"
+    }
+  },
   "104": {
     "inputs": {
       "color": "0, 255, 0",
-      "opacity": 1,
-      "device": "cpu",
+      "device": "gpu",
       "image": [
         "102",
         0
@@ -63,7 +74,7 @@
     },
     "class_type": "DrawMaskOnImage",
     "_meta": {
-      "title": "Draw Mask On Image (Swwan)"
+      "title": "Draw Mask On Image"
     }
   },
   "107": {
@@ -218,7 +229,7 @@
   },
   "117": {
     "inputs": {
-      "text": "1.去除绿色部分。\n2.延展原图，先锁定主体、风格、颜色、材质、笔触、光照和透视一致，再根据原图边缘的重复规律或视觉走势向[左/右/上/下/四周]自然扩展，使新增区域与原图连续衔接、完整统一。\n3.按照原图中的图案排列规则、图案大小、花纹密度进行扩图，铺满整个画布\n4.*严禁放大原图，严禁修改原图中的任何元素和图案*",
+      "text": "1.去除绿色部分。\n2.延展原图，先锁定主体、风格、颜色、材质、笔触、光照和透视一致，再根据原图边缘的重复规律或视觉走势向上下左右自然扩展，使新增区域与原图连续衔接、完整统一。\n3.按照原图中的图案排列规则、图案大小、花纹密度进行扩图，铺满整个画布\n4.严禁放大原图，严禁修改原图中的任何元素和图案",
       "clip": [
         "112",
         0
@@ -244,7 +255,7 @@
   "119": {
     "inputs": {
       "image": [
-        "133",
+        "121",
         0
       ]
     },
@@ -253,23 +264,19 @@
       "title": "获取图像尺寸"
     }
   },
-  "123": {
+  "121": {
     "inputs": {
-      "method": "mkl",
-      "strength": 0.4,
-      "multithread": true,
-      "image_ref": [
-        "76",
-        0
-      ],
-      "image_target": [
-        "109",
+      "upscale_method": "nearest-exact",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "104",
         0
       ]
     },
-    "class_type": "ColorMatch",
+    "class_type": "ImageScaleToTotalPixels",
     "_meta": {
-      "title": "Color Match (Swwan)"
+      "title": "缩放图像（像素）"
     }
   },
   "124": {
@@ -291,7 +298,7 @@
   "125": {
     "inputs": {
       "pixels": [
-        "133",
+        "121",
         0
       ],
       "vae": [
@@ -345,34 +352,13 @@
       ],
       "crop": "disabled",
       "image": [
-        "123",
+        "109",
         0
       ]
     },
     "class_type": "ImageScale",
     "_meta": {
       "title": "缩放图像"
-    }
-  },
-  "133": {
-    "inputs": {
-      "aspect_ratio": "original",
-      "proportional_width": 1,
-      "proportional_height": 1,
-      "fit": "letterbox",
-      "method": "lanczos",
-      "round_to_multiple": "8",
-      "scale_to_side": "longest",
-      "scale_to_length": 1024,
-      "background_color": "#000000",
-      "image": [
-        "104",
-        0
-      ]
-    },
-    "class_type": "LayerUtility: ImageScaleByAspectRatio V2",
-    "_meta": {
-      "title": "图层工具：按宽高比缩放 V2"
     }
   }
 }

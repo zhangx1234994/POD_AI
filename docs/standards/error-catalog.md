@@ -92,6 +92,8 @@
 | BUSINESS_CAPABILITY_VERSION_DUPLICATED | 同一业务标识下版本号重复 | 409 |
 | BUSINESS_CAPABILITY_NOT_FOUND | 业务能力版本不存在或未启用 | 404 |
 | BUSINESS_CAPABILITY_NOT_RUNNABLE | 业务能力版本不可试运行 | 409，管理端草稿试运行拒绝 disabled/deprecated 版本 |
+| FISSION_ASPECT_SOURCE_IMAGE_LOAD_FAILED | 图裂变比例重构分支无法读取原图 | 400，自有业务接口图裂变在目标比例与原图差异较大时触发 |
+| FISSION_ASPECT_RECOMPOSE_GUIDE_FAILED | 图裂变比例重构分支生成或上传引导图失败 | 400，自有业务接口图裂变进入比例重构分支前置处理失败 |
 | BUSINESS_ROLLBACK_TARGET_NOT_FOUND | 没有可回滚的上一业务版本 | 409 |
 | BUSINESS_STATUS_INVALID | 业务版本状态非法 | 400 |
 | BUSINESS_ACCEPTANCE_STATUS_INVALID | 业务版本验收状态非法 | 400，允许 `passed` / `failed` / `warning` / `waived` |
@@ -149,11 +151,14 @@
 | TEXT_FISSION_PROMPT_REQUIRED | 文字强化裂变缺少用户确认后的提示词 | 400，第二步 `/api/business/text-fission/runs` 必须传 `editable_prompt` 或兼容字段 |
 | TEXT_FISSION_PROMPT_EMPTY | VL 返回结果中没有可用的可编辑提示词 | 500，第一步 `/api/business/text-fission/prompts` 返回异常 |
 | TEXT_FISSION_PROMPT_PREPARE_FAILED | 文字强化裂变提示词草稿生成失败 | 500，第一步调用 VL 或解析结构化结果失败 |
-| IMAGE_EDIT_INSTRUCTION_REQUIRED | 图编辑缺少编辑指令 | 400，`/api/business/image-edit/runs` 必须传 `instruction` 或兼容字段 |
-| IMAGE_EDIT_SKILL_INVALID | 图编辑技能枚举非法 | 400，允许 `local_modify` / `reference_element_transfer` / `remove_inpaint` / `color_reference_correction` |
+| IMAGE_EDIT_INSTRUCTION_REQUIRED | 图编辑缺少编辑指令 | 400，普通改图必须传 `instruction` 或兼容字段；`canvas_outpaint` 可省略 |
+| IMAGE_EDIT_SKILL_INVALID | 图编辑技能枚举非法 | 400，允许 `local_modify` / `reference_element_transfer` / `remove_inpaint` / `color_reference_correction` / `canvas_outpaint` |
 | IMAGE_EDIT_REFERENCE_REQUIRED | 图编辑缺少参考图 | 400，参考图替换和补色校正必须传 `referenceImages` |
 | IMAGE_EDIT_TARGET_REQUIRED | 图编辑缺少目标区域 | 400，删除修补必须传 `selectionHints` 或 `maskUrl` |
 | IMAGE_EDIT_SIZE_INVALID | 图编辑尺寸非法 | 400，自定义尺寸必须满足最大边、16 倍数、比例和总像素约束 |
+| IMAGE_EDIT_CANVAS_TOO_SMALL | 图编辑扩展画布尺寸过小 | 400，`canvas_outpaint` 的目标画布不能小于原图，也不能小于原图 + 指定扩展边距 |
+| IMAGE_EDIT_CANVAS_PLACEMENT_INVALID | 图编辑扩展画布放置非法 | 400，原图放入目标画布的位置越界，或 `anchor/placementX/placementY` 不合法 |
+| IMAGE_EDIT_CANVAS_BUILD_FAILED | 图编辑扩展画布生成失败 | 400，原图读取、目标画布生成或 mask 上传失败 |
 | IMAGE_EDIT_MASK_SIZE_MISMATCH | 图编辑蒙版尺寸与主图不一致 | 400，mask 必须与主图同尺寸 |
 | IMAGE_EDIT_MASK_ALPHA_REQUIRED | 图编辑蒙版缺少 Alpha 通道 | 400，mask 必须是有效透明蒙版 |
 | IMAGE_EDIT_QUALITY_INVALID | 图编辑质量档位非法 | 400，允许 `auto` / `preview` / `production` / `premium` |

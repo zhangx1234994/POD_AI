@@ -101,6 +101,14 @@ export function ImageEditPage() {
     marks: [],
     referenceUrls: [],
     maskUrl: '',
+    outpaint: {
+      expandLeft: 256,
+      expandRight: 256,
+      expandTop: 256,
+      expandBottom: 256,
+      anchor: 'center',
+      preserveOriginal: true,
+    },
     size: 'auto',
     quality: 'preview',
     outputFormat: 'png',
@@ -135,6 +143,16 @@ export function ImageEditPage() {
           mention: `#参考图${index + 1}`,
         })),
         maskUrl: value.maskUrl || undefined,
+        ...(value.editSkill === 'canvas_outpaint'
+          ? {
+              expand_left: value.outpaint.expandLeft,
+              expand_right: value.outpaint.expandRight,
+              expand_top: value.outpaint.expandTop,
+              expand_bottom: value.outpaint.expandBottom,
+              anchor: value.outpaint.anchor,
+              preserveOriginal: value.outpaint.preserveOriginal,
+            }
+          : {}),
         size: value.size || 'auto',
         quality: value.quality || 'preview',
         output_format: value.outputFormat || 'png',
@@ -249,12 +267,17 @@ curl -X POST "$PODI_BACKEND/api/business/runs/get" \
 | 参数 | 是否必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `imageUrl` | 是 | 无 | 主图 URL，必须可被中台访问。 |
-| `instruction` | 是 | 无 | 用户编辑指令。描述要改哪里、改成什么。 |
+| `instruction` | 条件必填 | 无 | 用户编辑指令。普通改图必填；`canvas_outpaint` 可不填，默认自然补全外扩区域。 |
 | `editSkill` | 否 | `local_modify` | 改图技能，见下方枚举。 |
 | `selectionHints` | 否 | `[]` | 点选、框选、圆选等软标注，只用于告诉模型关注哪里，不是硬蒙版；每条需要有 `mention`，例如 `@标注1`。 |
 | `referenceImages` | 条件必填 | `[]` | 参考图列表。参考图替换、补色校正必须提供；每条需要有 `mention`，例如 `#参考图1`。 |
 | `maskUrl` | 否 | 空 | 单个最终 alpha 蒙版。多个笔刷区域必须在前端合并成一个蒙版。 |
 | `maskMeta` | 否 | 空 | 蒙版元信息，可包含 `sourceWidth/sourceHeight/width/height`，用于提前校验尺寸。 |
+| `targetWidth` / `targetHeight` | 否 | 原图尺寸 + 扩展像素 | `canvas_outpaint` 使用。目标尺寸会向上取整到 16 的倍数。 |
+| `expand_left` / `expand_right` / `expand_top` / `expand_bottom` | 否 | `256` | `canvas_outpaint` 使用。按四边像素扩展，取整后的额外像素会分配到对应边。 |
+| `anchor` | 否 | `center` | `canvas_outpaint` 使用。支持 `center/left/right/top/bottom/top_left/top_right/bottom_left/bottom_right/custom`。 |
+| `placementX` / `placementY` | 否 | 自动计算 | `canvas_outpaint` 高级字段。指定原图放入目标画布的左上角坐标。 |
+| `preserveOriginal` | 否 | `true` | `canvas_outpaint` 使用。开启后提示词和蒙版会保护原图区域，模型返回后中台还会把原图区域贴回最终结果。 |
 | `size` | 否 | `auto` | 输出尺寸。默认跟随原图/自动。 |
 | `quality` | 否 | `auto` | 质量档位。 |
 | `output_format` | 否 | `png` | 输出格式。 |
@@ -307,6 +330,7 @@ curl -X POST "$PODI_BACKEND/api/business/runs/get" \
 | `reference_element_transfer` | 参考图替换 | 是 | 否 | 用参考图的对象、材质或风格替换主图指定区域。 |
 | `remove_inpaint` | 删除修补 | 否 | 是 | 删除指定对象并补齐背景。必须提供 `selectionHints` 或 `maskUrl`。 |
 | `color_reference_correction` | 补色校正 | 是 | 否 | 按参考图修正主图颜色、明度、饱和度、冷暖关系。 |
+| `canvas_outpaint` | 扩展画布 | 否 | 否 | 后端生成目标尺寸透明画布和同尺寸 alpha mask，只让模型补全外扩区域。 |
 
 参考图过滤规则：
 
@@ -351,16 +375,45 @@ curl -X POST "$PODI_BACKEND/api/business/runs/get" \
 - `jpeg`
 - `webp`
 
+扩展画布尺寸规则：
+
+- 目标画布、模型输入图、mask 三者必须同尺寸。
+- 原图必须能完整放入目标画布；否则返回 `IMAGE_EDIT_CANVAS_TOO_SMALL` 或 `IMAGE_EDIT_CANVAS_PLACEMENT_INVALID`。
+- 轻量查询结果返回的是后处理后的最终图；中间画布、mask 和模型原始输出只用于排障，不建议业务方直接使用。
+- 业务方传 `1024x1024` 原图并四边各扩 `300` 时，中台会向上取整到 `1632x1632`，实际扩展为四边各 `304`。
+- 对业务方返回的最终图尺寸以中台计算后的目标尺寸为准，不以用户输入的非 16 倍数尺寸为准。
+
+扩展画布请求示例：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/edit-input.png",
+  "editSkill": "canvas_outpaint",
+  "instruction": "自然延展背景纹理，保持原图主体不变",
+  "expand_left": 300,
+  "expand_right": 300,
+  "expand_top": 300,
+  "expand_bottom": 300,
+  "anchor": "center",
+  "preserveOriginal": true,
+  "quality": "preview",
+  "output_format": "png"
+}
+```
+
 ## 9. 常见错误
 
 | 错误码 | 含义 | 处理方式 |
 | --- | --- | --- |
 | `BUSINESS_IMAGE_URL_REQUIRED` | 缺少主图。 | 补传 `imageUrl`。 |
-| `IMAGE_EDIT_INSTRUCTION_REQUIRED` | 缺少编辑指令。 | 补传 `instruction`。 |
+| `IMAGE_EDIT_INSTRUCTION_REQUIRED` | 普通改图缺少编辑指令。 | 补传 `instruction`；扩展画布可不传。 |
 | `IMAGE_EDIT_SKILL_INVALID` | 技能枚举非法。 | 使用本文档中的 `editSkill`。 |
 | `IMAGE_EDIT_REFERENCE_REQUIRED` | 缺少参考图。 | 参考图替换或补色校正时补传 `referenceImages`。 |
 | `IMAGE_EDIT_TARGET_REQUIRED` | 缺少目标区域。 | 删除修补时补传 `selectionHints` 或 `maskUrl`。 |
 | `IMAGE_EDIT_SIZE_INVALID` | 输出尺寸非法。 | 使用预设尺寸或满足自定义尺寸约束。 |
+| `IMAGE_EDIT_CANVAS_TOO_SMALL` | 扩展画布目标尺寸过小。 | 目标画布必须大于等于原图，并能容纳指定扩展边距。 |
+| `IMAGE_EDIT_CANVAS_PLACEMENT_INVALID` | 原图放入目标画布的位置非法。 | 检查 `anchor/placementX/placementY`，确保原图不越界。 |
+| `IMAGE_EDIT_CANVAS_BUILD_FAILED` | 扩展画布或 mask 生成失败。 | 检查主图 URL 是否可访问；持续失败时带 runId 找中台排查。 |
 | `IMAGE_EDIT_MASK_SIZE_MISMATCH` | 蒙版尺寸和主图不一致。 | 重新生成同尺寸蒙版。 |
 | `IMAGE_EDIT_MASK_ALPHA_REQUIRED` | 蒙版缺少透明通道。 | 使用带 alpha 通道的 PNG/WebP 蒙版。 |
 | `IMAGE_EDIT_QUALITY_INVALID` | 质量档位非法。 | 使用 `auto/preview/production/premium`。 |
@@ -368,11 +421,11 @@ curl -X POST "$PODI_BACKEND/api/business/runs/get" \
 
 ## 10. 封版前检查清单
 
-- `POST /api/business/image-edit/runs` 四种技能均可提交。
+- `POST /api/business/image-edit/runs` 五种技能均可提交，`canvas_outpaint` 需覆盖四周扩、单边扩、目标过小和位置越界。
 - `POST /api/business/runs/get` 轻量结果可用，`detail=full` 可看到编译信息。
 - 测评端“图编辑”分类只显示图编辑工作台，不混入 ComfyUI/Coze 旧链路文案。
 - 管理端按 runId 能看到入口请求、GPT Image 2 调用、OSS 回填、成本和错误。
-- 至少 8 条真实 GPT Image 2 样本完成导出：四种技能各 2 条。
+- 至少 10 条真实 GPT Image 2 样本完成导出：五种技能各 2 条。
 
 内部巡检可以使用脚本显式执行，不纳入每日默认巡检，避免无意消耗 GPT Image 2 额度：
 

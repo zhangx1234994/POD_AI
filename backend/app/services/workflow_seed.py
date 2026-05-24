@@ -80,7 +80,7 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
             workflow_key="flux2_klein_9b_outpaint",
             metadata={
                 "workflow_key": "flux2_klein_9b_outpaint",
-                "description": "ComfyUI workflow for FLUX2-Klein 9b outpainting.",
+                "description": "ComfyUI workflow for FLUX2-Klein 9b outpainting. 2026-05-25 updated to the ImageScaleToTotalPixels route from the ComfyUI team.",
                 "output_node_ids": ["9"],
             },
         ),

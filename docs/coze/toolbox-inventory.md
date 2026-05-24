@@ -41,7 +41,7 @@
 | --- | --- | --- | --- |
 | 背景抠图 | `/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json` | `url` | 最终输出节点 `4` |
 | 头部抠像 | `/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json` | `url` | 最终输出节点 `140`；业务统一先走 OSS URL |
-| FLUX2-Klein 扩图 | `/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | 后端先上传图片到 ComfyUI input 目录，再写入节点 `76`；扩图 prompt 固定内置、seed 每次自动随机；最终输出节点 `9` |
+| FLUX2-Klein 扩图 | `/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | 后端先上传图片到 ComfyUI input 目录，再写入节点 `76`；扩图 prompt 固定内置、seed 每次自动随机；最终输出节点 `9`。2026-05-25 主线已替换为 ComfyUI 团队 `Flux 2 klein 9b-222` 链路，接口契约不变。 |
 | 多图融合 | `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json` | `url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed` | 无 `lora`；`width/height` 不传则沿用 workflow 默认 `1024x1024` |
 | E7裂变重绘 | `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json` | `url`、`prompt`、`bili`、`steps`、`cfg`、`seed`、`batch_size`、`width`、`height` | `bili` 为重绘幅度业务口径，后端兼容旧字段 `similarity` |
 | 多元素花纹裂变 | `/api/coze/podi/comfyui/execute/flux-strong-hq-softstyle-fission/openapi.json` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | 基于 `05_flux_strong_hq_softstyle_api.json`；固定 profile 参数，保留旧图裂变 `bili -> denoise` 口径，最终输出节点 `31` |

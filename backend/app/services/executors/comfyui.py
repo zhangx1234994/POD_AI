@@ -1693,12 +1693,14 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
         fission_card = self._extract_fission_card(params)
         profile = self._as_text(params.get("profile") or params.get("profile_id")) or ""
+        is_aspect_recompose = self._as_text(params.get("aspect_recompose_route")) == "pattern_recompose"
         is_colorlock_v2 = (
             params.get("bili_mapping") == "variation_percent_045_080_colorlock_v2"
             or profile in {FISSION_V4_DEFAULT_PROFILE, "pattern_color_lock_v2", "pattern_color_lock_strict_v2"}
         )
         is_v4_routed = (
-            profile == FISSION_V4_DEFAULT_PROFILE
+            is_aspect_recompose
+            or profile == FISSION_V4_DEFAULT_PROFILE
             or self._as_text(params.get("bili_mapping")) == "pattern_risk_routed_v4"
             or bool(fission_card.get("pattern_risk_type") or params.get("pattern_risk_type") or params.get("patternRiskType"))
         )
@@ -1706,7 +1708,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         repaint_value = params.get("bili")
         if repaint_value in (None, ""):
             repaint_value = "80%" if is_v4_routed else ("6%" if profile == "pattern_color_lock_strict_v2" else ("15%" if is_colorlock_v2 else 90))
-        if is_v4_routed:
+        if is_aspect_recompose:
+            denoise = self._first_float(params.get("aspect_recompose_denoise"), params.get("denoise"), 0.68) or 0.68
+            denoise = max(0.62, min(0.74, denoise))
+        elif is_v4_routed:
             pattern_risk_type = (
                 params.get("pattern_risk_type")
                 or params.get("patternRiskType")

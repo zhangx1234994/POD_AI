@@ -49,6 +49,10 @@ ERR|<CODE>|<message>
 5) **PR 必须通过“错误契约检查”**
    - checklist：错误枚举、文档、错误码表、测试覆盖
 
+6) **同一业务新增模式也算接口变更**
+   - 例如图编辑在 `/api/business/image-edit/runs` 下新增 `editSkill=canvas_outpaint`，即使 URL 不变，也必须补齐该模式自己的缺参、尺寸、位置、依赖失败和结果回填错误口径。
+   - 不允许只更新前端枚举而不更新 OpenAPI、错误码总表、业务枚举文档和测试。
+
 ---
 
 ## 4. 标准落地清单

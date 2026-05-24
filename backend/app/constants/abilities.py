@@ -262,6 +262,39 @@ FISSION_CONTROL_CARD_VL_PROMPT = dedent(
     """
 ).strip()
 
+
+FISSION_CONTROL_CARD_WITH_ASPECT_RECOMPOSE_VL_PROMPT = (
+    FISSION_CONTROL_CARD_VL_PROMPT
+    + "\n\n"
+    + dedent(
+        """
+        额外判断目标：如果业务侧要求的输出比例和原图比例差异较大，后端可能会走“比例重构”分支。你必须在同一个 JSON 中补充以下字段，不要省略：
+        {
+          "aspect_recompose_route": "pattern_recompose | keep_original_ratio | reject",
+          "aspect_recompose_allowed": true,
+          "layout_type": "full_pattern | single_subject | product_scene | poster_or_text | border_art | unknown",
+          "is_dense_small_repeat": true,
+          "is_scale_safe": true,
+          "aspect_recompose_reason": "",
+          "aspect_recompose_risk_flags": {
+            "has_single_main_subject": false,
+            "has_large_text_or_logo": false,
+            "has_product_mockup": false,
+            "has_human_face": false,
+            "has_critical_border": false,
+            "has_perspective_scene": false
+          }
+        }
+
+        判断规则：
+        - 只有满版、密集、小元素、可重复的平面印花/纹样，才允许 aspect_recompose_route=pattern_recompose。
+        - 单主体、商品图、透视场景、人物脸、明显大字/Logo、强边框构图，不允许比例重构，使用 keep_original_ratio 或 reject。
+        - aspect_recompose_allowed=true 必须同时满足：layout_type=full_pattern、is_dense_small_repeat=true、is_scale_safe=true、所有 risk_flags 都为 false。
+        - 这个判断只决定是否可进入后端比例重构分支，不要改变 prompt_main 和 image_desc 的主职责。
+        """
+    ).strip()
+)
+
 TEXT2IMG_USER_EDITABLE_VL_PROMPT = dedent(
     """
     你是一个商品印花图案分析和生图提示词撰写模型。
@@ -3405,7 +3438,8 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "output_node_ids": ["9"],
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
             "routing_policy": "queue",
-            "seed_version": 5,
+            "seed_version": 6,
+            "workflow_revision": "2026-05-25_flux2_klein_9b_222",
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",

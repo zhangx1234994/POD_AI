@@ -19,8 +19,8 @@
 | `duotu_ronghe` | `comfyui.duotu_ronghe` / `multi_image_fusion` | `url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed` | `60` | 线上在用 |
 | `beijing_koutu` | `comfyui.beijing_koutu` / `background_remove` | `url` | `4` | 线上在用 |
 | `toubu_kouxiang` | `comfyui.toubu_kouxiang` / `head_extract` | `url` | `140` | 线上在用 |
-| `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` / `outpaint` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | `9` | 新增工具箱 |
-| `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，158 / 233 均可按队列路由；颜色锁定 v2 复用该 workflow |
+| `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` / `outpaint` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | `9` | 当前扩图主线；2026-05-25 已替换为 ComfyUI 团队 `Flux 2 klein 9b-222` 链路 |
+| `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，158 / 233 均可按队列路由；颜色锁定 v2 复用该 workflow；自有业务接口在大比例变化时会先生成比例重构引导图 |
 | `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；233/158 双机 |
 | `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
 | `qwen2512_text2img_text_allowed` | `comfyui.qwen2512_text2img_text_allowed` / `text_to_image` | 对外业务只暴露 `editable_prompt`、`editable_negative_prompt`、`width`、`height`；`steps/cfg/seed` 由中台控制 | `21` | 2026-05-19 新增，文字强化裂变（文生图）两步式生图 |
@@ -34,7 +34,7 @@
 - `qwen2512_print_shape_text_enhance` 当前执行链路已验证可跑通，主要待优化点是上游 Coze/VL 提示词质量，不是中台或评测执行接口。
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`；`文字强化文生图` 正式回填只认 `21`。
-- `FLUX2-Klein 扩图` 的源图节点是 `76 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；不要直接把外部 URL 填进 workflow JSON。
+- `FLUX2-Klein 扩图` 的源图节点是 `76 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；不要直接把外部 URL 填进 workflow JSON。2026-05-25 已按 ComfyUI 团队 `Flux 2 klein 9b-222` 替换主线：`ImagePadForOutpaint.feathering=20`，`DrawMaskOnImage.device=gpu`，中间缩放改为 `121 · ImageScaleToTotalPixels`，最终 `130 · ImageScale` 直接接 `109 · VAEDecode`，不再走旧版 `ColorMatch` 和 `LayerUtility: ImageScaleByAspectRatio V2`。
 - `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 为重绘幅度，映射到节点 `24.denoise`，默认 `90 ≈ 0.765`。2026-05-14 `comfyui-vl-control-v2` 按对象级裂变修补包升级：默认 `bili=80%`，后端用 `pattern_risk_type + bili` 路由实际 `denoise`；`reference_lock` 映射 IPAdapter 权重，建议 0.34-0.50；`color_lock` 映射 ColorMatch 强度，建议 0.75-1.00。建议区间只做文案提示，不做接口硬拦截。2026-05-04 已确认 233 机器补齐 CLIPVision/IPAdapter 后可完整出图并完成 OSS 回填，当前允许 158 / 233 双节点按队列路由。
 - 233 承接 `flux_strong_hq_softstyle_fission` 依赖：
   - `ComfyUI/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`

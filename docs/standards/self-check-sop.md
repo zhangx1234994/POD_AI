@@ -17,6 +17,7 @@
 3) 评测端：`npm run lint`（podi-eval-web）
 
 ### B. 契约一致性（必须确认）
+- 新方案或交付包已完成方案审查：正确点、风险点、缺失点、修改建议、本版边界均已记录
 - `/api/evals/docs/workflows` 结构化与 Markdown 内容一致
 - 对外文档不暴露内部参数（如 `count/generateCount/variantCount/n`）
 - 输出字段与错误码列表完整
@@ -61,6 +62,14 @@
 ```
 date:
 scope:
+
+## Plan Review
+- source package / proposal:
+- correct parts:
+- risks:
+- missing parts:
+- required changes before implementation:
+- version boundary:
 
 ## Automated
 - pytest backend: PASS/FAIL

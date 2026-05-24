@@ -59,6 +59,7 @@
 - 业务版本切换由 `businessKey/version/isDefault/releaseTime` 表达，旧版本保留用于回滚。
 - 灰度路由结果统一放在完整模式的 `routeInfo`，包含 `selectedBy/version/businessVersionId/routeKeyHash`；不得返回客户原始灰度标识。
 - 业务调用明确传 `version` 时必须优先使用指定版本，不再参与灰度比例。
+- 图编辑 `canvas_outpaint` 属于 `image_edit` 的模式，不新增平行业务入口；对外仍只认 `runId` 轮询，轻量结果只返回最终图，不返回中间画布、mask 和编译提示词。
 
 ### 1.4 Agent 同步任务（`/api/agent/*` + `/api/admin/comfyui/tasks*`）
 
@@ -115,6 +116,7 @@
   - 成功但无预览：显示“结果回填中”，禁止直接显示 `—`
   - **JSON 能力不走图片回填**：若输出类型为 `json_output`，直接渲染结构化 JSON。
 - 能力调用日志必须输出 `output_summary`，至少包含图片、视频、文字、结构化结果和普通资源数量，展示层优先使用该摘要，不再只靠 URL 后缀猜测。
+- 图编辑扩展画布如果开启 `preserveOriginal`，业务结果必须以中台后处理后的最终图为准；模型原始输出只作为调试信息保留在完整模式或能力日志里，不能作为轻量接口主结果。
 
 ---
 

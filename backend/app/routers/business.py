@@ -862,7 +862,20 @@ def get_image_edit_component_config(
                 "requiresReference": True,
                 "requiresTargetHint": False,
             },
+            {
+                "value": "canvas_outpaint",
+                "label": "扩展画布",
+                "description": "把原图放进更大的目标画布，只让模型补全外扩区域。",
+                "requiresReference": False,
+                "requiresTargetHint": False,
+            },
         ],
+        "outpaint": {
+            "defaultExpand": 256,
+            "rounding": "向上取整到 16 的倍数",
+            "preserveOriginalDefault": True,
+            "anchors": ["center", "left", "right", "top", "bottom", "top_left", "top_right", "bottom_left", "bottom_right", "custom"],
+        },
         "sizes": [
             {"value": "auto", "label": "跟随原图/自动", "costLevel": "normal"},
             {"value": "1024x1024", "label": "1K 方图", "costLevel": "normal"},
@@ -1242,19 +1255,20 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     }
     image_edit_submit_schema = {
         "type": "object",
-        "required": ["imageUrl", "instruction"],
+        "required": ["imageUrl"],
         "properties": {
             **base_submit_properties,
             "editSkill": {
                 "type": "string",
                 "nullable": True,
-                "description": "改图技能。默认 local_modify；参考图替换和补色校正必须提供 referenceImages。",
+                "description": "改图技能。默认 local_modify；canvas_outpaint 为扩展画布；参考图替换和补色校正必须提供 referenceImages。",
                 "enum": IMAGE_EDIT_SKILL_VALUES,
                 "default": "local_modify",
             },
             "instruction": {
                 "type": "string",
-                "description": "用户编辑指令。用业务语言描述要改哪里、改成什么；中台会结合标注和参考图编译成模型提示词。",
+                "nullable": True,
+                "description": "用户编辑指令。普通改图必填；扩展画布可不填，不填时按原图自然补全外扩区域。",
             },
             "selectionHints": {
                 "oneOf": [{"type": "array", "items": {"type": "object"}}, {"type": "object"}, {"type": "string"}],
@@ -1276,6 +1290,43 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "nullable": True,
                 "description": "蒙版元信息，可包含 sourceWidth/sourceHeight/width/height，便于后端提前校验。",
             },
+            "targetWidth": {
+                "type": "integer",
+                "nullable": True,
+                "description": "扩展画布目标宽度；中台会向上取整到 16 的倍数。",
+            },
+            "targetHeight": {
+                "type": "integer",
+                "nullable": True,
+                "description": "扩展画布目标高度；中台会向上取整到 16 的倍数。",
+            },
+            "placementX": {
+                "type": "integer",
+                "nullable": True,
+                "description": "原图放入目标画布的 X 坐标；不传时按 anchor 或扩展像素计算。",
+            },
+            "placementY": {
+                "type": "integer",
+                "nullable": True,
+                "description": "原图放入目标画布的 Y 坐标；不传时按 anchor 或扩展像素计算。",
+            },
+            "anchor": {
+                "type": "string",
+                "nullable": True,
+                "description": "扩展画布锚点；默认 center。",
+                "enum": ["center", "left", "right", "top", "bottom", "top_left", "top_right", "bottom_left", "bottom_right", "custom"],
+                "default": "center",
+            },
+            "preserveOriginal": {
+                "type": "boolean",
+                "nullable": True,
+                "description": "扩展画布时是否尽量保持原图区域不变；默认 true。",
+                "default": True,
+            },
+            "expand_left": {"type": "integer", "nullable": True, "description": "扩展画布向左扩展像素；会参与 16 倍数取整。"},
+            "expand_right": {"type": "integer", "nullable": True, "description": "扩展画布向右扩展像素；会参与 16 倍数取整。"},
+            "expand_top": {"type": "integer", "nullable": True, "description": "扩展画布向上扩展像素；会参与 16 倍数取整。"},
+            "expand_bottom": {"type": "integer", "nullable": True, "description": "扩展画布向下扩展像素；会参与 16 倍数取整。"},
             "size": {
                 "type": "string",
                 "nullable": True,
@@ -1523,6 +1574,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     fission_submit_schema = _merge_business_capability_schema("fission", fission_submit_schema)
     fission_route_preview_schema = _merge_business_capability_schema("fission", fission_route_preview_schema, required_override=[])
     image_edit_submit_schema = _merge_business_capability_schema("image_edit", image_edit_submit_schema)
+    image_edit_submit_schema["required"] = ["imageUrl"]
     image_edit_size_schema = image_edit_submit_schema.get("properties", {}).get("size")
     if isinstance(image_edit_size_schema, dict):
         image_edit_size_schema.pop("enum", None)
@@ -1604,6 +1656,26 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "referenceImages": [{"url": "https://example.com/reference-flower.png", "label": "花朵参考"}],
                 "quality": "production",
                 "size": "auto",
+            },
+        },
+        "canvas_outpaint": {
+            "summary": "扩展画布",
+            "value": {
+                "imageUrl": "https://example.com/product.png",
+                "version": "gpt-image2-editor-v1",
+                "editSkill": "canvas_outpaint",
+                "instruction": "向外自然延展背景和纹理，保持原图主体不变。",
+                "expand_left": 300,
+                "expand_right": 300,
+                "expand_top": 300,
+                "expand_bottom": 300,
+                "anchor": "center",
+                "preserveOriginal": True,
+                "quality": "preview",
+                "output_format": "png",
+                "source": "partner-api",
+                "channel": "open-api",
+                "requestId": "biz-image-edit-outpaint-001",
             },
         },
     }
@@ -1747,11 +1819,16 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "BUSINESS_RECIPE_INVALID",
             "BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE",
             "COMFYUI_IMAGE_REQUIRED",
+            "FISSION_ASPECT_SOURCE_IMAGE_LOAD_FAILED",
+            "FISSION_ASPECT_RECOMPOSE_GUIDE_FAILED",
             "IMAGE_EDIT_INSTRUCTION_REQUIRED",
             "IMAGE_EDIT_SKILL_INVALID",
             "IMAGE_EDIT_REFERENCE_REQUIRED",
             "IMAGE_EDIT_TARGET_REQUIRED",
             "IMAGE_EDIT_SIZE_INVALID",
+            "IMAGE_EDIT_CANVAS_TOO_SMALL",
+            "IMAGE_EDIT_CANVAS_PLACEMENT_INVALID",
+            "IMAGE_EDIT_CANVAS_BUILD_FAILED",
             "IMAGE_EDIT_MASK_SIZE_MISMATCH",
             "IMAGE_EDIT_MASK_ALPHA_REQUIRED",
             "IMAGE_EDIT_QUALITY_INVALID",

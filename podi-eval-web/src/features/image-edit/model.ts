@@ -10,7 +10,21 @@ export type ImageEditMark = {
   created_at: number;
 };
 
-export type ImageEditSkill = 'local_modify' | 'reference_element_transfer' | 'remove_inpaint' | 'color_reference_correction';
+export type ImageEditSkill =
+  | 'local_modify'
+  | 'reference_element_transfer'
+  | 'remove_inpaint'
+  | 'color_reference_correction'
+  | 'canvas_outpaint';
+
+export type ImageEditOutpaintSettings = {
+  expandLeft: number;
+  expandRight: number;
+  expandTop: number;
+  expandBottom: number;
+  anchor: string;
+  preserveOriginal: boolean;
+};
 
 export const IMAGE_EDIT_SKILL_OPTIONS = [
   {
@@ -33,7 +47,29 @@ export const IMAGE_EDIT_SKILL_OPTIONS = [
     label: '补色校正',
     description: '只迁移参考图的颜色、明度、饱和度和冷暖关系，不复制结构。',
   },
+  {
+    value: 'canvas_outpaint',
+    label: '扩展画布',
+    description: '把原图放入更大的目标画布，只让模型补全外扩区域。',
+  },
 ] as const;
+
+export const DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS: ImageEditOutpaintSettings = {
+  expandLeft: 256,
+  expandRight: 256,
+  expandTop: 256,
+  expandBottom: 256,
+  anchor: 'center',
+  preserveOriginal: true,
+};
+
+export const IMAGE_EDIT_OUTPAINT_ANCHOR_OPTIONS = [
+  { label: '居中扩展', value: 'center' },
+  { label: '向右扩展', value: 'left' },
+  { label: '向左扩展', value: 'right' },
+  { label: '向下扩展', value: 'top' },
+  { label: '向上扩展', value: 'bottom' },
+];
 
 export const IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS = new Set<string>([
   'reference_element_transfer',
@@ -127,6 +163,11 @@ export const getImageEditQuickPrompts = (skill: string): string[] => {
       return [
         '参考参考图的颜色、明暗和冷暖关系，校正主图整体色调，不改变结构。',
         '只迁移配色感觉，不复制参考图里的图案、文字或元素。',
+      ];
+    case 'canvas_outpaint':
+      return [
+        '自然补全外扩区域，延续原图背景、纹理、光照和图案密度，原图主体保持不变。',
+        '把画面向外延展成完整场景，不新增主体，不改变原图已有内容。',
       ];
     default:
       return ['把圈出的区域改成更适合的颜色或材质，其他区域保持不变。', '优化局部细节，保持整体风格一致。'];

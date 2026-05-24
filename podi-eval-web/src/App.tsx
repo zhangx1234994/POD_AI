@@ -40,6 +40,7 @@ import { mapStatusToBadge } from './features/eval/shared/status';
 import { ImageEditWorkbench } from './features/image-edit/ImageEditWorkbench';
 import {
   buildImageEditTaskSummary,
+  DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS,
   formatEditorReferenceMention,
   formatEditorToolLabel,
   getImageEditQuickPrompts,
@@ -3816,6 +3817,7 @@ export function App() {
   const [editorPromptHint, setEditorPromptHint] = useState<PromptHint | null>(null);
   const [editorMarks, setEditorMarks] = useState<EditorMark[]>([]);
   const [editorRefs, setEditorRefs] = useState<string[]>([]);
+  const [editorOutpaint, setEditorOutpaint] = useState(DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS);
   const [editorRefDraft, setEditorRefDraft] = useState('');
   const [editorDrawing, setEditorDrawing] = useState<EditorMark | null>(null);
   const [editorImageMeta, setEditorImageMeta] = useState({
@@ -5187,6 +5189,7 @@ export function App() {
       setEditorPromptHint(null);
       setEditorMarks([]);
       setEditorRefs([]);
+      setEditorOutpaint(DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS);
       setEditorRefDraft('');
       setEditorDrawing(null);
       setEditorImageMeta({ displayW: 0, displayH: 0, naturalW: 0, naturalH: 0 });
@@ -5548,7 +5551,7 @@ export function App() {
       pushNotice('error', '请先填写或上传图片 URL');
       return;
     }
-    if (isAiEditor && !editorPrompt.trim()) {
+    if (isAiEditor && !(isImageEditBusinessWorkflow && selectedImageEditSkill === 'canvas_outpaint') && !editorPrompt.trim()) {
       pushNotice('error', isImageEditBusinessWorkflow ? '请先填写改图目标' : '请先填写提示词');
       return;
     }
@@ -5665,6 +5668,14 @@ export function App() {
                 mention: formatEditorReferenceMention(idx),
                 label: `参考图${idx + 1}`,
               }));
+            }
+            if (selectedImageEditSkill === 'canvas_outpaint') {
+              parameters.expand_left = editorOutpaint.expandLeft;
+              parameters.expand_right = editorOutpaint.expandRight;
+              parameters.expand_top = editorOutpaint.expandTop;
+              parameters.expand_bottom = editorOutpaint.expandBottom;
+              parameters.anchor = editorOutpaint.anchor || 'center';
+              parameters.preserveOriginal = editorOutpaint.preserveOriginal;
             }
           } else {
             const prompt = buildEditorPrompt({
@@ -7978,6 +7989,16 @@ export function App() {
             label: `参考图${idx + 1}`,
           })),
           maskUrl: imageEditMaskUrl,
+          ...(selectedImageEditSkill === 'canvas_outpaint'
+            ? {
+                expand_left: editorOutpaint.expandLeft,
+                expand_right: editorOutpaint.expandRight,
+                expand_top: editorOutpaint.expandTop,
+                expand_bottom: editorOutpaint.expandBottom,
+                anchor: editorOutpaint.anchor || 'center',
+                preserveOriginal: editorOutpaint.preserveOriginal,
+              }
+            : {}),
           size: String((formParams as any).size || 'auto'),
           quality: String((formParams as any).quality || 'auto'),
           output_format: String((formParams as any).output_format || 'png'),
@@ -7986,7 +8007,7 @@ export function App() {
     const imageEditBlockingReason = (() => {
       if (!isImageEditBusinessWorkflow) return '';
       if (!formUrl.trim()) return '请先上传或粘贴主图 URL。';
-      if (!editorPrompt.trim()) return '请先填写改图目标。';
+      if (selectedImageEditSkill !== 'canvas_outpaint' && !editorPrompt.trim()) return '请先填写改图目标。';
       if (IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS.has(selectedImageEditSkill) && editorRefs.length === 0) {
         return '当前改图方式需要至少 1 张参考图。';
       }
@@ -8178,6 +8199,7 @@ export function App() {
                       marks: editorMarks,
                       referenceUrls: editorRefs,
                       maskUrl: imageEditMaskUrl,
+                      outpaint: editorOutpaint,
                       size: String((formParams as any).size || 'auto'),
                       quality: normalizeImageEditQuality(String((formParams as any).quality || 'auto')),
                       outputFormat: String((formParams as any).output_format || 'png'),
@@ -8187,6 +8209,7 @@ export function App() {
                       setEditorPrompt(next.instruction);
                       setEditorMarks(next.marks);
                       setEditorRefs(next.referenceUrls);
+                      setEditorOutpaint(next.outpaint || DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS);
                       setFormParams((prev) => {
                         const params = {
                           ...prev,
@@ -8234,6 +8257,10 @@ export function App() {
                                 'quality',
                                 'output_format',
                                 'outputFormat',
+                                'targetWidth',
+                                'targetHeight',
+                                'anchor',
+                                'preserveOriginal',
                               ].includes(f.name),
                           )
                           .map((f) => (

@@ -173,6 +173,7 @@
 | `editSkill` | `reference_element_transfer` | 参考图替换：用参考图里的对象、材质或风格替换主图指定区域。 |
 | `editSkill` | `remove_inpaint` | 删除修补：删除指定对象并补齐背景。 |
 | `editSkill` | `color_reference_correction` | 补色校正：按参考图修正主图局部或整体颜色关系。 |
+| `editSkill` | `canvas_outpaint` | 扩展画布：中台先生成目标尺寸透明画布和 alpha mask，只让模型补全外扩区域；`preserveOriginal=true` 时结果回填后会把原图区域贴回。 |
 
 `quality`：
 
@@ -208,6 +209,8 @@
 - `maskUrl` 只能是一个最终合并后的有效 Alpha mask，尺寸必须与主图一致。
 - `reference_element_transfer` 和 `color_reference_correction` 必须提供 `referenceImages`。
 - `remove_inpaint` 必须提供 `selectionHints` 或 `maskUrl`。
+- `canvas_outpaint` 可不传 `instruction`；可传 `expand_left/right/top/bottom` 或 `targetWidth/targetHeight`，目标尺寸会按 16 的倍数向上取整，最终尺寸以返回结果为准。
+- `canvas_outpaint` 新增错误码：`IMAGE_EDIT_CANVAS_TOO_SMALL`、`IMAGE_EDIT_CANVAS_PLACEMENT_INVALID`、`IMAGE_EDIT_CANVAS_BUILD_FAILED`。
 
 ## 6. 路由预览枚举
 

@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.constants.business_api_contract import business_api_contract_payload
 from app.core.db import get_session
 from app.main import app
-from app.models.integration import ApiKey, BusinessApiKeyUsageLog, BusinessRun, BusinessRunStep
+from app.models.integration import AbilityTask, ApiKey, BusinessApiKeyUsageLog, BusinessRun, BusinessRunStep
 from app.models.user import User
 from app.routers.business import _business_delivery_contract_audit, _business_run_light_response
 from app.schemas.business import BusinessRunCreateRequest
@@ -115,7 +115,7 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     image_edit_schema = paths["/api/business/image-edit/runs"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
     ]
-    assert image_edit_schema["required"] == ["imageUrl", "instruction"]
+    assert image_edit_schema["required"] == ["imageUrl"]
     assert {
         "imageUrl",
         "editSkill",
@@ -124,6 +124,10 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "referenceImages",
         "maskUrl",
         "maskMeta",
+        "targetWidth",
+        "targetHeight",
+        "anchor",
+        "preserveOriginal",
         "size",
         "quality",
         "output_format",
@@ -138,6 +142,7 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "reference_element_transfer",
         "remove_inpaint",
         "color_reference_correction",
+        "canvas_outpaint",
     ]
     assert image_edit_schema["properties"]["quality"]["enum"] == ["auto", "preview", "production", "premium"]
     assert image_edit_schema["properties"]["size"]["x-podi-presets"] == [
@@ -292,6 +297,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "IMAGE_EDIT_INSTRUCTION_REQUIRED" in image_edit_responses["400"]["x-podi-errors"]
     assert "IMAGE_EDIT_REFERENCE_REQUIRED" in image_edit_responses["400"]["x-podi-errors"]
     assert "IMAGE_EDIT_SIZE_INVALID" in image_edit_responses["400"]["x-podi-errors"]
+    assert "IMAGE_EDIT_CANVAS_TOO_SMALL" in image_edit_responses["400"]["x-podi-errors"]
+    assert "IMAGE_EDIT_CANVAS_PLACEMENT_INVALID" in image_edit_responses["400"]["x-podi-errors"]
     assert "IMAGE_EDIT_MASK_SIZE_MISMATCH" in image_edit_responses["400"]["x-podi-errors"]
     prompt_responses = paths["/api/business/text-fission/prompts"]["post"]["responses"]
     assert "TEXT_FISSION_PROMPT_EMPTY" in prompt_responses["500"]["x-podi-errors"]
@@ -315,10 +322,12 @@ def test_image_edit_component_config_contract() -> None:
         "reference_element_transfer",
         "remove_inpaint",
         "color_reference_correction",
+        "canvas_outpaint",
     }
     assert skills["reference_element_transfer"]["requiresReference"] is True
     assert skills["color_reference_correction"]["requiresReference"] is True
     assert skills["remove_inpaint"]["requiresTargetHint"] is True
+    assert data["outpaint"]["rounding"] == "向上取整到 16 的倍数"
 
     sizes = {item["value"] for item in data["sizes"]}
     assert {"auto", "1024x1024", "2048x2048", "3840x2160", "2160x3840"}.issubset(sizes)
@@ -422,6 +431,104 @@ def test_business_fission_variation_preset_does_not_override_explicit_profile_al
     assert request.inputs["profile"] == "pattern_color_lock_strict_v2"
     assert "profile_id" not in request.inputs
     assert request.inputs["reference_lock"] == "0.50"
+
+
+def test_business_fission_aspect_recompose_builds_guide_for_allowed_full_pattern() -> None:
+    service = object.__new__(BusinessRunService)
+    captured_sizes: list[tuple[int, int]] = []
+    service._load_image_edit_rgba = lambda _url: Image.new("RGB", (1000, 1000), "white")  # type: ignore[method-assign]
+
+    def upload(image, *, filename, trace_context=None):
+        captured_sizes.append(image.size)
+        return {"url": "https://oss.example.com/fission-aspect-guide.png", "objectKey": filename}
+
+    service._upload_image_edit_png = upload  # type: ignore[method-assign]
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        inputs={"width": 1600, "height": 900, "bili": "80%"},
+    )
+    recipe = {
+        "primaryAbilityId": "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2",
+        "vlAssist": {
+            "enabled": True,
+            "applyToPrimary": {"compiler": "comfyui_fission_control_card_v2", "overwrite": True},
+        },
+    }
+    vl_summary = {
+        "fissionControlCard": {
+            "prompt_main": "dense floral textile pattern",
+            "image_desc": "flat all-over repeat",
+            "pattern_risk_type": "small_scatter_high_density",
+            "aspect_recompose_route": "pattern_recompose",
+            "aspect_recompose_allowed": True,
+            "layout_type": "full_pattern",
+            "is_dense_small_repeat": True,
+            "is_scale_safe": True,
+            "aspect_recompose_risk_flags": {
+                "has_single_main_subject": False,
+                "has_large_text_or_logo": False,
+                "has_product_mockup": False,
+                "has_human_face": False,
+                "has_critical_border": False,
+                "has_perspective_scene": False,
+            },
+        }
+    }
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe=recipe,
+        vl_summary=vl_summary,
+    )
+
+    assert captured_sizes == [(1600, 896)]
+    assert request.inputs["image_url"] == "https://oss.example.com/fission-aspect-guide.png"
+    assert request.inputs["imageUrl"] == "https://oss.example.com/fission-aspect-guide.png"
+    assert request.inputs["width"] == 1600
+    assert request.inputs["height"] == 896
+    assert request.inputs["aspect_recompose_route"] == "pattern_recompose"
+    assert request.inputs["aspect_recompose_denoise"] == 0.68
+    assert request.inputs["reference_lock"] == 0.34
+    assert request.inputs["color_lock"] == 0.95
+    assert request.metadata["fissionAspectRecompose"]["route"] == "pattern_recompose"
+
+
+def test_business_fission_aspect_recompose_skips_close_aspect_change() -> None:
+    service = object.__new__(BusinessRunService)
+    service._load_image_edit_rgba = lambda _url: Image.new("RGB", (1000, 1000), "white")  # type: ignore[method-assign]
+    service._upload_image_edit_png = lambda *_, **__: pytest.fail("guide should not be uploaded")  # type: ignore[method-assign]
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        inputs={"width": 1024, "height": 1000, "bili": "80%"},
+    )
+    recipe = {
+        "primaryAbilityId": "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2",
+        "vlAssist": {
+            "enabled": True,
+            "applyToPrimary": {"compiler": "comfyui_fission_control_card_v2", "overwrite": True},
+        },
+    }
+    vl_summary = {
+        "fissionControlCard": {
+            "prompt_main": "dense floral textile pattern",
+            "image_desc": "flat all-over repeat",
+            "pattern_risk_type": "small_scatter_high_density",
+        }
+    }
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe=recipe,
+        vl_summary=vl_summary,
+    )
+
+    assert request.inputs.get("image_url") is None
+    assert request.metadata["fissionAspectRecompose"]["route"] == "keep_original_ratio"
+    assert request.metadata["fissionAspectRecompose"]["reason"] == "aspect_close_enough"
 
 
 def test_text_fission_payload_uses_user_editable_prompt_without_internal_controls() -> None:
@@ -937,6 +1044,147 @@ def test_image_edit_custom_size_validation() -> None:
         assert exc.detail == "IMAGE_EDIT_SIZE_INVALID"
     else:
         raise AssertionError("expected IMAGE_EDIT_SIZE_INVALID")
+
+
+def test_image_edit_canvas_outpaint_builds_target_canvas_and_mask(monkeypatch) -> None:
+    source = Image.new("RGBA", (1024, 1024), (255, 0, 0, 255))
+    buffer = BytesIO()
+    source.save(buffer, format="PNG")
+
+    class FakeResponse:
+        content = buffer.getvalue()
+
+        def raise_for_status(self) -> None:
+            return None
+
+    uploads: list[dict[str, object]] = []
+
+    def fake_get(*args, **kwargs):  # noqa: ANN002, ANN003
+        return FakeResponse()
+
+    def fake_upload_bytes(**kwargs):
+        uploads.append(kwargs)
+        return {"url": f"https://oss.example.com/{kwargs['filename']}", "objectKey": f"system/{kwargs['filename']}"}
+
+    monkeypatch.setattr(business_runs_module.httpx, "get", fake_get)
+    monkeypatch.setattr(business_runs_module.oss_service, "upload_bytes", fake_upload_bytes)
+
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="canvas_outpaint",
+        expand_left=300,
+        expand_right=300,
+        expand_top=300,
+        expand_bottom=300,
+        quality="preview",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="image_edit",
+        payload=payload,
+        image_url="https://example.com/source.png",
+    )
+
+    assert request.inputs["model"] == "gpt-image-2"
+    assert request.inputs["size"] == "1632x1632"
+    assert request.inputs["quality"] == "low"
+    assert request.inputs["image_url"].startswith("https://oss.example.com/image-edit-outpaint-canvas-")
+    assert request.inputs["mask_url"].startswith("https://oss.example.com/image-edit-outpaint-mask-")
+    compiler = request.metadata["imageEditCompiler"]
+    assert compiler["editSkill"] == "canvas_outpaint"
+    assert compiler["targetSize"] == {"width": 1632, "height": 1632}
+    assert compiler["actualExpand"] == {"left": 304, "right": 304, "top": 304, "bottom": 304}
+    assert compiler["preserveOriginal"] is True
+    assert "透明区域是需要补全的外扩区域" in request.inputs["prompt"]
+
+    canvas = Image.open(BytesIO(uploads[0]["data"])).convert("RGBA")
+    mask = Image.open(BytesIO(uploads[1]["data"])).convert("RGBA")
+    assert canvas.size == (1632, 1632)
+    assert mask.size == (1632, 1632)
+    assert canvas.getpixel((304, 304)) == (255, 0, 0, 255)
+    assert canvas.getpixel((0, 0))[3] == 0
+    assert mask.getpixel((0, 0))[3] == 0
+    assert mask.getpixel((304, 304))[3] == 255
+
+
+def test_image_edit_canvas_outpaint_postprocess_pastes_original_region(monkeypatch) -> None:
+    source = Image.new("RGBA", (64, 64), (255, 0, 0, 255))
+    generated = Image.new("RGBA", (128, 128), (0, 0, 255, 255))
+    uploaded: list[Image.Image] = []
+
+    def fake_load(url: str) -> Image.Image:
+        if "source" in url:
+            return source.copy()
+        return generated.copy()
+
+    def fake_upload(image: Image.Image, *, filename: str, trace_context=None):  # noqa: ANN001
+        uploaded.append(image.copy())
+        return {"url": f"https://oss.example.com/{filename}", "objectKey": filename}
+
+    monkeypatch.setattr(BusinessRunService, "_load_image_edit_rgba", staticmethod(fake_load))
+    monkeypatch.setattr(BusinessRunService, "_upload_image_edit_png", staticmethod(fake_upload))
+
+    service = object.__new__(BusinessRunService)
+    task = AbilityTask(
+        id="task_canvas",
+        ability_id="ability_image_edit",
+        ability_provider="openai",
+        capability_key="image_edit",
+        status="succeeded",
+        request_payload={
+            "metadata": {
+                "tenantId": "tenant-test",
+                "imageEditCompiler": {
+                    "editSkill": "canvas_outpaint",
+                    "preserveOriginal": True,
+                    "sourceImageUrl": "https://example.com/source.png",
+                    "placement": {"x": 32, "y": 32},
+                },
+            }
+        },
+        result_payload={"images": [{"url": "https://model.example.com/out.png"}]},
+    )
+
+    result = service._postprocess_image_edit_canvas_outpaint_payload(task=task, payload=task.result_payload)
+
+    assert result["_imageEditPostprocess"]["status"] == "succeeded"
+    assert result["_imageEditPostprocess"]["modelOutputUrl"] == "https://model.example.com/out.png"
+    assert result["imageUrls"][0].startswith("https://oss.example.com/image-edit-outpaint-final-")
+    assert uploaded[0].getpixel((32, 32)) == (255, 0, 0, 255)
+    assert uploaded[0].getpixel((0, 0)) == (0, 0, 255, 255)
+
+
+def test_image_edit_canvas_outpaint_rejects_target_smaller_than_source(monkeypatch) -> None:
+    source = Image.new("RGBA", (1024, 1024), (255, 255, 255, 255))
+    buffer = BytesIO()
+    source.save(buffer, format="PNG")
+
+    class FakeResponse:
+        content = buffer.getvalue()
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(business_runs_module.httpx, "get", lambda *args, **kwargs: FakeResponse())
+
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        editSkill="canvas_outpaint",
+        targetWidth=800,
+        targetHeight=1024,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        service._build_ability_payload(
+            capability_key="image_edit",
+            payload=payload,
+            image_url="https://example.com/source.png",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "IMAGE_EDIT_CANVAS_TOO_SMALL"
 
 
 def test_text_fission_prompt_text_content_list_is_display_safe() -> None:

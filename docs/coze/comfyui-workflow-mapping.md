@@ -28,7 +28,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 四方连续 | `sifang_lianxu` | `comfyui.sifang_lianxu` | `7598563505054154752` · `lianxu` | 当前未单独拆单功能工具箱 | `url / patternType / height / width` | Coze 侧当前仍沿用历史连续图 workflow。 |
 | 花纹扩图 | `huawen_kuotu` | `comfyui.huawen_kuotu` | `7598587935331450880` · `comfyuo_tukuozhan` | 当前未单独拆单功能工具箱 | `url / expand_bottom / expand_left / expand_right / expand_top` | 当前主线是 ComfyUI 扩图；旧的“扩图多模型版本”见下方历史区。 |
-| FLUX2-Klein 扩图 | `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` | `7631174682116358144` · `comfyuo_tukuozhan_1` | `/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json` | `url / expand_bottom / expand_left / expand_right / expand_top` | 这条已经不只是工具箱直连，Coze 侧也有独立 workflow。当前 Coze workflow 不暴露 prompt / seed。 |
+| FLUX2-Klein 扩图 | `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` | `7631174682116358144` · `comfyuo_tukuozhan_1` | `/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json` | `url / expand_bottom / expand_left / expand_right / expand_top` | 这条已经不只是工具箱直连，Coze 侧也有独立 workflow。当前 Coze workflow 不暴露 prompt / seed。2026-05-25 已替换为 `Flux 2 klein 9b-222` 工作流，外部入参不变。 |
 | 多图融合 | `duotu_ronghe` | `comfyui.duotu_ronghe` | `7615600173695107072` · `comfyui_duotu` | `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json` | `url / image_url_2 / image_url_3 / negative_prompt / prompt / height / width` | 评测端和工具箱两条链路都在用。 |
 | 背景抠图 | `beijing_koutu` | `comfyui.beijing_koutu` | `7629023903431524352` · `koubeijing` | `/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json` | `url` | 当前主线稳定。 |
 | 头部抠像 | `toubu_kouxiang` | `comfyui.toubu_kouxiang` | `7629023041988591616` · `koutou` | `/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json` | `url` | 当前主线稳定。 |

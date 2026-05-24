@@ -99,6 +99,19 @@ COMFYUI_FISSION_VARIATION_PRESET_VALUES_BY_KEY = {
     for item in COMFYUI_FISSION_VARIATION_PRESET_CONFIGS
     if item.get("key") and isinstance(item.get("values"), dict)
 }
+FISSION_ASPECT_RECOMPOSE_TARGET_ABILITIES = {"comfyui_flux_strong_hq_softstyle_fission_colorlock_v2"}
+FISSION_ASPECT_RECOMPOSE_RATIO_MIN = 0.75
+FISSION_ASPECT_RECOMPOSE_RATIO_MAX = 1.33
+FISSION_ASPECT_RECOMPOSE_EXTREME_MIN = 0.20
+FISSION_ASPECT_RECOMPOSE_EXTREME_MAX = 5.00
+FISSION_ASPECT_RECOMPOSE_SOURCE_SHAPE_MIN = 0.15
+FISSION_ASPECT_RECOMPOSE_PROMPT_SUFFIX = (
+    "Safe full-pattern aspect-ratio recompose mode. The input is a repeatable textile/print pattern "
+    "with no single main subject. Generate a native full-canvas pattern for the target ratio. "
+    "Avoid crop feeling, pasted patches, hard tile seams, and blurry side bands. Preserve motif categories, "
+    "color palette, density rhythm, average motif scale, line/material style, and empty-space distribution. "
+    "Allow visible object-level fission changes while keeping a clean repeatable print pattern."
+)
 INTERNAL_NO_CHARGE_TENANTS = {"podi-internal-patrol", "podi-internal-realtest"}
 INTERNAL_NO_CHARGE_CLIENTS = {"business-api-patrol", "codex-realtest"}
 NO_CHARGE_BILLING_MODES = {"no_charge", "no-charge", "free", "internal", "internal_patrol", "patrol", "test"}
@@ -109,6 +122,7 @@ IMAGE_EDIT_SKILL_LABELS = {
     "reference_element_transfer": "参考图替换",
     "remove_inpaint": "删除修补",
     "color_reference_correction": "补色校正",
+    "canvas_outpaint": "扩展画布",
 }
 IMAGE_EDIT_QUALITY_MAP = {
     "auto": "auto",
@@ -119,6 +133,18 @@ IMAGE_EDIT_QUALITY_MAP = {
     "low": "low",
     "medium": "medium",
     "high": "high",
+}
+IMAGE_EDIT_OUTPAINT_ANCHORS = {
+    "center",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "top_left",
+    "top_right",
+    "bottom_left",
+    "bottom_right",
+    "custom",
 }
 
 
@@ -2549,6 +2575,12 @@ class BusinessRunService:
     def _copy_task_to_run(self, *, session, run: BusinessRun, task: AbilityTask) -> None:
         payload = task.result_payload if isinstance(task.result_payload, dict) else {}
         status = str(task.status or "running")
+        if status == "succeeded":
+            processed_payload = self._postprocess_image_edit_canvas_outpaint_payload(task=task, payload=payload)
+            if processed_payload is not payload:
+                payload = processed_payload
+                task.result_payload = processed_payload
+                session.add(task)
         run.status = status
         run.ability_log_id = task.log_id
         run.result_payload = self._omit_large_fields(payload)
@@ -2568,6 +2600,82 @@ class BusinessRunService:
             self._copy_task_to_step(session=session, step=step, task=task)
             session.add(step)
         session.add(run)
+
+    def _postprocess_image_edit_canvas_outpaint_payload(self, *, task: AbilityTask, payload: dict[str, Any]) -> dict[str, Any]:
+        request_payload = task.request_payload if isinstance(task.request_payload, dict) else {}
+        request_meta = request_payload.get("metadata") if isinstance(request_payload.get("metadata"), dict) else {}
+        compiler = request_meta.get("imageEditCompiler") if isinstance(request_meta.get("imageEditCompiler"), dict) else {}
+        if compiler.get("editSkill") != "canvas_outpaint" or not self._truthy_policy_flag(compiler.get("preserveOriginal")):
+            return payload
+        postprocess = payload.get("_imageEditPostprocess") if isinstance(payload.get("_imageEditPostprocess"), dict) else {}
+        if postprocess.get("status") in {"succeeded", "failed"}:
+            return payload
+
+        generated_urls = self._extract_urls(payload, keys=("images", "assets", "resultUrls", "imageUrls"))
+        generated_url = generated_urls[0] if generated_urls else None
+        source_url = self._first_string(compiler.get("sourceImageUrl"))
+        placement = compiler.get("placement") if isinstance(compiler.get("placement"), dict) else {}
+        placement_x = self._first_int(placement.get("x"))
+        placement_y = self._first_int(placement.get("y"))
+        if not generated_url or not source_url or placement_x is None or placement_y is None:
+            return payload
+
+        try:
+            generated_image = self._load_image_edit_rgba(generated_url)
+            source_image = self._load_image_edit_rgba(source_url)
+            if (
+                placement_x < 0
+                or placement_y < 0
+                or placement_x + source_image.width > generated_image.width
+                or placement_y + source_image.height > generated_image.height
+            ):
+                raise ValueError("source placement is outside generated canvas")
+            final_image = generated_image.copy()
+            final_image.alpha_composite(source_image, (placement_x, placement_y))
+            upload = self._upload_image_edit_png(
+                final_image,
+                filename=f"image-edit-outpaint-final-{uuid4().hex[:10]}.png",
+                trace_context=request_meta if isinstance(request_meta, dict) else None,
+            )
+            final_url = str(upload.get("url") or "")
+            if not final_url:
+                raise ValueError("final image upload returned empty url")
+            final_asset = {
+                "url": final_url,
+                "ossUrl": final_url,
+                "sourceUrl": generated_url,
+                "contentType": "image/png",
+                "tag": "image_edit_canvas_outpaint_final",
+                "metadata": {
+                    "postprocess": "paste_original_region",
+                    "placement": {"x": placement_x, "y": placement_y},
+                    "sourceImageUrl": source_url,
+                    "modelOutputUrl": generated_url,
+                },
+            }
+            next_payload = deepcopy(payload)
+            next_payload["images"] = [final_asset]
+            next_payload["assets"] = [final_asset]
+            next_payload["imageUrls"] = [final_url]
+            next_payload["resultUrls"] = [final_url]
+            next_payload["_imageEditPostprocess"] = {
+                "status": "succeeded",
+                "mode": "canvas_outpaint_preserve_original",
+                "finalImageUrl": final_url,
+                "modelOutputUrl": generated_url,
+                "sourceImageUrl": source_url,
+                "placement": {"x": placement_x, "y": placement_y},
+            }
+            return next_payload
+        except Exception as exc:
+            logger.warning("image_edit canvas outpaint postprocess failed: task=%s error=%s", task.id, exc)
+            next_payload = deepcopy(payload)
+            next_payload["_imageEditPostprocess"] = {
+                "status": "failed",
+                "mode": "canvas_outpaint_preserve_original",
+                "error": str(exc)[:300],
+            }
+            return next_payload
 
     def retry_callback(self, run_id: str, *, actor: User | None = None) -> dict[str, Any]:
         normalized_run_id = str(run_id or "").strip()
@@ -4913,6 +5021,229 @@ class BusinessRunService:
             if inputs.get(key) in (None, "", []):
                 inputs[key] = value
 
+    def _maybe_apply_fission_aspect_recompose(
+        self,
+        *,
+        inputs: dict[str, Any],
+        image_url: str,
+        recipe: dict[str, Any] | None,
+        vl_summary: dict[str, Any] | None,
+        trace_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Route large aspect-ratio changes through a guide image instead of crop-resize.
+
+        This is intentionally scoped to the self-owned ComfyUI business line. Coze
+        workflow/toolbox contracts remain unchanged.
+        """
+
+        primary_ability_id = self._extract_primary_ability_id(recipe or {})
+        if primary_ability_id not in FISSION_ASPECT_RECOMPOSE_TARGET_ABILITIES:
+            return None
+        target_w_raw = self._coerce_positive_int(inputs.get("output_width") or inputs.get("width"))
+        target_h_raw = self._coerce_positive_int(inputs.get("output_height") or inputs.get("height"))
+        if not target_w_raw or not target_h_raw:
+            return None
+        target_w = self._normalize_fission_aspect_dim(target_w_raw)
+        target_h = self._normalize_fission_aspect_dim(target_h_raw)
+        if not target_w or not target_h:
+            return None
+
+        try:
+            source_image = self._load_image_edit_rgba(image_url).convert("RGB")
+        except HTTPException as exc:
+            raise HTTPException(status_code=400, detail="FISSION_ASPECT_SOURCE_IMAGE_LOAD_FAILED") from exc
+        source_w, source_h = source_image.size
+        if source_w <= 0 or source_h <= 0:
+            return {"route": "keep_original_ratio", "reason": "source_size_invalid"}
+
+        source_shape = min(source_w, source_h) / max(source_w, source_h)
+        source_aspect = source_w / source_h
+        target_aspect = target_w / target_h
+        aspect_ratio_delta = target_aspect / source_aspect
+        base_meta = {
+            "sourceSize": {"width": source_w, "height": source_h},
+            "requestedTargetSize": {"width": target_w_raw, "height": target_h_raw},
+            "normalizedTargetSize": {"width": target_w, "height": target_h},
+            "sourceAspect": round(source_aspect, 6),
+            "targetAspect": round(target_aspect, 6),
+            "aspectRatioDelta": round(aspect_ratio_delta, 6),
+        }
+        if source_shape < FISSION_ASPECT_RECOMPOSE_SOURCE_SHAPE_MIN:
+            self._apply_fission_original_ratio_fallback(inputs, source_width=source_w, source_height=source_h)
+            return {**base_meta, "route": "keep_original_ratio", "reason": "source_shape_too_extreme"}
+        if FISSION_ASPECT_RECOMPOSE_RATIO_MIN <= aspect_ratio_delta <= FISSION_ASPECT_RECOMPOSE_RATIO_MAX:
+            return {**base_meta, "route": "keep_original_ratio", "reason": "aspect_close_enough"}
+        if (
+            aspect_ratio_delta < FISSION_ASPECT_RECOMPOSE_EXTREME_MIN
+            or aspect_ratio_delta > FISSION_ASPECT_RECOMPOSE_EXTREME_MAX
+        ):
+            self._apply_fission_original_ratio_fallback(inputs, source_width=source_w, source_height=source_h)
+            return {**base_meta, "route": "keep_original_ratio", "reason": "aspect_change_too_extreme"}
+
+        router = self._extract_fission_aspect_router(vl_summary)
+        if not self._is_fission_aspect_router_allowed(router):
+            self._apply_fission_original_ratio_fallback(inputs, source_width=source_w, source_height=source_h)
+            return {
+                **base_meta,
+                "route": "keep_original_ratio",
+                "reason": "vl_router_not_allowed",
+                "vlRouter": router,
+            }
+
+        guide_image = self._build_fission_aspect_guide_image(source_image, width=target_w, height=target_h)
+        try:
+            upload = self._upload_image_edit_png(
+                guide_image,
+                filename=f"fission-aspect-recompose-guide-{uuid4().hex[:10]}.png",
+                trace_context=trace_context,
+            )
+        except Exception as exc:  # noqa: BLE001 - convert to a clear business error.
+            raise HTTPException(status_code=400, detail="FISSION_ASPECT_RECOMPOSE_GUIDE_FAILED") from exc
+        guide_url = self._first_string(upload.get("url"), upload.get("ossUrl"), upload.get("storedUrl"))
+        if not guide_url:
+            raise HTTPException(status_code=400, detail="FISSION_ASPECT_RECOMPOSE_GUIDE_FAILED")
+
+        inputs["image_url"] = guide_url
+        inputs["imageUrl"] = guide_url
+        inputs["width"] = target_w
+        inputs["height"] = target_h
+        inputs["profile"] = "pattern_risk_routed_v4"
+        inputs["profile_id"] = "pattern_risk_routed_v4"
+        inputs["bili_mapping"] = "pattern_risk_routed_v4"
+        inputs["aspect_recompose_route"] = "pattern_recompose"
+        inputs["aspect_recompose_denoise"] = 0.68
+        inputs["guide_mode"] = "contain_tile"
+        inputs["reference_lock"] = 0.34
+        inputs["color_lock"] = 0.95
+        inputs["ipadapter_weight"] = 0.34
+        inputs["colormatch_method"] = "mkl"
+        inputs["colormatch_strength"] = 0.95
+        inputs["batch_size"] = 1
+        inputs["steps"] = 8
+        inputs["cfg"] = 1.0
+        inputs["prompt"] = self._append_text_once(inputs.get("prompt"), FISSION_ASPECT_RECOMPOSE_PROMPT_SUFFIX)
+        return {
+            **base_meta,
+            "route": "pattern_recompose",
+            "reason": "aspect_mismatch_full_pattern_allowed",
+            "guideMode": "contain_tile",
+            "guideImageUrl": guide_url,
+            "vlRouter": router,
+            "fixedParams": {
+                "steps": 8,
+                "cfg": 1.0,
+                "denoise": 0.68,
+                "batch_size": 1,
+                "ipadapter_weight": 0.34,
+                "colormatch_method": "mkl",
+                "colormatch_strength": 0.95,
+            },
+        }
+
+    @staticmethod
+    def _normalize_fission_aspect_dim(value: int | None) -> int | None:
+        if not value or value <= 0:
+            return None
+        return max(16, int(value) - (int(value) % 16))
+
+    @classmethod
+    def _apply_fission_original_ratio_fallback(
+        cls,
+        inputs: dict[str, Any],
+        *,
+        source_width: int,
+        source_height: int,
+    ) -> None:
+        width = cls._normalize_fission_aspect_dim(source_width)
+        height = cls._normalize_fission_aspect_dim(source_height)
+        if width and height:
+            inputs["width"] = width
+            inputs["height"] = height
+        inputs["aspect_recompose_route"] = "keep_original_ratio"
+        inputs["guide_mode"] = "fallback_keep_original_ratio"
+
+    @staticmethod
+    def _append_text_once(base: Any, addition: str) -> str:
+        base_text = str(base or "").strip()
+        addition_text = str(addition or "").strip()
+        if not addition_text or addition_text in base_text:
+            return base_text
+        return "\n\n".join(part for part in (base_text, addition_text) if part)
+
+    @staticmethod
+    def _extract_fission_aspect_router(vl_summary: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(vl_summary, dict):
+            return {}
+        candidates: list[dict[str, Any]] = [vl_summary]
+        for key in ("fissionControlCard", "vlCard", "vl_result", "vlResult"):
+            value = vl_summary.get(key)
+            if isinstance(value, dict):
+                candidates.append(value)
+        merged: dict[str, Any] = {}
+        for candidate in candidates:
+            for key in (
+                "aspect_recompose_route",
+                "aspectRecomposeRoute",
+                "route",
+                "aspect_recompose_allowed",
+                "aspectRecomposeAllowed",
+                "layout_type",
+                "layoutType",
+                "is_dense_small_repeat",
+                "isDenseSmallRepeat",
+                "is_scale_safe",
+                "isScaleSafe",
+                "aspect_recompose_reason",
+                "aspectRecomposeReason",
+            ):
+                if key in candidate and candidate.get(key) not in (None, "", []):
+                    merged[key] = candidate.get(key)
+            risk = candidate.get("aspect_recompose_risk_flags") or candidate.get("aspectRecomposeRiskFlags")
+            if isinstance(risk, dict):
+                merged["riskFlags"] = risk
+        return merged
+
+    @staticmethod
+    def _is_fission_aspect_router_allowed(router: dict[str, Any]) -> bool:
+        if not isinstance(router, dict) or not router:
+            return False
+        route = str(router.get("aspect_recompose_route") or router.get("aspectRecomposeRoute") or router.get("route") or "").strip()
+        layout_type = str(router.get("layout_type") or router.get("layoutType") or "").strip()
+        allowed = BusinessRunService._truthy_policy_flag(
+            router.get("aspect_recompose_allowed") or router.get("aspectRecomposeAllowed")
+        )
+        dense = BusinessRunService._truthy_policy_flag(router.get("is_dense_small_repeat") or router.get("isDenseSmallRepeat"))
+        scale_safe = BusinessRunService._truthy_policy_flag(router.get("is_scale_safe") or router.get("isScaleSafe"))
+        risk_flags = router.get("riskFlags") if isinstance(router.get("riskFlags"), dict) else {}
+        has_blocking_risk = any(BusinessRunService._truthy_policy_flag(value) for value in risk_flags.values())
+        return (
+            route == "pattern_recompose"
+            and layout_type == "full_pattern"
+            and allowed
+            and dense
+            and scale_safe
+            and not has_blocking_risk
+        )
+
+    @staticmethod
+    def _build_fission_aspect_guide_image(source_image: Image.Image, *, width: int, height: int) -> Image.Image:
+        fit = source_image.convert("RGB")
+        resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+        fit.thumbnail((width, height), resampling)
+        if fit.width <= 0 or fit.height <= 0:
+            raise HTTPException(status_code=400, detail="FISSION_ASPECT_RECOMPOSE_GUIDE_FAILED")
+        canvas = Image.new("RGB", (width, height))
+        offset_x = -((fit.width - (width % fit.width)) // 2) if fit.width else 0
+        offset_y = -((fit.height - (height % fit.height)) // 2) if fit.height else 0
+        y = offset_y
+        while y < height:
+            x = offset_x
+            while x < width:
+                canvas.paste(fit, (x, y))
+                x += fit.width
+            y += fit.height
+        return canvas
+
     def _build_ability_payload(
         self,
         *,
@@ -4982,6 +5313,11 @@ class BusinessRunService:
                 "pattern_type",
                 "vl_card",
                 "pattern_fission_user_params",
+                "aspect_recompose_route",
+                "aspect_recompose_denoise",
+                "aspect_recompose_guide_url",
+                "guide_mode",
+                "denoise",
             }
         elif capability_key == "pattern_extract":
             pass_keys = {
@@ -5162,6 +5498,17 @@ class BusinessRunService:
                 recipe=recipe or {},
                 vl_summary=vl_summary,
             )
+        fission_aspect_recompose: dict[str, Any] | None = None
+        if capability_key == "fission" and vl_summary:
+            fission_aspect_recompose = self._maybe_apply_fission_aspect_recompose(
+                inputs=inputs,
+                image_url=image_url,
+                recipe=recipe or {},
+                vl_summary=vl_summary,
+                trace_context=trace_context,
+            )
+            if fission_aspect_recompose and fission_aspect_recompose.get("guideImageUrl"):
+                inputs["aspect_recompose_guide_url"] = fission_aspect_recompose.get("guideImageUrl")
         if capability_key == "fission":
             self._enforce_single_output_fission_inputs(inputs, keep_internal_n=True)
         ability_inputs = {key: value for key, value in inputs.items() if key in pass_keys and value not in (None, "", [])}
@@ -5180,6 +5527,7 @@ class BusinessRunService:
                 "clientId": (trace_context or {}).get("clientId"),
                 "channel": (trace_context or {}).get("channel"),
                 "source": (trace_context or {}).get("source"),
+                **({"fissionAspectRecompose": fission_aspect_recompose} if fission_aspect_recompose else {}),
                 **({"imageEditCompiler": image_edit_compiled.get("metadata")} if image_edit_compiled else {}),
             },
         )
@@ -5214,6 +5562,14 @@ class BusinessRunService:
             payload.prompt,
             request_inputs.get("prompt"),
         )
+        if skill == "canvas_outpaint":
+            return self._compile_image_edit_canvas_outpaint_inputs(
+                payload=payload,
+                image_url=image_url,
+                instruction=instruction or "",
+                request_inputs=request_inputs,
+                trace_context=trace_context,
+            )
         if not instruction:
             raise HTTPException(status_code=400, detail="IMAGE_EDIT_INSTRUCTION_REQUIRED")
 
@@ -5385,6 +5741,329 @@ class BusinessRunService:
                 "compilerVersion": "image_edit_prompt_compiler_v1",
             },
         }
+
+    def _compile_image_edit_canvas_outpaint_inputs(
+        self,
+        *,
+        payload: BusinessRunCreateRequest,
+        image_url: str,
+        instruction: str,
+        request_inputs: dict[str, Any],
+        trace_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        source_image = self._load_image_edit_rgba(image_url)
+        source_w, source_h = source_image.size
+        if source_w <= 0 or source_h <= 0:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_CANVAS_BUILD_FAILED")
+
+        expand_left_raw = self._first_value(payload.expand_left, request_inputs.get("expand_left"), request_inputs.get("expandLeft"))
+        expand_right_raw = self._first_value(payload.expand_right, request_inputs.get("expand_right"), request_inputs.get("expandRight"))
+        expand_top_raw = self._first_value(payload.expand_top, request_inputs.get("expand_top"), request_inputs.get("expandTop"))
+        expand_bottom_raw = self._first_value(payload.expand_bottom, request_inputs.get("expand_bottom"), request_inputs.get("expandBottom"))
+        has_explicit_expand = any(value not in (None, "", []) for value in (expand_left_raw, expand_right_raw, expand_top_raw, expand_bottom_raw))
+        if has_explicit_expand:
+            expand_left = self._coerce_non_negative_int(expand_left_raw) or 0
+            expand_right = self._coerce_non_negative_int(expand_right_raw) or 0
+            expand_top = self._coerce_non_negative_int(expand_top_raw) or 0
+            expand_bottom = self._coerce_non_negative_int(expand_bottom_raw) or 0
+        else:
+            expand_left = expand_right = expand_top = expand_bottom = 256
+
+        target_width_input = self._first_int(
+            payload.targetWidth,
+            payload.target_width,
+            request_inputs.get("targetWidth"),
+            request_inputs.get("target_width"),
+            payload.width,
+            request_inputs.get("width"),
+        )
+        target_height_input = self._first_int(
+            payload.targetHeight,
+            payload.target_height,
+            request_inputs.get("targetHeight"),
+            request_inputs.get("target_height"),
+            payload.height,
+            request_inputs.get("height"),
+        )
+        if target_width_input is None:
+            target_width_input = source_w + expand_left + expand_right
+        if target_height_input is None:
+            target_height_input = source_h + expand_top + expand_bottom
+        if target_width_input < source_w or target_height_input < source_h:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_CANVAS_TOO_SMALL")
+
+        requested_target_w = int(target_width_input)
+        requested_target_h = int(target_height_input)
+        target_w = self._round_up_to_multiple(requested_target_w, int(IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS["multiple_of"]))
+        target_h = self._round_up_to_multiple(requested_target_h, int(IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS["multiple_of"]))
+        size = self._validate_image_edit_size(f"{target_w}x{target_h}")
+
+        placement_x_input = self._first_int(
+            payload.placementX,
+            payload.placement_x,
+            request_inputs.get("placementX"),
+            request_inputs.get("placement_x"),
+        )
+        placement_y_input = self._first_int(
+            payload.placementY,
+            payload.placement_y,
+            request_inputs.get("placementY"),
+            request_inputs.get("placement_y"),
+        )
+        anchor = (
+            self._first_string(payload.anchor, request_inputs.get("anchor"))
+            or ("custom" if placement_x_input is not None or placement_y_input is not None else "center")
+        ).strip().lower()
+        if anchor not in IMAGE_EDIT_OUTPAINT_ANCHORS:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_CANVAS_PLACEMENT_INVALID")
+
+        if placement_x_input is not None or placement_y_input is not None:
+            placement_x = placement_x_input or 0
+            placement_y = placement_y_input or 0
+        elif has_explicit_expand:
+            min_target_w = source_w + expand_left + expand_right
+            min_target_h = source_h + expand_top + expand_bottom
+            if target_w < min_target_w or target_h < min_target_h:
+                raise HTTPException(status_code=400, detail="IMAGE_EDIT_CANVAS_TOO_SMALL")
+            slack_w = target_w - min_target_w
+            slack_h = target_h - min_target_h
+            if expand_left == expand_right:
+                expand_left += slack_w // 2
+                expand_right += slack_w - slack_w // 2
+            else:
+                expand_right += slack_w
+            if expand_top == expand_bottom:
+                expand_top += slack_h // 2
+                expand_bottom += slack_h - slack_h // 2
+            else:
+                expand_bottom += slack_h
+            placement_x = expand_left
+            placement_y = expand_top
+        elif target_width_input is not None or target_height_input is not None:
+            placement_x, placement_y = self._image_edit_anchor_placement(
+                anchor=anchor,
+                target_w=target_w,
+                target_h=target_h,
+                source_w=source_w,
+                source_h=source_h,
+            )
+        else:
+            placement_x = expand_left
+            placement_y = expand_top
+
+        if (
+            placement_x < 0
+            or placement_y < 0
+            or placement_x + source_w > target_w
+            or placement_y + source_h > target_h
+        ):
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_CANVAS_PLACEMENT_INVALID")
+
+        actual_expand = {
+            "left": int(placement_x),
+            "right": int(target_w - source_w - placement_x),
+            "top": int(placement_y),
+            "bottom": int(target_h - source_h - placement_y),
+        }
+        preserve_original = self._truthy_policy_flag(
+            self._first_value(
+                payload.preserveOriginal,
+                payload.preserve_original,
+                request_inputs.get("preserveOriginal"),
+                request_inputs.get("preserve_original"),
+                True,
+            )
+        )
+
+        canvas = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+        canvas.alpha_composite(source_image, (placement_x, placement_y))
+        mask = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(mask)
+        draw.rectangle(
+            (placement_x, placement_y, placement_x + source_w - 1, placement_y + source_h - 1),
+            fill=(0, 0, 0, 255),
+        )
+
+        canvas_upload = self._upload_image_edit_png(
+            canvas,
+            filename=f"image-edit-outpaint-canvas-{uuid4().hex[:10]}.png",
+            trace_context=trace_context,
+        )
+        mask_upload = self._upload_image_edit_png(
+            mask,
+            filename=f"image-edit-outpaint-mask-{uuid4().hex[:10]}.png",
+            trace_context=trace_context,
+        )
+        canvas_url = str(canvas_upload.get("url") or "")
+        mask_url = str(mask_upload.get("url") or "")
+        if not canvas_url or not mask_url:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_CANVAS_BUILD_FAILED")
+
+        quality = str(
+            self._first_string(payload.quality, request_inputs.get("quality")) or "auto"
+        ).strip()
+        if quality not in IMAGE_EDIT_QUALITY_VALUES and quality not in {"low", "medium", "high"}:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_QUALITY_INVALID")
+        output_format = str(
+            self._first_string(payload.outputFormat, payload.output_format, request_inputs.get("outputFormat"), request_inputs.get("output_format"))
+            or "png"
+        ).strip().lower()
+        if output_format not in IMAGE_EDIT_OUTPUT_FORMAT_VALUES:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_OUTPUT_FORMAT_INVALID")
+
+        prompt = self._build_image_edit_outpaint_prompt(
+            instruction=instruction,
+            source_image_url=image_url,
+            canvas_url=canvas_url,
+            mask_url=mask_url,
+            source_size=(source_w, source_h),
+            target_size=(target_w, target_h),
+            actual_expand=actual_expand,
+            preserve_original=preserve_original,
+        )
+        ability_inputs: dict[str, Any] = {
+            "image_url": canvas_url,
+            "prompt": prompt,
+            "model": "gpt-image-2",
+            "size": size,
+            "quality": IMAGE_EDIT_QUALITY_MAP.get(quality, "auto"),
+            "background": "auto",
+            "output_format": output_format,
+            "n": 1,
+            "mask_url": mask_url,
+        }
+        return {
+            "ability_inputs": ability_inputs,
+            "metadata": {
+                "editSkill": "canvas_outpaint",
+                "editSkillLabel": IMAGE_EDIT_SKILL_LABELS["canvas_outpaint"],
+                "instruction": instruction,
+                "sourceImageUrl": image_url,
+                "intermediateCanvasUrl": canvas_url,
+                "outpaintMaskUrl": mask_url,
+                "sourceSize": {"width": source_w, "height": source_h},
+                "requestedTargetSize": {"width": requested_target_w, "height": requested_target_h},
+                "targetSize": {"width": target_w, "height": target_h},
+                "placement": {"x": placement_x, "y": placement_y, "anchor": anchor},
+                "actualExpand": actual_expand,
+                "preserveOriginal": preserve_original,
+                "maskPolicy": "canvas_outpaint_alpha_mask",
+                "size": size,
+                "quality": quality,
+                "mappedQuality": ability_inputs["quality"],
+                "outputFormat": output_format,
+                "compiledPrompt": prompt,
+                "compilerVersion": "image_edit_canvas_outpaint_compiler_v1",
+            },
+        }
+
+    @staticmethod
+    def _round_up_to_multiple(value: int, multiple: int) -> int:
+        if multiple <= 1:
+            return int(value)
+        return int(math.ceil(int(value) / multiple) * multiple)
+
+    @staticmethod
+    def _image_edit_anchor_placement(
+        *,
+        anchor: str,
+        target_w: int,
+        target_h: int,
+        source_w: int,
+        source_h: int,
+    ) -> tuple[int, int]:
+        x_center = max(0, (target_w - source_w) // 2)
+        y_center = max(0, (target_h - source_h) // 2)
+        right = max(0, target_w - source_w)
+        bottom = max(0, target_h - source_h)
+        if anchor == "left":
+            return 0, y_center
+        if anchor == "right":
+            return right, y_center
+        if anchor == "top":
+            return x_center, 0
+        if anchor == "bottom":
+            return x_center, bottom
+        if anchor == "top_left":
+            return 0, 0
+        if anchor == "top_right":
+            return right, 0
+        if anchor == "bottom_left":
+            return 0, bottom
+        if anchor == "bottom_right":
+            return right, bottom
+        return x_center, y_center
+
+    @staticmethod
+    def _coerce_non_negative_int(value: Any) -> int | None:
+        if value in (None, "", []):
+            return None
+        try:
+            number = int(float(str(value).strip()))
+        except (TypeError, ValueError):
+            return None
+        return number if number >= 0 else None
+
+    @staticmethod
+    def _load_image_edit_rgba(url: str) -> Image.Image:
+        target = str(url or "").strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="BUSINESS_IMAGE_URL_REQUIRED")
+        try:
+            response = httpx.get(target, timeout=20, follow_redirects=True)
+            response.raise_for_status()
+            return Image.open(BytesIO(response.content)).convert("RGBA")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="IMAGE_EDIT_CANVAS_BUILD_FAILED") from exc
+
+    @staticmethod
+    def _upload_image_edit_png(
+        image: Image.Image,
+        *,
+        filename: str,
+        trace_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        return oss_service.upload_bytes(
+            user_id=str((trace_context or {}).get("tenantId") or "system"),
+            filename=filename,
+            data=buffer.getvalue(),
+            content_type="image/png",
+        )
+
+    @staticmethod
+    def _build_image_edit_outpaint_prompt(
+        *,
+        instruction: str,
+        source_image_url: str,
+        canvas_url: str,
+        mask_url: str,
+        source_size: tuple[int, int],
+        target_size: tuple[int, int],
+        actual_expand: dict[str, int],
+        preserve_original: bool,
+    ) -> str:
+        user_instruction = instruction.strip() or "自然补全透明/空白扩展区域，让画面从原图自然延展。"
+        return "\n".join(
+            [
+                "你是专业图像扩展助手。只输出最终扩展后的图片，不输出说明文字。",
+                "任务模式：扩展画布（canvas_outpaint）。",
+                f"源图 URL：{source_image_url}",
+                f"模型输入画布 URL：{canvas_url}",
+                f"蒙版 URL：{mask_url}",
+                f"源图尺寸：{source_size[0]}x{source_size[1]}；目标输出尺寸：{target_size[0]}x{target_size[1]}。",
+                f"扩展像素：左 {actual_expand['left']}，右 {actual_expand['right']}，上 {actual_expand['top']}，下 {actual_expand['bottom']}。",
+                f"用户扩图目标：{user_instruction}",
+                "输入图片已经是目标尺寸画布，原图位于画布内部；alpha mask 的透明区域是需要补全的外扩区域，不透明区域是原图保护区。",
+                "只补全外扩透明区域，不要缩放、移动、裁切或重新构图原图。",
+                "补全内容必须延续原图的光照、透视、纹理、边缘、图案密度和材质逻辑，不能出现明显接缝。",
+                "如果原图包含文字、商标、人物或产品主体，不要在扩展区域复制出新的主体，除非用户指令明确要求。",
+                "保护原图区域：必须尽量逐像素保持原图内容、颜色、锐度和细节不变。" if preserve_original else "原图区域允许轻微融合，但不得改变主体结构。",
+            ]
+        )
 
     @staticmethod
     def _normalize_image_edit_selection_hints(*values: Any) -> list[dict[str, Any]]:

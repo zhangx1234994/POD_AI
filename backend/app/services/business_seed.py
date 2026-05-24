@@ -9,7 +9,10 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.constants.abilities import TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT
+from app.constants.abilities import (
+    FISSION_CONTROL_CARD_WITH_ASPECT_RECOMPOSE_VL_PROMPT,
+    TEXT2IMG_TEXT_ALLOWED_NEGATIVE_DEFAULT,
+)
 from app.models.integration import BusinessCapability
 
 
@@ -101,6 +104,7 @@ IMAGE_EDIT_SKILL_OPTIONS: list[dict[str, str]] = [
     {"label": "参考图替换", "value": "reference_element_transfer"},
     {"label": "删除修补", "value": "remove_inpaint"},
     {"label": "补色校正", "value": "color_reference_correction"},
+    {"label": "扩展画布", "value": "canvas_outpaint"},
 ]
 
 IMAGE_EDIT_QUALITY_OPTIONS: list[dict[str, str]] = [
@@ -732,6 +736,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
                     "config": {
                         "defaultInputs": {
                             "provider": "volcengine_vl",
+                            "prompt": FISSION_CONTROL_CARD_WITH_ASPECT_RECOMPOSE_VL_PROMPT,
                         }
                     },
                 },
@@ -799,7 +804,8 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "vl_component_ability_id": "vl_fission_control_card",
             "eval_component_ability_id": "vl_fission_generated_image_evaluate",
             "coze_strategy": "Coze 仍调用图裂变业务入口；中台内部完成 VL 风险类型识别和 ComfyUI 智能路由裂变调用。",
-            "seed_version": 2,
+            "aspect_recompose_branch": "当业务接口传入的输出比例与原图差异较大，且 VL 判断为满版密集小元素图案时，后端生成目标比例引导图后再调用同一 ComfyUI 工作流。",
+            "seed_version": 3,
         },
     ),
     BusinessCapabilitySeed(
@@ -967,10 +973,20 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "fields": [
                 _field("imageUrl", "主图 URL Image URL", field_type="image", required=True, description="需要编辑的主图；测评端上传后会自动落 OSS。"),
                 _field("editSkill", "改图技能 Edit Skill", field_type="select", required=False, default="local_modify", description="首版统一叫改图，下方按技能分流。", options=IMAGE_EDIT_SKILL_OPTIONS),
-                _field("instruction", "编辑指令 Instruction", field_type="textarea", required=True, description="用业务语言描述想改哪里、改成什么；中台会结合标注和参考图编译。"),
+                _field("instruction", "编辑指令 Instruction", field_type="textarea", required=False, description="用业务语言描述想改哪里、改成什么；扩展画布可不填，默认自然补全外扩区域。"),
                 _field("selectionHints", "区域标注 Selection Hints", field_type="json", required=False, description="点选、框选、圆选或手绘区域提示；只是告诉模型看哪里，不等同于蒙版。"),
                 _field("referenceImages", "参考图 Reference Images", field_type="json", required=False, description="参考图列表；参考图替换和补色校正必须提供。"),
                 _field("maskUrl", "蒙版 URL Mask URL", field_type="image", required=False, description="高级模式使用；只允许一个最终 alpha mask，尺寸必须和主图一致。"),
+                _field("targetWidth", "扩展画布目标宽度 Target Width", field_type="integer", required=False, description="扩展画布模式使用；不传时由左右扩展像素计算，并向上取整到 16 的倍数。"),
+                _field("targetHeight", "扩展画布目标高度 Target Height", field_type="integer", required=False, description="扩展画布模式使用；不传时由上下扩展像素计算，并向上取整到 16 的倍数。"),
+                _field("anchor", "扩展锚点 Anchor", field_type="select", required=False, default="center", description="扩展画布模式使用；默认居中。", options=[
+                    {"label": "居中", "value": "center"},
+                    {"label": "靠左", "value": "left"},
+                    {"label": "靠右", "value": "right"},
+                    {"label": "靠上", "value": "top"},
+                    {"label": "靠下", "value": "bottom"},
+                ]),
+                _field("preserveOriginal", "保持原图 Preserve Original", field_type="switch", required=False, default=True, description="扩展画布模式默认开启，尽量保持原图区域不变。"),
                 _field("size", "输出尺寸 Size", field_type="select", default="auto", description="默认跟随原图/自动；2K 以上高成本高耗时。高级自定义尺寸由后端按官方约束校验。", options=GPT_IMAGE2_SIZE_OPTIONS),
                 _field("quality", "质量档位 Quality", field_type="select", default="auto", description="preview=快速预览，production=正式候选，premium=高质量高成本。", options=IMAGE_EDIT_QUALITY_OPTIONS),
                 _field("output_format", "输出格式 Output Format", field_type="select", default="png", description="默认 PNG。", options=IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS),

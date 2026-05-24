@@ -405,3 +405,46 @@ def test_flux_strong_hq_softstyle_fission_colorlock_uses_v4_risk_route_and_contr
     assert error_conservative is None
     assert overrides_conservative is not None
     assert overrides_conservative["24"] == {"steps": 8, "denoise": 0.52}
+
+
+def test_flux_strong_hq_softstyle_fission_aspect_recompose_uses_fixed_controls():
+    graph = {
+        "10": {"inputs": {"image": "old.png"}},
+        "12": {"inputs": {"width": ["11", 0], "height": ["11", 1]}},
+        "13": {"inputs": {"text1": "__PROMPT__", "text2": "__IMAGE_DESC__"}},
+        "20": {"inputs": {"weight": "__IPADAPTER_WEIGHT__"}},
+        "21": {"inputs": {"cfg": "__CFG__"}},
+        "22": {"inputs": {"noise_seed": "__SEED__"}},
+        "24": {"inputs": {"steps": "__STEPS__", "denoise": "__DENOISE__"}},
+        "27": {"inputs": {"batch_size": "__BATCH_SIZE__"}},
+        "30": {"inputs": {"method": "__COLORMATCH_METHOD__", "strength": "__COLORMATCH_STRENGTH__"}},
+        "31": {"inputs": {"filename_prefix": "05_FluxStrongHQSoftStyle"}},
+    }
+    context = _make_context("flux_strong_hq_softstyle_fission", graph)
+    adapter = ComfyUIExecutorAdapter()
+    adapter._upload_image_for_comfyui_loadimage = lambda **_: "staged-guide.png"  # type: ignore[method-assign]
+
+    overrides, error = adapter._build_flux_strong_hq_softstyle_fission_inputs(
+        {
+            "image_url": "https://example.com/fission-aspect-guide.png",
+            "prompt": "aspect recompose",
+            "image_desc": "keep density",
+            "width": 1600,
+            "height": 896,
+            "aspect_recompose_route": "pattern_recompose",
+            "aspect_recompose_denoise": 0.68,
+            "reference_lock": 0.34,
+            "color_lock": 0.95,
+            "colormatch_method": "mkl",
+        },
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["10"] == {"image": "staged-guide.png"}
+    assert overrides["12"] == {"width": 1600, "height": 896, "method": "fill / crop"}
+    assert overrides["20"] == {"weight": 0.34}
+    assert overrides["24"] == {"steps": 8, "denoise": 0.68}
+    assert overrides["30"] == {"method": "mkl", "strength": 0.95}

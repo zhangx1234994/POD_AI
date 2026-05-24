@@ -144,6 +144,24 @@ def test_qwen2512_text_enhance_negative_prompt_does_not_suppress_text():
     assert "broken glyphs" in negative_prompt
 
 
+def test_flux2_klein_9b_outpaint_uses_20260525_scale_route():
+    graph = load_comfy_workflow("flux2_klein_9b_outpaint")
+
+    assert graph["9"]["inputs"]["filename_prefix"] == "Flux2-Klein"
+    assert graph["76"]["class_type"] == "LoadImage"
+    assert graph["102"]["class_type"] == "ImagePadForOutpaint"
+    assert graph["102"]["inputs"]["feathering"] == 20
+    assert graph["104"]["class_type"] == "DrawMaskOnImage"
+    assert graph["104"]["inputs"]["device"] == "gpu"
+    assert graph["121"]["class_type"] == "ImageScaleToTotalPixels"
+    assert graph["119"]["inputs"]["image"] == ["121", 0]
+    assert graph["125"]["inputs"]["pixels"] == ["121", 0]
+    assert graph["130"]["inputs"]["image"] == ["109", 0]
+    assert "123" not in graph
+    assert "133" not in graph
+    assert "ColorMatch" not in {node.get("class_type") for node in graph.values()}
+
+
 def test_flux_strong_hq_softstyle_fission_workflow_is_stored_with_output_node():
     graph = load_comfy_workflow("flux_strong_hq_softstyle_fission")
 

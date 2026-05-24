@@ -4,10 +4,12 @@ import { Alert, Button, Input, Select, Space, Textarea, Typography } from 'tdesi
 import { ImageEditIcon } from 'tdesign-icons-react';
 import './image-edit.css';
 import {
+  DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS,
   formatEditorToolLabel,
   formatEditorMarkMention,
   formatEditorReferenceMention,
   getImageEditQuickPrompts,
+  IMAGE_EDIT_OUTPAINT_ANCHOR_OPTIONS,
   IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS,
   IMAGE_EDIT_QUALITY_OPTIONS,
   IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS,
@@ -16,7 +18,7 @@ import {
   normalizeImageEditQuality,
   summarizeEditorMarkGeometry,
 } from './model';
-import type { ImageEditMark, ImageEditPoint, ImageEditTool } from './model';
+import type { ImageEditMark, ImageEditOutpaintSettings, ImageEditPoint, ImageEditTool } from './model';
 
 export type ImageEditWorkbenchValue = {
   imageUrl: string;
@@ -25,6 +27,7 @@ export type ImageEditWorkbenchValue = {
   marks: ImageEditMark[];
   referenceUrls: string[];
   maskUrl: string;
+  outpaint: ImageEditOutpaintSettings;
   size: string;
   quality: string;
   outputFormat: string;
@@ -55,6 +58,14 @@ const getMarkColor = (tool: ImageEditTool): string => {
   if (tool === 'circle') return '#8b5cf6';
   return '#16a34a';
 };
+
+const clampOutpaintPixels = (value: unknown): number => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(2048, Math.round(number)));
+};
+
+const roundUpTo16 = (value: number): number => Math.ceil(Math.max(1, value) / 16) * 16;
 
 export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
   const {
@@ -102,6 +113,56 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     () => IMAGE_EDIT_SKILL_OPTIONS.find((item) => item.value === selectedSkill) || IMAGE_EDIT_SKILL_OPTIONS[0],
     [selectedSkill],
   );
+  const isCanvasOutpaint = selectedSkill === 'canvas_outpaint';
+  const outpaint = useMemo(
+    () => ({
+      ...DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS,
+      ...(value.outpaint || {}),
+      expandLeft: clampOutpaintPixels((value.outpaint || {}).expandLeft ?? DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.expandLeft),
+      expandRight: clampOutpaintPixels((value.outpaint || {}).expandRight ?? DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.expandRight),
+      expandTop: clampOutpaintPixels((value.outpaint || {}).expandTop ?? DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.expandTop),
+      expandBottom: clampOutpaintPixels((value.outpaint || {}).expandBottom ?? DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.expandBottom),
+      anchor: String((value.outpaint || {}).anchor || DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.anchor),
+      preserveOriginal: Boolean((value.outpaint || {}).preserveOriginal ?? DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.preserveOriginal),
+    }),
+    [value.outpaint],
+  );
+  const outpaintPreview = useMemo(() => {
+    const sourceW = Math.round(imageMeta.naturalW || 0);
+    const sourceH = Math.round(imageMeta.naturalH || 0);
+    if (!sourceW || !sourceH) return null;
+    const requestedW = sourceW + outpaint.expandLeft + outpaint.expandRight;
+    const requestedH = sourceH + outpaint.expandTop + outpaint.expandBottom;
+    const targetW = roundUpTo16(requestedW);
+    const targetH = roundUpTo16(requestedH);
+    const extraW = targetW - requestedW;
+    const extraH = targetH - requestedH;
+    const actualLeft = outpaint.expandLeft + (outpaint.expandLeft === outpaint.expandRight ? Math.floor(extraW / 2) : 0);
+    const actualRight = outpaint.expandRight + (outpaint.expandLeft === outpaint.expandRight ? extraW - Math.floor(extraW / 2) : extraW);
+    const actualTop = outpaint.expandTop + (outpaint.expandTop === outpaint.expandBottom ? Math.floor(extraH / 2) : 0);
+    const actualBottom = outpaint.expandBottom + (outpaint.expandTop === outpaint.expandBottom ? extraH - Math.floor(extraH / 2) : extraH);
+    const displaySourceW = imageMeta.displayW || sourceW;
+    const displaySourceH = imageMeta.displayH || sourceH;
+    const scale = Math.min(1, displaySourceW / sourceW, displaySourceH / sourceH);
+    return {
+      sourceW,
+      sourceH,
+      targetW,
+      targetH,
+      requestedW,
+      requestedH,
+      actualLeft,
+      actualRight,
+      actualTop,
+      actualBottom,
+      displayTargetW: Math.max(displaySourceW, Math.round(targetW * scale)),
+      displayTargetH: Math.max(displaySourceH, Math.round(targetH * scale)),
+      displaySourceW: Math.round(sourceW * scale),
+      displaySourceH: Math.round(sourceH * scale),
+      displayLeft: Math.round(actualLeft * scale),
+      displayTop: Math.round(actualTop * scale),
+    };
+  }, [imageMeta.displayH, imageMeta.displayW, imageMeta.naturalH, imageMeta.naturalW, outpaint]);
   const quickPrompts = useMemo(() => getImageEditQuickPrompts(selectedSkill), [selectedSkill]);
   const referenceRequired = IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS.has(selectedSkill);
   const outputSize = String(value.size || 'auto');
@@ -230,6 +291,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
 
   const handlePointerDown = (evt: ReactMouseEvent) => {
     if (!value.imageUrl.trim()) return;
+    if (isCanvasOutpaint) return;
     const displayPoint = getDisplayPoint(evt);
     if (!displayPoint) return;
     const point = toOrigPoint(displayPoint);
@@ -317,6 +379,20 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     setReferenceZoom(1);
     if (referenceRequired && nextReferences.length === 0) setReferenceFormOpen(true);
     emit({ referenceUrls: nextReferences });
+  };
+
+  const updateOutpaint = (patch: Partial<ImageEditOutpaintSettings>) => {
+    emit({ outpaint: { ...outpaint, ...patch } });
+  };
+
+  const applyOutpaintPreset = (patch: Partial<ImageEditOutpaintSettings>) => {
+    updateOutpaint({
+      expandLeft: DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.expandLeft,
+      expandRight: DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.expandRight,
+      expandTop: DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.expandTop,
+      expandBottom: DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS.expandBottom,
+      ...patch,
+    });
   };
 
   const updateInstruction = (next: string) => {
@@ -483,29 +559,106 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                 />
               </div>
 
-              <div className="podi-image-edit-workbench__tool-row">
-                {(['point', 'rect', 'circle', 'freehand'] as ImageEditTool[]).map((tool) => (
-                  <Button
-                    key={tool}
-                    size="small"
-                    theme={activeTool === tool ? 'primary' : 'default'}
-                    variant={activeTool === tool ? 'base' : 'outline'}
-                    onClick={() => setActiveTool(tool)}
-                  >
-                    {formatEditorToolLabel(tool)}
+              {isCanvasOutpaint ? (
+                <div className="podi-image-edit-workbench__outpaint-panel">
+                  <div className="podi-image-edit-workbench__outpaint-head">
+                    <div>
+                      <Typography.Text strong>扩展画布</Typography.Text>
+                      <Typography.Text theme="secondary">
+                        直接设置外扩像素，中台会生成目标画布和蒙版，只补全外扩区域。
+                      </Typography.Text>
+                    </div>
+                    <Select
+                      value={outpaint.anchor}
+                      options={IMAGE_EDIT_OUTPAINT_ANCHOR_OPTIONS}
+                      onChange={(next) => updateOutpaint({ anchor: String(next || 'center') })}
+                    />
+                  </div>
+                  <div className="podi-image-edit-workbench__outpaint-presets">
+                    <Button size="small" variant="outline" onClick={() => applyOutpaintPreset({ expandLeft: 128, expandRight: 128, expandTop: 128, expandBottom: 128 })}>
+                      四周 +128
+                    </Button>
+                    <Button size="small" variant="outline" onClick={() => applyOutpaintPreset({ expandLeft: 256, expandRight: 256, expandTop: 256, expandBottom: 256 })}>
+                      四周 +256
+                    </Button>
+                    <Button size="small" variant="outline" onClick={() => applyOutpaintPreset({ expandLeft: 512, expandRight: 512, expandTop: 512, expandBottom: 512 })}>
+                      四周 +512
+                    </Button>
+                    <Button size="small" variant="outline" onClick={() => applyOutpaintPreset({ expandLeft: 0, expandRight: 512, expandTop: 0, expandBottom: 0, anchor: 'left' })}>
+                      向右 +512
+                    </Button>
+                    <Button size="small" variant="outline" onClick={() => applyOutpaintPreset({ expandLeft: 512, expandRight: 0, expandTop: 0, expandBottom: 0, anchor: 'right' })}>
+                      向左 +512
+                    </Button>
+                    <Button size="small" variant="outline" onClick={() => applyOutpaintPreset({ expandLeft: 0, expandRight: 0, expandTop: 0, expandBottom: 512, anchor: 'top' })}>
+                      向下 +512
+                    </Button>
+                    <Button size="small" variant="outline" onClick={() => applyOutpaintPreset({ expandLeft: 0, expandRight: 0, expandTop: 512, expandBottom: 0, anchor: 'bottom' })}>
+                      向上 +512
+                    </Button>
+                  </div>
+                  <div className="podi-image-edit-workbench__outpaint-grid">
+                    {[
+                      ['左', 'expandLeft'],
+                      ['右', 'expandRight'],
+                      ['上', 'expandTop'],
+                      ['下', 'expandBottom'],
+                    ].map(([label, key]) => (
+                      <label key={key}>
+                        <span>{label}</span>
+                        <Input
+                          value={String(outpaint[key as keyof ImageEditOutpaintSettings] ?? 0)}
+                          onChange={(next) => updateOutpaint({ [key]: clampOutpaintPixels(next) } as Partial<ImageEditOutpaintSettings>)}
+                          placeholder="像素"
+                        />
+                      </label>
+                    ))}
+                    <label className="is-switch">
+                      <span>保持原图</span>
+                      <Button
+                        size="small"
+                        theme={outpaint.preserveOriginal ? 'primary' : 'default'}
+                        variant={outpaint.preserveOriginal ? 'base' : 'outline'}
+                        onClick={() => updateOutpaint({ preserveOriginal: !outpaint.preserveOriginal })}
+                      >
+                        {outpaint.preserveOriginal ? '开启' : '关闭'}
+                      </Button>
+                    </label>
+                  </div>
+                  {outpaintPreview ? (
+                    <div className="podi-image-edit-workbench__outpaint-summary">
+                      实际输出 {outpaintPreview.targetW}×{outpaintPreview.targetH}；左 {outpaintPreview.actualLeft} / 右 {outpaintPreview.actualRight} / 上 {outpaintPreview.actualTop} / 下 {outpaintPreview.actualBottom}
+                      。尺寸已按 16 倍数取整。
+                    </div>
+                  ) : (
+                    <div className="podi-image-edit-workbench__outpaint-summary">上传主图后显示实际输出尺寸。</div>
+                  )}
+                </div>
+              ) : (
+                <div className="podi-image-edit-workbench__tool-row">
+                  {(['point', 'rect', 'circle', 'freehand'] as ImageEditTool[]).map((tool) => (
+                    <Button
+                      key={tool}
+                      size="small"
+                      theme={activeTool === tool ? 'primary' : 'default'}
+                      variant={activeTool === tool ? 'base' : 'outline'}
+                      onClick={() => setActiveTool(tool)}
+                    >
+                      {formatEditorToolLabel(tool)}
+                    </Button>
+                  ))}
+                  <Button size="small" variant="outline" onClick={() => emit({ marks: [] })}>
+                    清空区域
                   </Button>
-                ))}
-                <Button size="small" variant="outline" onClick={() => emit({ marks: [] })}>
-                  清空区域
-                </Button>
-                <Typography.Text theme="secondary">
-                  {value.marks.length > 0 ? `已标注 ${value.marks.length} 个区域` : '可不标注，模型会按整图理解'}
-                </Typography.Text>
-              </div>
+                  <Typography.Text theme="secondary">
+                    {value.marks.length > 0 ? `已标注 ${value.marks.length} 个区域` : '可不标注，模型会按整图理解'}
+                  </Typography.Text>
+                </div>
+              )}
 
               <div
                 ref={stageRef}
-                className={`podi-image-edit-workbench__stage ${value.imageUrl.trim() ? '' : 'is-empty'}`}
+                className={`podi-image-edit-workbench__stage ${value.imageUrl.trim() ? '' : 'is-empty'}${isCanvasOutpaint ? ' is-outpaint' : ''}`}
                 onMouseDown={handlePointerDown}
                 onMouseMove={handlePointerMove}
                 onMouseUpCapture={finalizeDrawing}
@@ -513,21 +666,41 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                 onMouseLeave={finalizeDrawing}
               >
                 {value.imageUrl.trim() ? (
-                  <>
-                    <img
-                      ref={imageRef}
-                      src={value.imageUrl.trim()}
-                      alt="主图"
-                      onLoad={syncImageMeta}
-                      onClick={(event) => {
-                        if (activeTool !== 'point') return;
-                        event.stopPropagation();
-                      }}
-                    />
-                    <svg width={imageMeta.displayW || '100%'} height={imageMeta.displayH || '100%'}>
-                      {[...value.marks, ...(drawing && !value.marks.some((mark) => mark.id === drawing.id) ? [drawing] : [])].map(renderMark)}
-                    </svg>
-                  </>
+                  isCanvasOutpaint && outpaintPreview ? (
+                    <div
+                      className="podi-image-edit-workbench__outpaint-stage"
+                      style={{ width: outpaintPreview.displayTargetW, height: outpaintPreview.displayTargetH }}
+                    >
+                      <div
+                        className="podi-image-edit-workbench__outpaint-source"
+                        style={{
+                          left: outpaintPreview.displayLeft,
+                          top: outpaintPreview.displayTop,
+                          width: outpaintPreview.displaySourceW,
+                          height: outpaintPreview.displaySourceH,
+                        }}
+                      >
+                        <img ref={imageRef} src={value.imageUrl.trim()} alt="主图" onLoad={syncImageMeta} />
+                      </div>
+                      <span className="podi-image-edit-workbench__outpaint-badge">透明区域会由模型补全</span>
+                    </div>
+                  ) : (
+                    <>
+                      <img
+                        ref={imageRef}
+                        src={value.imageUrl.trim()}
+                        alt="主图"
+                        onLoad={syncImageMeta}
+                        onClick={(event) => {
+                          if (activeTool !== 'point') return;
+                          event.stopPropagation();
+                        }}
+                      />
+                      <svg width={imageMeta.displayW || '100%'} height={imageMeta.displayH || '100%'}>
+                        {[...value.marks, ...(drawing && !value.marks.some((mark) => mark.id === drawing.id) ? [drawing] : [])].map(renderMark)}
+                      </svg>
+                    </>
+                  )
                 ) : (
                   <div className="podi-image-edit-workbench__empty">
                     <Typography.Text strong>先提供一张主图</Typography.Text>
@@ -595,7 +768,11 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                     value={value.instruction}
                     onChange={(next) => updateInstruction(String(next))}
                     autosize={{ minRows: 3, maxRows: 6 }}
-                    placeholder="例如：把 @标注1 改成蓝色陶瓷材质，其他区域保持不变。输入 @ 选择标注，输入 # 选择参考图。"
+                    placeholder={
+                      isCanvasOutpaint
+                        ? '可选：说明外扩区域希望长什么样。不填则自然延展原图背景、纹理和光照。'
+                        : '例如：把 @标注1 改成蓝色陶瓷材质，其他区域保持不变。输入 @ 选择标注，输入 # 选择参考图。'
+                    }
                     onFocus={() => {
                       if (/@[^\s@#]*$/.test(value.instruction)) setMentionMenu('mark');
                       if (/#[^\s@#]*$/.test(value.instruction)) setMentionMenu('reference');
