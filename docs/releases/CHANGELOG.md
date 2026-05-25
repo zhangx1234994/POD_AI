@@ -1,6 +1,61 @@
 # PODI 版本记录
 
-## v0.4.0 - 规划中
+## v0.4.0 - 2026-05-25
+
+基线 commit：`8033c843`
+
+Git tag：`v0.4.0`
+
+发布范围：
+
+- 114 控制面 backend。
+- 管理端静态站点。
+- 测评端静态站点。
+- `docs/`、`scripts/` 发布与巡检材料。
+
+未更新范围：
+
+- 不更新 4090/5090/ComfyUI 能力机。
+- 不调整扩图路由，不把扩图固定到 4090。
+
+主要变更：
+
+- 业务编排工作台产品化版本完成阶段封版：业务命名与版本族、编排图证据、接口调用中心、runId 排障、控制点去重继续收敛。
+- 图编辑组件型业务能力完成 114 版本封版验证，`canvas_outpaint` 纳入真实巡检与交付包。
+- 发布门禁修正历史失败判断：封版阻断使用未恢复失败，不再因后续已成功覆盖的历史失败误阻断。
+- ComfyUI 158 扩图节点完成线上兼容复核，当前按节点侧修复结果继续参与中台路由。
+
+验证结果：
+
+- `origin/main` 与本地 `HEAD` 一致：`8033c843`。
+- 线上真实业务巡检通过：花纹提取、图裂变、扩图均 `succeeded`。
+- 图编辑真实样例通过：`canvas_outpaint_all_sides`，runId `759f0310c01c4eaf9787aaec4ff93f95`。
+- 158 扩图指定节点验证通过：`flux2_klein_9b_outpaint`，logId `46261`。
+- ComfyUI 兼容检查通过：`total=17 ok=17 warnings=0 failed=0 servers=2`。
+- 发布 smoke 通过：队列容量 `20`、业务使用中心 `unresolved=0`、评测运维健康。
+- systemd 真实巡检重新执行成功：`podi-business-live-patrol.service` 最近一次执行成功，6 个生产评测工作流全部成功。
+- 管理端主要页面走查通过：业务能力、ComfyUI 资源、API 暴露、能力评测无浏览器侧 4xx/5xx 或明显运行时报错。
+
+证据记录：
+
+- `docs/testing/2026-05-25-v0.4.0-114-seal-validation.md`
+- `docs/testing/2026-05-25-image-edit-release-candidate-114.md`
+- 线上报告：`/srv/pod/deliverables/release_patrol/core_business_8033c843.json`
+- 线上报告：`/srv/pod/deliverables/image_edit_patrol_seal/`
+- 线上报告：`/srv/pod/reports/health-watch/eval_production_20260525T123505Z.json`
+
+已知保留风险：
+
+- 商业报表历史账单问题当前仍按 observed-only 观察，不作为本版本阻断。
+- `legacy-seamless-fission` 仍为历史 attention 项，不影响本轮核心业务封版。
+- 权限治理类风险后续继续按 auth/billing 路线处理，本版本未扩大鉴权面。
+
+下个版本方向：
+
+- 发布后 30-60 分钟观察接口错误率、业务运行失败率、ComfyUI 队列和 OSS 回填。
+- 继续推进页面文案与视觉降噪、业务方组件更新方式、第三方能力治理和计费治理。
+
+## v0.4.0 - 规划记录
 
 目标：业务编排工作台产品化。
 

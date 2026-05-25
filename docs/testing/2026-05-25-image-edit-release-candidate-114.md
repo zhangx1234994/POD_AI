@@ -102,6 +102,17 @@ BACKEND_URL=http://127.0.0.1:8099 ADMIN_URL=http://127.0.0.1:8199 EVAL_URL=http:
 
 ## 剩余风险
 
-- 5090 ComfyUI 扩图 `DrawMaskOnImage.opacity` 节点差异未在本次处理，继续由节点侧修复。
+- 5090 ComfyUI 扩图 `DrawMaskOnImage.opacity` 节点差异未通过中台路由规避；节点侧修复后，158 指定节点扩图已在封版前复核成功。
 - 测评端历史列表轮询仍偏重，作为后续性能/体验优化项。
 - 源码组件分发尚未独立打包成 npm 包；当前对业务方优先推荐托管组件或源码目录交付。
+
+## 封版补充
+
+2026-05-25 已纳入 `v0.4.0` 114 封版验证，详见：
+
+- `docs/testing/2026-05-25-v0.4.0-114-seal-validation.md`
+
+图编辑 `canvas_outpaint_all_sides` 线上真实样例已成功：
+
+- runId：`759f0310c01c4eaf9787aaec4ff93f95`
+- 状态：succeeded
