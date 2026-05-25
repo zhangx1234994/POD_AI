@@ -27,6 +27,19 @@
 
 接口枚举必须和中台业务 API 保持一致：质量档位只使用 `auto / preview / production / premium`，输出格式只使用 `png / jpeg / webp`，尺寸字段支持预设值或符合后端约束的 `宽x高`。
 
+## 配置与升级
+
+业务方源码集成时，页面启动应先读取 `/api/business/image-edit/component-config`：
+
+- `skills` 决定可展示的改图模式。
+- `outpaint` 决定扩展画布默认值和锚点选项。
+- `sizes/customSizeConstraints` 决定尺寸下拉和自定义尺寸校验。
+- `qualityLevels/outputFormats` 决定质量和格式选项。
+- `copy` 决定占位文案和提示说明。
+- `component.componentVersion` 用于判断源码组件是否需要升级。
+
+只改配置的更新不应要求业务方重新发版。涉及画布交互、标注协议或提交 payload 结构的变化，才需要升级源码组件。中台托管入口 `/image-edit` 始终跟随中台发版自动更新，是业务方最省维护成本的接入方式。
+
 ## 扩展画布模式
 
 `canvas_outpaint` 是图编辑里的单图扩展画布模式，不是批量扩图业务。

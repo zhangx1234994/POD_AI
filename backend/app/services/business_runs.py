@@ -1310,7 +1310,6 @@ class BusinessRunService:
                         BusinessRun.ability_task_id,
                         BusinessRun.ability_log_id,
                         BusinessRun.request_payload,
-                        BusinessRun.result_payload,
                         BusinessRun.image_urls,
                         BusinessRun.video_urls,
                         BusinessRun.texts,
@@ -8952,12 +8951,14 @@ class BusinessRunService:
             row,
             session=None,
             steps=steps,
+            include_payload_counts=False,
         )
         flow_summary = self._build_run_flow_summary(
             row,
             steps=steps,
             route_info=route_info,
             session=None,
+            include_payload_counts=False,
         )
         return {
             "id": row.id,

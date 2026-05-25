@@ -825,13 +825,24 @@ def get_image_edit_component_config(
         "defaultVersion": "gpt-image2-editor-v1",
         "component": {
             "type": "image-edit-workbench",
+            "componentVersion": "2026.05.25-v1",
+            "configVersion": 2,
+            "minSourceComponentVersion": "2026.05.25-v1",
             "hostedMode": True,
             "sourceMode": True,
             "auth": "business_api_key",
+            "hostedPath": "/image-edit",
             "title": "图编辑",
             "defaultSkill": "local_modify",
             "defaultSize": "auto",
             "defaultQuality": "auto",
+        },
+        "updatePolicy": {
+            "recommended": "hosted",
+            "hosted": "业务方使用中台托管页时，中台发版后自动获得最新交互和能力配置。",
+            "source": "业务方源码集成时，应启动时读取 component-config，不要硬编码技能、尺寸、质量、输出格式和文案。",
+            "configurableKeys": ["skills", "outpaint", "sizes", "customSizeConstraints", "qualityLevels", "outputFormats", "copy"],
+            "breakingChange": "涉及 selectionHints/mask/referenceImages 等协议结构变化时，会升级 componentVersion，并需要业务方更新源码组件。",
         },
         "skills": [
             {

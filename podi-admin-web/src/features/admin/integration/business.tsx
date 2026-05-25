@@ -91,6 +91,30 @@ const businessSourceLabel = (value?: string | null) => {
   return text;
 };
 
+const businessRunIsInternalOrEvalSource = (row?: Pick<BusinessRun, 'source' | 'channel' | 'noChargeReason'> | null) => {
+  const source = String(row?.source || '').trim().toLowerCase();
+  const channel = String(row?.channel || '').trim().toLowerCase();
+  const noChargeReason = String(row?.noChargeReason || '').trim().toLowerCase();
+  return (
+    source === 'eval' ||
+    source === 'eval-web' ||
+    source === 'admin' ||
+    source === 'admin-test' ||
+    channel.includes('patrol') ||
+    channel.includes('smoke') ||
+    channel.includes('internal') ||
+    noChargeReason.includes('internal') ||
+    noChargeReason.includes('patrol')
+  );
+};
+
+const businessRunUsesVendorModelChannel = (
+  row?: Pick<BusinessRun, 'abilityProvider' | 'vendorModelProvider' | 'vendorModelName'> | null,
+) => {
+  const provider = String(row?.vendorModelProvider || row?.abilityProvider || '').trim().toLowerCase();
+  return Boolean(row?.vendorModelName || ['openai', 'openai_compatible', 'kie', 'volcengine', 'baidu'].includes(provider));
+};
+
 const businessGovernanceIssueLabel = (value?: string | null) => {
   const labels: Record<string, string> = {
     BUSINESS_GOVERNANCE_PRIMARY_ABILITY_MISSING: '未绑定主能力',
@@ -1642,6 +1666,8 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
   const executorId = recordText(executor, 'id', '');
   const executorType = recordText(executor, 'type', '');
   const executorOk = hasBusinessEvidenceValue(executorName) || hasBusinessEvidenceValue(executorId);
+  const vendorModelChannel = !executorOk && businessRunUsesVendorModelChannel(detail);
+  const vendorModelLabel = [detail.vendorModelProvider || detail.abilityProvider, detail.vendorModelName].filter(Boolean).join(' · ');
 
   const imageCount = recordNumber(output, 'imageCount', detail.imageUrls?.length || 0);
   const videoCount = recordNumber(output, 'videoCount', detail.videoUrls?.length || 0);
@@ -1686,10 +1712,14 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
     },
     {
       title: '执行节点',
-      result: executorOk ? '已命中执行节点' : abilityOk && active ? '等待调度节点' : '未见执行节点',
-      detail: executorName || executorId || '未记录节点',
-      hint: executorOk ? [formatShortBusinessId(executorId), executorType].filter(Boolean).join(' · ') : '需检查节点健康、标签、并发和路由规则。',
-      theme: executorOk ? 'success' : failed && abilityOk ? 'danger' : abilityOk ? 'warning' : 'default',
+      result: executorOk ? '已命中执行节点' : vendorModelChannel ? '第三方模型通道' : abilityOk && active ? '等待调度节点' : '未见执行节点',
+      detail: executorName || executorId || vendorModelLabel || '未记录节点',
+      hint: executorOk
+        ? [formatShortBusinessId(executorId), executorType].filter(Boolean).join(' · ')
+        : vendorModelChannel
+          ? '该任务走模型服务通道，不一定绑定固定执行节点。'
+          : '需检查节点健康、标签、并发和路由规则。',
+      theme: executorOk || vendorModelChannel ? 'success' : failed && abilityOk ? 'danger' : abilityOk ? 'warning' : 'default',
     },
     {
       title: '结果入库',
@@ -1989,6 +2019,7 @@ const businessRunApiUsageTotal = (row?: BusinessRun | null) => Number(businessAp
 const businessRunApiUsageTheme = (row?: BusinessRun | null): 'success' | 'warning' | 'danger' | 'default' => {
   const summary = businessApiUsageSummary(row);
   if (Number(summary.errorCount || 0) > 0 || summary.issueCode === 'HAS_ERROR') return 'danger';
+  if (businessRunApiUsageTotal(row) <= 0 && businessRunIsInternalOrEvalSource(row)) return 'default';
   if (summary.needsAttention || businessRunApiUsageTotal(row) <= 0) return 'warning';
   return 'success';
 };
@@ -1996,7 +2027,7 @@ const businessRunApiUsageTheme = (row?: BusinessRun | null): 'success' | 'warnin
 const businessRunApiUsageLabel = (row?: BusinessRun | null) => {
   const summary = businessApiUsageSummary(row);
   const total = Number(summary.total || 0);
-  if (total <= 0) return '未记录入口调用';
+  if (total <= 0) return businessRunIsInternalOrEvalSource(row) ? '内部/测评提交' : '未记录入口调用';
   return [
     `入口 ${total}`,
     Number(summary.submitCount || 0) > 0 ? `提交 ${Number(summary.submitCount || 0)}` : '',
@@ -2011,6 +2042,7 @@ const businessRunApiUsageLabel = (row?: BusinessRun | null) => {
 const businessRunApiUsageHint = (row?: BusinessRun | null) => {
   const summary = businessApiUsageSummary(row);
   if (summary.issueHint) return summary.issueHint;
+  if (businessRunApiUsageTotal(row) <= 0 && businessRunIsInternalOrEvalSource(row)) return '内部巡检或测评端创建，通常没有外部入口调用日志。';
   if (businessRunApiUsageTotal(row) <= 0) return '未匹配到业务入口日志，可能是旧数据、后台补录或入口未打点。';
   if (Number(summary.errorCount || 0) > 0) return '入口或查询接口存在失败，打开详情确认具体接口和状态码。';
   return '业务入口和查询记录已关联到本次 runId。';
@@ -2219,13 +2251,18 @@ function BusinessRunApiUsageEvidenceCard({
   const items = Array.isArray(apiUsage?.items) ? apiUsage.items : [];
   const total = Number(summary.total || 0);
   const issueCode = summary.issueCode || (total > 0 ? 'OK' : 'NO_ENTRY_LOG');
-  const issueTheme = businessApiUsageIssueTheme(issueCode, summary.needsAttention);
+  const issueTheme = total <= 0 && businessRunIsInternalOrEvalSource(detail) ? 'default' : businessApiUsageIssueTheme(issueCode, summary.needsAttention);
   return (
     <Card bordered title="入口调用证据">
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
         <Alert
           theme={issueTheme === 'danger' ? 'error' : issueTheme === 'warning' ? 'warning' : 'info'}
-          message={summary.issueHint || '没有找到入口调用记录；如果这是旧数据或后台补录任务，可继续看下方处理步骤。'}
+          message={
+            summary.issueHint ||
+            (total <= 0 && businessRunIsInternalOrEvalSource(detail)
+              ? '这是内部巡检或测评端创建的任务，通常没有外部入口调用日志；排障时继续看版本、能力和结果链路。'
+              : '没有找到入口调用记录；如果这是旧数据或后台补录任务，可继续看下方处理步骤。')
+          }
         />
         <Row gutter={[12, 12]}>
           <Col span={4}>
@@ -2343,6 +2380,11 @@ function BusinessRunStepEvidenceCards({ steps }: { steps?: BusinessRunStep[] | n
           step.error ||
           (isPassiveStep ? '说明节点，无单独执行输出' : '暂无输出摘要');
         const executor = [step.executorName || step.executorId, step.executorType].filter(Boolean).join(' · ');
+        const executorLabel =
+          executor ||
+          (businessRunUsesVendorModelChannel({ abilityProvider: step.abilityProvider })
+            ? '第三方模型通道'
+            : '未记录执行节点');
         const ability = step.abilityName || step.abilityId || '未绑定具体能力';
         return (
           <div
@@ -2377,7 +2419,7 @@ function BusinessRunStepEvidenceCards({ steps }: { steps?: BusinessRunStep[] | n
                 <Typography.Text theme="secondary">结果</Typography.Text>
                 <Typography.Text theme={step.error ? 'error' : 'secondary'}>{result}</Typography.Text>
                 <Typography.Text theme="secondary">节点</Typography.Text>
-                <Typography.Text theme="secondary">{executor || '未记录执行节点'}</Typography.Text>
+                <Typography.Text theme="secondary">{executorLabel}</Typography.Text>
                 <Typography.Text theme="secondary">耗时成本</Typography.Text>
                 <Typography.Text theme="secondary">
                   {formatDurationMs(step.durationMs)} · {formatPriceValue(step.costAmount ?? undefined, step.currency ?? undefined)}

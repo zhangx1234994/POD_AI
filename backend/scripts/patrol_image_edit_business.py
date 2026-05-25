@@ -33,6 +33,7 @@ class ImageEditCase:
     edit_skill: str
     instruction: str
     selection_hints: list[dict[str, Any]]
+    extra_payload: dict[str, Any] | None = None
     needs_reference: bool = False
     needs_target: bool = False
 
@@ -101,6 +102,66 @@ IMAGE_EDIT_CASES: tuple[ImageEditCase, ...] = (
         selection_hints=[],
         needs_reference=True,
     ),
+    ImageEditCase(
+        key="canvas_outpaint_all_sides",
+        label="扩展画布 · 四周扩展",
+        edit_skill="canvas_outpaint",
+        instruction="自然补全四周外扩区域，保持原图纹理、光线和边缘连续，不要改变原图主体。",
+        selection_hints=[],
+        extra_payload={
+            "expand_left": 256,
+            "expand_right": 256,
+            "expand_top": 256,
+            "expand_bottom": 256,
+            "anchor": "center",
+            "preserveOriginal": True,
+        },
+    ),
+    ImageEditCase(
+        key="canvas_outpaint_left",
+        label="扩展画布 · 左侧扩展",
+        edit_skill="canvas_outpaint",
+        instruction="只补全左侧新增画布，让背景和纹理自然延续；原图区域保持稳定。",
+        selection_hints=[],
+        extra_payload={
+            "expand_left": 384,
+            "expand_right": 0,
+            "expand_top": 0,
+            "expand_bottom": 0,
+            "anchor": "right",
+            "preserveOriginal": True,
+        },
+    ),
+    ImageEditCase(
+        key="canvas_outpaint_horizontal",
+        label="扩展画布 · 横向双边扩展",
+        edit_skill="canvas_outpaint",
+        instruction="向左右两侧扩展画面，保持水平边缘连续和整体构图自然。",
+        selection_hints=[],
+        extra_payload={
+            "expand_left": 384,
+            "expand_right": 384,
+            "expand_top": 0,
+            "expand_bottom": 0,
+            "anchor": "center",
+            "preserveOriginal": True,
+        },
+    ),
+    ImageEditCase(
+        key="canvas_outpaint_vertical",
+        label="扩展画布 · 纵向双边扩展",
+        edit_skill="canvas_outpaint",
+        instruction="向上下两侧扩展画面，保持垂直方向纹理和光影自然衔接。",
+        selection_hints=[],
+        extra_payload={
+            "expand_left": 0,
+            "expand_right": 0,
+            "expand_top": 384,
+            "expand_bottom": 384,
+            "anchor": "center",
+            "preserveOriginal": True,
+        },
+    ),
 )
 
 
@@ -163,6 +224,8 @@ def _build_payload(
                 "role": "reference",
             }
         ]
+    if case.extra_payload:
+        payload.update(case.extra_payload)
     return payload
 
 
@@ -248,7 +311,15 @@ def main() -> int:
     parser.add_argument("--reference-image-url", default=os.getenv("PODI_IMAGE_EDIT_REFERENCE_URL"))
     parser.add_argument("--size", default="auto")
     parser.add_argument("--quality", default="preview", choices=["auto", "preview", "production", "premium"])
-    parser.add_argument("--cases", default="all", help="逗号分隔：local_modify,reference_element_transfer,remove_inpaint,color_reference_correction")
+    parser.add_argument(
+        "--cases",
+        default="all",
+        help=(
+            "逗号分隔：local_modify,reference_element_transfer,remove_inpaint,"
+            "color_reference_correction,canvas_outpaint_all_sides,canvas_outpaint_left,"
+            "canvas_outpaint_horizontal,canvas_outpaint_vertical"
+        ),
+    )
     parser.add_argument("--repeat", type=int, default=1, help="每个模式重复运行次数；封版真实样本建议设为 2。")
     parser.add_argument("--poll-interval", type=float, default=8.0)
     parser.add_argument("--timeout", type=float, default=360.0)

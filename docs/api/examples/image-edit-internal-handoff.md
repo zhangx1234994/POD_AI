@@ -44,8 +44,47 @@ X-PODI-API-Key: <中台生成的 key>
 
 | 方式 | 说明 | 当前建议 |
 | --- | --- | --- |
-| 中台托管组件 | 使用中台提供的图编辑工作台页面，统一升级和测试。 | 第一阶段优先用于内部测试和演示；托管路径为 `/image-edit`，会直接进入图编辑工作台并默认展开接入文档。 |
-| 源码组件集成 | 业务方把图编辑组件嵌入自己的页面，但仍调用中台 API。 | 当前组件源码已收敛到 `podi-eval-web/src/features/image-edit/`，封版后按这个目录抽包交付。 |
+| 中台托管组件 | 使用中台提供的图编辑工作台页面，统一升级和测试。 | 推荐优先使用；托管路径为 `/image-edit`，会直接进入图编辑工作台并默认展开接入文档。 |
+| 源码组件集成 | 业务方把图编辑组件嵌入自己的页面，但仍调用中台 API。 | 只建议在必须嵌入业务方自有页面、登录态或业务流程时使用；当前组件源码已收敛到 `podi-eval-web/src/features/image-edit/`，封版后按这个目录抽包交付。 |
+| 纯 API 接入 | 业务方自己做 UI，只调用提交和查询接口。 | 仅适合已有成熟画布/标注能力的业务方；必须按本文档的 `selectionHints/referenceImages/maskUrl` 协议提交。 |
+
+推荐顺序：
+
+1. 能接受跳转或内嵌托管页时，使用中台托管组件。这种方式业务方不需要更新前端代码，中台发版后自动获得新的模式、文案、校验和交互修复。
+2. 必须放进业务方系统页面时，使用源码组件集成。业务方只负责登录态、上传、提交、结果展示和业务流程编排；图编辑交互本体尽量不要改。
+3. 已有自研画布时，才使用纯 API 接入。业务方需要自己保证标注、蒙版、参考图引用和错误提示体验。
+
+## 3.1 组件配置与更新方式
+
+业务方不要把技能、尺寸、质量、输出格式和文案硬编码在自己的项目里。启动页面时先读取：
+
+```http
+GET /api/business/image-edit/component-config
+X-PODI-API-Key: <中台生成的 key>
+```
+
+该接口会返回：
+
+- `component.componentVersion`：组件协议版本。
+- `component.configVersion`：配置版本。
+- `component.hostedPath`：中台托管入口。
+- `skills`：当前可用改图模式。
+- `outpaint`：扩展画布默认值和锚点。
+- `sizes/customSizeConstraints`：尺寸选项和自定义尺寸约束。
+- `qualityLevels/outputFormats`：质量和输出格式。
+- `copy`：输入提示、蒙版说明、参考图说明。
+- `updatePolicy`：托管/源码两种接入的更新策略。
+
+更新策略：
+
+| 更新类型 | 示例 | 业务方动作 |
+| --- | --- | --- |
+| 配置更新 | 新增尺寸选项、调整文案、调整默认质量、调整扩图默认值 | 读取 `component-config` 的业务方无需改代码；托管组件自动生效。 |
+| 后端能力更新 | 默认版本切到新模型、提示词编译优化、OSS 回填优化、错误码优化 | 业务方仍调用同一个提交/查询接口，通常无需改代码；只需要关注发布说明和回归结果。 |
+| 组件交互更新 | 新增画布工具、优化标注操作、修复重复提交或结果残留 | 托管组件自动生效；源码组件需要按 `componentVersion` 更新组件包。 |
+| 协议破坏性变更 | `selectionHints`、`referenceImages`、`maskUrl` 结构变化 | 必须升级源码组件并同步联调；中台会提升 `componentVersion` 并保留兼容期。 |
+
+因此，对业务方最省心的接入是：托管组件或“源码组件 + 动态读取 component-config”。如果业务方复制源码后再硬编码枚举和文案，后续每次新增模式或参数都要他们改代码。
 
 组件负责收集用户交互：
 
@@ -425,7 +464,7 @@ curl -X POST "$PODI_BACKEND/api/business/runs/get" \
 - `POST /api/business/runs/get` 轻量结果可用，`detail=full` 可看到编译信息。
 - 测评端“图编辑”分类只显示图编辑工作台，不混入 ComfyUI/Coze 旧链路文案。
 - 管理端按 runId 能看到入口请求、GPT Image 2 调用、OSS 回填、成本和错误。
-- 至少 10 条真实 GPT Image 2 样本完成导出：五种技能各 2 条。
+- 至少 8 类真实 GPT Image 2 样本完成导出：旧四种改图模式，加 `canvas_outpaint` 四周扩、单边扩、横向双边扩和纵向双边扩；封版时可按关键模式重复 2 次。
 
 内部巡检可以使用脚本显式执行，不纳入每日默认巡检，避免无意消耗 GPT Image 2 额度：
 
@@ -435,7 +474,7 @@ PODI_BACKEND="https://你的中台域名" \
 PODI_BUSINESS_API_KEY="业务 Key" \
 python3 scripts/patrol_image_edit_business.py \
   --cases all \
-  --repeat 2 \
+  --repeat 1 \
   --quality preview \
   --detail full \
   --out-dir deliverables/image_edit_patrol
@@ -449,4 +488,4 @@ python3 scripts/patrol_image_edit_business.py \
 | `submit.response.json` | 提交响应，重点看 `runId/taskId/status`。 |
 | `poll.records.json` | 每次轮询 `/api/business/runs/get` 的过程记录。 |
 | `final.response.json` | 最终结果，包含结果图、错误、调试信息。 |
-| `summary.json` | 四种模式的整体结果汇总。 |
+| `summary.json` | 图编辑旧模式和扩展画布场景的整体结果汇总。 |

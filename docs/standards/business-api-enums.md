@@ -262,6 +262,9 @@
 | `IMAGE_EDIT_REFERENCE_REQUIRED` | 图编辑缺少参考图。 | 参考图替换或补色校正时补传 `referenceImages`。 |
 | `IMAGE_EDIT_TARGET_REQUIRED` | 图编辑缺少目标区域。 | 删除修补时补传 `selectionHints` 或 `maskUrl`。 |
 | `IMAGE_EDIT_SIZE_INVALID` | 图编辑尺寸非法。 | 使用预设尺寸或满足自定义尺寸约束。 |
+| `IMAGE_EDIT_CANVAS_TOO_SMALL` | 扩展画布目标尺寸过小。 | 调整扩展边距或目标尺寸，确保目标画布能容纳原图。 |
+| `IMAGE_EDIT_CANVAS_PLACEMENT_INVALID` | 扩展画布原图放置非法。 | 检查 `anchor/placementX/placementY`，确保原图不越界。 |
+| `IMAGE_EDIT_CANVAS_BUILD_FAILED` | 扩展画布或 mask 生成失败。 | 检查主图 URL 是否可访问；持续失败时提供 `runId` 给中台排查。 |
 | `IMAGE_EDIT_MASK_SIZE_MISMATCH` | 蒙版尺寸与主图不一致。 | 重新生成与主图同尺寸的 mask。 |
 | `IMAGE_EDIT_MASK_ALPHA_REQUIRED` | 蒙版缺少透明通道。 | 使用带 Alpha 通道的 mask。 |
 | `IMAGE_EDIT_QUALITY_INVALID` | 图编辑质量档位非法。 | 改用 `auto/preview/production/premium`。 |

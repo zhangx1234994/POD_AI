@@ -313,8 +313,13 @@ def test_image_edit_component_config_contract() -> None:
     assert data["businessKey"] == "image_edit"
     assert data["defaultVersion"] == "gpt-image2-editor-v1"
     assert data["component"]["type"] == "image-edit-workbench"
+    assert data["component"]["componentVersion"] == "2026.05.25-v1"
+    assert data["component"]["configVersion"] >= 2
+    assert data["component"]["hostedPath"] == "/image-edit"
     assert data["component"]["defaultSkill"] == "local_modify"
     assert data["component"]["auth"] == "business_api_key"
+    assert data["updatePolicy"]["recommended"] == "hosted"
+    assert "skills" in data["updatePolicy"]["configurableKeys"]
 
     skills = {item["value"]: item for item in data["skills"]}
     assert set(skills) == {

@@ -3831,6 +3831,9 @@ export function App() {
   const editorImageRef = useRef<HTMLImageElement | null>(null);
   const editorPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const editorRefUploadRef = useRef<HTMLInputElement | null>(null);
+  const runToolLockRef = useRef(false);
+  const [toolInputRevision, setToolInputRevision] = useState(0);
+  const [lastSubmittedToolInputRevision, setLastSubmittedToolInputRevision] = useState<number | null>(null);
 
   // Keep tool run history and global task list separate.
   // Otherwise, in-flight requests from one view can overwrite the other's list.
@@ -5141,6 +5144,8 @@ export function App() {
     setFormUrl('');
     setMultiRunInputs([]);
     setLatestTrialRuns([]);
+    setToolInputRevision(0);
+    setLastSubmittedToolInputRevision(null);
     setTextFissionPromptDraft(null);
     setTextFissionPromptLoading(false);
     autoFilledFissionSizeRef.current = null;
@@ -5542,16 +5547,24 @@ export function App() {
 
   const toAnchorId = (value: string) => `doc-cat-${String(value).replace(/\s+/g, '-')}`;
 
+  const markToolInputChanged = () => {
+    setToolInputRevision((prev) => prev + 1);
+    setLatestTrialRuns([]);
+  };
+
   const runTool = async () => {
-    if (isRunning) return;
+    if (isRunning || runToolLockRef.current) return;
     if (!selectedTool) return;
+    runToolLockRef.current = true;
     const url = formUrl.trim();
     const requiresImage = toolFields.some((f) => isPrimaryImageField(f.name));
     if (requiresImage && !url) {
+      runToolLockRef.current = false;
       pushNotice('error', '请先填写或上传图片 URL');
       return;
     }
     if (isAiEditor && !(isImageEditBusinessWorkflow && selectedImageEditSkill === 'canvas_outpaint') && !editorPrompt.trim()) {
+      runToolLockRef.current = false;
       pushNotice('error', isImageEditBusinessWorkflow ? '请先填写改图目标' : '请先填写提示词');
       return;
     }
@@ -5561,10 +5574,12 @@ export function App() {
         (selectedImageEditSkill === 'reference_element_transfer' || selectedImageEditSkill === 'color_reference_correction') &&
         editorRefs.length === 0
       ) {
+        runToolLockRef.current = false;
         pushNotice('error', '当前改图技能需要至少上传 1 张参考图。');
         return;
       }
       if (selectedImageEditSkill === 'remove_inpaint' && editorMarks.length === 0 && !maskUrl) {
+        runToolLockRef.current = false;
         pushNotice('error', '删除修补需要先在主图上标注要删除的位置，或提供一张蒙版。');
         return;
       }
@@ -5578,6 +5593,7 @@ export function App() {
           .filter((n) => Number.isFinite(n) && n > 0);
         const maxRef = nums.length > 0 ? Math.max(...nums) : 0;
         if (maxRef > refsCount) {
+          runToolLockRef.current = false;
                       pushNotice('error', `编辑指令引用了 #${maxRef}，但当前仅有 ${refsCount} 张参考图。`);
           return;
         }
@@ -5597,10 +5613,12 @@ export function App() {
       if (!v) missing.push((f as any).label || f.name);
     }
     if (missing.length > 0) {
+      runToolLockRef.current = false;
       pushNotice('error', `请补齐必填参数：${missing.join('、')}`);
       return;
     }
 
+    const submittedRevision = toolInputRevision;
     setIsRunning(true);
     try {
       const isDuotuRongheWorkflow = String((selectedTool as any)?.workflow_id || '').trim() === '7615600173695107072';
@@ -5795,6 +5813,7 @@ export function App() {
         throw new Error(failures[0] || '提交失败');
       }
       setTaskRuns((prev) => [...createdRuns, ...prev]);
+      setLastSubmittedToolInputRevision(submittedRevision);
       setLatestTrialRuns(createdTrials.filter((item) => item.runId));
       setToolRunPage(1);
       await loadRunsForTool(selectedTool.id, { page: 1 });
@@ -5810,6 +5829,7 @@ export function App() {
       console.error(err);
       pushNotice('error', String((err as any)?.message || err));
     } finally {
+      runToolLockRef.current = false;
       setIsRunning(false);
     }
   };
@@ -8205,6 +8225,7 @@ export function App() {
                       outputFormat: String((formParams as any).output_format || 'png'),
                     }}
                     onChange={(next) => {
+                      markToolInputChanged();
                       setFormUrl(next.imageUrl);
                       setEditorPrompt(next.instruction);
                       setEditorMarks(next.marks);
@@ -9156,7 +9177,13 @@ export function App() {
                   <Typography.Text theme="secondary">图片可放大预览；视频、文字/VL 和结构化结果会单独展示。下方历史可筛选/打标。</Typography.Text>
                 )}
                   {(() => {
-                    const latest = toolRuns[0] || null;
+                    const latestFromHistory = toolRuns[0] || null;
+                    const isCurrentInputSubmitted =
+                      !isImageEditBusinessWorkflow ||
+                      toolInputRevision === 0 ||
+                      lastSubmittedToolInputRevision === toolInputRevision;
+                    const latest = isCurrentInputSubmitted ? latestFromHistory : null;
+                    const staleLatest = !isCurrentInputSubmitted ? latestFromHistory : null;
                     const status = String(latest?.status || '');
                     const rawCount = Number((latest?.parameters_json as any)?.count);
                     const expectedCount =
@@ -9179,7 +9206,19 @@ export function App() {
                       <Card bordered title="当前运行状态">
                         {!latest ? (
                           <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                            <Alert theme="info" message="暂无记录（先在左侧运行一次）。" />
+                            <Alert
+                              theme={staleLatest ? 'warning' : 'info'}
+                              message={
+                                staleLatest
+                                  ? '当前参数已变更，上一条结果已隐藏。请重新提交后查看本次结果。'
+                                  : '暂无记录（先在左侧运行一次）。'
+                              }
+                            />
+                            {staleLatest ? (
+                              <Typography.Text theme="secondary">
+                                上一条测评记录：{staleLatest.id}，状态 {formatEvalStageStatus('final', String(staleLatest.status || ''))}。
+                              </Typography.Text>
+                            ) : null}
                             <Typography.Text theme="secondary">
                               提示：多数工作流 50~80s 出图；如长时间无输出，可点右上 debug_url 排查。
                             </Typography.Text>
@@ -9351,7 +9390,7 @@ export function App() {
                         {!latest ? (
                           <Card bordered title="输出">
                             <Typography.Text theme="secondary">
-                              暂无运行记录，先在左侧填写参数并点击“开始生成”。
+                              {staleLatest ? '当前参数已变更，重新提交后展示本次输出。' : '暂无运行记录，先在左侧填写参数并点击“开始生成”。'}
                             </Typography.Text>
                           </Card>
                         ) : status === 'queued' || status === 'running' ? (
