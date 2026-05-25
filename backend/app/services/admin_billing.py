@@ -16,6 +16,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from sqlalchemy import and_, inspect, select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import load_only
 
 from app.core.db import engine, get_session
 from app.models.integration import BusinessRun
@@ -47,6 +48,27 @@ _NOTIFICATION_CONFIG: dict[str, Any] = {
         }
     ]
 }
+
+
+_BUSINESS_RUN_BILLING_COLUMNS = (
+    BusinessRun.id,
+    BusinessRun.business_key,
+    BusinessRun.version,
+    BusinessRun.status,
+    BusinessRun.source,
+    BusinessRun.tenant_id,
+    BusinessRun.client_id,
+    BusinessRun.user_id,
+    BusinessRun.user_name,
+    BusinessRun.request_payload,
+    BusinessRun.error_message,
+    BusinessRun.billing_unit,
+    BusinessRun.currency,
+    BusinessRun.cost_amount,
+    BusinessRun.quota_units,
+    BusinessRun.cost_breakdown,
+    BusinessRun.created_at,
+)
 
 
 class AdminBillingService:
@@ -416,7 +438,7 @@ class AdminBillingService:
                 filters.append(BusinessRun.client_id == client_id)
             if filters:
                 stmt = stmt.where(and_(*filters))
-            rows = session.execute(stmt).scalars().all()
+            rows = session.execute(stmt.options(load_only(*_BUSINESS_RUN_BILLING_COLUMNS))).scalars().all()
         items: list[dict[str, Any]] = []
         for row in rows:
             billing_status = BusinessRunService._business_billing_status(row)
@@ -718,7 +740,11 @@ class AdminBillingService:
                 if filters:
                     run_stmt = run_stmt.where(and_(*filters))
                 runs = (
-                    session.execute(run_stmt.order_by(BusinessRun.created_at.desc()).limit(max(1, min(limit, 5000))))
+                    session.execute(
+                        run_stmt.options(load_only(*_BUSINESS_RUN_BILLING_COLUMNS))
+                        .order_by(BusinessRun.created_at.desc())
+                        .limit(max(1, min(limit, 5000)))
+                    )
                     .scalars()
                     .all()
                 )
@@ -734,8 +760,16 @@ class AdminBillingService:
                     .scalars()
                     .all()
                 )
-                users = {user.id: user for user in session.execute(select(User)).scalars().all()}
+                users = {}
                 if tenant_id or client_id:
+                    user_ids = {row.user_id for row in orders if row.user_id}
+                    if user_ids:
+                        users = {
+                            row.id: row
+                            for row in session.execute(
+                                select(User.id, User.tenant_id, User.client_id).where(User.id.in_(user_ids))
+                            ).all()
+                        }
                     orders = [
                         row
                         for row in orders

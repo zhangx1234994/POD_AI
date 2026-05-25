@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -333,6 +333,60 @@ def test_admin_billing_commercial_report_excludes_internal_patrol_from_billing_r
     assert report["noChargeRunCount"] == 1
     assert report["billingIssueCount"] == 1
     assert [item["runId"] for item in report["riskItems"]] == ["run_bill_unsettled"]
+
+
+def test_admin_billing_commercial_report_uses_lightweight_business_run_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    testing_session = install_admin_billing_db(monkeypatch)
+    service = AdminBillingService()
+    with testing_session() as session:
+        engine = session.get_bind()
+        now = datetime.utcnow()
+        session.add(
+            BusinessRun(
+                id="run_bill_large_payload",
+                business_key="fission",
+                version="v1",
+                status="succeeded",
+                tenant_id="tenant-a",
+                client_id="client-a",
+                user_id="user_bill_1",
+                user_name="bill1",
+                request_payload={"metadata": {}},
+                result_payload={"large": "x" * 1000},
+                image_urls=["https://example.com/result.png"],
+                callback_payload={"large": "y" * 1000},
+                callback_response={"large": "z" * 1000},
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    statements: list[str] = []
+
+    def capture_sql(conn, cursor, statement, parameters, context, executemany):
+        _ = conn, cursor, parameters, context, executemany
+        normalized = " ".join(str(statement).split()).lower()
+        if normalized.startswith("select") and "from business_runs" in normalized:
+            statements.append(normalized)
+
+    event.listen(engine, "before_cursor_execute", capture_sql)
+    try:
+        report = service.commercial_report(month=datetime.utcnow().strftime("%Y-%m"), business_key="fission")
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_sql)
+
+    assert report["runCount"] == 2
+    assert statements
+    for statement in statements:
+        assert "result_payload" not in statement
+        assert "image_urls" not in statement
+        assert "video_urls" not in statement
+        assert "texts" not in statement
+        assert "callback_payload" not in statement
+        assert "callback_response" not in statement
 
 
 def test_admin_billing_read_endpoints_degrade_when_tables_are_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
