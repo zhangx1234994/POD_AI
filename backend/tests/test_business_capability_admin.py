@@ -2441,7 +2441,53 @@ def test_business_capability_list_includes_latest_run_summary(monkeypatch) -> No
     assert metrics["total"] == 2
     assert metrics["succeeded"] == 1
     assert metrics["failed"] == 1
+    assert metrics["unresolved_failed"] == 1
     assert metrics["success_rate"] == 0.5
+
+
+def test_business_capability_release_gate_ignores_failures_recovered_by_later_success(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
+    service = BusinessRunService()
+    now = datetime.utcnow()
+
+    service.record_acceptance(
+        "biz_fission_old",
+        BusinessAcceptanceRecordRequest(status="passed", note="真实链路验收通过"),
+    )
+    with business_runs_module.get_session() as session:
+        session.add_all(
+            [
+                BusinessRun(
+                    id="run_old_failed",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="old",
+                    status="failed",
+                    ability_id="ability_openai_fission",
+                    error_message="EXECUTOR_BUSY",
+                    created_at=now - timedelta(minutes=20),
+                ),
+                BusinessRun(
+                    id="run_later_success",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="old",
+                    status="succeeded",
+                    ability_id="ability_openai_fission",
+                    image_urls=["https://example.com/recovered.png"],
+                    created_at=now - timedelta(minutes=5),
+                ),
+            ]
+        )
+        session.commit()
+
+    listed = {item["id"]: item for item in service.list_capabilities()}
+
+    metrics = listed["biz_fission_old"]["run_metrics"]
+    assert metrics["failed"] == 1
+    assert metrics["unresolved_failed"] == 0
+    assert listed["biz_fission_old"]["release_gate"]["status"] == "ready"
+    assert "BUSINESS_RELEASE_RECENT_FAILURES" not in listed["biz_fission_old"]["release_gate"]["warnings"]
 
 
 def test_business_run_submits_vl_sidecar_step(monkeypatch) -> None:

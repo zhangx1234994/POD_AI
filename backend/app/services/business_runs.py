@@ -1310,6 +1310,7 @@ class BusinessRunService:
                         BusinessRun.ability_task_id,
                         BusinessRun.ability_log_id,
                         BusinessRun.request_payload,
+                        BusinessRun.result_payload,
                         BusinessRun.image_urls,
                         BusinessRun.video_urls,
                         BusinessRun.texts,
@@ -8387,7 +8388,7 @@ class BusinessRunService:
         if latest_run and latest_run.get("error"):
             warnings.append("BUSINESS_RELEASE_LATEST_RUN_FAILED")
             suggestions.append("最近一次运行失败，先排查失败原因再放量。")
-        if run_metrics and (self._first_int(run_metrics.get("failed")) or 0) > 0:
+        if run_metrics and (self._first_int(run_metrics.get("unresolved_failed")) or 0) > 0:
             warnings.append("BUSINESS_RELEASE_RECENT_FAILURES")
             suggestions.append("近窗口有失败样本，先筛选业务调用记录定位问题。")
 
@@ -8650,6 +8651,7 @@ class BusinessRunService:
             "total": 0,
             "succeeded": 0,
             "failed": 0,
+            "unresolved_failed": 0,
             "running": 0,
             "queued": 0,
             "cancelled": 0,
@@ -8657,7 +8659,7 @@ class BusinessRunService:
         }
         if session is None:
             return metrics
-        rows = (
+        status_rows = (
             session.execute(
                 select(BusinessRun.status, func.count(BusinessRun.id))
                 .where(
@@ -8668,12 +8670,35 @@ class BusinessRunService:
             )
             .all()
         )
-        for status, count in rows:
+        for status, count in status_rows:
             key = str(status or "").strip().lower()
             value = int(count or 0)
             if key in metrics:
                 metrics[key] = value
             metrics["total"] = int(metrics["total"] or 0) + value
+        recent_runs = (
+            session.execute(
+                select(BusinessRun)
+                .where(
+                    BusinessRun.business_version_id == row.id,
+                    BusinessRun.created_at >= since,
+                )
+                .order_by(BusinessRun.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        unresolved_failed = 0
+        service = BusinessRunService()
+        for run in recent_runs:
+            if str(run.status or "").strip().lower() != "failed":
+                continue
+            if service._has_later_successful_business_run(run, recent_runs):
+                continue
+            if service._build_retest_summary(run, session=session).get("recovered"):
+                continue
+            unresolved_failed += 1
+        metrics["unresolved_failed"] = unresolved_failed
         total = int(metrics["total"] or 0)
         if total > 0:
             metrics["success_rate"] = round(int(metrics["succeeded"] or 0) / total, 4)
@@ -8951,14 +8976,12 @@ class BusinessRunService:
             row,
             session=None,
             steps=steps,
-            include_payload_counts=False,
         )
         flow_summary = self._build_run_flow_summary(
             row,
             steps=steps,
             route_info=route_info,
             session=None,
-            include_payload_counts=False,
         )
         return {
             "id": row.id,
