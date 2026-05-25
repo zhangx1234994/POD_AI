@@ -27,7 +27,7 @@ Git tag：`v0.4.0`
 
 验证结果：
 
-- `origin/main` 与本地 `HEAD` 一致：`8033c843`。
+- 封版验证时已确认发布基线与 `origin/main` 一致：`8033c843`。
 - 线上真实业务巡检通过：花纹提取、图裂变、扩图均 `succeeded`。
 - 图编辑真实样例通过：`canvas_outpaint_all_sides`，runId `759f0310c01c4eaf9787aaec4ff93f95`。
 - 158 扩图指定节点验证通过：`flux2_klein_9b_outpaint`，logId `46261`。
