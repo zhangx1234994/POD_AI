@@ -1,0 +1,17 @@
+{
+  "runId": "run_image_edit_001",
+  "taskId": "t1.image_edit.auto.8f7d2a",
+  "businessKey": "image_edit",
+  "version": "gpt-image2-editor-v1",
+  "status": "queued",
+  "taskStatus": "queued",
+  "traceId": "trace-image-edit-001",
+  "requestId": "biz-image-edit-001",
+  "debugUrl": null,
+  "debugResponse": null,
+  "retryAfterSeconds": 10,
+  "error": null,
+  "errorMessage": null,
+  "errorCode": null,
+  "createdAt": "2026-05-25T10:00:00"
+}

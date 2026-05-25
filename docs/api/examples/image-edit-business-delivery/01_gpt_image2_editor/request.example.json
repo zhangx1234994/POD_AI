@@ -1,0 +1,25 @@
+{
+  "imageUrl": "https://example.com/edit-input.png",
+  "version": "gpt-image2-editor-v1",
+  "editSkill": "local_modify",
+  "instruction": "把杯子上的蓝色花纹改成红色，保持杯子形状和背景不变",
+  "selectionHints": [
+    {
+      "type": "box",
+      "label": "杯子花纹区域",
+      "x": 0.36,
+      "y": 0.42,
+      "width": 0.28,
+      "height": 0.22
+    }
+  ],
+  "referenceImages": [],
+  "maskUrl": null,
+  "quality": "preview",
+  "size": "auto",
+  "image_edit.output_format": "png",
+  "source": "partner-api",
+  "channel": "open-api",
+  "requestId": "biz-image-edit-001",
+  "traceId": "trace-image-edit-001"
+}

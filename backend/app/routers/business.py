@@ -2513,13 +2513,14 @@ def _business_delivery_contract_audit() -> dict[str, Any]:
         }
 
     root = smoke._repo_root()
-    base = root / "docs" / "api" / "examples" / "fission-business-delivery"
+    examples_base = root / "docs" / "api" / "examples"
     enum_doc = root / "docs" / "standards" / "business-api-enums.md"
     error_catalog = root / "docs" / "standards" / "error-catalog.md"
     enum_text = enum_doc.read_text(encoding="utf-8") if enum_doc.exists() else ""
     error_text = error_catalog.read_text(encoding="utf-8") if error_catalog.exists() else ""
     sample_names = list(smoke.REQUIRED_BUSINESS_DELIVERY_SAMPLE_FILES)
     ui_key_aliases = {
+        "image_edit_gpt_image2_editor": "image-edit-gpt-image2",
         "gpt_image2_controlled_fission": "gpt-image2-fission",
         "comfyui_colorlock_fission": "comfyui-colorlock-fission",
         "fission_generated_image_score": "fission-score",
@@ -2528,6 +2529,7 @@ def _business_delivery_contract_audit() -> dict[str, Any]:
     for spec in smoke.BUSINESS_DELIVERY_DOC_SPECS:
         key = ui_key_aliases.get(str(spec["key"]), str(spec["key"]))
         label = str(spec["label"])
+        base = examples_base / str(spec.get("base_folder") or "fission-business-delivery")
         folder = base / str(spec["folder"])
         readme = folder / "README.md"
         readme_text = readme.read_text(encoding="utf-8") if readme.exists() else ""

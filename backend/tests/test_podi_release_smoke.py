@@ -691,13 +691,16 @@ def _write_business_delivery_fixture(
     omit_catalog_error_code: bool = False,
 ) -> None:
     module = _load_smoke_module()
-    base = tmp_path / "docs" / "api" / "examples" / "fission-business-delivery"
-    base.mkdir(parents=True)
-    (base / "README.md").write_text(
-        "统一说明：runId /api/business/runs/get status 错误码 "
-        "docs/standards/business-api-enums.md docs/standards/error-catalog.md",
-        encoding="utf-8",
-    )
+    examples_base = tmp_path / "docs" / "api" / "examples"
+    base_folders = sorted({str(spec.get("base_folder") or "fission-business-delivery") for spec in module.BUSINESS_DELIVERY_DOC_SPECS})
+    for base_folder in base_folders:
+        base = examples_base / base_folder
+        base.mkdir(parents=True)
+        (base / "README.md").write_text(
+            "统一说明：runId /api/business/runs/get status 错误码 "
+            "docs/standards/business-api-enums.md docs/standards/error-catalog.md",
+            encoding="utf-8",
+        )
     standards = tmp_path / "docs" / "standards"
     standards.mkdir(parents=True)
     all_enum_fields = sorted({field for spec in module.BUSINESS_DELIVERY_DOC_SPECS for field in spec["enum_fields"]})
@@ -726,6 +729,7 @@ def _write_business_delivery_fixture(
         },
     }
     for spec in module.BUSINESS_DELIVERY_DOC_SPECS:
+        base = examples_base / str(spec.get("base_folder") or "fission-business-delivery")
         folder = base / spec["folder"]
         folder.mkdir(parents=True)
         enum_text = " ".join(spec["enum_fields"])
@@ -752,7 +756,7 @@ def test_business_delivery_docs_check_accepts_current_repo() -> None:
     ok, detail = module._validate_business_delivery_docs(repo_root)
 
     assert ok is True
-    assert "contracts=3" in detail
+    assert "contracts=4" in detail
 
 
 def test_business_delivery_docs_check_blocks_missing_sample(tmp_path: Path) -> None:

@@ -112,6 +112,22 @@ REQUIRED_BUSINESS_DELIVERY_SAMPLE_FILES = (
 
 BUSINESS_DELIVERY_DOC_SPECS: tuple[dict[str, Any], ...] = (
     {
+        "key": "image_edit_gpt_image2_editor",
+        "label": "图编辑 · GPT Image 2 通用改图",
+        "base_folder": "image-edit-business-delivery",
+        "folder": "01_gpt_image2_editor",
+        "path": "/api/business/image-edit/runs",
+        "enum_fields": ("editSkill", "quality", "size", "image_edit.output_format"),
+        "error_codes": (
+            "IMAGE_EDIT_INSTRUCTION_REQUIRED",
+            "IMAGE_EDIT_SKILL_INVALID",
+            "IMAGE_EDIT_REFERENCE_REQUIRED",
+            "IMAGE_EDIT_TARGET_REQUIRED",
+            "IMAGE_EDIT_CANVAS_TOO_SMALL",
+            "VENDOR_API_EXECUTION_FAILED",
+        ),
+    },
+    {
         "key": "gpt_image2_controlled_fission",
         "label": "GPT Image 2 + VL 受控裂变",
         "folder": "01_gpt_image2_controlled_fission",
@@ -655,7 +671,7 @@ def _repo_root() -> Path:
 
 def _validate_business_delivery_docs(repo_root: str | Path | None = None) -> tuple[bool, str]:
     root = Path(repo_root).expanduser() if repo_root is not None else _repo_root()
-    base = root / "docs" / "api" / "examples" / "fission-business-delivery"
+    examples_base = root / "docs" / "api" / "examples"
     enum_doc = root / "docs" / "standards" / "business-api-enums.md"
     error_catalog = root / "docs" / "standards" / "error-catalog.md"
     errors: list[str] = []
@@ -670,23 +686,26 @@ def _validate_business_delivery_docs(repo_root: str | Path | None = None) -> tup
     else:
         error_text = error_catalog.read_text(encoding="utf-8")
 
-    root_readme = base / "README.md"
-    if not root_readme.exists():
-        errors.append("missing fission-business-delivery README.md")
-    else:
-        root_text = root_readme.read_text(encoding="utf-8")
-        for token in (
-            "runId",
-            "/api/business/runs/get",
-            "status",
-            "错误码",
-            "docs/standards/business-api-enums.md",
-            "docs/standards/error-catalog.md",
-        ):
-            if token not in root_text:
-                errors.append(f"root README missing {token}")
+    base_folders = sorted({str(spec.get("base_folder") or "fission-business-delivery") for spec in BUSINESS_DELIVERY_DOC_SPECS})
+    for base_folder in base_folders:
+        root_readme = examples_base / base_folder / "README.md"
+        if not root_readme.exists():
+            errors.append(f"missing {base_folder} README.md")
+        else:
+            root_text = root_readme.read_text(encoding="utf-8")
+            for token in (
+                "runId",
+                "/api/business/runs/get",
+                "status",
+                "错误码",
+                "docs/standards/business-api-enums.md",
+                "docs/standards/error-catalog.md",
+            ):
+                if token not in root_text:
+                    errors.append(f"{base_folder} README missing {token}")
 
     for spec in BUSINESS_DELIVERY_DOC_SPECS:
+        base = examples_base / str(spec.get("base_folder") or "fission-business-delivery")
         folder = base / str(spec["folder"])
         readme = folder / "README.md"
         label = str(spec["label"])
