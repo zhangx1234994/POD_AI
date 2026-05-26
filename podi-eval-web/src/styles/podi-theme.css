@@ -50,6 +50,29 @@ html.t-theme-dark {
   flex-wrap: wrap;
 }
 
+.podi-eval-shell__header-title,
+.podi-eval-shell__header-controls,
+.podi-eval-shell__content-inner {
+  min-width: 0;
+}
+
+.podi-eval-shell__header-controls {
+  max-width: 100%;
+}
+
+.podi-eval-shell__rater-id {
+  display: inline-block;
+  max-width: min(360px, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.podi-eval-shell__mobile-nav {
+  display: none;
+}
+
 .podi-eval-shell__aside--icon .t-menu__item {
   justify-content: center;
 }
@@ -1606,5 +1629,119 @@ html.t-theme-dark {
   .podi-docs-category-collapse summary small,
   .podi-admin-maintenance-list summary small {
     text-align: left;
+  }
+}
+
+@media (max-width: 760px) {
+  html,
+  body,
+  #root,
+  .podi-shell {
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .podi-eval-shell__header-inner {
+    gap: 8px;
+  }
+
+  .podi-eval-shell__header-title,
+  .podi-eval-shell__header-controls {
+    width: 100%;
+  }
+
+  .podi-eval-shell__header-controls {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .podi-eval-shell__header-controls > .t-space {
+    min-width: max-content;
+    justify-content: flex-start !important;
+  }
+
+  .podi-eval-shell__header-controls .t-tabs {
+    max-width: none;
+  }
+
+  .podi-eval-shell__rater-id {
+    max-width: 190px;
+  }
+
+  .podi-eval-shell__mobile-nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .podi-eval-shell__mobile-nav-item {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    border: 1px solid var(--td-border-level-1-color);
+    border-radius: 999px;
+    background: var(--td-bg-color-container);
+    color: var(--td-text-color-secondary);
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .podi-eval-shell__mobile-nav-item--active {
+    border-color: color-mix(in srgb, var(--podi-accent) 44%, var(--td-border-level-1-color));
+    background: var(--podi-accent-soft);
+    color: var(--podi-accent);
+    font-weight: 650;
+  }
+
+  .podi-eval-shell__mobile-nav-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+  }
+
+  .podi-eval-shell__mobile-nav-item small {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--podi-accent-soft) 72%, #ffffff);
+    padding: 1px 6px;
+    font-size: 11px;
+  }
+
+  .podi-eval-business-start {
+    border-radius: 12px;
+    padding: 12px;
+  }
+
+  .podi-eval-business-start__head > .t-space,
+  .podi-eval-active-business > .t-space {
+    justify-content: flex-start !important;
+  }
+
+  .podi-eval-business-entry__facts {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-eval-business-entry__facts strong,
+  .podi-eval-active-business__meta span,
+  .podi-eval-tool-overview__facts strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .podi-eval-active-business {
+    padding: 12px;
+  }
+
+  .podi-eval-tool-overview {
+    border-radius: 14px;
+    padding: 14px;
   }
 }

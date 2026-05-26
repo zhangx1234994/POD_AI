@@ -7096,7 +7096,7 @@ export function App() {
             <Button variant="outline" onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}>
               {theme === 'dark' ? '深色' : '浅色'}
             </Button>
-            <Typography.Text theme="secondary">
+            <Typography.Text theme="secondary" className="podi-eval-shell__rater-id">
               raterId: <span style={{ fontFamily: 'monospace' }}>{raterId || '...'}</span>
             </Typography.Text>
           </>
