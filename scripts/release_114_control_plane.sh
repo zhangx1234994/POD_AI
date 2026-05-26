@@ -253,7 +253,20 @@ expect_arg=()
 if [[ -n "$expect_server_url" ]]; then
   expect_arg=(--expect-server-url "$expect_server_url")
 fi
-export RELEASE_BACKEND_LOG_SINCE="$(cat .release_time 2>/dev/null || echo '30 min ago')"
+release_backend_log_since_raw="$(cat .release_time 2>/dev/null || echo '30 min ago')"
+export RELEASE_BACKEND_LOG_SINCE="$(backend/.venv/bin/python - "$release_backend_log_since_raw" <<'PY'
+from datetime import datetime
+import sys
+
+raw = (sys.argv[1] if len(sys.argv) > 1 else "").strip()
+try:
+    parsed = datetime.fromisoformat(raw)
+except ValueError:
+    print(raw or "30 min ago")
+else:
+    print(parsed.strftime("%Y-%m-%d %H:%M:%S"))
+PY
+)"
 backend/.venv/bin/python backend/scripts/podi_release_smoke.py --base-url "$BACKEND_URL_LOCAL" "${expect_arg[@]}" $SMOKE_EXTRA_ARGS
 REMOTE
 else
