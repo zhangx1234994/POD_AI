@@ -259,7 +259,10 @@ class BusinessRunService:
 
     @staticmethod
     def _optional_table_exists(session, table_name: str) -> bool:
-        return inspect(session.get_bind()).has_table(table_name)
+        # Use the current transactional connection. Inspecting the engine can
+        # borrow the same raw connection under StaticPool and roll back pending
+        # writes in isolated tests.
+        return inspect(session.connection()).has_table(table_name)
 
     @staticmethod
     def _empty_output_review_summary(*, window_hours: int, filters: dict[str, Any]) -> dict[str, Any]:
@@ -6463,7 +6466,10 @@ class BusinessRunService:
         values = COMFYUI_FISSION_VARIATION_PRESET_VALUES_BY_KEY.get(preset_key)
         if not values:
             return
-        primary_ability_id = self._extract_primary_ability_id(recipe or {})
+        try:
+            primary_ability_id = self._extract_primary_ability_id(recipe or {})
+        except HTTPException:
+            return
         if primary_ability_id not in COMFYUI_COLORLOCK_FISSION_ABILITY_IDS:
             return
         profile_explicit = inputs.get("profile") not in (None, "", []) or inputs.get("profile_id") not in (None, "", [])
@@ -6488,7 +6494,10 @@ class BusinessRunService:
         workflow/toolbox contracts remain unchanged.
         """
 
-        primary_ability_id = self._extract_primary_ability_id(recipe or {})
+        try:
+            primary_ability_id = self._extract_primary_ability_id(recipe or {})
+        except HTTPException:
+            return None
         if primary_ability_id not in FISSION_ASPECT_RECOMPOSE_TARGET_ABILITIES:
             return None
         target_w_raw = self._coerce_positive_int(inputs.get("output_width") or inputs.get("width"))
