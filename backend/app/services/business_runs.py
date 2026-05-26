@@ -8643,8 +8643,7 @@ class BusinessRunService:
             "error": latest.error_message,
         }
 
-    @staticmethod
-    def _run_metrics_summary(row: BusinessCapability, *, session=None) -> dict[str, Any]:
+    def _run_metrics_summary(self, row: BusinessCapability, *, session=None) -> dict[str, Any]:
         since = datetime.utcnow() - timedelta(hours=24)
         metrics = {
             "window_hours": 24,
@@ -8689,13 +8688,12 @@ class BusinessRunService:
             .all()
         )
         unresolved_failed = 0
-        service = BusinessRunService()
         for run in recent_runs:
             if str(run.status or "").strip().lower() != "failed":
                 continue
-            if service._has_later_successful_business_run(run, recent_runs):
+            if self._has_later_successful_business_run(run, recent_runs):
                 continue
-            if service._build_retest_summary(run, session=session).get("recovered"):
+            if self._build_retest_summary(run, session=session).get("recovered"):
                 continue
             unresolved_failed += 1
         metrics["unresolved_failed"] = unresolved_failed

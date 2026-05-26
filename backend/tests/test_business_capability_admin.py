@@ -2445,6 +2445,36 @@ def test_business_capability_list_includes_latest_run_summary(monkeypatch) -> No
     assert metrics["success_rate"] == 0.5
 
 
+def test_business_capability_run_metrics_does_not_spawn_service(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    now = datetime.utcnow()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_failed_for_metrics",
+                business_key="fission",
+                business_version_id="biz_fission_old",
+                version="old",
+                status="failed",
+                ability_id="ability_openai_fission",
+                error_message="TASK_FAILED",
+                created_at=now,
+            )
+        )
+        session.commit()
+
+    def fail_if_new_service_created(self):
+        raise AssertionError("run metrics must not instantiate BusinessRunService")
+
+    monkeypatch.setattr(BusinessRunService, "__init__", fail_if_new_service_created)
+
+    listed = {item["id"]: item for item in service.list_capabilities()}
+
+    assert listed["biz_fission_old"]["run_metrics"]["unresolved_failed"] == 1
+
+
 def test_business_capability_release_gate_ignores_failures_recovered_by_later_success(monkeypatch) -> None:
     install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
     service = BusinessRunService()
