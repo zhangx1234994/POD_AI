@@ -42,7 +42,7 @@
 | 场景 | 常见错误码 | Coze 工作流动作 | 平台动作 |
 | --- | --- | --- | --- |
 | 非可信调用 | `INTERNAL_ONLY` | 检查工具箱 host 是否为 Coze 同机/可信内网 backend，或是否带服务 Token。 | 发版 smoke 必须阻断 `INTERNAL_ONLY`。 |
-| 缺少必要参数 | `TASK_ID_REQUIRED`、`IMAGE_REQUIRED`、`COMFYUI_IMAGE_REQUIRED`、`KIE_MODEL_KEY_REQUIRED` | 修正 Coze 工具参数，不建议自动重试。 | 工具箱描述必须写清必填字段和中文说明。 |
+| 缺少必要参数 | `TASK_ID_REQUIRED`、`IMAGE_REQUIRED`、`COMFYUI_IMAGE_REQUIRED`、`COMFYUI_PROMPT_REQUIRED`、`PROMPT_REQUIRED`、`KIE_MODEL_KEY_REQUIRED` | 修正 Coze 工具参数，不建议自动重试。 | 工具箱描述必须写清必填字段和中文说明。 |
 | 能力或模型不存在 | `ABILITY_NOT_FOUND`、`ABILITY_INACTIVE`、`KIE_MODEL_NOT_FOUND` | 暂停使用该工具或切回旧工作流。 | 检查能力启停、模型目录、工作流绑定和工具箱导入版本。 |
 | 队列满或并发受限 | `Q1001`、`Q2001`、`COMFYUI_QUEUE_FULL` | 直接返回“稍后重试”，不要继续递归提交。 | 中台应给出明确错误码，不允许长期 `running`。 |
 | 上游失败或超时 | `TASK_FAILED`、`TASK_TIMEOUT`、`COMFYUI_TIMEOUT`、`KIE_TIMEOUT`、`VENDOR_API_EXECUTION_FAILED` | 可按业务策略重试一次；连续失败时带 `taskId/requestId` 排查。 | 检查执行节点、队列、OSS 回填、厂商 Key 和出网。 |
@@ -187,6 +187,7 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 - `INTERNAL_ONLY`
 - `ABILITY_NOT_FOUND` / `ABILITY_INACTIVE`
 - `EXECUTOR_NOT_FOUND` / `EXECUTOR_TYPE_NOT_*`
+- `IMAGE_REQUIRED` / `COMFYUI_IMAGE_REQUIRED` / `COMFYUI_PROMPT_REQUIRED` / `PROMPT_REQUIRED`
 - `Q1001` / `Q2001`（队列满）
 
 ---
@@ -506,4 +507,4 @@ curl -X POST http://127.0.0.1:8099/api/coze/podi/kie/models/nano-banana-pro-imag
 | KIE 模型查询 | `/api/coze/podi/kie/catalog/openapi.json` | `POST /api/coze/podi/kie/models/list/default` | 无 | 零参数，返回结构化模型列表 |
 | KIE 聚合工具箱 | `/api/coze/podi/kie/openapi.json` | KIE 执行 + 查询 | 按具体模型 | 管理端 API 开放页展示入口 |
 | KIE 单模型参数查询 | `/api/coze/podi/kie/catalog/{model_key}/openapi.json` | `POST /api/coze/podi/kie/models/{model_key}/schema` | 无 | 一模型一工具箱，直接出 schema |
-| KIE 单模型执行（示例：Nano Banana 2） | `/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json` | `POST /api/coze/podi/tools/kie/nano_banana_2_image_to_image` | `prompt`、`url` | 提交执行任务，结果用 `/tasks/get` 轮询 |
+| KIE 单模型执行（示例：Nano Banana 2） | `/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json` | `POST /api/coze/podi/tools/kie/nano_banana_2_image_to_image` | `prompt`、`url` | 提交执行任务，结果用 `/tasks/get` 轮询；未绑定执行能力的模型会降级为参数查询工具箱，不再返回 404 |

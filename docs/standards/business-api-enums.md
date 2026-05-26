@@ -255,6 +255,8 @@
 | `TEXT_FISSION_PROMPT_REQUIRED` | 文字强化裂变第二步缺少确认后的提示词。 | 先调用 `/api/business/text-fission/prompts`，再传 `editable_prompt`。 |
 | `TEXT_FISSION_PROMPT_EMPTY` | VL 没有返回可用提示词。 | 换图重试；如持续出现，提供图片和请求时间给中台排查。 |
 | `TEXT_FISSION_PROMPT_PREPARE_FAILED` | 文字强化裂变提示词生成失败。 | 可重试；如持续失败，提供请求时间和图片地址给中台。 |
+| `VL_IMAGE_UNREACHABLE` | VL 模型无法下载输入图片。 | 检查 `imageUrl` 是否公网可访问，换成有效 OSS URL 后重试。 |
+| `VL_PROVIDER_FAILED` | VL 模型或上游服务失败。 | 稍后重试；连续失败时提供请求时间、图片地址和 `traceId`。 |
 | `FISSION_ASPECT_SOURCE_IMAGE_LOAD_FAILED` | 裂变比例重构时原图读取失败。 | 检查 `imageUrl` 是否可公网访问；如链接有效仍失败，提供 `runId` 给中台排查。 |
 | `FISSION_ASPECT_RECOMPOSE_GUIDE_FAILED` | 裂变比例重构引导图生成失败。 | 可先不改宽高重试；如持续失败，提供 `runId` 给中台排查。 |
 | `IMAGE_EDIT_INSTRUCTION_REQUIRED` | 图编辑缺少编辑指令。 | 补传 `instruction`。 |

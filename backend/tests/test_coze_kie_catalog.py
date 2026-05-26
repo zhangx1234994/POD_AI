@@ -125,3 +125,24 @@ def test_kie_single_model_execute_openapi_contains_ability_tool():
     assert "url" in (tool_schema.get("properties") or {})
     assert "image_url" not in (tool_schema.get("properties") or {})
     assert "url" in (tool_schema.get("required") or [])
+
+
+def test_kie_single_model_execute_openapi_for_unbound_model_degrades_to_schema_only():
+    resp = client.get("/api/coze/podi/kie/execute/sora-2-pro-storyboard-video/openapi.json")
+    assert resp.status_code == 200
+    data = resp.json()
+    paths = data.get("paths") or {}
+
+    assert "/api/coze/podi/kie/models/sora_2_pro_storyboard_video/schema" in paths
+    assert not any(path.startswith("/api/coze/podi/tools/kie/") for path in paths)
+
+
+def test_coze_comfyui_tool_missing_image_rejected_before_enqueue():
+    resp = client.post(
+        "/api/coze/podi/tools/comfyui/flux2_klein_9b_outpaint",
+        json={},
+        headers=_internal_headers(),
+    )
+
+    assert resp.status_code == 400
+    assert resp.json().get("detail") == "COMFYUI_IMAGE_REQUIRED"

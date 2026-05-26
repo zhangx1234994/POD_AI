@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import pytest
+from fastapi import HTTPException
+
 from app.constants.abilities import DEFAULT_VOLCENGINE_VL_ABILITY_ID, DEFAULT_VOLCENGINE_VL_MODEL_ID, VL_ABILITIES
-from app.services.ability_invocation import AbilityInvocationService
+from app.models.integration import Ability
+from app.schemas import abilities as ability_schemas
+from app.services.ability_invocation import AbilityInvocationService, _ImageBundle, _InvocationContext
 from app.services.ability_seed import DEFAULT_ABILITY_SEEDS
 
 
@@ -79,3 +84,52 @@ def test_vendor_api_rate_limit_result_is_retryable() -> None:
 
     assert service._is_retryable_vendor_api_result(result) is True
     assert service._is_retryable_vendor_api_result({"status": "running"}) is False
+
+
+def test_vl_provider_image_download_failure_surfaces_as_400(monkeypatch) -> None:
+    service = AbilityInvocationService()
+    ability = Ability(
+        id="vl_text2img_prompt_draft",
+        provider="vl",
+        capability_key="text2img_prompt_draft",
+        display_name="VL draft",
+        status="active",
+        category="vision_language",
+        default_params={},
+        input_schema={},
+        extra_metadata={
+            "provider_ability_map": {"volcengine_vl": DEFAULT_VOLCENGINE_VL_ABILITY_ID},
+            "default_provider": "volcengine_vl",
+        },
+    )
+
+    def fake_invoke(**_kwargs):
+        return ability_schemas.AbilityInvokeResponse(
+            abilityId=DEFAULT_VOLCENGINE_VL_ABILITY_ID,
+            provider="volcengine",
+            status="failed",
+            requestId="provider_failed",
+            metadata={
+                "vendorError": {
+                    "message": "Error while downloading: https://example.com/missing.png, status code: 404"
+                }
+            },
+        )
+
+    monkeypatch.setattr(service, "invoke", fake_invoke)
+
+    with pytest.raises(HTTPException) as exc_info:
+        service._invoke_vl(
+            ability,
+            {"provider": "volcengine_vl"},
+            _ImageBundle(image_url="https://example.com/missing.png", image_base64=None, image_list=[]),
+            _InvocationContext(
+                request_id="parent_request",
+                source="business:text_fission_prompt",
+                user=None,
+                payload=ability_schemas.AbilityInvokeRequest(),
+            ),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "VL_IMAGE_UNREACHABLE"

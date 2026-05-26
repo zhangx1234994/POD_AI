@@ -14,7 +14,6 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
-from math import gcd
 from typing import Any
 from uuid import uuid4
 
@@ -2001,6 +2000,7 @@ class AbilityInvocationService:
                 user=context.user,
                 source=f"{context.source}:vl",
             )
+            self._raise_for_failed_vl_provider_response(response)
             raw_text = (response.texts or [""])[0] if response.texts else ""
             structured = self._coerce_vl_structured_json(raw_text, provider=provider_choice, image_url=image_url)
             return {
@@ -2188,6 +2188,38 @@ class AbilityInvocationService:
             "provider": provider,
             "imageUrl": image_url,
         }
+
+    def _raise_for_failed_vl_provider_response(self, response: schemas.AbilityInvokeResponse) -> None:
+        status = self._normalize_public_status(response.status)
+        if status not in {"failed", "cancelled"}:
+            return
+        response_body = response.model_dump(exclude_none=True)
+        message = (
+            self._extract_response_error_message(response_body)
+            or self._first_nonempty_text(*(response.texts or []))
+            or status
+        )
+        status_code = 503
+        detail = "VL_PROVIDER_FAILED"
+        if self._is_vl_image_unreachable_error(message):
+            status_code = 400
+            detail = "VL_IMAGE_UNREACHABLE"
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    @staticmethod
+    def _is_vl_image_unreachable_error(message: Any) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        download_markers = (
+            "error while downloading",
+            "failed to download",
+            "download image",
+            "image_url",
+            "image url",
+        )
+        status_markers = ("status code: 400", "status code: 403", "status code: 404", "not found", "forbidden")
+        return any(marker in text for marker in download_markers) and any(marker in text for marker in status_markers)
 
     def _invoke_generated_image_evaluation(
         self,

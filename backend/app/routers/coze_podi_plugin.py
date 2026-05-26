@@ -307,6 +307,98 @@ def _extract_urls_from_value(value: Any) -> list[str]:
     return dedup
 
 
+def _coze_value_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set)):
+        return any(_coze_value_present(item) for item in value)
+    if isinstance(value, dict):
+        return any(_coze_value_present(item) for item in value.values())
+    return True
+
+
+def _is_image_field_name(name: str, field_type: str = "") -> bool:
+    normalized = name.strip().lower()
+    return field_type == "image" or normalized in {
+        "url",
+        "urls",
+        "image",
+        "images",
+        "imageurl",
+        "image_url",
+        "imageurls",
+        "image_urls",
+        "input_url",
+        "inputurl",
+        "input_urls",
+        "inputurls",
+        "file",
+        "files",
+        "filelist",
+        "file_list",
+    }
+
+
+def _missing_required_detail(provider: str, field_name: str, *, is_image: bool) -> str:
+    provider_key = str(provider or "").strip().lower()
+    normalized = str(field_name or "").strip().lower()
+    if is_image:
+        if provider_key == "comfyui":
+            return "COMFYUI_IMAGE_REQUIRED"
+        if provider_key == "vl":
+            return "VL_IMAGE_REQUIRED"
+        return "IMAGE_REQUIRED"
+    if normalized in {"prompt", "instruction", "query"} or normalized.endswith("_prompt"):
+        if provider_key == "comfyui":
+            return "COMFYUI_PROMPT_REQUIRED"
+        return "PROMPT_REQUIRED"
+    return f"REQUIRED_FIELD_MISSING:{field_name}"
+
+
+def _validate_coze_tool_required_inputs(
+    *,
+    provider: str,
+    ability: Ability,
+    body: dict[str, Any],
+    image_url: str | None,
+    image_base64: str | None,
+) -> None:
+    metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+    schema = ability.input_schema if isinstance(ability.input_schema, dict) else {}
+    fields = schema.get("fields") if isinstance(schema.get("fields"), list) else []
+    defaults = ability.default_params if isinstance(ability.default_params, dict) else {}
+    has_image = bool((image_url or "").strip() or (image_base64 or "").strip())
+
+    if metadata.get("requires_image_input") and not has_image:
+        raise HTTPException(
+            status_code=400,
+            detail=_missing_required_detail(provider, "image_url", is_image=True),
+        )
+
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        name = field.get("name")
+        if not isinstance(name, str) or not name.strip() or not _truthy(field.get("required")):
+            continue
+        field_type = str(field.get("type") or "").strip().lower()
+        if _is_image_field_name(name, field_type):
+            if not has_image:
+                raise HTTPException(
+                    status_code=400,
+                    detail=_missing_required_detail(provider, name, is_image=True),
+                )
+            continue
+        if _coze_value_present(body.get(name)) or _coze_value_present(defaults.get(name)):
+            continue
+        raise HTTPException(
+            status_code=400,
+            detail=_missing_required_detail(provider, name, is_image=False),
+        )
+
+
 def _normalize_base_model_tag(value: Any) -> str:
     if not isinstance(value, str):
         return ""
@@ -962,6 +1054,18 @@ def _build_kie_single_model_openapi(request: Request, model_key: str) -> dict[st
     }
 
 
+def _build_kie_single_model_not_executable_openapi(request: Request, model_key: str) -> dict[str, Any]:
+    doc = _build_kie_single_model_openapi(request, model_key)
+    model = get_kie_model(model_key) or {}
+    display_name = str(model.get("displayName") or model_key)
+    doc["info"]["title"] = f"PODI KIE · {display_name} 参数查询"
+    doc["info"]["description"] = (
+        f"{display_name} 当前只开放参数查询，尚未绑定可执行能力；"
+        "请勿在 Coze 中把该工具箱当作执行入口。"
+    )
+    return doc
+
+
 @router.get("/openapi.json")
 def get_openapi(request: Request) -> dict[str, Any]:
     _require_internal(request)
@@ -1221,7 +1325,7 @@ def get_kie_single_model_execute_openapi(request: Request, model_key: str) -> di
         raise HTTPException(status_code=404, detail="KIE_MODEL_NOT_FOUND")
     ability_key = str(model.get("abilityKey") or "").strip()
     if not ability_key:
-        raise HTTPException(status_code=404, detail="KIE_ABILITY_NOT_CONFIGURED")
+        return _build_kie_single_model_not_executable_openapi(request, normalized_key)
     doc = _build_openapi_filtered(
         request=request,
         providers={"kie"},
@@ -1341,6 +1445,14 @@ def invoke_tool(
         if isinstance(body.get(key), str) and body[key].strip():
             image_base64 = body.pop(key).strip()
             break
+
+    _validate_coze_tool_required_inputs(
+        provider=provider,
+        ability=ability,
+        body=body,
+        image_url=image_url,
+        image_base64=image_base64,
+    )
 
     payload = ability_schemas.AbilityInvokeRequest(
         executorId=executor_id,

@@ -18,7 +18,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import and_, case, func, or_, select
 
 from app.constants.business_api_contract import (
-    BUSINESS_API_ENUM_DOCS,
     BUSINESS_ROUTE_SELECTED_BY_VALUES,
     BUSINESS_ROUTE_SELECTED_STATUS_VALUES,
     BUSINESS_TASK_STATUS_VALUES,
@@ -2059,7 +2058,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                         success_description="Text fission editable prompt prepared",
                         errors_by_status={
                             **submit_errors,
-                            "400": [*submit_errors["400"], "VL_IMAGE_REQUIRED"],
+                            "400": [*submit_errors["400"], "VL_IMAGE_REQUIRED", "VL_IMAGE_UNREACHABLE"],
+                            "503": [*submit_errors.get("503", []), "VL_PROVIDER_FAILED"],
                             "500": [*submit_errors["500"], "TEXT_FISSION_PROMPT_EMPTY", "TEXT_FISSION_PROMPT_PREPARE_FAILED"],
                         },
                         success_schema={

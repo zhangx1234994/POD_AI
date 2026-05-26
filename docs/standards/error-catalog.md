@@ -473,6 +473,8 @@
 | VENDOR_MODEL_EXECUTION_MODE_MISSING | 第三方模型缺少返回方式描述 | 模型弹药库上线门禁风险提示 |
 | VENDOR_MODEL_GLOBAL_EGRESS_REQUIRED | 第三方模型需要出网节点 | 模型弹药库上线门禁风险提示 |
 | VL_IMAGE_REQUIRED | VL 图像理解缺少图片 | `vl_analyze_image` |
+| VL_IMAGE_UNREACHABLE | VL 图像理解无法下载输入图片 | 图片 URL 404/403 或公网不可达，调用方需换可访问图片 |
+| VL_PROVIDER_FAILED | VL 模型或上游服务失败 | 上游非参数类失败，建议稍后重试并保留请求时间 |
 | VL_EVAL_IMAGE_REQUIRED | 裂变生成图评估缺少原图或生成图 | `vl_fission_generated_image_evaluate` |
 | VL_PROVIDER_ABILITY_NOT_FOUND | VL provider 依赖的原子能力不存在 | 如火山 VL 映射能力缺失 |
 | VL_COZE_WORKFLOW_NOT_CONFIGURED | Coze VL 未配置 workflow id | 使用 `coze_vl` provider 时 |

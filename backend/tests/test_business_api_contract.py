@@ -301,6 +301,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "IMAGE_EDIT_CANVAS_PLACEMENT_INVALID" in image_edit_responses["400"]["x-podi-errors"]
     assert "IMAGE_EDIT_MASK_SIZE_MISMATCH" in image_edit_responses["400"]["x-podi-errors"]
     prompt_responses = paths["/api/business/text-fission/prompts"]["post"]["responses"]
+    assert "VL_IMAGE_UNREACHABLE" in prompt_responses["400"]["x-podi-errors"]
+    assert "VL_PROVIDER_FAILED" in prompt_responses["503"]["x-podi-errors"]
     assert "TEXT_FISSION_PROMPT_EMPTY" in prompt_responses["500"]["x-podi-errors"]
     assert "TEXT_FISSION_PROMPT_PREPARE_FAILED" in prompt_responses["500"]["x-podi-errors"]
 
