@@ -29,6 +29,7 @@
 - 三条主业务真实巡检通过：图裂变、扩图、花纹提取均 `succeeded` 且有执行节点证据。
 - 测评端 production 巡检通过：6 个 production 工作流全部成功，输出类型 `image=6`。
 - 发布后即时观察通过：health-watch issues=[]，业务运行 failed/running/queued/unresolved 均为 0，ComfyUI blocked/settling 均为 0。
+- 30 分钟观察复查通过：backend 最近 30 分钟关键错误日志匹配数为 0，接口调用中心近 1 小时 success=49/error=0，无集中 4xx/5xx。
 
 证据记录：
 
@@ -37,7 +38,6 @@
 
 已知保留风险：
 
-- 30 分钟观察复查仍需在当前线程继续执行。
 - 商业账单历史 `wallet_missing` 当前仍按 observed-only 处理。
 - `legacy-seamless-fission` 仍为历史 attention 项。
 - Pydantic v2 弃用 warning 后续集中治理。
