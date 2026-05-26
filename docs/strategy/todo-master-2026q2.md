@@ -41,43 +41,48 @@
 
 说明：本节是当前唯一有效 TODO。v0.4.0 已封版，v0.4.1 不做大业务能力扩张。
 
-0. `doing` v0.4.1 方案与文档入口切换
+0. `done` v0.4.1 方案与文档入口切换
 - 目标：把当前主线从 v0.4.0 功能封版切到稳定性监控与管理端降噪。
 - 方案：`docs/strategy/business-stability-observability-v0.4.1-plan.md`
 - 当前动作：更新唯一 TODO、战略索引、版本记录和发布 SOP。
 - 进展（2026-05-26）：已新增 v0.4.1 方案，战略索引、版本记录、发布 SOP 和事故改进日志已同步。
 - 验收：恢复上下文时能直接看出下一步是“稳定性监控 + 页面降噪”，不是继续扩新能力。
 
-1. `doing` 连接池与后台线程治理
+1. `done` 连接池与后台线程治理
 - 目标：避免 backend 再次因后台线程膨胀或 DB pool 过小导致业务接口整体超时。
 - 范围：`backend/app/core/config.py`、`backend/app/core/db.py`、service 构造副作用审计、相关测试。
 - 进展（2026-05-26）：数据库连接池新增显式配置 `DATABASE_POOL_SIZE`、`DATABASE_MAX_OVERFLOW`、`DATABASE_POOL_TIMEOUT`、`DATABASE_POOL_RECYCLE`；默认从原 SQLAlchemy 隐式 `5+10` 提升为显式 `20+20`。
+- 进展（2026-05-26）：`cd2b8964` 已发布到 114，发布后 backend 日志观察未再出现 `QueuePool` 或业务 finalize loop 回归。
 - 验收：本地测试覆盖 engine options；线上发布后观察 backend 线程数和 `QueuePool` 日志不再异常增长。
 
-2. `doing` 监控与发版门禁补强
+2. `done` 监控与发版门禁补强
 - 目标：让连接池/finalize loop 类事故在发版和定时巡检中自动暴露。
 - 范围：`backend/scripts/podi_release_smoke.py`、`scripts/run_podi_health_watch.sh`、`docs/standards/release-sop.md`。
 - 进展（2026-05-26）：发布 smoke 新增 backend journal 回归扫描，默认检查近 30 分钟 `QueuePool` 和 `business run finalize loop failed`，命中即阻断；本地测试已覆盖命中阻断和 journalctl 不可用时跳过。
 - 进展（2026-05-26）：正式发布脚本改为从 `.release_time` 开始扫描 backend journal，避免部署前旧错误误判为新版本回归。
+- 进展（2026-05-26）：修复 `.release_time` ISO 格式导致 `journalctl --since` 解析失败的问题，最终发布 smoke 中 `backend_log_regression` 实际扫描通过，`matches=0 max=0`。
 - 验收：114 发版 smoke 能在近期 backend 连接池错误未清零时失败；health-watch 报告包含可追溯结果。
 
-3. `doing` ComfyUI running 状态收敛
+3. `done` ComfyUI running 状态收敛
 - 目标：治理“中台 running 但 ComfyUI 队列为空”的残留诊断。
 - 范围：队列汇总、任务 finalize、history 补偿、OSS 回填补偿、超时标记。
 - 进展（2026-05-26）：队列汇总新增 `backendRunningInvisibleServers`、`backendRunningSettlingServers`、`backendRunningStaleGraceSeconds` 和单线路 `feedAction`；5 分钟宽限窗口内标记为“观察中”，超过窗口才计入 `backendBlockedServers` 并阻断 smoke。
 - 进展（2026-05-26）：管理端 ComfyUI 任务衔接诊断和执行节点卡片展示最早执行时间、已持续时长和下一步动作，避免短暂回填窗口被误判为卡死。
+- 进展（2026-05-26）：114 发布后真实业务巡检和 production 测评巡检均完成，ComfyUI 双节点 queue summary 显示 `blocked=0 settling=0 diagnostics=[]`。
 - 验收：真实巡检结束后，backend running 与 ComfyUI 队列能在合理窗口内收敛；残留任务可定位到 taskId/runId、执行节点和下一步处理动作。
 
-4. `doing` 管理端视觉与文案降噪
+4. `done` 管理端视觉与文案降噪
 - 目标：首页、业务能力、接口调用、ComfyUI 资源页优先展示状态结论和下一步动作。
 - 要求：少展示长说明和内部字段；技术详情折叠到排障信息；错误提示使用“发生了什么 / 影响什么 / 下一步”结构。
 - 进展（2026-05-26）：ComfyUI 资源页先做一轮降噪：顶部行动项区分“疑似卡住”和“观察中”，线路表直接给出下一步排查动作。
 - 进展（2026-05-26）：管理端概览页顶部新增“线上稳定性与封版判断”合并视图，把自检守护、后端连接池日志扫描、业务运行异常和 ComfyUI 队列收敛成四个可点击信号，先判断线上是否稳定，再进入封版阻塞项。
 - 验收：非研发用户打开管理端能判断“现在能不能用、哪个环节异常、下一步做什么”。
 
-5. `todo` v0.4.1 封版验证
+5. `doing` v0.4.1 封版验证
 - 目标：稳定性代码、监控门禁和页面降噪完成后再更新 114。
 - 要求：后端测试、管理端/测评端类型检查和构建、release smoke、business live patrol、eval production patrol、页面走查和 30-60 分钟观察窗口均记录。
+- 进展（2026-05-26）：`cd2b8964` 已发布到 114；release smoke、三条主业务真实巡检、6 个 production 测评工作流巡检和即时观察均通过，记录见 `docs/testing/2026-05-26-v0.4.1-114-seal-validation.md`。
+- 进展（2026-05-26）：已安排 30 分钟后复查 health、health-watch、业务运行、ComfyUI 队列、接口调用中心和 backend journal，再给出最终封版结论。
 - 验收：能明确说明 v0.4.1 是否可封版、已覆盖的错误场景、未覆盖风险和回滚方式。
 
 ## 已完成执行单（2026-05-19 v0.4 业务编排工作台产品化版）

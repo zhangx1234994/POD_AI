@@ -1,5 +1,47 @@
 # PODI 版本记录
 
+## v0.4.1 - 2026-05-26
+
+基线 commit：`cd2b8964`
+
+发布范围：
+
+- 114 控制面 backend。
+- 管理端静态站点。
+- 测评端静态站点。
+- `docs/`、`scripts/` 发布与巡检材料。
+
+主要变更：
+
+- 数据库连接池改为显式配置，默认 `20+20`，降低 backend 连接池耗尽复发风险。
+- 发布 smoke 增加 backend journal 回归扫描，检查 `QueuePool` 和业务 finalize loop 错误。
+- ComfyUI 队列汇总区分“短时回填观察中”和“疑似卡住”，并在管理端给出下一步动作。
+- 管理端概览页新增“线上稳定性与封版判断”，收敛自检守护、后端连接池、业务运行、ComfyUI 队列四个信号。
+- 管理端 ComfyUI 资源页和执行节点页完成一轮稳定性文案降噪。
+
+验证结果：
+
+- 114 发布源门禁通过：`HEAD == origin/main == cd2b8964`。
+- 后端关键测试通过：134 passed。
+- 管理端/测评端 `npm run lint` 与 `npm run build` 通过。
+- 远端 deploy preflight 通过：PASS=5 FAIL=0。
+- 远端 release smoke 通过，`backend_log_regression` 实际扫描 `matches=0 max=0`。
+- 三条主业务真实巡检通过：图裂变、扩图、花纹提取均 `succeeded` 且有执行节点证据。
+- 测评端 production 巡检通过：6 个 production 工作流全部成功，输出类型 `image=6`。
+- 发布后即时观察通过：health-watch issues=[]，业务运行 failed/running/queued/unresolved 均为 0，ComfyUI blocked/settling 均为 0。
+
+证据记录：
+
+- `docs/testing/2026-05-26-v0.4.1-114-seal-validation.md`
+- 线上报告：`/srv/pod/reports/eval_patrol_20260526_135036.json`
+
+已知保留风险：
+
+- 30 分钟观察复查仍需在当前线程继续执行。
+- 商业账单历史 `wallet_missing` 当前仍按 observed-only 处理。
+- `legacy-seamless-fission` 仍为历史 attention 项。
+- Pydantic v2 弃用 warning 后续集中治理。
+
 ## v0.4.1 - 规划记录
 
 目标：稳定性监控与管理端降噪。
