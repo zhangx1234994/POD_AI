@@ -561,6 +561,19 @@ export function ExecutorsPanel({
                                             最早等待：{formatDateTime(queueStatus.backendOldestQueuedAt)}
                                           </div>
                                         ) : null}
+                                        {queueStatus?.backendOldestRunningAt ? (
+                                          <div
+                                            className={
+                                              queueStatus.feedDiagnosisLevel === 'danger'
+                                                ? 'mt-1 text-[11px] text-rose-600'
+                                                : queueStatus.feedDiagnosisLevel === 'warning'
+                                                  ? 'mt-1 text-[11px] text-amber-600'
+                                                  : 'mt-1 text-[11px] text-slate-500'
+                                            }
+                                          >
+                                            最早执行：{formatDateTime(queueStatus.backendOldestRunningAt)}
+                                          </div>
+                                        ) : null}
                                       </div>
                                     )}
                                     {isComfyExecutor && (
@@ -576,11 +589,16 @@ export function ExecutorsPanel({
                                           }
                                         >
                                           {queueStatus?.feedCode
-                                            ? queueStatus.feedCode === 'COMFYUI_FEED_GAP'
+                                            ? queueStatus.feedCode === 'backend_queued_with_idle_capacity' ||
+                                              queueStatus.feedCode === 'backend_active_over_capacity' ||
+                                              queueStatus.feedCode === 'COMFYUI_FEED_GAP'
                                               ? '下发偏慢'
-                                              : queueStatus.feedCode === 'BACKEND_NOT_FEEDING_COMFYUI'
+                                              : queueStatus.feedCode === 'backend_running_not_visible' ||
+                                                queueStatus.feedCode === 'BACKEND_NOT_FEEDING_COMFYUI'
                                                 ? '疑似卡住'
-                                                : queueStatus.feedCode === 'EXECUTOR_CAPACITY_BOUND'
+                                                : queueStatus.feedCode === 'backend_running_settling'
+                                                  ? '观察中'
+                                              : queueStatus.feedCode === 'EXECUTOR_CAPACITY_BOUND'
                                                   ? '执行侧满载'
                                                   : queueStatus.feedCode === 'COMFYUI_CONSUMING_SUBMITTED_QUEUE'
                                                     ? '正在消化'
@@ -600,6 +618,9 @@ export function ExecutorsPanel({
                                             }
                                           >
                                             {queueStatus.feedDiagnosis}
+                                            {queueStatus.feedAction ? (
+                                              <div className="mt-1 text-slate-500 dark:text-slate-400">下一步：{queueStatus.feedAction}</div>
+                                            ) : null}
                                           </div>
                                         ) : (
                                           <div className="mt-1 text-[11px] text-slate-500">

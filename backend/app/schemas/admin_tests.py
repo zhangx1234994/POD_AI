@@ -183,9 +183,11 @@ class ComfyuiQueueStatusResponse(BaseModel):
     backendActive: int | None = None
     backendOldestQueuedAt: str | None = None
     backendOldestRunningAt: str | None = None
+    backendOldestRunningAgeSeconds: int | None = None
     feedCode: str | None = None
     feedDiagnosisLevel: str | None = None
     feedDiagnosis: str | None = None
+    feedAction: str | None = None
     routeEvidence: ComfyuiRouteEvidence | None = None
     routeDiagnosisLevel: str | None = None
     routeDiagnosis: str | None = None
@@ -216,6 +218,9 @@ class ComfyuiQueueSummaryResponse(BaseModel):
     idleServers: int | None = None
     feedGapServers: int | None = None
     backendBlockedServers: int | None = None
+    backendRunningInvisibleServers: int | None = None
+    backendRunningSettlingServers: int | None = None
+    backendRunningStaleGraceSeconds: int | None = None
     routeEvidenceWindowHours: int | None = None
     routeEvidenceTotal: int | None = None
     routeEvidenceCoveredServers: int | None = None

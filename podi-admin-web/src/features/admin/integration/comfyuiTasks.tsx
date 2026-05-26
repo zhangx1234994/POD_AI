@@ -102,6 +102,17 @@ function summarizeCompatibilityIssue(server?: ComfyuiWorkflowCompatibilityServer
   return parts.length > 0 ? `${server.executorId} · ${parts.join('；')}` : `${server.executorId} · 不兼容`;
 }
 
+function formatSeconds(value?: number | null): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+  if (value < 60) return `${Math.max(0, Math.floor(value))} 秒`;
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.floor(value % 60);
+  if (minutes < 60) return seconds ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小时 ${rest} 分` : `${hours} 小时`;
+}
+
 export function ComfyuiTasksPanel({
   taskForm,
   agentOptions,
@@ -187,15 +198,20 @@ export function ComfyuiTasksPanel({
   };
   const feedGapCount = queueSummary?.feedGapServers ?? 0;
   const blockedCount = queueSummary?.backendBlockedServers ?? 0;
+  const settlingCount = queueSummary?.backendRunningSettlingServers ?? 0;
+  const invisibleCount = queueSummary?.backendRunningInvisibleServers ?? 0;
+  const staleGraceSeconds = queueSummary?.backendRunningStaleGraceSeconds ?? 300;
   const routeMissingCount = queueSummary?.recentRouteMissingServers ?? 0;
   const routeEvidenceWindowHours = queueSummary?.routeEvidenceWindowHours ?? 24;
   const queueRiskText = blockedCount > 0
-    ? `疑似卡住 ${blockedCount} 条`
+    ? `疑似卡住 ${blockedCount} 台`
+    : settlingCount > 0
+      ? `观察中 ${settlingCount} 台`
     : routeMissingCount > 0
       ? `未命中 ${routeMissingCount} 台`
-    : feedGapCount > 0
-      ? `下发偏慢 ${feedGapCount} 条`
-      : '暂无明显风险';
+      : feedGapCount > 0
+        ? `下发偏慢 ${feedGapCount} 台`
+        : '暂无明显风险';
   const compatibilityRiskText = workflowCompatibility?.failedCount
     ? `不可运行 ${workflowCompatibility.failedCount} 个`
     : workflowCompatibility?.warningCount
@@ -240,8 +256,16 @@ export function ComfyuiTasksPanel({
       key: 'queue-blocked',
       theme: 'danger',
       title: '有任务疑似卡住',
-      detail: `中台显示任务执行中，但 ComfyUI 队列没有对应执行证据，涉及 ${blockedCount} 条线路。`,
-      action: '先看下方线路判断',
+      detail: `中台执行中已超过 ${formatSeconds(staleGraceSeconds)}，但 ComfyUI 队列没有对应执行证据，涉及 ${blockedCount} 台线路。`,
+      action: '打开下方线路，按任务详情、ComfyUI history、OSS 回填顺序排查',
+    });
+  } else if (settlingCount > 0) {
+    topActionItems.push({
+      key: 'queue-settling',
+      theme: 'warning',
+      title: '有任务处于回填观察窗口',
+      detail: `中台执行中但 ComfyUI 队列暂未显示，仍在 ${formatSeconds(staleGraceSeconds)} 宽限窗口内，涉及 ${settlingCount} 台线路。`,
+      action: '等待一个刷新周期后复查，超过宽限窗口再按卡住处理',
     });
   } else if (routeMissingCount > 0 && (queueSummary?.routeEvidenceTotal || 0) > 0) {
     topActionItems.push({
@@ -395,7 +419,7 @@ export function ComfyuiTasksPanel({
                 {queueSummary ? queueRiskText : queueSummaryLoading ? '读取中…' : '—'}
               </div>
               <div className="mt-1 text-xs text-slate-500">
-                未命中 {routeMissingCount} · 下发偏慢 {feedGapCount} · 疑似卡住 {blockedCount}
+                不可见 {invisibleCount} · 观察 {settlingCount} · 疑似卡住 {blockedCount}
               </div>
             </div>
           </div>
@@ -447,6 +471,22 @@ export function ComfyuiTasksPanel({
                         {server.backendOldestQueuedAt ? (
                           <div className="mt-1 text-[11px] text-amber-600">最早等待：{formatDateTime(server.backendOldestQueuedAt)}</div>
                         ) : null}
+                        {server.backendOldestRunningAt ? (
+                          <div
+                            className={
+                              server.feedDiagnosisLevel === 'danger'
+                                ? 'mt-1 text-[11px] text-rose-600'
+                                : server.feedDiagnosisLevel === 'warning'
+                                  ? 'mt-1 text-[11px] text-amber-600'
+                                  : 'mt-1 text-[11px] text-slate-500'
+                            }
+                          >
+                            最早执行：{formatDateTime(server.backendOldestRunningAt)}
+                            {typeof server.backendOldestRunningAgeSeconds === 'number'
+                              ? ` · 已 ${formatSeconds(server.backendOldestRunningAgeSeconds)}`
+                              : ''}
+                          </div>
+                        ) : null}
                       </td>
                       <td
                         className={
@@ -479,7 +519,10 @@ export function ComfyuiTasksPanel({
                               : 'px-3 py-2 text-slate-600 dark:text-slate-400'
                         }
                       >
-                        {server.feedDiagnosis || server.diagnosis || '—'}
+                        <div>{server.feedDiagnosis || server.diagnosis || '—'}</div>
+                        {server.feedAction ? (
+                          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">下一步：{server.feedAction}</div>
+                        ) : null}
                       </td>
                     </tr>
                   ))

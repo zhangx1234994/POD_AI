@@ -6,23 +6,25 @@
 
 1. `project-current-review-2026-05-22.md`
 2. `todo-master-2026q2.md`
-3. `business-orchestration-workbench-v0.4-plan.md`
-4. `control-point-and-file-index-2026-05-19.md`
-5. `business-control-point-matrix-2026-05-19.md`
-6. `doc-cleanup-inventory-2026-05-18.md`
+3. `business-stability-observability-v0.4.1-plan.md`
+4. `business-orchestration-workbench-v0.4-plan.md`
+5. `control-point-and-file-index-2026-05-19.md`
+6. `business-control-point-matrix-2026-05-19.md`
+7. `doc-cleanup-inventory-2026-05-18.md`
 
 ## 当前阶段
 
-- 当前阶段：`v0.4 业务编排工作台产品化版`。
-- 当前目标：把业务能力页从技术配置页升级成业务工作台。
-- 当前重点：业务命名、版本族、可交互编排图、接口调用中心、runId 排障性能和文案降噪。
-- 当前非目标：完整低代码平台、客户端重构、正式支付、为单台 ComfyUI 机器写业务特判。
+- 当前阶段：`v0.4.1 稳定性监控与管理端降噪版`。
+- 当前目标：在 v0.4.0 封版后补齐线上监控、发版门禁和页面可读性。
+- 当前重点：连接池/线程治理、health-watch/live patrol 常态化、ComfyUI 状态收敛、管理端首页/业务能力/接口调用/资源页降噪。
+- 当前非目标：新增大业务能力、完整低代码平台、客户端重构、正式支付、为单台 ComfyUI 机器写业务特判。
 
 ## 阶段记录
 
 这些文档保留为背景，不直接作为当前任务清单：
 
 - `business-orchestration-workbench-v0.3-plan.md`
+- `business-orchestration-workbench-v0.4-plan.md`
 - `business-control-plane-v0.2-plan.md`
 - `business-orchestration-control-plane-v1.md`
 - `mid-platform-gap-and-roadmap-2026-05-07.md`
@@ -52,4 +54,4 @@
 4. 文档冲突时，按“当前回顾 -> 唯一 TODO -> 当前方案 -> 标准规范 -> 历史资料”的顺序判断。
 5. 每轮重要开发结束后，更新 `project-current-review-YYYY-MM-DD.md` 或当前回顾文档。
 
-最后更新：2026-05-22
+最后更新：2026-05-26

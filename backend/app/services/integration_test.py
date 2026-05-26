@@ -1777,8 +1777,15 @@ class IntegrationTestService:
         idle_servers = 0
         feed_gap_servers = 0
         backend_blocked_servers = 0
+        backend_running_invisible_servers = 0
+        backend_running_settling_servers = 0
         recent_route_missing_servers = 0
         diagnostics: list[dict[str, str]] = []
+        now = datetime.utcnow()
+        running_invisible_grace_seconds = max(
+            30,
+            int(get_settings().comfyui_backend_running_grace_seconds or 300),
+        )
         for executor in executors:
             try:
                 fallback_queue_max = max(1, int(executor.max_concurrency or 0))
@@ -1810,6 +1817,8 @@ class IntegrationTestService:
             backend_queued = int(backend.get("queued") or 0)
             backend_running = int(backend.get("running") or 0)
             backend_active = backend_queued + backend_running
+            backend_oldest_running_at = backend.get("oldestRunningAt")
+            backend_oldest_running_age_seconds = self._iso_age_seconds(backend_oldest_running_at, now=now)
             idle_slots = max(0, capacity - remote_total)
             utilization = round(remote_total / capacity, 4) if capacity > 0 else None
             saturation = "full" if capacity > 0 and remote_total >= capacity else ("busy" if remote_total > 0 else "idle")
@@ -1818,6 +1827,7 @@ class IntegrationTestService:
             feed_code = "normal"
             feed_level = "success"
             feed_diagnosis = "中台与 ComfyUI 队列衔接正常。"
+            feed_action = "无需处理。"
             route_diagnosis_level = "success"
             route_diagnosis = "最近真实任务已命中过该线路。"
 
@@ -1828,6 +1838,7 @@ class IntegrationTestService:
                 feed_code = "executor_unavailable"
                 feed_level = "danger"
                 feed_diagnosis = "该节点当前不可用于路由，任务应自动避开。"
+                feed_action = "检查 ComfyUI 服务、网络和执行节点配置；恢复前不要把业务默认版本强绑到该节点。"
                 route_diagnosis_level = "danger"
                 route_diagnosis = "线路不可达，最近命中证据只能作为历史参考。"
             else:
@@ -1840,20 +1851,42 @@ class IntegrationTestService:
                 elif remote_total == 0:
                     idle_servers += 1
                 if backend_running > 0 and remote_total == 0:
-                    backend_blocked_servers += 1
-                    feed_code = "backend_running_not_visible"
-                    feed_level = "danger"
-                    feed_diagnosis = "中台显示执行中，但 ComfyUI 队列没有对应任务，需检查下发或结果回填。"
+                    backend_running_invisible_servers += 1
+                    is_stale = (
+                        backend_oldest_running_age_seconds is None
+                        or backend_oldest_running_age_seconds >= running_invisible_grace_seconds
+                    )
+                    if is_stale:
+                        backend_blocked_servers += 1
+                        feed_code = "backend_running_not_visible"
+                        feed_level = "danger"
+                        age_text = self._format_age_seconds(backend_oldest_running_age_seconds)
+                        feed_diagnosis = (
+                            f"中台显示执行中已持续 {age_text}，但 ComfyUI 队列没有对应任务，需检查下发、history 或 OSS 回填。"
+                        )
+                        feed_action = "打开对应 runId/taskId，查 ComfyUI /history、结果回填和 backend finalize 日志；确认无结果后标记失败或补偿回填。"
+                    else:
+                        backend_running_settling_servers += 1
+                        feed_code = "backend_running_settling"
+                        feed_level = "warning"
+                        age_text = self._format_age_seconds(backend_oldest_running_age_seconds)
+                        grace_text = self._format_age_seconds(running_invisible_grace_seconds)
+                        feed_diagnosis = (
+                            f"中台显示执行中约 {age_text}，ComfyUI 队列暂未看到任务；仍在 {grace_text} 宽限窗口内，可能是提交或回填收敛中。"
+                        )
+                        feed_action = "等待一个刷新周期后复查；超过宽限窗口仍未回填时，再按卡住任务处理。"
                 elif backend_queued > 0 and idle_slots > 0:
                     feed_gap_servers += 1
                     feed_code = "backend_queued_with_idle_capacity"
                     feed_level = "warning"
                     feed_diagnosis = "中台仍有待下发任务，但该节点还有空闲容量，需检查 worker 并发或调度节奏。"
+                    feed_action = "检查后台 worker 是否在运行、能力任务是否被限流，以及路由标签是否匹配。"
                 elif backend_active > capacity and remote_total < capacity:
                     feed_gap_servers += 1
                     feed_code = "backend_active_over_capacity"
                     feed_level = "warning"
                     feed_diagnosis = "中台侧任务数超过该节点容量，但 ComfyUI 未被填满，需检查任务衔接。"
+                    feed_action = "核对 executor 并发、ComfyUI 队列上限和中台 worker 数是否一致。"
                 if int(evidence.get("recentTotal") or 0) <= 0:
                     recent_route_missing_servers += 1
                     route_diagnosis_level = "warning"
@@ -1876,10 +1909,12 @@ class IntegrationTestService:
                     "backendRunning": backend_running,
                     "backendActive": backend_active,
                     "backendOldestQueuedAt": backend.get("oldestQueuedAt"),
-                    "backendOldestRunningAt": backend.get("oldestRunningAt"),
+                    "backendOldestRunningAt": backend_oldest_running_at,
+                    "backendOldestRunningAgeSeconds": backend_oldest_running_age_seconds,
                     "feedCode": feed_code,
                     "feedDiagnosisLevel": feed_level,
                     "feedDiagnosis": feed_diagnosis,
+                    "feedAction": feed_action,
                     "routeEvidence": evidence,
                     "routeDiagnosisLevel": route_diagnosis_level,
                     "routeDiagnosis": route_diagnosis,
@@ -1907,7 +1942,15 @@ class IntegrationTestService:
                 {
                     "level": "danger",
                     "code": "COMFYUI_BACKEND_RUNNING_NOT_VISIBLE",
-                    "message": f"{backend_blocked_servers} 台节点存在“中台执行中但 ComfyUI 队列为空”的情况，优先排查下发和回填。",
+                    "message": f"{backend_blocked_servers} 台节点存在“中台执行中超过宽限窗口但 ComfyUI 队列为空”的情况，优先排查下发、history 和回填。",
+                }
+            )
+        if backend_running_settling_servers:
+            diagnostics.append(
+                {
+                    "level": "warning",
+                    "code": "COMFYUI_BACKEND_RUNNING_SETTLING",
+                    "message": f"{backend_running_settling_servers} 台节点存在短时间“中台执行中但 ComfyUI 队列为空”，当前按提交/回填收敛窗口观察。",
                 }
             )
         if feed_gap_servers:
@@ -1952,6 +1995,9 @@ class IntegrationTestService:
             "idleServers": idle_servers,
             "feedGapServers": feed_gap_servers,
             "backendBlockedServers": backend_blocked_servers,
+            "backendRunningInvisibleServers": backend_running_invisible_servers,
+            "backendRunningSettlingServers": backend_running_settling_servers,
+            "backendRunningStaleGraceSeconds": running_invisible_grace_seconds,
             "routeEvidenceWindowHours": 24,
             "routeEvidenceTotal": route_evidence_total,
             "routeEvidenceCoveredServers": route_evidence_covered,
@@ -2137,6 +2183,30 @@ class IntegrationTestService:
             return
         if value < current_dt:
             bucket[key] = value.isoformat()
+
+    @staticmethod
+    def _iso_age_seconds(value: Any, *, now: datetime) -> int | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        return max(0, int((now - parsed).total_seconds()))
+
+    @staticmethod
+    def _format_age_seconds(value: int | None) -> str:
+        if value is None:
+            return "未知时长"
+        if value < 60:
+            return f"{value} 秒"
+        minutes = value // 60
+        seconds = value % 60
+        if minutes < 60:
+            return f"{minutes} 分 {seconds} 秒" if seconds else f"{minutes} 分钟"
+        hours = minutes // 60
+        rest = minutes % 60
+        return f"{hours} 小时 {rest} 分" if rest else f"{hours} 小时"
 
     def _write_comfyui_queue_health(self, servers: list[dict[str, Any]]) -> None:
         """Persist lightweight executor health from queue checks.

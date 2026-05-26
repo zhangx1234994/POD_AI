@@ -715,6 +715,121 @@ export function OverviewPanel({
   const walletRiskCount = Number(strategySummary?.wallet_failed || 0);
   const callbackRiskCount = Number(strategySummary?.callback_failed || callbackFailedCount || 0);
   const queueRiskCount = Number(pendingQueueTotal || 0);
+  const backendLogRegressionCheck = releasePreflightCheckByName(preflightLatest, 'backend_log_regression');
+  const comfyuiQueueSummaryCheck = releasePreflightCheckByName(preflightLatest, 'comfyui_queue_summary');
+  const todayFailedCount = Number(dashboardMetrics?.today.failed || 0);
+  const stabilitySignals: Array<{
+    key: string;
+    title: string;
+    status: string;
+    detail: string;
+    action: string;
+    target: OverviewNavTarget;
+    theme: 'success' | 'warning' | 'danger' | 'default';
+  }> = [
+    {
+      key: 'health-watch',
+      title: '自检守护',
+      status: healthWatchUnsupported
+        ? '本地不可读'
+        : healthWatchProblemItems.length > 0
+          ? `异常 ${healthWatchProblemItems.length}`
+          : healthWatchRunningItems.length > 0
+            ? `运行中 ${healthWatchRunningItems.length}`
+            : healthWatchItems.length > 0
+              ? '正常'
+              : '待检查',
+      detail: healthWatchUnsupported
+        ? '本地环境无法读取 systemd，发布前在 114 确认。'
+        : healthWatchProblemItems.length > 0
+          ? healthWatchProblemItems.slice(0, 2).map((item) => `${item.title}：${item.summary || '异常'}`).join('；')
+          : healthWatchRunningItems.length > 0
+            ? '守护任务正在执行，等待完成后刷新。'
+            : healthWatchItems.length > 0
+              ? '定时自检、真实巡检和评测健康已纳入观察。'
+              : '尚未读取守护状态，先刷新或到 114 查看。',
+      action: '看守护状态',
+      target: 'overview',
+      theme: healthWatchUnsupported
+        ? 'warning'
+        : healthWatchProblemItems.length > 0
+          ? 'danger'
+          : healthWatchRunningItems.length > 0 || healthWatchItems.length === 0
+            ? 'warning'
+            : 'success',
+    },
+    {
+      key: 'backend-pool',
+      title: '后端连接池',
+      status: backendLogRegressionCheck ? releasePreflightCheckLabel(backendLogRegressionCheck.status) : '待扫描',
+      detail: backendLogRegressionCheck
+        ? backendLogRegressionCheck.detail || 'release smoke 已扫描近期 backend journal。'
+        : '运行轻量门禁后会扫描 QueuePool 和 finalize loop 回归日志。',
+      action: '运行轻量门禁',
+      target: 'overview',
+      theme: backendLogRegressionCheck ? releasePreflightCheckTheme(backendLogRegressionCheck.status) : 'warning',
+    },
+    {
+      key: 'business-runs',
+      title: '业务运行',
+      status:
+        businessUnresolvedIssueCount > 0
+          ? `未恢复 ${businessUnresolvedIssueCount}`
+          : callbackRiskCount > 0
+            ? `回调失败 ${callbackRiskCount}`
+            : todayFailedCount > 0
+              ? `今日失败 ${todayFailedCount}`
+              : '无明显异常',
+      detail:
+        businessUnresolvedIssueCount > 0
+          ? `近 ${businessUsageSummary?.windowHours || 24} 小时仍有失败未确认恢复。`
+          : callbackRiskCount > 0
+            ? '业务方可能收不到结果，先核对回调地址和重试记录。'
+            : todayFailedCount > 0
+              ? '今日存在失败样本，确认是否已被后续成功覆盖。'
+              : '当前窗口业务运行没有明确阻塞。',
+      action: '看业务运行',
+      target: 'business',
+      theme: businessUnresolvedIssueCount > 0 || callbackRiskCount > 0 ? 'danger' : todayFailedCount > 0 ? 'warning' : 'success',
+    },
+    {
+      key: 'comfyui-queue',
+      title: 'ComfyUI 队列',
+      status: comfyuiQueueSummaryCheck
+        ? releasePreflightCheckLabel(comfyuiQueueSummaryCheck.status)
+        : queueRiskCount > 0
+          ? `排队 ${queueRiskCount}`
+          : '待门禁',
+      detail: comfyuiQueueSummaryCheck
+        ? comfyuiQueueSummaryCheck.detail || '队列、下发和 backend running 状态已检查。'
+        : queueRiskCount > 0
+          ? '当前有排队任务，确认 4090/5090/158 线路是否在消化。'
+          : '运行轻量门禁后可看到队列和回填收敛状态。',
+      action: '看 ComfyUI',
+      target: 'comfyui-management',
+      theme: comfyuiQueueSummaryCheck
+        ? releasePreflightCheckTheme(comfyuiQueueSummaryCheck.status)
+        : queueRiskCount > 0
+          ? 'warning'
+          : 'default',
+    },
+  ];
+  const stabilityDangerSignals = stabilitySignals.filter((item) => item.theme === 'danger');
+  const stabilityWarningSignals = stabilitySignals.filter((item) => item.theme === 'warning' || item.theme === 'default');
+  const stabilityAlertTheme =
+    stabilityDangerSignals.length > 0 ? 'error' : stabilityWarningSignals.length > 0 ? 'warning' : 'success';
+  const stabilitySummaryTitle =
+    stabilityDangerSignals.length > 0
+      ? `需处理 ${stabilityDangerSignals.length} 项`
+      : stabilityWarningSignals.length > 0
+        ? `需确认 ${stabilityWarningSignals.length} 项`
+        : '当前稳定';
+  const stabilitySummaryMessage =
+    stabilityDangerSignals.length > 0
+      ? stabilityDangerSignals.map((item) => item.title).join('、')
+      : stabilityWarningSignals.length > 0
+        ? stabilityWarningSignals.map((item) => item.title).join('、')
+        : '自检、连接池日志、业务运行和 ComfyUI 队列没有明显异常。';
   const executivePillars: Array<{
     key: string;
     title: string;
@@ -1114,15 +1229,35 @@ export function OverviewPanel({
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <div>
-              <Typography.Text strong>封版判断</Typography.Text>
+              <Typography.Text strong>线上稳定性与封版判断</Typography.Text>
               <div>
-                <Typography.Text theme="secondary">只回答两件事：能不能封版，卡在哪里。</Typography.Text>
+                <Typography.Text theme="secondary">先判断线上是否稳定，再判断能不能封版、卡在哪里。</Typography.Text>
               </div>
             </div>
             <Button size="small" variant="outline" loading={loading} onClick={onRefresh}>
               刷新总览
             </Button>
           </Space>
+          <Alert theme={stabilityAlertTheme} message={`线上观察：${stabilitySummaryTitle}。${stabilitySummaryMessage}`} />
+          <div className="podi-stability-signal-grid">
+            {stabilitySignals.map((signal) => (
+              <button
+                key={signal.key}
+                type="button"
+                className={`podi-stability-signal podi-stability-signal--${signal.theme}`}
+                onClick={() => onNavigate?.(signal.target)}
+              >
+                <span className="podi-stability-signal__topline">
+                  <span>{signal.title}</span>
+                  <Tag theme={signal.theme} variant="light" size="small">
+                    {signal.status}
+                  </Tag>
+                </span>
+                <span className="podi-stability-signal__detail">{signal.detail}</span>
+                <span className="podi-stability-signal__action">{signal.action}</span>
+              </button>
+            ))}
+          </div>
           <Alert
             theme={
               releaseReadinessTheme === 'danger'
@@ -1133,7 +1268,7 @@ export function OverviewPanel({
                     ? 'success'
                     : 'info'
             }
-            message={`当前结论：${releaseReadinessTitle}。${releaseReadinessMessage}`}
+            message={`封版结论：${releaseReadinessTitle}。${releaseReadinessMessage}`}
           />
           {releaseAttentionItems.length > 0 ? (
             <div className="podi-operator-focus-list">

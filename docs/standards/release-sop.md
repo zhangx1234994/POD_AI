@@ -61,6 +61,7 @@ bash scripts/release_114_control_plane.sh
 11. 写入 `/srv/pod/DEPLOYED_COMMIT`、`.release_commit`、`.release_time`
 12. 等待 backend/admin/eval HTTP 入口就绪，避免刚重启时端口尚未监听导致误报
 13. 执行远端健康检查、`scripts/deploy_preflight.sh` 和 `podi_release_smoke.py`；smoke 会读取线上 `backend/.env` 中的 `SERVICE_API_TOKEN`、`ADMIN_API_TOKEN`、`EVAL_ADMIN_TOKEN`，避免鉴权类检查被静默跳过。
+14. `podi_release_smoke.py` 默认扫描近期 backend journal；正式发布脚本会从 `.release_time` 开始扫描，出现新版本启动后的 `QueuePool` 或业务 finalize loop 回归日志时阻断发布。
 
 脚本完成前端 build 后，若本次改动包含前端打包、路由、懒加载、图形编排、测评端交互或依赖分包调整，发布人必须补做一次本地静态包浏览器检查；不能只看 `npm run build` 成功：
 
@@ -98,6 +99,8 @@ node scripts/node_static_proxy.mjs \
 | `SMOKE_ALLOW_COMFYUI_WARNINGS` | `0` | 临时接受 ComfyUI 兼容 warning，必须记录原因 |
 | `SMOKE_EXPECT_SERVER_URL` | 线上 `backend/.env` 的 `PODI_INTERNAL_BASE_URL` | 校验 Coze 工具箱 OpenAPI 的 `servers[0].url` 是否为 Coze 容器可访问地址 |
 | `SERVICE_READY_TIMEOUT_SECONDS` | `60` | 重启后等待 backend/admin/eval HTTP 入口就绪的最长秒数 |
+| `RELEASE_BACKEND_LOG_SINCE` | 发布脚本内为 `.release_time`，手工 smoke 默认为 `30 min ago` | 发布 smoke 扫描 backend journal 的时间窗口 |
+| `RELEASE_MAX_BACKEND_LOG_REGRESSIONS` | `0` | 允许出现的连接池/finalize loop 回归日志条数 |
 
 示例：只做控制面发布，不跑真实出图：
 
@@ -143,6 +146,7 @@ RUN_LIVE_PATROL=1 bash scripts/release_114_control_plane.sh
 - Coze 容器不可访问 OpenAPI 暴露的 `servers[0].url`。
 - 核心业务默认版本缺失或无可执行配方。
 - 成功任务没有 OSS 回填或缺执行节点证据。
+- 近期 backend 日志出现 `QueuePool` 或业务 finalize loop 回归。
 - ComfyUI 全部节点不可用，或中台已有运行中任务但 ComfyUI 队列不可见。
 - 图裂变类功能页面仍出现“相似度”作为业务参数文案，或 `bili/similarity` 没有统一解释为“重绘幅度”。
 - 业务接口调用记录无法按 `runId/requestId/traceId` 聚合提交、轮询或回调记录。

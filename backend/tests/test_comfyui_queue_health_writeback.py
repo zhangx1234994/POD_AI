@@ -160,6 +160,118 @@ def test_comfyui_queue_summary_exposes_backend_feed_gap(monkeypatch) -> None:
     assert server["feedDiagnosisLevel"] == "warning"
 
 
+def test_comfyui_queue_summary_treats_short_invisible_running_as_settling(monkeypatch) -> None:
+    testing_session = _install_executor_db(monkeypatch)
+    with testing_session() as session:
+        session.add(
+            Executor(
+                id="executor_settling",
+                name="Settling GPU",
+                type="comfyui",
+                base_url="http://settling.example",
+                status="active",
+                max_concurrency=10,
+                config={},
+            )
+        )
+        session.commit()
+
+    service = IntegrationTestService()
+    now = datetime.utcnow()
+    monkeypatch.setattr(
+        service,
+        "get_comfyui_queue_status",
+        lambda *, executor_id: {
+            "executorId": executor_id,
+            "baseUrl": "http://settling.example",
+            "runningCount": 0,
+            "pendingCount": 0,
+            "queueMaxSize": 10,
+            "supported": True,
+            "raw": {},
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_summarize_backend_comfyui_tasks",
+        lambda executor_ids: {
+            "executor_settling": {
+                "queued": 0,
+                "running": 1,
+                "oldestQueuedAt": None,
+                "oldestRunningAt": (now - timedelta(seconds=45)).isoformat(),
+            }
+        },
+    )
+
+    summary = service.get_comfyui_queue_summary()
+    server = summary["servers"][0]
+
+    assert summary["backendBlockedServers"] == 0
+    assert summary["backendRunningInvisibleServers"] == 1
+    assert summary["backendRunningSettlingServers"] == 1
+    assert summary["diagnostics"][0]["code"] == "COMFYUI_BACKEND_RUNNING_SETTLING"
+    assert server["feedCode"] == "backend_running_settling"
+    assert server["feedDiagnosisLevel"] == "warning"
+    assert server["feedAction"]
+
+
+def test_comfyui_queue_summary_blocks_stale_invisible_running(monkeypatch) -> None:
+    testing_session = _install_executor_db(monkeypatch)
+    with testing_session() as session:
+        session.add(
+            Executor(
+                id="executor_stale",
+                name="Stale GPU",
+                type="comfyui",
+                base_url="http://stale.example",
+                status="active",
+                max_concurrency=10,
+                config={},
+            )
+        )
+        session.commit()
+
+    service = IntegrationTestService()
+    now = datetime.utcnow()
+    monkeypatch.setattr(
+        service,
+        "get_comfyui_queue_status",
+        lambda *, executor_id: {
+            "executorId": executor_id,
+            "baseUrl": "http://stale.example",
+            "runningCount": 0,
+            "pendingCount": 0,
+            "queueMaxSize": 10,
+            "supported": True,
+            "raw": {},
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_summarize_backend_comfyui_tasks",
+        lambda executor_ids: {
+            "executor_stale": {
+                "queued": 0,
+                "running": 1,
+                "oldestQueuedAt": None,
+                "oldestRunningAt": (now - timedelta(minutes=12)).isoformat(),
+            }
+        },
+    )
+
+    summary = service.get_comfyui_queue_summary()
+    server = summary["servers"][0]
+
+    assert summary["backendBlockedServers"] == 1
+    assert summary["backendRunningInvisibleServers"] == 1
+    assert summary["backendRunningSettlingServers"] == 0
+    assert summary["diagnostics"][0]["code"] == "COMFYUI_BACKEND_RUNNING_NOT_VISIBLE"
+    assert server["feedCode"] == "backend_running_not_visible"
+    assert server["feedDiagnosisLevel"] == "danger"
+    assert server["backendOldestRunningAgeSeconds"] >= 700
+
+
 def test_comfyui_queue_summary_exposes_recent_route_evidence(monkeypatch) -> None:
     testing_session = _install_executor_db(monkeypatch, include_tasks=True)
     now = datetime.utcnow()

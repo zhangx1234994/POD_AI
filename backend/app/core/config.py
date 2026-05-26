@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     oss_access_key: str | None = Field(default=None, env=["OSS_ACCESS_KEY", "OSS_AK"])
     oss_secret_key: str | None = Field(default=None, env=["OSS_SECRET_KEY", "OSS_SK"])
     database_url: str = Field(..., env="DATABASE_URL")
+    database_pool_size: int = Field(default=20, env="DATABASE_POOL_SIZE")
+    database_max_overflow: int = Field(default=20, env="DATABASE_MAX_OVERFLOW")
+    database_pool_timeout: int = Field(default=30, env="DATABASE_POOL_TIMEOUT")
+    database_pool_recycle: int = Field(default=1800, env="DATABASE_POOL_RECYCLE")
     oss_role_arn: str | None = Field(default=None, env="OSS_ROLE_ARN")
     oss_bucket: str = Field(default="pod-oss-private", env="OSS_BUCKET")
     oss_region: str = Field(default="oss-cn-hangzhou", env="OSS_REGION")
@@ -129,6 +133,7 @@ class Settings(BaseSettings):
     # Soft target for ComfyUI queue depth per executor. Router will prefer nodes under this value.
     # Business-side schedulers can use this as a batch size hint.
     comfyui_queue_batch_size: int = Field(default=10, env="COMFYUI_QUEUE_BATCH_SIZE")
+    comfyui_backend_running_grace_seconds: int = Field(default=300, env="COMFYUI_BACKEND_RUNNING_GRACE_SECONDS")
     # Optional external image-ops service for self-built atomic image tools such as
     # upscale / dpi / expand-mask. When unset, backend keeps using local implementations.
     image_ops_base_url: str | None = Field(default=None, env="IMAGE_OPS_BASE_URL")

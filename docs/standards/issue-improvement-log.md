@@ -15,6 +15,16 @@
 
 ---
 
+## 2026-05-26
+
+1) **业务巡检同时超时，实际为 backend DB 连接池耗尽**
+- 范围：114 backend / 业务 API / 发版后巡检 / 数据库连接池
+- 现象：`podi-business-live-patrol.service` 在 2026-05-26 08:38 同时出现扩图、图裂变、花纹提取 `ReadTimeout`；backend 日志近 10 小时出现大量 `QueuePool limit` 和 `business run finalize loop failed`。
+- 影响：用户侧表现为多个业务接口同时超时，容易被误判为 158/5090 或某个 ComfyUI 工作流问题。
+- 根因：业务能力运行指标路径曾隐式创建新的 `BusinessRunService`，而 service 构造会启动后台 finalize 线程；管理端/巡检/发版烟测反复读取指标后后台线程膨胀，叠加默认 SQLAlchemy 连接池 `pool_size=5/max_overflow=10`，最终连接池耗尽。
+- 改进：已修复指标路径不再创建新 service；数据库连接池改为显式配置；发布 smoke 增加近期 backend 日志回归扫描，发现 `QueuePool` 或 finalize loop 错误即阻断；v0.4.1 将继续补线程/连接池监控和管理端降噪。
+- 状态：处理中。热修已部署验证，v0.4.1 继续固化监控与门禁。
+
 ## 2026-05-18
 
 0.0) **业务功能命名和版本归属缺少硬规则**

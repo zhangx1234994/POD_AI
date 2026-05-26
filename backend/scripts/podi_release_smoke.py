@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,10 @@ DEFAULT_MAX_PRODUCTION_PER_CATEGORY = 2
 CORE_BUSINESS_PATROL_IMAGE_URL = (
     "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/"
     "98904c502d9d4dd78432ec2bd1f79def/20260424/228be55f-1777009905.jpg"
+)
+BACKEND_LOG_REGRESSION_PATTERNS = (
+    "QueuePool limit",
+    "business run finalize loop failed",
 )
 
 
@@ -1618,6 +1623,35 @@ def _run_auth_scope_summary_check(
     return _result("auth_scope_summary", response.status_code == 200 and ok, f"status={response.status_code} {detail}")
 
 
+def _run_backend_log_regression_check(
+    *,
+    unit: str,
+    since: str,
+    max_regressions: int,
+) -> dict[str, Any]:
+    unit = str(unit or "podi-backend.service").strip()
+    since = str(since or "30 min ago").strip()
+    command = ["journalctl", "-u", unit, "--since", since, "--no-pager"]
+    try:
+        completed = subprocess.run(command, check=False, capture_output=True, text=True, timeout=15)
+    except FileNotFoundError:
+        return _result("backend_log_regression", True, "skipped: journalctl unavailable")
+    except subprocess.TimeoutExpired:
+        return _result("backend_log_regression", False, f"journalctl timed out unit={unit} since={since}")
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        return _result("backend_log_regression", True, f"skipped: journalctl failed unit={unit} detail={_short(detail, 240)}")
+    lines = (completed.stdout or "").splitlines()
+    matched = [line for line in lines if any(pattern in line for pattern in BACKEND_LOG_REGRESSION_PATTERNS)]
+    max_regressions = max(0, int(max_regressions))
+    ok = len(matched) <= max_regressions
+    sample = " | ".join(matched[:3])
+    detail = f"unit={unit} since={since} matches={len(matched)} max={max_regressions}"
+    if sample:
+        detail += f" sample={_short(sample, 500)}"
+    return _result("backend_log_regression", ok, detail)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run PODI backend release smoke checks.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8099")
@@ -1695,6 +1729,27 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="Print machine-readable summary at the end.")
     parser.add_argument("--report", default="", help="Optional JSON report path.")
+    parser.add_argument(
+        "--skip-backend-log-scan",
+        action="store_true",
+        help="Skip recent backend journal scan for known production regressions.",
+    )
+    parser.add_argument(
+        "--backend-log-unit",
+        default=os.getenv("RELEASE_BACKEND_LOG_UNIT") or "podi-backend.service",
+        help="Systemd unit used by the backend journal regression scan.",
+    )
+    parser.add_argument(
+        "--backend-log-since",
+        default=os.getenv("RELEASE_BACKEND_LOG_SINCE") or "30 min ago",
+        help="Recent window for backend journal regression scan.",
+    )
+    parser.add_argument(
+        "--max-backend-log-regressions",
+        type=int,
+        default=int(os.getenv("RELEASE_MAX_BACKEND_LOG_REGRESSIONS") or "0"),
+        help="Maximum QueuePool/finalize-loop regression log lines allowed in the scan window.",
+    )
     args = parser.parse_args()
 
     base_url = args.base_url.rstrip("/")
@@ -1827,6 +1882,14 @@ def main() -> int:
     )
 
     checks.append(_run_eval_operations_health_check(base_url=base_url, eval_admin_token=args.eval_admin_token))
+    if not args.skip_backend_log_scan:
+        checks.append(
+            _run_backend_log_regression_check(
+                unit=args.backend_log_unit,
+                since=args.backend_log_since,
+                max_regressions=args.max_backend_log_regressions,
+            )
+        )
 
     ok = all(item.get("ok") for item in checks)
     summary = {"baseUrl": base_url, "ok": ok, "checks": checks}

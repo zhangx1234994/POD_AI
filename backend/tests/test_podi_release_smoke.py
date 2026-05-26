@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -1758,3 +1759,48 @@ def test_release_smoke_write_report_creates_parent_directory(tmp_path) -> None:
     assert written == str(report_path)
     assert report_path.exists()
     assert '"ok": true' in report_path.read_text(encoding="utf-8")
+
+
+def test_backend_log_regression_check_blocks_queuepool_errors(monkeypatch) -> None:
+    module = _load_smoke_module()
+
+    def fake_run(*args, **kwargs):  # noqa: ANN002, ANN003
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=(
+                "May 26 python[1]: business run finalize loop failed: QueuePool limit of size 5\n"
+                "May 26 python[1]: ordinary access log\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module._run_backend_log_regression_check(
+        unit="podi-backend.service",
+        since="30 min ago",
+        max_regressions=0,
+    )
+
+    assert result["ok"] is False
+    assert result["name"] == "backend_log_regression"
+    assert "matches=1" in result["detail"]
+
+
+def test_backend_log_regression_check_skips_when_journalctl_missing(monkeypatch) -> None:
+    module = _load_smoke_module()
+
+    def fake_run(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise FileNotFoundError
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module._run_backend_log_regression_check(
+        unit="podi-backend.service",
+        since="30 min ago",
+        max_regressions=0,
+    )
+
+    assert result["ok"] is True
+    assert "journalctl unavailable" in result["detail"]

@@ -253,6 +253,7 @@ expect_arg=()
 if [[ -n "$expect_server_url" ]]; then
   expect_arg=(--expect-server-url "$expect_server_url")
 fi
+export RELEASE_BACKEND_LOG_SINCE="$(cat .release_time 2>/dev/null || echo '30 min ago')"
 backend/.venv/bin/python backend/scripts/podi_release_smoke.py --base-url "$BACKEND_URL_LOCAL" "${expect_arg[@]}" $SMOKE_EXTRA_ARGS
 REMOTE
 else

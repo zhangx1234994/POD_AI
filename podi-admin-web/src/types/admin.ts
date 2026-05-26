@@ -2214,9 +2214,11 @@ export interface ComfyuiQueueStatus {
   backendActive?: number | null;
   backendOldestQueuedAt?: string | null;
   backendOldestRunningAt?: string | null;
+  backendOldestRunningAgeSeconds?: number | null;
   feedCode?: string | null;
   feedDiagnosisLevel?: string | null;
   feedDiagnosis?: string | null;
+  feedAction?: string | null;
   routeEvidence?: {
     recentTotal?: number | null;
     recentQueued?: number | null;
@@ -2262,6 +2264,9 @@ export interface ComfyuiQueueSummary {
   underUsedServers?: number | null;
   feedGapServers?: number | null;
   backendBlockedServers?: number | null;
+  backendRunningInvisibleServers?: number | null;
+  backendRunningSettlingServers?: number | null;
+  backendRunningStaleGraceSeconds?: number | null;
   routeEvidenceWindowHours?: number | null;
   routeEvidenceTotal?: number | null;
   routeEvidenceCoveredServers?: number | null;

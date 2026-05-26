@@ -13,14 +13,14 @@
 - `done`：已完成
 - `archived`：归档
 
-当前执行焦点（2026-05-19）：
+当前执行焦点（2026-05-26）：
 
-- 当前线上稳定基线仍为 `v0.1.x`，已验证生产提交 `0f977db5`；版本规则见 `docs/standards/version-control-rules.md`，版本记录见 `docs/releases/CHANGELOG.md`。
-- `v0.2 业务控制面收敛版` 和 `v0.3 业务编排工作台与控制点去重版` 已完成本地开发和验证，保留为阶段记录，不再作为当前开发 TODO。
-- 下一阶段主线切换为 `v0.4 业务编排工作台产品化版`。规划见 `docs/strategy/business-orchestration-workbench-v0.4-plan.md`。
-- v0.4 核心目标：把业务能力页从技术配置页升级为业务工作台，重点处理业务命名、版本族、可交互编排图、接口调用中心、runId 排障性能和文案降噪。
-- 上方 P0/P1/P2、2026-05-14 稳定化执行单、v0.2 执行单和 v0.3 执行单保留路线图和历史进展，不再逐条作为当前开发 TODO。
-- 当前真正待办以本节下方“当前执行单（2026-05-19 v0.4 业务编排工作台产品化版）”为准。
+- 当前线上版本已完成 `v0.4.0` 封版，并在 2026-05-26 处理了一次 backend 数据库连接池耗尽事故；热修 commit `c8769699` 已部署验证。
+- 下一阶段主线切换为 `v0.4.1 稳定性监控与管理端降噪版`。规划见 `docs/strategy/business-stability-observability-v0.4.1-plan.md`。
+- v0.4.1 核心目标：不新增大业务能力，优先补齐连接池/线程治理、health-watch/live patrol 常态化、ComfyUI 状态收敛、发版门禁和管理端视觉降噪。
+- `v0.4 业务编排工作台产品化版` 保留为已封版阶段记录，不再作为当前开发 TODO。
+- 上方 P0/P1/P2、2026-05-14 稳定化执行单、v0.2/v0.3/v0.4 执行单保留路线图和历史进展，不再逐条作为当前开发 TODO。
+- 当前真正待办以本节下方“当前执行单（2026-05-26 v0.4.1 稳定性监控与管理端降噪版）”为准。
 - 文档降噪台账见 `docs/strategy/doc-cleanup-inventory-2026-05-18.md`；过期迁移方案、旧客户端资料和阶段过程文档不再作为当前执行入口。
 
 历史进展摘要（只用于追溯，不作为当前 TODO）：
@@ -37,9 +37,52 @@
 - 管理端第一阶段“拆文件/降包体/主路径梳理”已经完成；第二阶段重点是业务可读性、风险判断、API 对外暴露、操作闭环和视觉降噪。
 - 账单/套餐/成本当前只保留内部运营骨架，真实支付、自动开票和商业套餐策略后置。
 
-## 当前执行单（2026-05-19 v0.4 业务编排工作台产品化版）
+## 当前执行单（2026-05-26 v0.4.1 稳定性监控与管理端降噪版）
 
-说明：本节是当前唯一有效 TODO。历史执行单保留为过程记录，不再直接作为开发清单。
+说明：本节是当前唯一有效 TODO。v0.4.0 已封版，v0.4.1 不做大业务能力扩张。
+
+0. `doing` v0.4.1 方案与文档入口切换
+- 目标：把当前主线从 v0.4.0 功能封版切到稳定性监控与管理端降噪。
+- 方案：`docs/strategy/business-stability-observability-v0.4.1-plan.md`
+- 当前动作：更新唯一 TODO、战略索引、版本记录和发布 SOP。
+- 进展（2026-05-26）：已新增 v0.4.1 方案，战略索引、版本记录、发布 SOP 和事故改进日志已同步。
+- 验收：恢复上下文时能直接看出下一步是“稳定性监控 + 页面降噪”，不是继续扩新能力。
+
+1. `doing` 连接池与后台线程治理
+- 目标：避免 backend 再次因后台线程膨胀或 DB pool 过小导致业务接口整体超时。
+- 范围：`backend/app/core/config.py`、`backend/app/core/db.py`、service 构造副作用审计、相关测试。
+- 进展（2026-05-26）：数据库连接池新增显式配置 `DATABASE_POOL_SIZE`、`DATABASE_MAX_OVERFLOW`、`DATABASE_POOL_TIMEOUT`、`DATABASE_POOL_RECYCLE`；默认从原 SQLAlchemy 隐式 `5+10` 提升为显式 `20+20`。
+- 验收：本地测试覆盖 engine options；线上发布后观察 backend 线程数和 `QueuePool` 日志不再异常增长。
+
+2. `doing` 监控与发版门禁补强
+- 目标：让连接池/finalize loop 类事故在发版和定时巡检中自动暴露。
+- 范围：`backend/scripts/podi_release_smoke.py`、`scripts/run_podi_health_watch.sh`、`docs/standards/release-sop.md`。
+- 进展（2026-05-26）：发布 smoke 新增 backend journal 回归扫描，默认检查近 30 分钟 `QueuePool` 和 `business run finalize loop failed`，命中即阻断；本地测试已覆盖命中阻断和 journalctl 不可用时跳过。
+- 进展（2026-05-26）：正式发布脚本改为从 `.release_time` 开始扫描 backend journal，避免部署前旧错误误判为新版本回归。
+- 验收：114 发版 smoke 能在近期 backend 连接池错误未清零时失败；health-watch 报告包含可追溯结果。
+
+3. `doing` ComfyUI running 状态收敛
+- 目标：治理“中台 running 但 ComfyUI 队列为空”的残留诊断。
+- 范围：队列汇总、任务 finalize、history 补偿、OSS 回填补偿、超时标记。
+- 进展（2026-05-26）：队列汇总新增 `backendRunningInvisibleServers`、`backendRunningSettlingServers`、`backendRunningStaleGraceSeconds` 和单线路 `feedAction`；5 分钟宽限窗口内标记为“观察中”，超过窗口才计入 `backendBlockedServers` 并阻断 smoke。
+- 进展（2026-05-26）：管理端 ComfyUI 任务衔接诊断和执行节点卡片展示最早执行时间、已持续时长和下一步动作，避免短暂回填窗口被误判为卡死。
+- 验收：真实巡检结束后，backend running 与 ComfyUI 队列能在合理窗口内收敛；残留任务可定位到 taskId/runId、执行节点和下一步处理动作。
+
+4. `doing` 管理端视觉与文案降噪
+- 目标：首页、业务能力、接口调用、ComfyUI 资源页优先展示状态结论和下一步动作。
+- 要求：少展示长说明和内部字段；技术详情折叠到排障信息；错误提示使用“发生了什么 / 影响什么 / 下一步”结构。
+- 进展（2026-05-26）：ComfyUI 资源页先做一轮降噪：顶部行动项区分“疑似卡住”和“观察中”，线路表直接给出下一步排查动作。
+- 进展（2026-05-26）：管理端概览页顶部新增“线上稳定性与封版判断”合并视图，把自检守护、后端连接池日志扫描、业务运行异常和 ComfyUI 队列收敛成四个可点击信号，先判断线上是否稳定，再进入封版阻塞项。
+- 验收：非研发用户打开管理端能判断“现在能不能用、哪个环节异常、下一步做什么”。
+
+5. `todo` v0.4.1 封版验证
+- 目标：稳定性代码、监控门禁和页面降噪完成后再更新 114。
+- 要求：后端测试、管理端/测评端类型检查和构建、release smoke、business live patrol、eval production patrol、页面走查和 30-60 分钟观察窗口均记录。
+- 验收：能明确说明 v0.4.1 是否可封版、已覆盖的错误场景、未覆盖风险和回滚方式。
+
+## 已完成执行单（2026-05-19 v0.4 业务编排工作台产品化版）
+
+说明：v0.4 已完成 114 封版，保留为过程记录，不再直接作为开发清单。
 
 0. `done` v0.4 方案与文档入口切换
 - 目标：把 v0.4 的目标、范围、非目标、验收标准和当前执行入口写清楚。
