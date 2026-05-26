@@ -150,6 +150,78 @@ def test_eval_text_fission_prompt_proxy_uses_service_identity(
     assert getattr(payload, "metadata")["evalProxy"] is True
 
 
+def test_eval_business_quality_samples_public_readonly(
+    eval_review_client: tuple[TestClient, sessionmaker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _ = eval_review_client
+    captured: dict[str, object] = {}
+
+    class FakeBusinessRunService:
+        def list_quality_samples(self, *, business_key, status, include_archived, limit):
+            captured.update(
+                {
+                    "business_key": business_key,
+                    "status": status,
+                    "include_archived": include_archived,
+                    "limit": limit,
+                }
+            )
+            now = datetime.utcnow()
+            return {
+                "total": 1,
+                "items": [
+                    {
+                        "id": "bizsample_eval_1",
+                        "business_key": "fission",
+                        "sample_key": "dense-pattern",
+                        "label": "满版图案",
+                        "description": "结构稳定性回归",
+                        "image_url": "https://example.com/input.png",
+                        "prompt": "保持主体结构",
+                        "generated_image_url": None,
+                        "input_tags": ["满版图案"],
+                        "default_params": {"quality": "preview"},
+                        "status": "active",
+                        "sort_order": 1,
+                        "created_by_user_id": None,
+                        "created_by_username": "admin",
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(evals_public, "get_business_run_service", lambda: FakeBusinessRunService())
+
+    resp = client.get("/api/evals/business/quality-samples?business_key=fission&limit=10")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["businessKey"] == "fission"
+    assert body["items"][0]["sampleKey"] == "dense-pattern"
+    assert body["items"][0]["imageUrl"] == "https://example.com/input.png"
+    assert body["items"][0]["defaultParams"] == {"quality": "preview"}
+    assert captured == {
+        "business_key": "fission",
+        "status": "active",
+        "include_archived": False,
+        "limit": 10,
+    }
+
+
+def test_eval_business_quality_samples_reject_archived_status(
+    eval_review_client: tuple[TestClient, sessionmaker],
+) -> None:
+    client, _ = eval_review_client
+
+    resp = client.get("/api/evals/business/quality-samples?status=archived")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "BUSINESS_QUALITY_SAMPLE_STATUS_INVALID"
+
+
 def test_eval_runs_expose_readonly_cost_fields(
     eval_review_client: tuple[TestClient, sessionmaker],
 ) -> None:

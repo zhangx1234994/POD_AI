@@ -40,6 +40,15 @@ import type {
   BusinessCapabilityListResponse,
   BusinessDefaultApprovalListResponse,
   BusinessOperationLogListResponse,
+  BusinessOutputReviewListResponse,
+  BusinessOutputReviewSummaryResponse,
+  BusinessQualityActionRule,
+  BusinessQualityActionRuleListResponse,
+  BusinessQualitySample,
+  BusinessQualitySampleImportItem,
+  BusinessQualitySampleImportResponse,
+  BusinessQualitySampleListResponse,
+  BusinessQualitySampleVersionListResponse,
   BusinessRun,
   BusinessRunListResponse,
   BusinessRunBulkActionResponse,
@@ -162,6 +171,32 @@ type BusinessRunQueryOptions = {
   clientId?: string;
   traceId?: string;
   windowHours?: number;
+  limit?: number;
+};
+
+type BusinessOutputReviewSummaryQueryOptions = {
+  businessKey?: string;
+  version?: string;
+  windowHours?: number;
+  limit?: number;
+};
+
+type BusinessOutputReviewExportQueryOptions = BusinessOutputReviewSummaryQueryOptions & {
+  batchId?: string;
+};
+
+type BusinessQualitySampleQueryOptions = {
+  businessKey?: string;
+  status?: string;
+  includeArchived?: boolean;
+  limit?: number;
+};
+
+type BusinessQualityActionRuleQueryOptions = {
+  businessKey?: string;
+  status?: string;
+  actionType?: string;
+  includeArchived?: boolean;
   limit?: number;
 };
 
@@ -380,6 +415,40 @@ function buildBusinessRunQuery(options?: BusinessRunQueryOptions) {
   if (options?.clientId?.trim()) params.set('client_id', options.clientId.trim());
   if (options?.traceId?.trim()) params.set('trace_id', options.traceId.trim());
   if (options?.windowHours) params.set('window_hours', String(options.windowHours));
+  if (options?.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
+function buildBusinessOutputReviewSummaryQuery(options?: BusinessOutputReviewSummaryQueryOptions) {
+  const params = new URLSearchParams();
+  if (options?.businessKey) params.set('business_key', options.businessKey);
+  if (options?.version) params.set('version', options.version);
+  if (options?.windowHours) params.set('window_hours', String(options.windowHours));
+  if (options?.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
+function buildBusinessOutputReviewExportQuery(options?: BusinessOutputReviewExportQueryOptions) {
+  const params = buildBusinessOutputReviewSummaryQuery(options);
+  if (options?.batchId) params.set('batch_id', options.batchId);
+  return params;
+}
+
+function buildBusinessQualitySampleQuery(options?: BusinessQualitySampleQueryOptions) {
+  const params = new URLSearchParams();
+  if (options?.businessKey && options.businessKey !== 'all') params.set('business_key', options.businessKey);
+  if (options?.status && options.status !== 'all') params.set('status', options.status);
+  if (options?.includeArchived) params.set('include_archived', 'true');
+  if (options?.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
+function buildBusinessQualityActionRuleQuery(options?: BusinessQualityActionRuleQueryOptions) {
+  const params = new URLSearchParams();
+  if (options?.businessKey && options.businessKey !== 'all') params.set('business_key', options.businessKey);
+  if (options?.status && options.status !== 'all') params.set('status', options.status);
+  if (options?.actionType && options.actionType !== 'all') params.set('action_type', options.actionType);
+  if (options?.includeArchived) params.set('include_archived', 'true');
   if (options?.limit) params.set('limit', String(options.limit));
   return params;
 }
@@ -1326,6 +1395,87 @@ export const adminApi = {
     if (!params.has('window_hours')) params.set('window_hours', '24');
     return request<BusinessUsageSummaryResponse>(`/api/admin/business/usage-summary?${params.toString()}`, {}, 45000);
   },
+  listBusinessOutputReviews: (runId: string) =>
+    request<BusinessOutputReviewListResponse>(`/api/admin/business/runs/${encodeURIComponent(runId)}/output-reviews`),
+  upsertBusinessOutputReviews: (
+    runId: string,
+    payload: {
+      items: Array<{
+        outputIndex: number;
+        outputUrl?: string | null;
+        qualityGrade: string;
+        inputTags?: string[];
+        issueTags?: string[];
+        nextAction?: string | null;
+        note?: string | null;
+      }>;
+    },
+  ) =>
+    request<BusinessOutputReviewListResponse>(`/api/admin/business/runs/${encodeURIComponent(runId)}/output-reviews`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getBusinessOutputReviewSummary: (options?: BusinessOutputReviewSummaryQueryOptions) => {
+    const params = buildBusinessOutputReviewSummaryQuery(options);
+    if (!params.has('window_hours')) params.set('window_hours', '168');
+    if (!params.has('limit')) params.set('limit', '20');
+    return request<BusinessOutputReviewSummaryResponse>(`/api/admin/business/output-reviews/summary?${params.toString()}`, {}, 45000);
+  },
+  exportBusinessOutputReviews: (options?: BusinessOutputReviewExportQueryOptions) => {
+    const params = buildBusinessOutputReviewExportQuery({ ...options, limit: options?.limit ?? 5000 });
+    if (!params.has('window_hours')) params.set('window_hours', '168');
+    return requestBlob(`/api/admin/business/output-reviews/export?${params.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'text/csv' },
+    });
+  },
+  listBusinessQualitySamples: (options?: BusinessQualitySampleQueryOptions) => {
+    const params = buildBusinessQualitySampleQuery(options);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<BusinessQualitySampleListResponse>(`/api/admin/business/quality-samples${suffix}`);
+  },
+  createBusinessQualitySample: (payload: Partial<BusinessQualitySample>) =>
+    request<BusinessQualitySample>('/api/admin/business/quality-samples', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateBusinessQualitySample: (sampleId: string, payload: Partial<BusinessQualitySample>) =>
+    request<BusinessQualitySample>(`/api/admin/business/quality-samples/${encodeURIComponent(sampleId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  archiveBusinessQualitySample: (sampleId: string) =>
+    request<BusinessQualitySample>(`/api/admin/business/quality-samples/${encodeURIComponent(sampleId)}`, {
+      method: 'DELETE',
+    }),
+  importBusinessQualitySamples: (payload: { businessKey?: string; items: BusinessQualitySampleImportItem[]; dryRun?: boolean; changeNote?: string }) =>
+    request<BusinessQualitySampleImportResponse>('/api/admin/business/quality-samples/import', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listBusinessQualitySampleVersions: (sampleId: string, limit = 50) =>
+    request<BusinessQualitySampleVersionListResponse>(
+      `/api/admin/business/quality-samples/${encodeURIComponent(sampleId)}/versions?limit=${encodeURIComponent(String(limit))}`,
+    ),
+  listBusinessQualityActionRules: (options?: BusinessQualityActionRuleQueryOptions) => {
+    const params = buildBusinessQualityActionRuleQuery(options);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<BusinessQualityActionRuleListResponse>(`/api/admin/business/quality-action-rules${suffix}`);
+  },
+  createBusinessQualityActionRule: (payload: Partial<BusinessQualityActionRule>) =>
+    request<BusinessQualityActionRule>('/api/admin/business/quality-action-rules', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateBusinessQualityActionRule: (ruleId: string, payload: Partial<BusinessQualityActionRule>) =>
+    request<BusinessQualityActionRule>(`/api/admin/business/quality-action-rules/${encodeURIComponent(ruleId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  archiveBusinessQualityActionRule: (ruleId: string) =>
+    request<BusinessQualityActionRule>(`/api/admin/business/quality-action-rules/${encodeURIComponent(ruleId)}`, {
+      method: 'DELETE',
+    }),
   listBusinessOperationLogs: (options?: BusinessOperationLogQueryOptions) => {
     const params = buildBusinessOperationLogQuery(options);
     const suffix = params.toString() ? `?${params.toString()}` : '';

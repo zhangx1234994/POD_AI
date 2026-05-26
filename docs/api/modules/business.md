@@ -2283,7 +2283,51 @@ OpenAPI 内每个工具都会枚举错误响应：
       "error": "TASK_FAILED",
       "createdAt": "2026-04-25T10:00:00"
     }
-  ]
+  ],
+  "flowEvidence": {
+    "stageEvidence": [
+      {
+        "key": "primary",
+        "label": "主执行",
+        "total": 12,
+        "succeeded": 10,
+        "failed": 2,
+        "running": 0,
+        "queued": 0,
+        "cancelled": 0,
+        "successRate": 0.8333,
+        "avgDurationMs": 128000,
+        "p95DurationMs": 180000,
+        "latestAt": "2026-04-25T10:00:00",
+        "evidence": {
+          "durationSamples": 12,
+          "sampleRunIds": ["run_xxx"],
+          "top": {
+            "selectedBy": [{ "key": "quality_rule", "total": 3 }],
+            "loraName": [{ "key": "candidate-lora.safetensors", "total": 3 }],
+            "workflowKey": [{ "key": "fission_workflow_v2", "total": 3 }]
+          }
+        }
+      }
+    ],
+    "routeHits": [
+      {
+        "key": "quality_rule",
+        "label": "quality_rule",
+        "total": 3,
+        "succeeded": 3,
+        "failed": 0,
+        "running": 0,
+        "queued": 0,
+        "cancelled": 0,
+        "avgDurationMs": 120000,
+        "p95DurationMs": 150000
+      }
+    ],
+    "candidateHits": [],
+    "loraHits": [],
+    "workflowHits": []
+  }
 }
 ```
 
@@ -2294,6 +2338,8 @@ OpenAPI 内每个工具都会枚举错误响应：
 - 失败、取消、超时任务即使底层返回了成本，也会进入 `noCharge`，不进入业务方正式账单。
 - 内部巡检、免计费或测试来源的成功任务也会进入 `noCharge`。典型巡检标识为 `source=business-api-patrol`、`tenantId=podi-internal-patrol`、`metadata.patrol=true`；这类任务仍保留成本用于内部复盘，但不进入业务收费账单。
 - `unresolvedIssues/recentUnresolvedIssues` 会排除已经复测成功且有业务结果回填的原问题任务；复测任务本身不会重复计入原问题清单。
+- `flowEvidence.stageEvidence` 固定按七阶段返回：`entry`、`version`、`preprocess`、`routing`、`primary`、`output`、`callback-billing`。阶段耗时来自 `business_run_steps.duration_ms`，主执行缺少 step 耗时时会退回 `business_runs.duration_ms`；没有真实耗时样本时 `avgDurationMs/p95DurationMs` 为空。
+- `flowEvidence.routeHits/candidateHits/loraHits/workflowHits` 只做观察统计，不会自动改变线上路由、LoRA 或 workflow。候选命中主要来自 `selectedBy=quality_rule/admin_draft/rollout_*` 等非默认分流标识。
 
 常见错误：
 

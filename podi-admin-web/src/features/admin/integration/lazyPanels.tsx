@@ -55,6 +55,15 @@ export const BusinessCoreClosurePanel = lazy(() =>
 export const BusinessEntryCommandPanel = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessEntryCommandPanel })),
 );
+export const BusinessFlowMonitoringPanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessFlowMonitoringPanel })),
+);
+export const BusinessQualityReviewPanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessQualityReviewPanel })),
+);
+export const BusinessQualityCandidatePanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessQualityCandidatePanel })),
+);
 export const BusinessOrchestrationMapPanel = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessOrchestrationMapPanel })),
 );

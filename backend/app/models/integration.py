@@ -562,6 +562,144 @@ class BusinessRun(Base):
     business_version: Mapped[BusinessCapability | None] = relationship()
 
 
+class BusinessOutputReview(Base):
+    __tablename__ = "business_output_reviews"
+    __table_args__ = (
+        UniqueConstraint("run_id", "output_index", name="uq_business_output_review_run_output"),
+        Index("ix_business_output_reviews_business_created", "business_key", "created_at"),
+        Index("ix_business_output_reviews_batch_created", "batch_id", "created_at"),
+        Index("ix_business_output_reviews_grade_created", "quality_grade", "created_at"),
+        Index("ix_business_output_reviews_version_created", "business_version_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    business_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    business_version_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("business_capabilities.id", ondelete="SET NULL"), nullable=True
+    )
+    version: Mapped[str | None] = mapped_column(String(32))
+    output_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_url: Mapped[str | None] = mapped_column(String(1024))
+    sample_key: Mapped[str | None] = mapped_column(String(64))
+    sample_label: Mapped[str | None] = mapped_column(String(128))
+    batch_id: Mapped[str | None] = mapped_column(String(64))
+    quality_grade: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    input_tags: Mapped[list[str] | None] = mapped_column(JSON)
+    issue_tags: Mapped[list[str] | None] = mapped_column(JSON)
+    next_action: Mapped[str | None] = mapped_column(String(64))
+    note: Mapped[str | None] = mapped_column(Text)
+    reviewer_user_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id", ondelete="SET NULL"))
+    reviewer_username: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    run: Mapped[BusinessRun] = relationship()
+    business_version: Mapped[BusinessCapability | None] = relationship()
+
+
+class BusinessQualitySample(Base):
+    __tablename__ = "business_quality_samples"
+    __table_args__ = (
+        UniqueConstraint("business_key", "sample_key", name="uq_business_quality_sample_business_key"),
+        Index("ix_business_quality_samples_business_status", "business_key", "status"),
+        Index("ix_business_quality_samples_business_sort", "business_key", "sort_order", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    business_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    sample_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    prompt: Mapped[str | None] = mapped_column(Text)
+    generated_image_url: Mapped[str | None] = mapped_column(String(1024))
+    input_tags: Mapped[list[str] | None] = mapped_column(JSON)
+    default_params: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_username: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class BusinessQualitySampleVersion(Base):
+    __tablename__ = "business_quality_sample_versions"
+    __table_args__ = (
+        Index("ix_business_quality_sample_versions_sample_created", "sample_id", "created_at"),
+        Index("ix_business_quality_sample_versions_business_key", "business_key", "sample_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    sample_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_quality_samples.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    business_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    sample_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    prompt: Mapped[str | None] = mapped_column(Text)
+    generated_image_url: Mapped[str | None] = mapped_column(String(1024))
+    input_tags: Mapped[list[str] | None] = mapped_column(JSON)
+    default_params: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    change_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    change_note: Mapped[str | None] = mapped_column(Text)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    actor_user_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id", ondelete="SET NULL"))
+    actor_username: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    sample: Mapped[BusinessQualitySample] = relationship()
+
+
+class BusinessQualityActionRule(Base):
+    __tablename__ = "business_quality_action_rules"
+    __table_args__ = (
+        UniqueConstraint("business_key", "rule_key", name="uq_business_quality_action_business_key"),
+        Index("ix_business_quality_action_business_status", "business_key", "status"),
+        Index("ix_business_quality_action_business_type", "business_key", "action_type"),
+        Index("ix_business_quality_action_business_priority", "business_key", "priority", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    business_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    rule_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    issue_tags: Mapped[list[str] | None] = mapped_column(JSON)
+    input_tags: Mapped[list[str] | None] = mapped_column(JSON)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_business_version_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("business_capabilities.id", ondelete="SET NULL")
+    )
+    target_version: Mapped[str | None] = mapped_column(String(32))
+    target_label: Mapped[str | None] = mapped_column(String(128))
+    target_ref: Mapped[str | None] = mapped_column(String(128))
+    target_params: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    sample_batch_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    evidence_review_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="candidate", nullable=False, index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    owner_user_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id", ondelete="SET NULL"))
+    owner_username: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    target_business_version: Mapped[BusinessCapability | None] = relationship()
+
+
 class BusinessRunStep(Base):
     __tablename__ = "business_run_steps"
     __table_args__ = (

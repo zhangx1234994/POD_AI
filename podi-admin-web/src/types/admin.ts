@@ -1588,6 +1588,7 @@ export interface BusinessReleaseGate {
   canRelease?: boolean | null;
   canRequestDefault?: boolean | null;
   acceptancePassed?: boolean | null;
+  qualityEvidence?: JsonRecord | null;
   blockers?: string[];
   warnings?: string[];
   suggestions?: string[];
@@ -1997,6 +1998,242 @@ export interface BusinessRunIssueChecklistResponse {
   items: BusinessRunIssueChecklistItem[];
 }
 
+export interface BusinessOutputReview {
+  id: string;
+  runId: string;
+  businessKey: string;
+  businessVersionId?: string | null;
+  version?: string | null;
+  outputIndex: number;
+  outputUrl?: string | null;
+  sampleKey?: string | null;
+  sampleLabel?: string | null;
+  batchId?: string | null;
+  qualityGrade: string;
+  inputTags: string[];
+  issueTags: string[];
+  nextAction?: string | null;
+  note?: string | null;
+  reviewerUserId?: string | null;
+  reviewerUsername?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessOutputReviewListResponse {
+  total: number;
+  items: BusinessOutputReview[];
+}
+
+export interface BusinessOutputReviewBucket {
+  key: string;
+  label: string;
+  total: number;
+  sampleReviews?: BusinessOutputReview[];
+}
+
+export interface BusinessOutputReviewBusinessSummary {
+  businessKey: string;
+  label: string;
+  total: number;
+  reviewed: number;
+  excellent: number;
+  usable: number;
+  borderline: number;
+  bad: number;
+  blocked: number;
+  pending: number;
+  latestAt?: string | null;
+  topIssueTags: BusinessOutputReviewBucket[];
+  topInputTags: BusinessOutputReviewBucket[];
+}
+
+export interface BusinessOutputReviewVersionSummary {
+  businessKey: string;
+  businessVersionId?: string | null;
+  version?: string | null;
+  label: string;
+  total: number;
+  reviewed: number;
+  excellent: number;
+  usable: number;
+  borderline: number;
+  bad: number;
+  blocked: number;
+  pending: number;
+  latestAt?: string | null;
+  topIssueTags: BusinessOutputReviewBucket[];
+  topInputTags: BusinessOutputReviewBucket[];
+}
+
+export interface BusinessOutputReviewBatchVersionSummary {
+  businessVersionId?: string | null;
+  version?: string | null;
+  label: string;
+  total: number;
+  reviewed: number;
+  good: number;
+  risk: number;
+  latestAt?: string | null;
+  sampleReviews: BusinessOutputReview[];
+}
+
+export interface BusinessOutputReviewBatchSummary {
+  batchId: string;
+  businessKey: string;
+  sampleKey?: string | null;
+  sampleLabel?: string | null;
+  label: string;
+  total: number;
+  reviewed: number;
+  good: number;
+  risk: number;
+  latestAt?: string | null;
+  versions: BusinessOutputReviewBatchVersionSummary[];
+  topIssueTags: BusinessOutputReviewBucket[];
+  topInputTags: BusinessOutputReviewBucket[];
+  sampleReviews: BusinessOutputReview[];
+}
+
+export interface BusinessOutputReviewSummaryResponse {
+  windowHours: number;
+  filters: JsonRecord;
+  total: number;
+  byGrade: BusinessOutputReviewBucket[];
+  byBusiness: BusinessOutputReviewBusinessSummary[];
+  byVersion: BusinessOutputReviewVersionSummary[];
+  byBatch: BusinessOutputReviewBatchSummary[];
+  topIssueTags: BusinessOutputReviewBucket[];
+  topInputTags: BusinessOutputReviewBucket[];
+  recentReviews: BusinessOutputReview[];
+}
+
+export interface BusinessQualitySample {
+  id: string;
+  businessKey: string;
+  sampleKey: string;
+  label: string;
+  description?: string | null;
+  imageUrl: string;
+  prompt?: string | null;
+  generatedImageUrl?: string | null;
+  inputTags: string[];
+  defaultParams: JsonRecord;
+  status: string;
+  sortOrder: number;
+  createdByUserId?: string | null;
+  createdByUsername?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  changeNote?: string | null;
+}
+
+export interface BusinessQualitySampleListResponse {
+  total: number;
+  items: BusinessQualitySample[];
+}
+
+export interface BusinessQualitySampleImportItem {
+  businessKey?: string | null;
+  sampleKey?: string | null;
+  label?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
+  prompt?: string | null;
+  generatedImageUrl?: string | null;
+  inputTags?: string[];
+  defaultParams?: JsonRecord;
+  status?: string;
+  sortOrder?: number;
+  changeNote?: string | null;
+}
+
+export interface BusinessQualitySampleImportResult {
+  index: number;
+  action: string;
+  sampleId?: string | null;
+  businessKey?: string | null;
+  sampleKey?: string | null;
+  label?: string | null;
+  errorCode?: string | null;
+  message?: string | null;
+}
+
+export interface BusinessQualitySampleImportResponse {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  dryRun: boolean;
+  items: BusinessQualitySampleImportResult[];
+}
+
+export interface BusinessQualitySampleVersion {
+  id: string;
+  sampleId: string;
+  businessKey: string;
+  sampleKey: string;
+  label: string;
+  description?: string | null;
+  imageUrl: string;
+  prompt?: string | null;
+  generatedImageUrl?: string | null;
+  inputTags: string[];
+  defaultParams: JsonRecord;
+  status: string;
+  sortOrder: number;
+  changeType: string;
+  changeNote?: string | null;
+  versionNo: number;
+  actorUserId?: string | null;
+  actorUsername?: string | null;
+  createdAt: string;
+}
+
+export interface BusinessQualitySampleVersionListResponse {
+  total: number;
+  items: BusinessQualitySampleVersion[];
+}
+
+export interface BusinessQualityActionRuleTarget {
+  id: string;
+  version?: string | null;
+  displayName?: string | null;
+  status?: string | null;
+  isDefault?: boolean | null;
+}
+
+export interface BusinessQualityActionRule {
+  id: string;
+  businessKey: string;
+  ruleKey: string;
+  title: string;
+  description?: string | null;
+  issueTags: string[];
+  inputTags: string[];
+  actionType: string;
+  targetBusinessVersionId?: string | null;
+  targetVersion?: string | null;
+  targetLabel?: string | null;
+  targetRef?: string | null;
+  targetParams: JsonRecord;
+  targetCapability?: BusinessQualityActionRuleTarget | null;
+  sampleBatchId?: string | null;
+  evidenceReviewIds: string[];
+  status: string;
+  priority: number;
+  ownerUserId?: string | null;
+  ownerUsername?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessQualityActionRuleListResponse {
+  total: number;
+  items: BusinessQualityActionRule[];
+}
+
 export interface BusinessOperationLog {
   id: string;
   action: string;
@@ -2073,6 +2310,30 @@ export interface BusinessUnresolvedIssue {
   createdAt: string;
 }
 
+export interface BusinessFlowEvidenceBucket {
+  key: string;
+  label: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  running: number;
+  queued: number;
+  cancelled: number;
+  successRate?: number | null;
+  avgDurationMs?: number | null;
+  p95DurationMs?: number | null;
+  latestAt?: string | null;
+  evidence?: JsonRecord | null;
+}
+
+export interface BusinessFlowEvidenceResponse {
+  stageEvidence: BusinessFlowEvidenceBucket[];
+  routeHits: BusinessFlowEvidenceBucket[];
+  candidateHits: BusinessFlowEvidenceBucket[];
+  loraHits: BusinessFlowEvidenceBucket[];
+  workflowHits: BusinessFlowEvidenceBucket[];
+}
+
 export interface BusinessUsageFailure {
   id: string;
   runId: string;
@@ -2121,6 +2382,7 @@ export interface BusinessUsageSummaryResponse {
   unresolvedByBusiness?: BusinessIssueBucket[];
   recentUnresolvedIssues?: BusinessUnresolvedIssue[];
   recentFailures: BusinessUsageFailure[];
+  flowEvidence?: BusinessFlowEvidenceResponse | null;
 }
 
 export interface StoredAsset {

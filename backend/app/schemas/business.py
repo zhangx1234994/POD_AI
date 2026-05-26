@@ -716,6 +716,351 @@ class BusinessRunIssueChecklistResponse(BaseModel):
     items: list[BusinessRunIssueChecklistItem]
 
 
+class BusinessOutputReviewRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    runId: str = Field(alias="run_id")
+    businessKey: str = Field(alias="business_key")
+    businessVersionId: str | None = Field(default=None, alias="business_version_id")
+    version: str | None = None
+    outputIndex: int = Field(alias="output_index")
+    outputUrl: str | None = Field(default=None, alias="output_url")
+    sampleKey: str | None = Field(default=None, alias="sample_key")
+    sampleLabel: str | None = Field(default=None, alias="sample_label")
+    batchId: str | None = Field(default=None, alias="batch_id")
+    qualityGrade: str = Field(alias="quality_grade")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    issueTags: list[str] = Field(default_factory=list, alias="issue_tags")
+    nextAction: str | None = Field(default=None, alias="next_action")
+    note: str | None = None
+    reviewerUserId: str | None = Field(default=None, alias="reviewer_user_id")
+    reviewerUsername: str | None = Field(default=None, alias="reviewer_username")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessOutputReviewUpsertItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    outputIndex: int = Field(ge=0, alias="output_index")
+    outputUrl: str | None = Field(default=None, alias="output_url")
+    sampleKey: str | None = Field(default=None, alias="sample_key")
+    sampleLabel: str | None = Field(default=None, alias="sample_label")
+    batchId: str | None = Field(default=None, alias="batch_id")
+    qualityGrade: str = Field(default="pending", alias="quality_grade")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    issueTags: list[str] = Field(default_factory=list, alias="issue_tags")
+    nextAction: str | None = Field(default=None, alias="next_action")
+    note: str | None = None
+
+
+class BusinessOutputReviewUpsertRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    items: list[BusinessOutputReviewUpsertItem] = Field(default_factory=list)
+
+
+class BusinessOutputReviewListResponse(BaseModel):
+    total: int
+    items: list[BusinessOutputReviewRead]
+
+
+class BusinessOutputReviewBucket(BaseModel):
+    key: str
+    label: str
+    total: int
+    sampleReviews: list[BusinessOutputReviewRead] = Field(default_factory=list, alias="sample_reviews")
+
+
+class BusinessOutputReviewBusinessSummary(BaseModel):
+    businessKey: str = Field(alias="business_key")
+    label: str
+    total: int
+    reviewed: int
+    excellent: int = 0
+    usable: int = 0
+    borderline: int = 0
+    bad: int = 0
+    blocked: int = 0
+    pending: int = 0
+    latestAt: datetime | None = Field(default=None, alias="latest_at")
+    topIssueTags: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="top_issue_tags")
+    topInputTags: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="top_input_tags")
+
+
+class BusinessOutputReviewVersionSummary(BaseModel):
+    businessKey: str = Field(alias="business_key")
+    businessVersionId: str | None = Field(default=None, alias="business_version_id")
+    version: str | None = None
+    label: str
+    total: int
+    reviewed: int
+    excellent: int = 0
+    usable: int = 0
+    borderline: int = 0
+    bad: int = 0
+    blocked: int = 0
+    pending: int = 0
+    latestAt: datetime | None = Field(default=None, alias="latest_at")
+    topIssueTags: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="top_issue_tags")
+    topInputTags: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="top_input_tags")
+
+
+class BusinessOutputReviewBatchVersionSummary(BaseModel):
+    businessVersionId: str | None = Field(default=None, alias="business_version_id")
+    version: str | None = None
+    label: str
+    total: int
+    reviewed: int
+    good: int = 0
+    risk: int = 0
+    latestAt: datetime | None = Field(default=None, alias="latest_at")
+    sampleReviews: list[BusinessOutputReviewRead] = Field(default_factory=list, alias="sample_reviews")
+
+
+class BusinessOutputReviewBatchSummary(BaseModel):
+    batchId: str = Field(alias="batch_id")
+    businessKey: str = Field(alias="business_key")
+    sampleKey: str | None = Field(default=None, alias="sample_key")
+    sampleLabel: str | None = Field(default=None, alias="sample_label")
+    label: str
+    total: int
+    reviewed: int
+    good: int = 0
+    risk: int = 0
+    latestAt: datetime | None = Field(default=None, alias="latest_at")
+    versions: list[BusinessOutputReviewBatchVersionSummary] = Field(default_factory=list)
+    topIssueTags: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="top_issue_tags")
+    topInputTags: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="top_input_tags")
+    sampleReviews: list[BusinessOutputReviewRead] = Field(default_factory=list, alias="sample_reviews")
+
+
+class BusinessOutputReviewSummaryResponse(BaseModel):
+    windowHours: int = Field(alias="window_hours")
+    filters: dict[str, Any]
+    total: int
+    byGrade: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="by_grade")
+    byBusiness: list[BusinessOutputReviewBusinessSummary] = Field(default_factory=list, alias="by_business")
+    byVersion: list[BusinessOutputReviewVersionSummary] = Field(default_factory=list, alias="by_version")
+    byBatch: list[BusinessOutputReviewBatchSummary] = Field(default_factory=list, alias="by_batch")
+    topIssueTags: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="top_issue_tags")
+    topInputTags: list[BusinessOutputReviewBucket] = Field(default_factory=list, alias="top_input_tags")
+    recentReviews: list[BusinessOutputReviewRead] = Field(default_factory=list, alias="recent_reviews")
+
+
+class BusinessQualitySampleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    businessKey: str = Field(alias="business_key")
+    sampleKey: str = Field(alias="sample_key")
+    label: str | None = None
+    description: str | None = None
+    imageUrl: str | None = Field(default=None, alias="image_url")
+    prompt: str | None = None
+    generatedImageUrl: str | None = Field(default=None, alias="generated_image_url")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    defaultParams: dict[str, Any] = Field(default_factory=dict, alias="default_params")
+    status: str
+    sortOrder: int = Field(alias="sort_order")
+    createdByUserId: str | None = Field(default=None, alias="created_by_user_id")
+    createdByUsername: str | None = Field(default=None, alias="created_by_username")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessQualitySampleCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    businessKey: str = Field(alias="business_key")
+    sampleKey: str | None = Field(default=None, alias="sample_key")
+    label: str
+    description: str | None = None
+    imageUrl: str = Field(alias="image_url")
+    prompt: str | None = None
+    generatedImageUrl: str | None = Field(default=None, alias="generated_image_url")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    defaultParams: dict[str, Any] = Field(default_factory=dict, alias="default_params")
+    status: str = "active"
+    sortOrder: int = Field(default=0, alias="sort_order")
+    changeNote: str | None = Field(default=None, alias="change_note")
+
+
+class BusinessQualitySampleUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    sampleKey: str | None = Field(default=None, alias="sample_key")
+    label: str | None = None
+    description: str | None = None
+    imageUrl: str | None = Field(default=None, alias="image_url")
+    prompt: str | None = None
+    generatedImageUrl: str | None = Field(default=None, alias="generated_image_url")
+    inputTags: list[str] | None = Field(default=None, alias="input_tags")
+    defaultParams: dict[str, Any] | None = Field(default=None, alias="default_params")
+    status: str | None = None
+    sortOrder: int | None = Field(default=None, alias="sort_order")
+    changeNote: str | None = Field(default=None, alias="change_note")
+
+
+class BusinessQualitySampleListResponse(BaseModel):
+    total: int
+    items: list[BusinessQualitySampleRead]
+
+
+class BusinessQualitySampleImportItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    businessKey: str | None = Field(default=None, alias="business_key")
+    sampleKey: str | None = Field(default=None, alias="sample_key")
+    label: str
+    description: str | None = None
+    imageUrl: str = Field(alias="image_url")
+    prompt: str | None = None
+    generatedImageUrl: str | None = Field(default=None, alias="generated_image_url")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    defaultParams: dict[str, Any] = Field(default_factory=dict, alias="default_params")
+    status: str = "active"
+    sortOrder: int = Field(default=0, alias="sort_order")
+    changeNote: str | None = Field(default=None, alias="change_note")
+
+
+class BusinessQualitySampleImportRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    businessKey: str | None = Field(default=None, alias="business_key")
+    items: list[BusinessQualitySampleImportItem] = Field(default_factory=list)
+    dryRun: bool = Field(default=False, alias="dry_run")
+    changeNote: str | None = Field(default=None, alias="change_note")
+
+
+class BusinessQualitySampleImportResult(BaseModel):
+    index: int
+    action: str
+    sampleId: str | None = Field(default=None, alias="sample_id")
+    businessKey: str | None = Field(default=None, alias="business_key")
+    sampleKey: str | None = Field(default=None, alias="sample_key")
+    label: str | None = None
+    errorCode: str | None = Field(default=None, alias="error_code")
+    message: str | None = None
+
+
+class BusinessQualitySampleImportResponse(BaseModel):
+    total: int
+    created: int
+    updated: int
+    skipped: int
+    failed: int
+    dryRun: bool = Field(alias="dry_run")
+    items: list[BusinessQualitySampleImportResult]
+
+
+class BusinessQualitySampleVersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    sampleId: str = Field(alias="sample_id")
+    businessKey: str = Field(alias="business_key")
+    sampleKey: str = Field(alias="sample_key")
+    label: str
+    description: str | None = None
+    imageUrl: str = Field(alias="image_url")
+    prompt: str | None = None
+    generatedImageUrl: str | None = Field(default=None, alias="generated_image_url")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    defaultParams: dict[str, Any] = Field(default_factory=dict, alias="default_params")
+    status: str
+    sortOrder: int = Field(alias="sort_order")
+    changeType: str = Field(alias="change_type")
+    changeNote: str | None = Field(default=None, alias="change_note")
+    versionNo: int = Field(alias="version_no")
+    actorUserId: str | None = Field(default=None, alias="actor_user_id")
+    actorUsername: str | None = Field(default=None, alias="actor_username")
+    createdAt: datetime = Field(alias="created_at")
+
+
+class BusinessQualitySampleVersionListResponse(BaseModel):
+    total: int
+    items: list[BusinessQualitySampleVersionRead]
+
+
+class BusinessQualityActionRuleTarget(BaseModel):
+    id: str
+    version: str | None = None
+    displayName: str | None = Field(default=None, alias="display_name")
+    status: str | None = None
+    isDefault: bool | None = Field(default=None, alias="is_default")
+
+
+class BusinessQualityActionRuleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    businessKey: str = Field(alias="business_key")
+    ruleKey: str = Field(alias="rule_key")
+    title: str
+    description: str | None = None
+    issueTags: list[str] = Field(default_factory=list, alias="issue_tags")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    actionType: str = Field(alias="action_type")
+    targetBusinessVersionId: str | None = Field(default=None, alias="target_business_version_id")
+    targetVersion: str | None = Field(default=None, alias="target_version")
+    targetLabel: str | None = Field(default=None, alias="target_label")
+    targetRef: str | None = Field(default=None, alias="target_ref")
+    targetParams: dict[str, Any] = Field(default_factory=dict, alias="target_params")
+    targetCapability: BusinessQualityActionRuleTarget | None = Field(default=None, alias="target_capability")
+    sampleBatchId: str | None = Field(default=None, alias="sample_batch_id")
+    evidenceReviewIds: list[str] = Field(default_factory=list, alias="evidence_review_ids")
+    status: str
+    priority: int
+    ownerUserId: str | None = Field(default=None, alias="owner_user_id")
+    ownerUsername: str | None = Field(default=None, alias="owner_username")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessQualityActionRuleCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    businessKey: str = Field(alias="business_key")
+    ruleKey: str | None = Field(default=None, alias="rule_key")
+    title: str
+    description: str | None = None
+    issueTags: list[str] = Field(default_factory=list, alias="issue_tags")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    actionType: str = Field(default="watch_only", alias="action_type")
+    targetBusinessVersionId: str | None = Field(default=None, alias="target_business_version_id")
+    targetRef: str | None = Field(default=None, alias="target_ref")
+    targetParams: dict[str, Any] = Field(default_factory=dict, alias="target_params")
+    sampleBatchId: str | None = Field(default=None, alias="sample_batch_id")
+    evidenceReviewIds: list[str] = Field(default_factory=list, alias="evidence_review_ids")
+    status: str = "candidate"
+    priority: int = 0
+
+
+class BusinessQualityActionRuleUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    ruleKey: str | None = Field(default=None, alias="rule_key")
+    title: str | None = None
+    description: str | None = None
+    issueTags: list[str] | None = Field(default=None, alias="issue_tags")
+    inputTags: list[str] | None = Field(default=None, alias="input_tags")
+    actionType: str | None = Field(default=None, alias="action_type")
+    targetBusinessVersionId: str | None = Field(default=None, alias="target_business_version_id")
+    targetRef: str | None = Field(default=None, alias="target_ref")
+    targetParams: dict[str, Any] | None = Field(default=None, alias="target_params")
+    sampleBatchId: str | None = Field(default=None, alias="sample_batch_id")
+    evidenceReviewIds: list[str] | None = Field(default=None, alias="evidence_review_ids")
+    status: str | None = None
+    priority: int | None = None
+
+
+class BusinessQualityActionRuleListResponse(BaseModel):
+    total: int
+    items: list[BusinessQualityActionRuleRead]
+
+
 class BusinessUsageBucket(BaseModel):
     key: str
     label: str
@@ -786,6 +1131,30 @@ class BusinessUnresolvedIssueItem(BaseModel):
     createdAt: datetime = Field(alias="created_at")
 
 
+class BusinessFlowEvidenceBucket(BaseModel):
+    key: str
+    label: str
+    total: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    running: int = 0
+    queued: int = 0
+    cancelled: int = 0
+    successRate: float | None = Field(default=None, alias="success_rate")
+    avgDurationMs: int | None = Field(default=None, alias="avg_duration_ms")
+    p95DurationMs: int | None = Field(default=None, alias="p95_duration_ms")
+    latestAt: datetime | None = Field(default=None, alias="latest_at")
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class BusinessFlowEvidenceResponse(BaseModel):
+    stageEvidence: list[BusinessFlowEvidenceBucket] = Field(default_factory=list, alias="stage_evidence")
+    routeHits: list[BusinessFlowEvidenceBucket] = Field(default_factory=list, alias="route_hits")
+    candidateHits: list[BusinessFlowEvidenceBucket] = Field(default_factory=list, alias="candidate_hits")
+    loraHits: list[BusinessFlowEvidenceBucket] = Field(default_factory=list, alias="lora_hits")
+    workflowHits: list[BusinessFlowEvidenceBucket] = Field(default_factory=list, alias="workflow_hits")
+
+
 class BusinessUsageSummaryResponse(BaseModel):
     windowHours: int = Field(alias="window_hours")
     filters: dict[str, Any]
@@ -819,3 +1188,4 @@ class BusinessUsageSummaryResponse(BaseModel):
     unresolvedByBusiness: list[BusinessIssueBucket] = Field(default_factory=list, alias="unresolved_by_business")
     recentUnresolvedIssues: list[BusinessUnresolvedIssueItem] = Field(default_factory=list, alias="recent_unresolved_issues")
     recentFailures: list[BusinessUsageFailure] = Field(default_factory=list, alias="recent_failures")
+    flowEvidence: BusinessFlowEvidenceResponse | None = Field(default=None, alias="flow_evidence")

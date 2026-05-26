@@ -1,4 +1,5 @@
 import type {
+  EvalBusinessQualitySampleListResponse,
   ComfyuiQueueSummary,
   EvalResourceOptionsResponse,
   EvalOperationsHealth,
@@ -201,6 +202,13 @@ export const evalApi = {
   },
   getWorkflowDocs: () =>
     request<{ markdown: string; generatedAt?: string; workflows?: WorkflowDoc[] }>('/api/evals/docs/workflows'),
+  listBusinessQualitySamples: (params?: { businessKey?: string; status?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.businessKey) qs.set('business_key', params.businessKey);
+    qs.set('status', params?.status || 'active');
+    qs.set('limit', String(params?.limit ?? 200));
+    return request<EvalBusinessQualitySampleListResponse>(`/api/evals/business/quality-samples?${qs.toString()}`);
+  },
   createRun: (payload: {
     workflow_version_id: string;
     dataset_item_id?: string | null;

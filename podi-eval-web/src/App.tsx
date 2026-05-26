@@ -33,7 +33,15 @@ import {
 } from 'tdesign-icons-react';
 import zhCN from 'tdesign-react/es/locale/zh_CN';
 import { ApiRequestError, evalApi } from './api';
-import type { ComfyuiQueueSummary, EvalOperationsHealth, EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
+import type {
+  ComfyuiQueueSummary,
+  EvalBusinessQualitySample,
+  EvalOperationsHealth,
+  EvalRun,
+  EvalWorkflowVersion,
+  SchemaField,
+  WorkflowDoc,
+} from './types';
 import { EvalShell } from './layouts/EvalShell';
 import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
 import { mapStatusToBadge } from './features/eval/shared/status';
@@ -298,6 +306,7 @@ const CATEGORY_ORDER = [
 ];
 const DEFAULT_CATEGORY = '图裂变';
 const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '图编辑', '扩图', '连续图']);
+const RECOMMENDED_BUSINESS_CATEGORIES = ['图裂变', '图编辑', '扩图', '花纹提取', '文本与提示词'];
 type EvalView = 'home' | 'tool' | 'tasks' | 'admin' | 'docs' | 'loraBatch';
 const EVAL_VIEW_SET = new Set<EvalView>(['home', 'tool', 'tasks', 'admin', 'docs', 'loraBatch']);
 
@@ -1071,6 +1080,68 @@ const getWorkflowTestingSortRank = (wf: EvalWorkflowVersion | null | undefined):
   if (role === 'legacy') return 90;
   if (role === 'disabled') return 100;
   return 50;
+};
+
+const sortWorkflowsForEvaluation = (items: EvalWorkflowVersion[]): EvalWorkflowVersion[] =>
+  items.slice().sort((a, b) => {
+    const testingOrder = getWorkflowTestingSortRank(a) - getWorkflowTestingSortRank(b);
+    if (testingOrder !== 0) return testingOrder;
+    const order = getWorkflowSortOrder(a) - getWorkflowSortOrder(b);
+    if (order !== 0) return order;
+    const roleOrder = getWorkflowGovernanceRank(a) - getWorkflowGovernanceRank(b);
+    if (roleOrder !== 0) return roleOrder;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+
+const pickRecommendedWorkflow = (items: EvalWorkflowVersion[]): EvalWorkflowVersion | null => {
+  const sorted = sortWorkflowsForEvaluation(items);
+  return (
+    sorted.find((wf) => {
+      const role = String(getWorkflowGovernance(wf)?.role || '').trim().toLowerCase();
+      return role !== 'auxiliary' && role !== 'disabled' && role !== 'legacy';
+    }) ||
+    sorted.find((wf) => String(getWorkflowGovernance(wf)?.role || '').trim().toLowerCase() !== 'disabled') ||
+    sorted[0] ||
+    null
+  );
+};
+
+const getBusinessEntryLabel = (category: string): string => (category === '文本与提示词' ? '文字裂变' : category);
+
+const BUSINESS_CATEGORY_KEY_MAP: Record<string, string> = {
+  图裂变: 'fission',
+  图编辑: 'image_edit',
+  扩图: 'outpaint',
+  花纹提取: 'pattern_extract',
+  文本与提示词: 'text_fission',
+  连续图: 'seamless_pattern',
+};
+
+const getBusinessKeyFromCategory = (category: string | null | undefined): string => {
+  const normalized = normalizeCategory(category);
+  return BUSINESS_CATEGORY_KEY_MAP[normalized] || '';
+};
+
+const getBusinessKeyForWorkflow = (wf: EvalWorkflowVersion | null | undefined): string => {
+  const execution = getWorkflowEvalExecution(wf);
+  const explicit = String(execution?.business_key || '').trim();
+  return explicit || getBusinessKeyFromCategory(getWorkflowCategory(wf));
+};
+
+const normalizeQualitySampleParams = (params: Record<string, unknown> | null | undefined): Record<string, string> => {
+  const out: Record<string, string> = {};
+  if (!params || typeof params !== 'object') return out;
+  for (const [key, value] of Object.entries(params)) {
+    if (!key) continue;
+    if (['url', 'imageUrl', 'image_url', 'inputUrl', 'input_url'].includes(key)) continue;
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'object') {
+      out[key] = JSON.stringify(value);
+    } else {
+      out[key] = String(value);
+    }
+  }
+  return out;
 };
 
 const getSchemaFields = (schema: Record<string, unknown> | null | undefined): SchemaField[] => {
@@ -3247,6 +3318,119 @@ function ComfyuiFissionPresetPanel({
   );
 }
 
+function QualitySampleQuickStart({
+  samples,
+  status,
+  onApply,
+}: {
+  samples: EvalBusinessQualitySample[];
+  status: RemoteLoadStatus;
+  onApply: (sample: EvalBusinessQualitySample) => void;
+}) {
+  if (status === 'loading' && samples.length === 0) {
+    return (
+      <div className="podi-quality-samples podi-quality-samples--loading">
+        <div className="podi-quality-samples__head">
+          <strong>固定样例</strong>
+          <small>加载中</small>
+        </div>
+      </div>
+    );
+  }
+  if (samples.length === 0) return null;
+  return (
+    <div className="podi-quality-samples" aria-label="固定样例">
+      <div className="podi-quality-samples__head">
+        <strong>固定样例</strong>
+        <small>{samples.length} 个可用</small>
+      </div>
+      <div className="podi-quality-samples__grid">
+        {samples.slice(0, 6).map((sample) => (
+          <button
+            key={sample.id || sample.sampleKey}
+            type="button"
+            className="podi-quality-samples__item"
+            onClick={() => onApply(sample)}
+          >
+            <span className="podi-quality-samples__thumb">
+              <img src={sample.imageUrl} alt={sample.label} loading="lazy" />
+            </span>
+            <span className="podi-quality-samples__text">
+              <strong>{sample.label}</strong>
+              <small>{sample.inputTags?.length ? sample.inputTags.slice(0, 3).join(' / ') : sample.sampleKey}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkbenchFlowRail({
+  testLabel,
+  testDetail,
+  testTheme,
+  resultLabel,
+  resultDetail,
+  resultTheme,
+  historyLabel,
+  historyDetail,
+}: {
+  testLabel: string;
+  testDetail: string;
+  testTheme: 'default' | 'primary' | 'success' | 'warning' | 'danger';
+  resultLabel: string;
+  resultDetail: string;
+  resultTheme: 'default' | 'primary' | 'success' | 'warning' | 'danger';
+  historyLabel: string;
+  historyDetail: string;
+}) {
+  const items = [
+    {
+      key: 'test',
+      title: '一次测试',
+      label: testLabel,
+      detail: testDetail,
+      theme: testTheme,
+      href: '#eval-step-test',
+    },
+    {
+      key: 'result',
+      title: '当前结果',
+      label: resultLabel,
+      detail: resultDetail,
+      theme: resultTheme,
+      href: '#eval-step-result',
+    },
+    {
+      key: 'history',
+      title: '历史复盘',
+      label: historyLabel,
+      detail: historyDetail,
+      theme: 'default' as const,
+      href: '#eval-step-history',
+    },
+  ];
+  return (
+    <nav className="podi-eval-workbench-flow" aria-label="业务验收路径">
+      {items.map((item, index) => (
+        <a key={item.key} className="podi-eval-workbench-flow__item" href={item.href}>
+          <span className="podi-eval-workbench-flow__index">{index + 1}</span>
+          <span className="podi-eval-workbench-flow__body">
+            <span className="podi-eval-workbench-flow__topline">
+              <strong>{item.title}</strong>
+              <Tag size="small" theme={item.theme} variant="light">
+                {item.label}
+              </Tag>
+            </span>
+            <small>{item.detail}</small>
+          </span>
+        </a>
+      ))}
+    </nav>
+  );
+}
+
 function StepGuide({
   title,
   hint,
@@ -3282,6 +3466,39 @@ function StepGuide({
         </div>
       </Space>
     </Card>
+  );
+}
+
+function ImageEditDeliveryBrief() {
+  return (
+    <div className="podi-image-edit-delivery-brief" aria-label="图编辑接入方式">
+      <div className="podi-image-edit-delivery-brief__head">
+        <div>
+          <strong>图编辑交付方式</strong>
+          <span>业务方优先使用托管入口；必须嵌入自有系统时，再用源码组件。</span>
+        </div>
+        <Tag theme="success" variant="light">
+          /image-edit 自动更新
+        </Tag>
+      </div>
+      <div className="podi-image-edit-delivery-brief__grid">
+        <div>
+          <span>业务方怎么用</span>
+          <strong>上传主图、标注或参考图、提交、runId 查结果</strong>
+          <small>正式接口仍是 /api/business/image-edit/runs 和 /api/business/runs/get。</small>
+        </div>
+        <div>
+          <span>最省维护</span>
+          <strong>托管组件</strong>
+          <small>业务方跳转或内嵌 /image-edit，中台发版后自动获得新模式、文案和校验。</small>
+        </div>
+        <div>
+          <span>自有页面嵌入</span>
+          <strong>源码组件 + component-config</strong>
+          <small>源码组件启动时读取配置；只有画布协议或 componentVersion 变化才需要业务方更新组件包。</small>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3328,166 +3545,263 @@ function TaskTable({
   runs: RunWithLatest[];
   workflowMap: Record<string, EvalWorkflowVersion>;
 }) {
+  const activeRuns = runs.filter((run) => ['queued', 'running'].includes(String(run.status || '').toLowerCase()));
+  const failedRuns = runs.filter((run) => String(run.status || '').toLowerCase() === 'failed');
+  const succeededRuns = runs.filter((run) => ['succeeded', 'success', 'completed'].includes(String(run.status || '').toLowerCase()));
+  const noOutputRuns = succeededRuns.filter((run) => isSucceededWithoutVisibleOutput(run));
+  const unratedRuns = runs.filter((run) => !run.latest_annotation?.rating);
+  const taskFocus = (() => {
+    if (failedRuns.length > 0) {
+      const run = failedRuns[0];
+      return {
+        theme: 'danger' as const,
+        label: '先处理失败任务',
+        detail: `${failedRuns.length} 条失败；最近一条 ${run.id}。`,
+        action: run.error_message ? formatCompactErrorMessage(run.error_message) : '展开明细查看错误码、debug_url 和中台任务 ID。',
+      };
+    }
+    if (activeRuns.length > 0) {
+      const run = activeRuns[0];
+      return {
+        theme: 'primary' as const,
+        label: '有任务仍在生成',
+        detail: `${activeRuns.length} 条排队/运行中；最近一条 ${run.id}。`,
+        action: '先等待自动刷新；如长时间无结果，再展开明细看工作流和链路状态。',
+      };
+    }
+    if (noOutputRuns.length > 0) {
+      const run = noOutputRuns[0];
+      return {
+        theme: 'warning' as const,
+        label: '成功但缺结果',
+        detail: `${noOutputRuns.length} 条成功记录没有可见输出；最近一条 ${run.id}。`,
+        action: '重点查结果回填、OSS 沉淀和 result_output_json 字段。',
+      };
+    }
+    if (unratedRuns.length > 0) {
+      return {
+        theme: 'warning' as const,
+        label: '等待质量复盘',
+        detail: `${unratedRuns.length} 条记录尚未评分。`,
+        action: '回到功能工作台的历史复盘，给代表性结果评分和备注。',
+      };
+    }
+    if (runs.length > 0) {
+      return {
+        theme: 'success' as const,
+        label: '最近任务稳定',
+        detail: `${succeededRuns.length} 条成功记录，暂无待处理异常。`,
+        action: '继续按固定样例覆盖更多输入，观察稳定性。',
+      };
+    }
+    return {
+      theme: 'default' as const,
+      label: '暂无任务',
+      detail: '先从推荐业务运行一次，再回到这里看任务状态。',
+      action: '任务提交后会显示 runId、状态、输出和链路信息。',
+    };
+  })();
+  const taskDetailDefaultOpen = failedRuns.length > 0 || activeRuns.length > 0 || noOutputRuns.length > 0;
   return (
-    <Card
-      bordered
-      title={
-        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-          <div>
-              <Typography.Text strong>任务管理</Typography.Text>
-              <div>
-                <Typography.Text theme="secondary">
-                实时刷新：排队/运行中会持续轮询；ComfyUI 类回调出图后才算完成。
-                </Typography.Text>
-              </div>
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Card bordered>
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <div className={`podi-task-tracking-focus podi-task-tracking-focus--${taskFocus.theme}`}>
+            <div>
+              <Typography.Text className="podi-task-tracking-focus__eyebrow">任务追踪结论</Typography.Text>
+              <strong>{taskFocus.label}</strong>
+              <span>{taskFocus.detail}</span>
             </div>
-          <Typography.Text theme="secondary">最近 {runs.length} 条</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">下一步</Typography.Text>
+              <strong>{taskFocus.action}</strong>
+            </div>
+          </div>
+
+          <div className="podi-task-tracking-metrics" aria-label="任务追踪汇总">
+            <div>
+              <span>最近任务</span>
+              <strong>{runs.length}</strong>
+              <em>列表窗口</em>
+            </div>
+            <div className={activeRuns.length > 0 ? 'is-primary' : ''}>
+              <span>排队/运行</span>
+              <strong>{activeRuns.length}</strong>
+              <em>需要观察</em>
+            </div>
+            <div className={failedRuns.length > 0 ? 'is-danger' : ''}>
+              <span>失败</span>
+              <strong>{failedRuns.length}</strong>
+              <em>优先处理</em>
+            </div>
+            <div className={noOutputRuns.length > 0 ? 'is-warning' : ''}>
+              <span>成功但缺结果</span>
+              <strong>{noOutputRuns.length}</strong>
+              <em>查回填</em>
+            </div>
+            <div>
+              <span>成功</span>
+              <strong>{succeededRuns.length}</strong>
+              <em>可复盘</em>
+            </div>
+            <div className={unratedRuns.length > 0 ? 'is-warning' : ''}>
+              <span>未评分</span>
+              <strong>{unratedRuns.length}</strong>
+              <em>待沉淀</em>
+            </div>
+          </div>
+
+          <details className="podi-task-detail-collapse" open={taskDetailDefaultOpen}>
+            <summary>
+              <span>最近任务明细</span>
+              <small>排障、看输出或打开 debug_url 时展开；排队/运行中会持续轮询。</small>
+            </summary>
+            <Table
+              size="small"
+              rowKey="id"
+              data={runs}
+              empty={<Typography.Text theme="secondary">暂无任务。</Typography.Text>}
+              columns={[
+                {
+                  colKey: 'created_at',
+                  title: '时间',
+                  width: 180,
+                  cell: ({ row }) => <Typography.Text>{fmtTime(row.created_at)}</Typography.Text>,
+                },
+                {
+                  colKey: 'workflow',
+                  title: '工作流',
+                  minWidth: 240,
+                  cell: ({ row }) => {
+                    const wf = workflowMap[row.workflow_version_id];
+                    return (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text strong>{wf ? wf.name : row.workflow_version_id}</Typography.Text>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }} ellipsis>
+                          {wf?.workflow_id || '—'}
+                        </Typography.Text>
+                      </Space>
+                    );
+                  },
+                },
+                {
+                  colKey: 'status',
+                  title: '状态',
+                  width: 150,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <StatusBadge status={row.status} />
+                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                        耗时：{formatDuration(row.duration_ms)}
+                      </Typography.Text>
+                    </Space>
+                  ),
+                },
+                {
+                  colKey: 'pipeline',
+                  title: '中台链路',
+                  minWidth: 300,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={4}>
+                      {row.podi_task_id ? (
+                        <Typography.Text style={{ fontFamily: 'monospace', fontSize: 12 }} ellipsis>
+                          中台任务：{row.podi_task_id}
+                        </Typography.Text>
+                      ) : (
+                        <Tag variant="light">未返回中台任务 ID</Tag>
+                      )}
+                      <Space breakLine>
+                        <Tag variant="light">提交：{formatEvalStageStatus('submit', row.submit_status)}</Tag>
+                        <Tag variant="light">回填：{formatEvalStageStatus('callback', row.callback_status)}</Tag>
+                        <Tag variant="light">最终：{formatEvalStageStatus('final', row.final_status || row.status)}</Tag>
+                        <Tag variant="light">成本：{formatEvalRunCost(row)}</Tag>
+                      </Space>
+                      {row.error_code ? (
+                        <Typography.Text theme="error" style={{ fontSize: 12 }}>
+                          错误码：{row.error_code}
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  ),
+                },
+                {
+                  colKey: 'rating',
+                  title: '评分',
+                  width: 120,
+                  cell: ({ row }) =>
+                    row.latest_annotation?.rating ? (
+                      <Tag theme="warning" variant="light">
+                        {row.latest_annotation.rating}
+                      </Tag>
+                    ) : (
+                      <Typography.Text theme="secondary">未评分</Typography.Text>
+                    ),
+                },
+                {
+                  colKey: 'output',
+                  title: '输出',
+                  minWidth: 220,
+                  cell: ({ row }) => {
+                    const output = getRunOutputDescriptor(row);
+                    if (output.imageUrls.length > 0) {
+                      return (
+                        <Space breakLine>
+                          <Typography.Text theme="secondary">{output.label}</Typography.Text>
+                          <Button size="small" variant="text" onClick={() => window.open(output.imageUrls[0], '_blank', 'noreferrer')}>
+                            打开首张
+                          </Button>
+                        </Space>
+                      );
+                    }
+                    if (output.videoUrls.length > 0) {
+                      return (
+                        <Space breakLine>
+                          <Typography.Text theme="secondary">{output.label}</Typography.Text>
+                          <Button size="small" variant="text" onClick={() => window.open(output.videoUrls[0], '_blank', 'noreferrer')}>
+                            打开视频
+                          </Button>
+                        </Space>
+                      );
+                    }
+                    if (output.preview) {
+                      return (
+                        <Typography.Text theme="secondary" style={{ fontFamily: 'monospace', fontSize: 12 }} ellipsis>
+                          {output.label}：{output.preview}
+                        </Typography.Text>
+                      );
+                    }
+                    return (
+                      <Typography.Text theme="secondary">
+                        {row.status === 'running' || row.status === 'queued' ? '生成中…' : '暂无输出'}
+                      </Typography.Text>
+                    );
+                  },
+                },
+                {
+                  colKey: 'actions',
+                  title: '操作',
+                  width: 220,
+                  cell: ({ row }) => (
+                    <Space>
+                      {row.coze_debug_url ? (
+                        <Button
+                          size="small"
+                          variant="outline"
+                          onClick={() => window.open(row.coze_debug_url || '', '_blank', 'noreferrer')}
+                        >
+                          调试链接
+                        </Button>
+                      ) : null}
+                      {row.error_message ? <Typography.Text theme="error">失败</Typography.Text> : null}
+                    </Space>
+                  ),
+                },
+              ]}
+            />
+          </details>
         </Space>
-      }
-    >
-      <Table
-        size="small"
-        rowKey="id"
-        data={runs}
-        empty={<Typography.Text theme="secondary">暂无任务。</Typography.Text>}
-        columns={[
-          {
-            colKey: 'created_at',
-            title: '时间',
-            width: 180,
-            cell: ({ row }) => <Typography.Text>{fmtTime(row.created_at)}</Typography.Text>,
-          },
-          {
-            colKey: 'workflow',
-            title: '工作流',
-            minWidth: 240,
-            cell: ({ row }) => {
-              const wf = workflowMap[row.workflow_version_id];
-              return (
-                <Space direction="vertical" size={2}>
-                  <Typography.Text strong>{wf ? wf.name : row.workflow_version_id}</Typography.Text>
-                  <Typography.Text theme="secondary" style={{ fontSize: 12 }} ellipsis>
-                    {wf?.workflow_id || '—'}
-                  </Typography.Text>
-                </Space>
-              );
-            },
-          },
-          {
-            colKey: 'status',
-            title: '状态',
-            width: 150,
-            cell: ({ row }) => (
-              <Space direction="vertical" size={2}>
-                <StatusBadge status={row.status} />
-                <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                  耗时：{formatDuration(row.duration_ms)}
-                </Typography.Text>
-              </Space>
-            ),
-          },
-          {
-            colKey: 'pipeline',
-            title: '中台链路',
-            minWidth: 300,
-            cell: ({ row }) => (
-              <Space direction="vertical" size={4}>
-                {row.podi_task_id ? (
-                  <Typography.Text style={{ fontFamily: 'monospace', fontSize: 12 }} ellipsis>
-                    中台任务：{row.podi_task_id}
-                  </Typography.Text>
-                ) : (
-                  <Tag variant="light">未返回中台任务 ID</Tag>
-                )}
-                <Space breakLine>
-                  <Tag variant="light">提交：{formatEvalStageStatus('submit', row.submit_status)}</Tag>
-                  <Tag variant="light">回填：{formatEvalStageStatus('callback', row.callback_status)}</Tag>
-                  <Tag variant="light">最终：{formatEvalStageStatus('final', row.final_status || row.status)}</Tag>
-                  <Tag variant="light">成本：{formatEvalRunCost(row)}</Tag>
-                </Space>
-                {row.error_code ? (
-                  <Typography.Text theme="error" style={{ fontSize: 12 }}>
-                    错误码：{row.error_code}
-                  </Typography.Text>
-                ) : null}
-              </Space>
-            ),
-          },
-          {
-            colKey: 'rating',
-            title: '评分',
-            width: 120,
-            cell: ({ row }) =>
-              row.latest_annotation?.rating ? (
-                <Tag theme="warning" variant="light">
-                  {row.latest_annotation.rating}
-                </Tag>
-              ) : (
-                <Typography.Text theme="secondary">未评分</Typography.Text>
-              ),
-          },
-          {
-            colKey: 'output',
-            title: '输出',
-            minWidth: 220,
-            cell: ({ row }) => {
-              const output = getRunOutputDescriptor(row);
-              if (output.imageUrls.length > 0) {
-                return (
-                  <Space breakLine>
-                    <Typography.Text theme="secondary">{output.label}</Typography.Text>
-                    <Button size="small" variant="text" onClick={() => window.open(output.imageUrls[0], '_blank', 'noreferrer')}>
-                      打开首张
-                    </Button>
-                  </Space>
-                );
-              }
-              if (output.videoUrls.length > 0) {
-                return (
-                  <Space breakLine>
-                    <Typography.Text theme="secondary">{output.label}</Typography.Text>
-                    <Button size="small" variant="text" onClick={() => window.open(output.videoUrls[0], '_blank', 'noreferrer')}>
-                      打开视频
-                    </Button>
-                  </Space>
-                );
-              }
-              if (output.preview) {
-                return (
-                  <Typography.Text theme="secondary" style={{ fontFamily: 'monospace', fontSize: 12 }} ellipsis>
-                    {output.label}：{output.preview}
-                  </Typography.Text>
-                );
-              }
-              return (
-                <Typography.Text theme="secondary">
-                  {row.status === 'running' || row.status === 'queued' ? '生成中…' : '暂无输出'}
-                </Typography.Text>
-              );
-            },
-          },
-          {
-            colKey: 'actions',
-            title: '操作',
-            width: 220,
-            cell: ({ row }) => (
-              <Space>
-                {row.coze_debug_url ? (
-                  <Button
-                    size="small"
-                    variant="outline"
-                    onClick={() => window.open(row.coze_debug_url || '', '_blank', 'noreferrer')}
-                  >
-                    调试链接
-                  </Button>
-                ) : null}
-                {row.error_message ? <Typography.Text theme="error">失败</Typography.Text> : null}
-              </Space>
-            ),
-          },
-        ]}
-      />
-    </Card>
+      </Card>
+    </Space>
   );
 }
 
@@ -3786,6 +4100,9 @@ export function App() {
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
   const [metrics, setMetrics] = useState<Record<string, WorkflowMetric>>({});
   const [resourceOptionsCache, setResourceOptionsCache] = useState<Record<string, LoraOption[]>>({});
+  const [qualitySamples, setQualitySamples] = useState<EvalBusinessQualitySample[]>([]);
+  const [qualitySampleStatus, setQualitySampleStatus] = useState<RemoteLoadStatus>('idle');
+  const [qualitySampleError, setQualitySampleError] = useState<RemoteLoadError | null>(null);
   const [bootstrapLoading, setBootstrapLoading] = useState<boolean>(false);
   const [workflowListStatus, setWorkflowListStatus] = useState<RemoteLoadStatus>('idle');
   const [workflowListError, setWorkflowListError] = useState<RemoteLoadError | null>(null);
@@ -3793,6 +4110,7 @@ export function App() {
   const initialQuery = useMemo(() => readEvalQuery(), []);
   const [activeCategory, setActiveCategory] = useState<string>(initialQuery.category);
   const [activeView, setActiveView] = useState<EvalView>(initialQuery.view);
+  const activeViewRef = useRef<EvalView>(initialQuery.view);
   const [selectedTool, setSelectedTool] = useState<EvalWorkflowVersion | null>(null);
   const [pendingToolId, setPendingToolId] = useState<string>(initialQuery.toolId);
   const [showIntegrationDoc, setShowIntegrationDoc] = useState(false);
@@ -3943,24 +4261,34 @@ export function App() {
     return m;
   }, [displayWorkflows]);
 
+  const qualitySamplesByBusiness = useMemo(() => {
+    const m: Record<string, EvalBusinessQualitySample[]> = {};
+    for (const sample of qualitySamples) {
+      const key = String(sample.businessKey || '').trim();
+      if (!key) continue;
+      if (String(sample.status || '').toLowerCase() !== 'active') continue;
+      m[key] = m[key] || [];
+      m[key].push(sample);
+    }
+    for (const key of Object.keys(m)) {
+      m[key].sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0) || String(a.label || '').localeCompare(String(b.label || ''), 'zh-CN'));
+    }
+    return m;
+  }, [qualitySamples]);
+
   const orderedCategories = useMemo(() => {
     const visible = CATEGORY_ORDER.filter((category) => PINNED_CATEGORY_SET.has(category) || (grouped[category] || []).length > 0);
     return visible.length > 0 ? visible : CATEGORY_ORDER.slice(0, 4);
   }, [grouped]);
 
   const toolList = useMemo(() => {
-    const list = (grouped[activeCategory] || []).slice().sort((a, b) => {
-      const testingOrder = getWorkflowTestingSortRank(a) - getWorkflowTestingSortRank(b);
-      if (testingOrder !== 0) return testingOrder;
-      const order = getWorkflowSortOrder(a) - getWorkflowSortOrder(b);
-      if (order !== 0) return order;
-      const roleOrder = getWorkflowGovernanceRank(a) - getWorkflowGovernanceRank(b);
-      if (roleOrder !== 0) return roleOrder;
-      return a.name.localeCompare(b.name);
-    });
-    return list;
+    return sortWorkflowsForEvaluation(grouped[activeCategory] || []);
   }, [grouped, activeCategory]);
   const totalToolCount = displayWorkflows.length;
+
+  useEffect(() => {
+    activeViewRef.current = activeView;
+  }, [activeView]);
 
   useEffect(() => {
     if (!pendingToolId) return;
@@ -4396,6 +4724,21 @@ export function App() {
     setMetrics(resp.metrics || {});
   };
 
+  const loadQualitySamples = useCallback(async () => {
+    setQualitySampleStatus('loading');
+    setQualitySampleError(null);
+    try {
+      const res = await evalApi.listBusinessQualitySamples({ status: 'active', limit: 500 });
+      setQualitySamples(Array.isArray(res.items) ? res.items : []);
+      setQualitySampleStatus('success');
+    } catch (err) {
+      console.error(err);
+      setQualitySamples([]);
+      setQualitySampleStatus('error');
+      setQualitySampleError(normalizeRemoteLoadError(err));
+    }
+  }, []);
+
   const loadWorkflowList = useCallback(async () => {
     setWorkflowListStatus('loading');
     setWorkflowListError(null);
@@ -4435,11 +4778,11 @@ export function App() {
           console.error(err);
           return null;
         });
-      await Promise.allSettled([loadWorkflowList(), refreshMetrics()]);
+      await Promise.allSettled([loadWorkflowList(), refreshMetrics(), loadQualitySamples()]);
     } finally {
       setBootstrapLoading(false);
     }
-  }, [loadWorkflowList]);
+  }, [loadWorkflowList, loadQualitySamples]);
 
   const loadAdminWorkflowList = useCallback(
     async (token: string, opts?: { notifySuccess?: boolean }) => {
@@ -4540,8 +4883,17 @@ export function App() {
       const resp = await evalApi.listRunsWithLatestAnnotation({ limit: 80, offset: 0 });
       setTaskRuns((resp.items || []) as RunWithLatest[]);
     } catch (err) {
+      const message = String((err as any)?.message || err || '');
+      const isFetchAbortOrNetwork =
+        err instanceof ApiRequestError &&
+        err.kind === 'network' &&
+        /failed to fetch|load failed|networkerror|aborted/i.test(message);
+      if (isFetchAbortOrNetwork) {
+        if (activeViewRef.current === 'tasks') pushNotice('error', message);
+        return;
+      }
       console.error(err);
-      pushNotice('error', String((err as any)?.message || err));
+      pushNotice('error', message);
     }
   };
 
@@ -5550,6 +5902,55 @@ export function App() {
   const markToolInputChanged = () => {
     setToolInputRevision((prev) => prev + 1);
     setLatestTrialRuns([]);
+  };
+
+  const applyQualitySampleToTool = (sample: EvalBusinessQualitySample, wf: EvalWorkflowVersion | null = selectedTool) => {
+    if (!wf) return;
+    const imageUrl = String(sample.imageUrl || '').trim();
+    const sampleParams = normalizeQualitySampleParams(sample.defaultParams);
+    const prompt = String(sample.prompt || '').trim();
+    const fields = getFields(wf);
+    const promptField =
+      fields.find((field) => String(field.name || '').toLowerCase() === 'prompt') ||
+      fields.find((field) => String(field.name || '').toLowerCase() === 'editable_prompt') ||
+      fields.find((field) => String(field.name || '').toLowerCase() === 'editableprompt') ||
+      fields.find((field) => String(field.name || '').toLowerCase() === 'instruction') ||
+      null;
+
+    markToolInputChanged();
+    setMultiRunInputs([]);
+    setLatestTrialRuns([]);
+    setTextFissionPromptDraft(null);
+    autoFilledFissionSizeRef.current = null;
+    if (imageUrl) {
+      setFormUrl(imageUrl);
+      void applyFissionOriginalSizeDefaults(imageUrl);
+    }
+    setFormParams((prev) => {
+      const next = { ...prev, ...sampleParams };
+      if (prompt && promptField) next[promptField.name] = prompt;
+      if (prompt && isTextFissionEditableWorkflow(wf)) {
+        next.editable_prompt = prompt;
+        next.editablePrompt = prompt;
+      }
+      if (prompt && isImageEditWorkflow(wf)) {
+        next.instruction = prompt;
+      }
+      return next;
+    });
+    if (isImageEditWorkflow(wf)) {
+      if (prompt) setEditorPrompt(prompt);
+      setEditorMarks([]);
+      setEditorDrawing(null);
+      setEditorImageMeta({ displayW: 0, displayH: 0, naturalW: 0, naturalH: 0 });
+      if (sampleParams.editSkill) setFormParams((prev) => ({ ...prev, editSkill: sampleParams.editSkill }));
+    }
+    pushNotice('success', `已套用固定样例：${sample.label || sample.sampleKey}`);
+  };
+
+  const openToolWithQualitySample = (wf: EvalWorkflowVersion, sample: EvalBusinessQualitySample) => {
+    openTool(wf);
+    applyQualitySampleToTool(sample, wf);
   };
 
   const runTool = async () => {
@@ -6713,6 +7114,62 @@ export function App() {
   );
 
   if (activeView === 'admin') {
+    const adminActiveCount = adminWorkflows.filter((wf) => String(wf.status || '').toLowerCase() === 'active').length;
+    const adminInactiveCount = Math.max(0, adminWorkflows.length - adminActiveCount);
+    const adminMissingSchemaCount = adminWorkflows.filter((wf) => {
+      const missingParamsSchema = !wf.parameters_schema || (Array.isArray(wf.parameters_schema) && wf.parameters_schema.length === 0);
+      const missingOutputSchema = !wf.output_schema || (Array.isArray(wf.output_schema) && wf.output_schema.length === 0);
+      return missingParamsSchema || missingOutputSchema;
+    }).length;
+    const adminFocus = (() => {
+      if (!adminToken) {
+        return {
+          theme: 'warning' as const,
+          label: '先输入维护 Token',
+          detail: '维护功能名、分类、备注和状态前，需要有效的 EVAL_ADMIN_TOKEN。',
+          action: '点击“重新输入 Token”，加载维护列表后再修改。',
+        };
+      }
+      if (adminWorkflowStatus === 'loading') {
+        return {
+          theme: 'primary' as const,
+          label: '正在加载维护列表',
+          detail: '等待后端返回 active/disabled 功能配置。',
+          action: '先不要重复提交修改，列表加载完成后再操作。',
+        };
+      }
+      if (adminWorkflowStatus === 'error') {
+        return {
+          theme: 'danger' as const,
+          label: '维护列表加载失败',
+          detail: adminWorkflowError?.message || '无法读取功能配置。',
+          action: '检查 Token、网络和后端服务，再刷新列表。',
+        };
+      }
+      if (adminWorkflowStatus === 'success' && adminWorkflows.length === 0) {
+        return {
+          theme: 'default' as const,
+          label: '暂无可维护功能',
+          detail: '当前后端没有返回工作流版本。',
+          action: '先确认功能 Seed 或后端筛选条件。',
+        };
+      }
+      if (adminMissingSchemaCount > 0) {
+        return {
+          theme: 'warning' as const,
+          label: '优先补齐 Schema',
+          detail: `${adminMissingSchemaCount} 个功能缺少入参或出参 Schema，会影响表单和文档完整性。`,
+          action: '先补 Schema，再调整名称、分类和上下线状态。',
+        };
+      }
+      return {
+        theme: 'success' as const,
+        label: '维护信息完整',
+        detail: `${adminWorkflows.length} 个功能已加载，当前没有 Schema 缺口。`,
+        action: '只处理本轮确有变更的名称、备注、分类或状态。',
+      };
+    })();
+    const adminDetailDefaultOpen = adminFocus.theme !== 'success' || adminWorkflows.length <= 3;
     return shell(
       <Card
         bordered
@@ -6748,25 +7205,66 @@ export function App() {
         }
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <div className="podi-admin-maintenance-overview">
+            <div className={`podi-admin-maintenance-focus podi-admin-maintenance-focus--${adminFocus.theme}`}>
+              <div>
+                <span>维护结论</span>
+                <strong>{adminFocus.label}</strong>
+                <small>{adminFocus.detail}</small>
+              </div>
+              <div>
+                <span>下一步</span>
+                <strong>{adminFocus.action}</strong>
+              </div>
+            </div>
+            <div className="podi-admin-maintenance-metrics" aria-label="维护配置摘要">
+              <div>
+                <span>功能数</span>
+                <strong>{adminWorkflows.length}</strong>
+              </div>
+              <div>
+                <span>启用</span>
+                <strong>{adminActiveCount}</strong>
+              </div>
+              <div>
+                <span>停用</span>
+                <strong>{adminInactiveCount}</strong>
+              </div>
+              <div>
+                <span>Schema 缺口</span>
+                <strong>{adminMissingSchemaCount}</strong>
+              </div>
+            </div>
+          </div>
           {adminWorkflowStatus === 'loading' ? <Alert theme="info" message="正在加载维护功能列表…" /> : null}
           {adminWorkflowStatus === 'error' ? (
             <WorkflowListErrorState scope="admin" error={adminWorkflowError} onRetry={() => void loadAdminWorkflowList(adminToken)} />
           ) : null}
-          {adminWorkflows.map((wf) => (
-            <AdminWorkflowRow
-              key={wf.id}
-              wf={wf}
-              adminToken={adminToken}
-              onAuthInvalid={() => {
-                localStorage.removeItem('podi_eval_admin_token');
-                setAdminToken('');
-                pushNotice('error', '认证已失效，请重新输入 EVAL_ADMIN_TOKEN');
-              }}
-              onSaved={(next) => {
-                setAdminWorkflows((prev) => prev.map((x) => (x.id === next.id ? next : x)));
-              }}
-            />
-          ))}
+          {adminWorkflows.length > 0 ? (
+            <details className="podi-admin-maintenance-list" open={adminDetailDefaultOpen}>
+              <summary>
+                <span>功能维护明细</span>
+                <small>{adminWorkflows.length} 个功能；有变更时逐项保存。</small>
+              </summary>
+              <div>
+                {adminWorkflows.map((wf) => (
+                  <AdminWorkflowRow
+                    key={wf.id}
+                    wf={wf}
+                    adminToken={adminToken}
+                    onAuthInvalid={() => {
+                      localStorage.removeItem('podi_eval_admin_token');
+                      setAdminToken('');
+                      pushNotice('error', '认证已失效，请重新输入 EVAL_ADMIN_TOKEN');
+                    }}
+                    onSaved={(next) => {
+                      setAdminWorkflows((prev) => prev.map((x) => (x.id === next.id ? next : x)));
+                    }}
+                  />
+                ))}
+              </div>
+            </details>
+          ) : null}
           {adminWorkflowStatus === 'success' && adminWorkflows.length === 0 ? (
             <Typography.Text theme="secondary">暂无数据。</Typography.Text>
           ) : null}
@@ -6849,6 +7347,48 @@ export function App() {
         cell: ({ row }: { row: SchemaField }) => (row.description ? row.description : '—'),
       },
     ];
+    const docsFlat = groupedDocs.flatMap((group) => group.items);
+    const docsWorkflowCount = docsFlat.length;
+    const docsCategoryCount = groupedDocs.length;
+    const docsMissingSchemaCount = docsFlat.filter((wf) => {
+      const params = Array.isArray(wf.parameters) ? wf.parameters : [];
+      const outputs = Array.isArray(wf.outputs) ? wf.outputs : [];
+      return params.length === 0 || outputs.length === 0;
+    }).length;
+    const docsErrorWorkflowCount = docsFlat.filter((wf) => Array.isArray(wf.errors) && wf.errors.length > 0).length;
+    const docsParamCount = docsFlat.reduce((sum, wf) => sum + (Array.isArray(wf.parameters) ? wf.parameters.length : 0), 0);
+    const docsFocus = (() => {
+      if (docsLoading) {
+        return {
+          theme: 'primary' as const,
+          label: '文档生成中',
+          detail: '正在读取 active 工作流和接口 Schema。',
+          action: '等待加载完成后再复制或交付给业务方。',
+        };
+      }
+      if (docsWorkflowCount === 0) {
+        return {
+          theme: 'default' as const,
+          label: '暂无可交付文档',
+          detail: '当前没有可展示的 active 工作流文档。',
+          action: '先确认工作流版本是否启用，或去维护配置补齐功能。',
+        };
+      }
+      if (docsMissingSchemaCount > 0) {
+        return {
+          theme: 'warning' as const,
+          label: '先补接口 Schema',
+          detail: `${docsMissingSchemaCount} 个功能缺少入参或出参说明，业务方接入时容易误填。`,
+          action: '去维护配置补齐 Schema 后，再复制文档或发给业务方。',
+        };
+      }
+      return {
+        theme: 'success' as const,
+        label: '文档可交付',
+        detail: `${docsWorkflowCount} 个功能已生成结构化文档，${docsErrorWorkflowCount} 个功能列出错误码。`,
+        action: '优先给业务方结构化视图；需要归档或外发时复制 Markdown。',
+      };
+    })();
 
     return shell(
       <Card
@@ -6896,16 +7436,52 @@ export function App() {
           <Typography.Text theme="secondary">加载中…</Typography.Text>
         ) : (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <Alert
-              theme="info"
-              message="统一联调准则：状态只按“排队中、执行中、成功、失败”判断；队列满会给出明确错误码；成功但暂未生成可展示结果时按“结果处理中”处理，不要直接判失败。"
-            />
+            <div className="podi-docs-overview">
+              <div className={`podi-docs-focus podi-docs-focus--${docsFocus.theme}`}>
+                <div>
+                  <span>文档结论</span>
+                  <strong>{docsFocus.label}</strong>
+                  <small>{docsFocus.detail}</small>
+                </div>
+                <div>
+                  <span>下一步</span>
+                  <strong>{docsFocus.action}</strong>
+                </div>
+              </div>
+              <div className="podi-docs-metrics" aria-label="接口文档摘要">
+                <div>
+                  <span>功能</span>
+                  <strong>{docsWorkflowCount}</strong>
+                </div>
+                <div>
+                  <span>分类</span>
+                  <strong>{docsCategoryCount}</strong>
+                </div>
+                <div>
+                  <span>参数字段</span>
+                  <strong>{docsParamCount}</strong>
+                </div>
+                <div>
+                  <span>Schema 缺口</span>
+                  <strong>{docsMissingSchemaCount}</strong>
+                </div>
+                <div>
+                  <span>错误码覆盖</span>
+                  <strong>{docsErrorWorkflowCount}/{docsWorkflowCount || 0}</strong>
+                </div>
+              </div>
+              <details className="podi-docs-rule-collapse">
+                <summary>统一联调准则</summary>
+                <p>
+                  状态只按“排队中、执行中、成功、失败”判断；队列满会给出明确错误码；成功但暂未生成可展示结果时按“结果处理中”处理，不要直接判失败。
+                </p>
+              </details>
+            </div>
           {docsView === 'structured' && groupedDocs.length > 0 ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <Card bordered>
-              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            <div className="podi-docs-directory">
                 <Typography.Text strong>目录</Typography.Text>
-                <Space style={{ flexWrap: 'wrap' }}>
+                <div>
                   {groupedDocs.map((group) => (
                     <a
                       key={group.category}
@@ -6915,17 +7491,20 @@ export function App() {
                       {group.category}（{group.items.length}）
                     </a>
                   ))}
-                </Space>
-              </Space>
-            </Card>
+                </div>
+            </div>
 
             {groupedDocs.map((group) => (
-              <Space key={group.category} direction="vertical" size="large" style={{ width: '100%' }}>
-                <div id={toAnchorId(group.category)}>
-                  <Typography.Title level="h3" style={{ margin: 0 }}>
-                    {group.category}
-                  </Typography.Title>
-                </div>
+              <details
+                key={group.category}
+                className="podi-docs-category-collapse"
+                open={groupedDocs.length === 1 || docsMissingSchemaCount > 0}
+              >
+                <summary id={toAnchorId(group.category)}>
+                  <span>{group.category}</span>
+                  <small>{group.items.length} 个功能；展开查看调用方式、入参、出参和错误码。</small>
+                </summary>
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
 
                 {group.items.map((wf) => {
                   const params = Array.isArray(wf.parameters) ? wf.parameters : [];
@@ -7021,7 +7600,8 @@ export function App() {
                     </Card>
                   );
                 })}
-              </Space>
+                </Space>
+              </details>
             ))}
           </Space>
           ) : docsMarkdown ? (
@@ -7099,34 +7679,125 @@ export function App() {
     const loraOptions = selectedBatchWorkflowMeta?.loraOptions || [];
     const selectedLoraLabel =
       loraOptions.find((opt) => opt.value === batchLoraValue)?.label || batchLoraValue || '—';
+    const batchIssueCount = batchSummary.failed + batchSummary.uploadFailed + batchSummary.missingSubmissions;
+    const batchCompletionLabel =
+      batchSummary.plannedTotal > 0
+        ? `${Math.min(batchSummary.completed, batchSummary.plannedTotal)}/${batchSummary.plannedTotal}`
+        : '—';
+    const batchReviewLabel =
+      selectedBatchIsTerminal && batchReviewTotalPages > 0
+        ? `${Math.min(batchReviewProgress.completedPage, Math.max(1, batchReviewTotalPages))}/${Math.max(1, batchReviewTotalPages)} 页`
+        : selectedBatchIsTerminal
+          ? '待进入标注'
+          : '批次未结束';
+    const batchFocus = (() => {
+      if (filteredBatchSessions.length === 0) {
+        return {
+          theme: 'default' as const,
+          label: '先创建第一批回归',
+          detail: '选择工作流、LoRA、样本图和重复次数后提交，后续再按批次标注不满意结果。',
+          action: '先用 2-5 张代表图小批量验证，避免一次性提交过多样本。',
+        };
+      }
+      if (batchIssueCount > 0) {
+        return {
+          theme: 'danger' as const,
+          label: '先处理异常批次',
+          detail: `当前批次有 ${batchIssueCount} 个异常信号：执行失败 ${batchSummary.failed}，上传失败 ${batchSummary.uploadFailed}，未入库 ${batchSummary.missingSubmissions}。`,
+          action: '先展开排查明细，确认是素材上传、提交超时还是执行失败，再决定复测或调整 LoRA。',
+        };
+      }
+      if (batchSummary.active > 0 || batchSummary.queuedOrRunning > 0) {
+        return {
+          theme: 'primary' as const,
+          label: '等待批次收敛',
+          detail: `还有 ${batchSummary.active + batchSummary.queuedOrRunning} 条在提交、排队或生成中。`,
+          action: '先观察批次状态；长时间不收敛时再停止本批次并排查队列。',
+        };
+      }
+      if (selectedBatchIsTerminal && batchSummary.generated > 0) {
+        return {
+          theme: 'success' as const,
+          label: '进入结果标注',
+          detail: `当前批次已有 ${batchSummary.generated} 条有图结果，可按页标记不满意样本。`,
+          action: '标注不满意原因后导出结果，用于分流、调参或 LoRA 候选判断。',
+        };
+      }
+      return {
+        theme: 'warning' as const,
+        label: '批次待补结果',
+        detail: selectedBatchId ? `当前批次状态：${formatBatchSessionStatusLabel(selectedBatchSession?.status)}。` : '还没有可复盘批次。',
+        action: '刷新批次列表，确认是否需要重新提交样本或等待后端回填。',
+      };
+    })();
     return shell(
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Card bordered>
-          <Space direction="vertical" size="small" style={{ width: '100%' }}>
-            <Typography.Title level="h4" style={{ margin: 0 }}>
-              LoRA 批量回归测试
-            </Typography.Title>
-            <Typography.Text theme="secondary">
-              独立于左侧 5 个业务分类。用于批量验证“含 LoRA 的工作流”在多素材上的覆盖表现。
-            </Typography.Text>
-            <Typography.Text theme="secondary">
-              规则：一次“上传+点击提交”就是一个测试任务（批次）；每张图会按“测试次数”重复提交，降低单次随机性影响。单批上限 {LORA_BATCH_MAX_TASKS} 条。
-            </Typography.Text>
-            <Typography.Text theme="secondary">
-              执行顺序：先完成整批素材上传，再统一创建任务；上传失败素材会被自动跳过并标记失败，避免网络抖动影响任务创建一致性。
-            </Typography.Text>
-          </Space>
+          <div className="podi-lora-batch-overview">
+            <div className="podi-lora-batch-overview__head">
+              <div>
+                <Typography.Title level="h4" style={{ margin: 0 }}>
+                  LoRA 批量回归测试
+                </Typography.Title>
+                <Typography.Text theme="secondary">
+                  用同一批素材验证 LoRA / workflow 候选表现，结论优先给运营和能力工程师看。
+                </Typography.Text>
+              </div>
+              <Tag theme={batchFocus.theme === 'danger' ? 'danger' : batchFocus.theme === 'success' ? 'success' : batchFocus.theme === 'primary' ? 'primary' : 'warning'} variant="light">
+                {batchFocus.label}
+              </Tag>
+            </div>
+            <div className={`podi-lora-batch-focus podi-lora-batch-focus--${batchFocus.theme}`}>
+              <div>
+                <span>当前结论</span>
+                <strong>{batchFocus.label}</strong>
+                <small>{batchFocus.detail}</small>
+              </div>
+              <div>
+                <span>下一步</span>
+                <strong>{batchFocus.action}</strong>
+              </div>
+            </div>
+            <div className="podi-lora-batch-metrics" aria-label="批量回归摘要">
+              <div>
+                <span>历史批次</span>
+                <strong>{filteredBatchSessions.length}</strong>
+              </div>
+              <div>
+                <span>当前批次</span>
+                <strong>{selectedBatchId || '未选择'}</strong>
+              </div>
+              <div>
+                <span>完成进度</span>
+                <strong>{batchCompletionLabel}</strong>
+              </div>
+              <div>
+                <span>有图完成</span>
+                <strong>{batchSummary.generated}</strong>
+              </div>
+              <div>
+                <span>异常信号</span>
+                <strong>{batchIssueCount}</strong>
+              </div>
+              <div>
+                <span>标注进度</span>
+                <strong>{batchReviewLabel}</strong>
+              </div>
+            </div>
+            <details className="podi-lora-batch-rule-collapse">
+              <summary>批测规则和流程</summary>
+              <div>
+                <span>选择工作流与 LoRA</span>
+                <span>生成任务</span>
+                <span>等待批次结束</span>
+                <span>结果标注</span>
+              </div>
+              <p>
+                一次上传并提交就是一个批次；每张图按测试次数重复提交，单批上限 {LORA_BATCH_MAX_TASKS} 条。系统会先完成整批素材上传，再统一创建任务；上传失败素材会跳过并标记失败。
+              </p>
+            </details>
+          </div>
         </Card>
-        <StepGuide
-          title="批测流程"
-          hint="按固定流程执行，便于业务同学复盘问题和导出结果。"
-          steps={[
-            { title: '选择工作流与 LoRA', description: '先确认工作流版本、LoRA 和重复次数。' },
-            { title: '生成任务', description: '先完成整批素材上传，再统一创建任务。' },
-            { title: '等待批次结束', description: '批次结束后再进入标注，避免页面抖动。' },
-            { title: '结果标注', description: '仅标记不满意，按页完成并断点续标。' },
-          ]}
-        />
         <Card bordered>
           <Tabs value={loraBatchSubView} onChange={(v) => setLoraBatchSubView(String(v) as LoraBatchSubView)}>
             <Tabs.TabPanel value="generation" label="生成任务" />
@@ -7989,6 +8660,8 @@ export function App() {
       : String(selectedToolRouting?.currentTrackingLabel || '追踪待确认').trim();
     const selectedToolRoleLabel = String(selectedToolGovernance?.roleLabel || '可测版本').trim();
     const selectedToolUsesBusinessApi = isBusinessApiWorkflow(selectedTool);
+    const selectedToolBusinessKey = getBusinessKeyForWorkflow(selectedTool);
+    const selectedToolQualitySamples = selectedToolBusinessKey ? qualitySamplesByBusiness[selectedToolBusinessKey] || [] : [];
     const imageEditMaskUrl = String((formParams as any).maskUrl || (formParams as any).mask_url || '').trim();
     const imageEditSelectionHintsForPayload = isImageEditBusinessWorkflow
       ? serializeEditorSelectionHints(editorMarks, {
@@ -8097,6 +8770,164 @@ export function App() {
         pushNotice('error', formatCompactErrorMessage(raw));
       }
     };
+    const currentInputSubmittedForRail = toolInputRevision === 0 || lastSubmittedToolInputRevision === toolInputRevision;
+    const visibleLatestRunForRail = currentInputSubmittedForRail ? toolRuns[0] || null : null;
+    const visibleLatestOutputForRail = visibleLatestRunForRail ? getRunOutputDescriptor(visibleLatestRunForRail) : null;
+    const visibleLatestStatusForRail = String(visibleLatestRunForRail?.status || '').toLowerCase();
+    const acceptanceSampleCount = selectedToolQualitySamples.length;
+    const acceptanceSampleLabel =
+      qualitySampleStatus === 'loading'
+        ? '固定样例加载中'
+        : acceptanceSampleCount > 0
+          ? `${acceptanceSampleCount} 个固定样例`
+          : '暂无固定样例';
+    const acceptanceResultLabel =
+      visibleLatestStatusForRail === 'failed'
+        ? '最新任务失败'
+        : visibleLatestStatusForRail === 'queued' || visibleLatestStatusForRail === 'running'
+          ? '最新任务生成中'
+          : visibleLatestOutputForRail?.hasOutput
+            ? visibleLatestOutputForRail.label
+            : visibleLatestRunForRail
+              ? '最新任务待回填'
+              : '还未运行';
+    const acceptanceFocus = (() => {
+      if (runBlockingReason) {
+        return {
+          theme: 'warning' as const,
+          label: '先补齐输入',
+          detail: runBlockingReason,
+          businessAction: '补主图、提示词或参考图；优先用固定样例降低判断成本。',
+          platformAction: '暂不排障，先确保请求参数完整。',
+        };
+      }
+      if (isRunning || visibleLatestStatusForRail === 'queued' || visibleLatestStatusForRail === 'running') {
+        return {
+          theme: 'primary' as const,
+          label: '等待本次结果',
+          detail: visibleLatestRunForRail
+            ? `runId ${visibleLatestRunForRail.id.slice(0, 12)} 正在刷新。`
+            : '任务已提交，等待创建运行记录。',
+          businessAction: '先停留在当前结果区，出图后直接对比原图和结果。',
+          platformAction: '若长时间排队或无回填，再看执行节点、debug_url 和中台任务。',
+        };
+      }
+      if (visibleLatestStatusForRail === 'failed') {
+        return {
+          theme: 'danger' as const,
+          label: '优先处理失败',
+          detail: visibleLatestRunForRail?.error_message
+            ? formatCompactErrorMessage(visibleLatestRunForRail.error_message)
+            : '最新任务失败，请复制错误交给中台排查。',
+          businessAction: '保留这次输入，不要反复改参数；先把失败样本沉淀下来。',
+          platformAction: '复制错误，按 runId / 中台任务 / 执行节点定位。',
+        };
+      }
+      if (visibleLatestOutputForRail?.hasOutput) {
+        return {
+          theme: 'success' as const,
+          label: '结果可验收',
+          detail: '对比原图和结果图，给出评分、备注和问题标签。',
+          businessAction: '看结果是否满足业务预期，不满意就写清问题现象。',
+          platformAction: historySummary.unrated > 0 ? '优先补齐待打标记录，沉淀稳定样本。' : '继续覆盖更多典型输入，观察稳定性。',
+        };
+      }
+      if (visibleLatestRunForRail) {
+        return {
+          theme: 'warning' as const,
+          label: '结果待回填',
+          detail: '任务已结束但当前页面没有可见输出。',
+          businessAction: '先不要判定效果，等待回填或查看历史记录。',
+          platformAction: '核对 OSS 回填、result_output_json 和工作流输出字段。',
+        };
+      }
+      return {
+        theme: acceptanceSampleCount > 0 ? ('primary' as const) : ('default' as const),
+        label: acceptanceSampleCount > 0 ? '先跑固定样例' : '先提交代表图',
+        detail:
+          acceptanceSampleCount > 0
+            ? '固定样例可以让业务方用同一批输入评估版本变化。'
+            : '暂无固定样例，先上传最有代表性的业务图跑一次。',
+        businessAction: acceptanceSampleCount > 0 ? '套用固定样例，生成后按视觉质量打标。' : '上传一张高频业务图，记录好预期结果。',
+        platformAction: '把好/坏样本沉淀到历史复盘，后续用于分流、LoRA 或参数优化。',
+      };
+    })();
+    const testTheme = runBlockingReason ? 'warning' : isRunning ? 'primary' : 'success';
+    const testLabel = runBlockingReason ? '待输入' : isRunning ? '提交中' : '可提交';
+    const resultTheme =
+      visibleLatestStatusForRail === 'failed'
+        ? 'danger'
+        : visibleLatestStatusForRail === 'queued' || visibleLatestStatusForRail === 'running'
+          ? 'primary'
+          : visibleLatestOutputForRail?.hasOutput
+            ? 'success'
+            : visibleLatestRunForRail
+              ? 'warning'
+              : 'default';
+    const resultLabel =
+      visibleLatestStatusForRail === 'failed'
+        ? '失败'
+        : visibleLatestStatusForRail === 'queued' || visibleLatestStatusForRail === 'running'
+          ? '生成中'
+          : visibleLatestOutputForRail?.hasOutput
+            ? visibleLatestOutputForRail.label
+            : visibleLatestRunForRail
+              ? '待回填'
+              : '未运行';
+    const historyReviewFocus = (() => {
+      if (historySummary.failed > 0) {
+        return {
+          theme: 'danger' as const,
+          label: '先处理失败样本',
+          detail: `${historySummary.failed} 条失败记录需要看错误和 runId。`,
+          action: '展开历史明细，按失败筛选并复制错误给中台排查。',
+        };
+      }
+      if (historySummary.noOutput > 0) {
+        return {
+          theme: 'warning' as const,
+          label: '先查缺结果',
+          detail: `${historySummary.noOutput} 条成功记录缺少可见输出。`,
+          action: '展开历史明细，核对结果入库、OSS 回填和输出字段。',
+        };
+      }
+      if (historySummary.running > 0) {
+        return {
+          theme: 'primary' as const,
+          label: '观察运行中任务',
+          detail: `${historySummary.running} 条记录仍在排队或运行。`,
+          action: '先等当前结果刷新；超时后再看执行节点和 debug_url。',
+        };
+      }
+      if (historySummary.unrated > 0) {
+        return {
+          theme: 'warning' as const,
+          label: '补齐质量打标',
+          detail: `${historySummary.unrated} 条记录还没有人工评分。`,
+          action: '优先给代表性好/坏样本评分并备注问题现象。',
+        };
+      }
+      if (historySummary.success > 0) {
+        return {
+          theme: 'success' as const,
+          label: '历史样本可复用',
+          detail: `${historySummary.success} 条成功记录可作为质量对照。`,
+          action: '继续补充典型输入，沉淀稳定样例池。',
+        };
+      }
+      return {
+        theme: 'default' as const,
+        label: '暂无历史样本',
+        detail: '先跑一次推荐版本，再沉淀评分和备注。',
+        action: '提交后回到这里做质量复盘。',
+      };
+    })();
+    const historyDetailOpen =
+      historyFocus !== 'all' ||
+      filterStatus !== 'all' ||
+      filterRating !== 'all' ||
+      filterUnrated ||
+      Boolean(search.trim());
     return shell(
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
@@ -8107,12 +8938,27 @@ export function App() {
               setSelectedTool(null);
             }}
           >
-            返回功能列表
+            返回推荐业务
           </Button>
-          <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }}>
-            workflow_id: {selectedTool.workflow_id}
+          <Typography.Text theme="secondary">
+            {getWorkflowCategory(selectedTool)} · {getWorkflowVersionLabel(selectedTool)}
           </Typography.Text>
         </Space>
+
+        <WorkbenchFlowRail
+          testLabel={testLabel}
+          testDetail={runBlockingReason || '输入齐全后提交一次真实链路。'}
+          testTheme={testTheme}
+          resultLabel={resultLabel}
+          resultDetail={
+            visibleLatestRunForRail
+              ? `runId ${visibleLatestRunForRail.id.slice(0, 12)}`
+              : '提交后在这里看状态、结果图和必要错误。'
+          }
+          resultTheme={resultTheme}
+          historyLabel={historySummary.total > 0 ? `${historySummary.total} 条记录` : '暂无记录'}
+          historyDetail={historySummary.unrated > 0 ? `${historySummary.unrated} 条待打标` : '沉淀评分、备注和失败样本。'}
+        />
 
         <div
           className="podi-eval-tool-overview"
@@ -8182,32 +9028,93 @@ export function App() {
         {selectedToolUpdateNote ? (
           <Alert theme="info" message={`版本更新说明：${selectedToolUpdateNote}`} />
         ) : null}
-        {isImageEditBusinessWorkflow ? null : (
-          <StepGuide
-            title="单次评测流程"
-            hint="保持同一流程可以减少误操作，结果更容易横向对比。"
-            steps={[
-              { title: '准备输入', description: '填写 URL / 提示词 / 业务参数。' },
-              { title: '提交运行', description: '点击开始生成并等待状态变更。' },
-              { title: '查看结果', description: '右侧查看最新出图、错误信息与调试链接。' },
-              { title: '历史打标', description: '在底部历史记录中评分并沉淀备注。' },
-            ]}
-          />
-        )}
+        {isImageEditBusinessWorkflow ? <ImageEditDeliveryBrief /> : null}
+        <div className={`podi-business-acceptance-focus podi-business-acceptance-focus--${acceptanceFocus.theme}`}>
+          <div className="podi-business-acceptance-focus__main">
+            <Typography.Text className="podi-business-acceptance-focus__eyebrow">业务验收焦点</Typography.Text>
+            <strong>{acceptanceFocus.label}</strong>
+            <span>{acceptanceFocus.detail}</span>
+            <div className="podi-business-acceptance-focus__actions">
+              {selectedToolQualitySamples[0] ? (
+                <Button
+                  size="small"
+                  variant="outline"
+                  onClick={() => applyQualitySampleToTool(selectedToolQualitySamples[0], selectedTool)}
+                >
+                  套用固定样例
+                </Button>
+              ) : (
+                <Button
+                  size="small"
+                  variant="outline"
+                  onClick={() => document.getElementById('eval-step-test')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                >
+                  去补输入
+                </Button>
+              )}
+              <Button
+                size="small"
+                theme="primary"
+                loading={isRunning}
+                disabled={Boolean(runBlockingReason) || isRunning}
+                onClick={() => void runTool()}
+              >
+                开始生成
+              </Button>
+              <Button
+                size="small"
+                variant="text"
+                onClick={() => document.getElementById('eval-step-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              >
+                看当前结果
+              </Button>
+            </div>
+          </div>
+          <div className="podi-business-acceptance-focus__facts" aria-label="业务验收状态">
+            <div>
+              <span>固定样例</span>
+              <strong>{acceptanceSampleLabel}</strong>
+            </div>
+            <div>
+              <span>当前结果</span>
+              <strong>{acceptanceResultLabel}</strong>
+            </div>
+            <div>
+              <span>历史复盘</span>
+              <strong>{historySummary.total > 0 ? `${historySummary.total} 条，${historySummary.unrated} 条待打标` : '暂无记录'}</strong>
+            </div>
+          </div>
+          <div className="podi-business-acceptance-focus__roles" aria-label="角色下一步">
+            <div>
+              <span>业务方</span>
+              <strong>{acceptanceFocus.businessAction}</strong>
+            </div>
+            <div>
+              <span>运营 / 中台</span>
+              <strong>{acceptanceFocus.platformAction}</strong>
+            </div>
+          </div>
+        </div>
 
         <Row gutter={[16, 16]} className="podi-eval-workbench">
           {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
           <Col xs={12} xl={isImageEditBusinessWorkflow ? 12 : 4}>
+            <div id="eval-step-test">
             <Card
               bordered
               className={`podi-eval-panel podi-eval-panel--input${isImageEditBusinessWorkflow ? ' podi-eval-panel--image-edit-input' : ''}`}
               title={
                 <div className="podi-panel-title">
-                  <strong>输入与运行</strong>
+                  <strong>一次测试</strong>
                   <span>先补齐必填参数，再提交一次可复盘的测试。</span>
                 </div>
               }
             >
+              <QualitySampleQuickStart
+                samples={selectedToolQualitySamples}
+                status={qualitySampleStatus}
+                onApply={(sample) => applyQualitySampleToTool(sample, selectedTool)}
+              />
               {isAiEditor ? (
                 isImageEditBusinessWorkflow ? (
                   <>
@@ -9159,15 +10066,17 @@ export function App() {
                 </Space>
               )}
             </Card>
+            </div>
           </Col>
 
           <Col xs={12} xl={isImageEditBusinessWorkflow ? 12 : 8}>
+            <div id="eval-step-result">
             <Card
               bordered
               className={`podi-eval-panel podi-eval-panel--result${isImageEditBusinessWorkflow ? ' podi-eval-panel--result-dock' : ''}`}
               title={
                 <div className="podi-panel-title">
-                  <strong>{isImageEditBusinessWorkflow ? '结果预览' : '结果与排障'}</strong>
+                  <strong>当前结果</strong>
                   <span>{isImageEditBusinessWorkflow ? '看当前状态、结果图和必要错误。' : '看当前任务状态、出图数量、调试链接和失败提示。'}</span>
                 </div>
               }
@@ -9178,10 +10087,7 @@ export function App() {
                 )}
                   {(() => {
                     const latestFromHistory = toolRuns[0] || null;
-                    const isCurrentInputSubmitted =
-                      !isImageEditBusinessWorkflow ||
-                      toolInputRevision === 0 ||
-                      lastSubmittedToolInputRevision === toolInputRevision;
+                    const isCurrentInputSubmitted = toolInputRevision === 0 || lastSubmittedToolInputRevision === toolInputRevision;
                     const latest = isCurrentInputSubmitted ? latestFromHistory : null;
                     const staleLatest = !isCurrentInputSubmitted ? latestFromHistory : null;
                     const status = String(latest?.status || '');
@@ -9487,10 +10393,12 @@ export function App() {
                 })()}
               </Space>
             </Card>
+            </div>
           </Col>
         </Row>
 
-        <Card bordered title={<Typography.Text strong>历史记录（打标区）</Typography.Text>}>
+        <div id="eval-step-history">
+        <Card bordered title={<Typography.Text strong>历史复盘</Typography.Text>}>
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             {historyFocusMeta ? (
               <Alert
@@ -9511,6 +10419,17 @@ export function App() {
                 }
               />
             ) : null}
+            <div className={`podi-history-review-focus podi-history-review-focus--${historyReviewFocus.theme}`}>
+              <div>
+                <Typography.Text className="podi-history-review-focus__eyebrow">复盘优先级</Typography.Text>
+                <strong>{historyReviewFocus.label}</strong>
+                <span>{historyReviewFocus.detail}</span>
+              </div>
+              <div>
+                <Typography.Text theme="secondary">下一步</Typography.Text>
+                <strong>{historyReviewFocus.action}</strong>
+              </div>
+            </div>
             <div className="podi-history-summary-board" aria-label="历史复盘汇总">
               <button
                 type="button"
@@ -9593,96 +10512,109 @@ export function App() {
                 <em>待人工复盘</em>
               </button>
             </div>
-            <FilterBar
-              title="筛选器"
-              description="每条记录包含原图 + 结果图；支持筛选、评分与备注。"
-              controls={
-                <>
-                  <Select
-                    value={filterStatus}
-                    onChange={(v) => {
-                      setToolRunPage(1);
-                      setHistoryFocus('all');
-                      setFilterStatus(String(v));
-                    }}
-                    style={{ width: 140 }}
-                    options={[
-                      { label: '全部状态', value: 'all' },
-                      { label: '排队中', value: 'queued' },
-                      { label: '执行中', value: 'running' },
-                      { label: '成功', value: 'succeeded' },
-                      { label: '失败', value: 'failed' },
-                    ]}
+            <details className="podi-history-detail-collapse" open={historyDetailOpen}>
+              <summary>
+                <span>历史明细</span>
+                <small>
+                  {filteredRuns.length > 0
+                    ? `${filteredRuns.length} 条可下钻；需要评分、备注或排障时展开。`
+                    : '暂无可下钻记录。'}
+                </small>
+              </summary>
+              <div className="podi-history-detail-collapse__body">
+                <FilterBar
+                  title="筛选器"
+                  description="每条记录包含原图 + 结果图；支持筛选、评分与备注。"
+                  controls={
+                    <>
+                      <Select
+                        value={filterStatus}
+                        onChange={(v) => {
+                          setToolRunPage(1);
+                          setHistoryFocus('all');
+                          setFilterStatus(String(v));
+                        }}
+                        style={{ width: 140 }}
+                        options={[
+                          { label: '全部状态', value: 'all' },
+                          { label: '排队中', value: 'queued' },
+                          { label: '执行中', value: 'running' },
+                          { label: '成功', value: 'succeeded' },
+                          { label: '失败', value: 'failed' },
+                        ]}
+                      />
+                      <Select
+                        value={filterRating}
+                        onChange={(v) => {
+                          setToolRunPage(1);
+                          setFilterRating(String(v));
+                        }}
+                        style={{ width: 140 }}
+                        options={[
+                          { label: '全部评分', value: 'all' },
+                          ...[1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n) })),
+                        ]}
+                      />
+                      <div className="podi-inline">
+                        <Switch
+                          value={filterUnrated}
+                          onChange={(v) => {
+                            setToolRunPage(1);
+                            setFilterUnrated(Boolean(v));
+                          }}
+                        />
+                        <Typography.Text theme="secondary">未打分</Typography.Text>
+                      </div>
+                      <Input
+                        value={search}
+                        onChange={(v) => {
+                          setToolRunPage(1);
+                          setSearch(String(v));
+                        }}
+                        style={{ width: 240 }}
+                        placeholder="搜索备注/错误…"
+                        clearable
+                      />
+                    </>
+                  }
+                />
+                {filteredRuns.map((run) => (
+                  <HistoryRow
+                    key={run.id}
+                    run={run}
+                    lightboxGroups={historyLightboxGroups}
+                    onAnnotate={annotate}
+                    onOpenImage={(url, title, context) => setLightbox({ url, title, context })}
                   />
-                  <Select
-                    value={filterRating}
-                    onChange={(v) => {
-                      setToolRunPage(1);
-                      setFilterRating(String(v));
-                    }}
-                    style={{ width: 140 }}
-                    options={[
-                      { label: '全部评分', value: 'all' },
-                      ...[1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n) })),
-                    ]}
-                  />
-                  <div className="podi-inline">
-                    <Switch
-                      value={filterUnrated}
-                      onChange={(v) => {
-                        setToolRunPage(1);
-                        setFilterUnrated(Boolean(v));
-                      }}
-                    />
-                    <Typography.Text theme="secondary">未打分</Typography.Text>
-                  </div>
-                  <Input
-                    value={search}
-                    onChange={(v) => {
-                      setToolRunPage(1);
-                      setSearch(String(v));
-                    }}
-                    style={{ width: 240 }}
-                    placeholder="搜索备注/错误…"
-                    clearable
-                  />
-                </>
-              }
-            />
-            {filteredRuns.map((run) => (
-              <HistoryRow
-                key={run.id}
-                run={run}
-                lightboxGroups={historyLightboxGroups}
-                onAnnotate={annotate}
-                onOpenImage={(url, title, context) => setLightbox({ url, title, context })}
-              />
-            ))}
-            {toolRunLoading ? <Alert theme="info" message="正在加载历史记录…" /> : null}
-            {filteredRuns.length === 0 ? <Typography.Text theme="secondary">暂无记录。</Typography.Text> : null}
-            {toolRunTotal > TOOL_HISTORY_PAGE_SIZE ? (
-              <Space align="center" style={{ justifyContent: 'flex-end', width: '100%' }}>
-                <Typography.Text theme="secondary">
-                  第 {toolRunPage} / {toolRunTotalPages} 页，当前 {toolRunFrom}-{toolRunTo} 条，共 {toolRunTotal} 条
-                </Typography.Text>
-                <Button
-                  variant="outline"
-                  disabled={toolRunLoading || toolRunPage <= 1}
-                  onClick={() => setToolRunPage((prev) => Math.max(1, prev - 1))}
-                >
-                  上一页
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={toolRunLoading || toolRunPage >= toolRunTotalPages}
-                  onClick={() => setToolRunPage((prev) => Math.min(toolRunTotalPages, prev + 1))}
-                >
-                  下一页
-                </Button>
-              </Space>
-            ) : null}
+                ))}
+                {toolRunLoading ? <Alert theme="info" message="正在加载历史记录…" /> : null}
+                {filteredRuns.length === 0 ? <Typography.Text theme="secondary">暂无记录。</Typography.Text> : null}
+                {toolRunTotal > TOOL_HISTORY_PAGE_SIZE ? (
+                  <Space align="center" style={{ justifyContent: 'flex-end', width: '100%' }}>
+                    <Typography.Text theme="secondary">
+                      第 {toolRunPage} / {toolRunTotalPages} 页，当前 {toolRunFrom}-{toolRunTo} 条，共 {toolRunTotal} 条
+                    </Typography.Text>
+                    <Button
+                      variant="outline"
+                      disabled={toolRunLoading || toolRunPage <= 1}
+                      onClick={() => setToolRunPage((prev) => Math.max(1, prev - 1))}
+                    >
+                      上一页
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={toolRunLoading || toolRunPage >= toolRunTotalPages}
+                      onClick={() => setToolRunPage((prev) => Math.min(toolRunTotalPages, prev + 1))}
+                    >
+                      下一页
+                    </Button>
+                  </Space>
+                ) : null}
+              </div>
+            </details>
           </Space>
         </Card>
+        </div>
       </Space>,
     );
   }
@@ -9690,6 +10622,8 @@ export function App() {
   // Home (toolbox) view
   const categorySummaries = orderedCategories.map((category) => {
     const items = grouped[category] || [];
+    const businessKey = getBusinessKeyFromCategory(category);
+    const samples = businessKey ? qualitySamplesByBusiness[businessKey] || [] : [];
     let recentRunCount = 0;
     let recentSuccessCount = 0;
     let recentFailureCount = 0;
@@ -9723,74 +10657,257 @@ export function App() {
     }
     return {
       category,
+      businessKey,
+      sampleCount: samples.length,
+      firstSample: samples[0] || null,
       count: items.length,
       visual: getCategoryVisual(category),
+      primaryTool: pickRecommendedWorkflow(items),
       recentRunCount,
       recentSuccessCount,
       recentFailureCount,
+      recentRunningCount,
       recentNoOutputCount,
       theme,
       label,
     };
   });
+  const recommendedBusinessEntries = (() => {
+    const byCategory = new Map(categorySummaries.map((item) => [item.category, item]));
+    const ordered = RECOMMENDED_BUSINESS_CATEGORIES.map((category) => byCategory.get(category)).filter(
+      (item): item is (typeof categorySummaries)[number] => Boolean(item && item.count > 0),
+    );
+    return ordered.length > 0 ? ordered : categorySummaries.filter((item) => item.count > 0).slice(0, 5);
+  })();
+  const recommendedBusinessSet = new Set(recommendedBusinessEntries.map((item) => item.category));
+  const auxiliaryCategorySummaries = categorySummaries.filter((item) => item.count > 0 && !recommendedBusinessSet.has(item.category));
+  const selectedCategorySummary = categorySummaries.find((item) => item.category === activeCategory) || categorySummaries[0] || null;
+  const activeCategoryPrimaryTool = selectedCategorySummary?.primaryTool || toolList[0] || null;
+  const activeCategoryFirstSample = selectedCategorySummary?.firstSample || null;
   return shell(
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       {bootstrapLoading || workflowListStatus === 'loading' ? <Alert theme="info" message="正在加载功能清单和评分数据…" /> : null}
       {workflowListStatus === 'error' ? (
         <WorkflowListErrorState scope="public" error={workflowListError} onRetry={() => void loadWorkflowList()} />
       ) : null}
-      <div className="podi-eval-category-board" aria-label="业务分类总览">
-        {categorySummaries.map((item) => (
-          <button
-            key={item.category}
-            type="button"
-            className={`podi-eval-category-tile${item.category === activeCategory ? ' podi-eval-category-tile--active' : ''}`}
-            style={{ '--podi-category-accent': item.visual.accent } as CSSProperties}
-            onClick={() => setActiveCategory(item.category)}
-          >
-            <span className="podi-eval-category-tile__icon">{item.visual.icon}</span>
-            <span className="podi-eval-category-tile__body">
-              <span className="podi-eval-category-tile__name">{item.category}</span>
-              <span className="podi-eval-category-tile__summary">{item.visual.summary}</span>
-              <span className="podi-eval-category-tile__meta">
-                {item.count} 个功能 · 近 72 小时成功 {item.recentSuccessCount} 次
-              </span>
-            </span>
-            <Tag theme={item.theme} variant="light">
-              {item.label}
-            </Tag>
-          </button>
-        ))}
-      </div>
-      <ActionBar
-        title={`功能卡片 · ${toolList.length} 个`}
-        description="直接选择要评测的功能；链路健康和队列问题统一到任务追踪中查看。"
-        actions={
-          <Space>
+      {qualitySampleStatus === 'error' ? (
+        <Alert
+          theme="warning"
+          message={`固定样例暂不可用：${qualitySampleError?.message || '样例库接口异常'}`}
+          operation={
+            <Button size="small" variant="text" onClick={() => void loadQualitySamples()}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+      <section className="podi-eval-business-start" aria-label="推荐业务入口">
+        <div className="podi-eval-business-start__head">
+          <div>
+            <Typography.Text className="podi-eval-business-start__eyebrow">业务方验收入口</Typography.Text>
+            <Typography.Title level="h3" style={{ margin: '4px 0 6px' }}>
+              选业务，跑一次，看结果
+            </Typography.Title>
+            <Typography.Text theme="secondary">
+              首页只保留推荐业务；固定版本、底层工作流和辅助能力默认收起，排障时再展开。
+            </Typography.Text>
+          </div>
+          <Space align="center" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <Button variant="outline" onClick={() => void refreshMetrics()}>
-              刷新评分
+              刷新状态
             </Button>
             <Button variant="outline" onClick={() => setActiveView('tasks')}>
-              查看任务追踪
+              任务追踪
             </Button>
           </Space>
-        }
-      />
+        </div>
+        <div className="podi-eval-business-entry-grid">
+          {recommendedBusinessEntries.map((item) => {
+            const primaryTool = item.primaryTool;
+            const primaryMetric = primaryTool ? metrics[primaryTool.id] : undefined;
+            const runtimeHealth = getWorkflowRuntimeHealth(primaryMetric);
+            const entryAccent = item.visual.accent;
+            return (
+              <article
+                key={item.category}
+                className={`podi-eval-business-entry${item.category === activeCategory ? ' podi-eval-business-entry--active' : ''}`}
+                style={{ '--podi-business-accent': entryAccent } as CSSProperties}
+              >
+                <div className="podi-eval-business-entry__top">
+                  <span className="podi-eval-business-entry__icon">{item.visual.icon}</span>
+                  <Tag theme={item.theme} variant="light">
+                    {item.label}
+                  </Tag>
+                </div>
+                <div className="podi-eval-business-entry__body">
+                  <Typography.Title level="h4" style={{ margin: 0 }}>
+                    {getBusinessEntryLabel(item.category)}
+                  </Typography.Title>
+                  <Typography.Text theme="secondary">{item.visual.summary}</Typography.Text>
+                </div>
+                <div className="podi-eval-business-entry__facts">
+                  <div>
+                    <span>推荐入口</span>
+                    <strong>{primaryTool ? getWorkflowCardTitle(primaryTool) : '暂无可测版本'}</strong>
+                  </div>
+                  <div>
+                    <span>固定样例</span>
+                    <strong>{item.sampleCount > 0 ? `${item.sampleCount} 个` : '待沉淀'}</strong>
+                  </div>
+                  <div>
+                    <span>近 72 小时</span>
+                    <strong>成功 {item.recentSuccessCount} · 失败 {item.recentFailureCount}</strong>
+                  </div>
+                  <div>
+                    <span>当前状态</span>
+                    <strong>{runtimeHealth.label}</strong>
+                  </div>
+                </div>
+                <div className="podi-eval-business-entry__actions">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setActiveCategory(item.category);
+                      setSelectedTool(null);
+                    }}
+                  >
+                    查看版本
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={!primaryTool || !item.firstSample}
+                    onClick={() => {
+                      if (primaryTool && item.firstSample) openToolWithQualitySample(primaryTool, item.firstSample);
+                    }}
+                  >
+                    用样例开始
+                  </Button>
+                  <Button
+                    theme="primary"
+                    disabled={!primaryTool}
+                    onClick={() => {
+                      if (primaryTool) openTool(primaryTool);
+                    }}
+                  >
+                    开始试一次
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      {selectedCategorySummary ? (
+        <section
+          className="podi-eval-active-business"
+          style={{ '--podi-business-accent': selectedCategorySummary.visual.accent } as CSSProperties}
+        >
+          <div>
+            <Typography.Text theme="secondary">当前业务</Typography.Text>
+            <Typography.Title level="h4" style={{ margin: '2px 0 0' }}>
+              {getBusinessEntryLabel(activeCategory)}
+            </Typography.Title>
+          </div>
+          <div className="podi-eval-active-business__meta">
+            <span>{toolList.length} 个可测版本</span>
+            <span>固定样例 {selectedCategorySummary.sampleCount} 个</span>
+            <span>近 72 小时成功 {selectedCategorySummary.recentSuccessCount} 次</span>
+            <span>{selectedCategorySummary.label}</span>
+          </div>
+          <Space align="center" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <Button
+              variant="outline"
+              disabled={!activeCategoryPrimaryTool || !activeCategoryFirstSample}
+              onClick={() => {
+                if (activeCategoryPrimaryTool && activeCategoryFirstSample) {
+                  openToolWithQualitySample(activeCategoryPrimaryTool, activeCategoryFirstSample);
+                }
+              }}
+            >
+              跑固定样例
+            </Button>
+            <Button
+              theme="primary"
+              disabled={!activeCategoryPrimaryTool}
+              onClick={() => {
+                if (activeCategoryPrimaryTool) openTool(activeCategoryPrimaryTool);
+              }}
+            >
+              跑推荐版本
+            </Button>
+          </Space>
+        </section>
+      ) : null}
+
       {!bootstrapLoading && workflowListStatus === 'success' && toolList.length === 0 ? (
         <Alert theme="info" message="该分类暂无功能。" />
       ) : null}
-      <div className="podi-tool-grid">
-        {toolList.map((wf) => (
-          <ToolCard
-            key={wf.id}
-            wf={wf}
-            active={false}
-            metric={metrics[wf.id]}
-            onClick={() => openTool(wf)}
-            onOpenRecent={(focus) => openTool(wf, focus)}
-          />
-        ))}
-      </div>
+
+      <details className="podi-eval-tool-list-collapse">
+        <summary>
+          <span>{getBusinessEntryLabel(activeCategory)} · 版本列表</span>
+          <small>需要固定版本、回归候选版本或排障时展开。</small>
+        </summary>
+        <ActionBar
+          title={`可测版本 · ${toolList.length} 个`}
+          description="默认先跑推荐版本；只有需要指定版本或查看底层链路时，再进入单个版本工作台。"
+          actions={
+            <Space>
+              <Button variant="outline" onClick={() => void refreshMetrics()}>
+                刷新评分
+              </Button>
+              <Button variant="outline" onClick={() => setActiveView('tasks')}>
+                查看任务追踪
+              </Button>
+            </Space>
+          }
+        />
+        <div className="podi-tool-grid">
+          {toolList.map((wf) => (
+            <ToolCard
+              key={wf.id}
+              wf={wf}
+              active={false}
+              metric={metrics[wf.id]}
+              onClick={() => openTool(wf)}
+              onOpenRecent={(focus) => openTool(wf, focus)}
+            />
+          ))}
+        </div>
+      </details>
+
+      {auxiliaryCategorySummaries.length > 0 ? (
+        <details className="podi-eval-more-business-collapse">
+          <summary>
+            <span>更多工具与辅助能力</span>
+            <small>不作为业务方首选入口，保留给能力工程师和排障场景。</small>
+          </summary>
+          <div className="podi-eval-category-board" aria-label="更多业务分类">
+            {auxiliaryCategorySummaries.map((item) => (
+              <button
+                key={item.category}
+                type="button"
+                className={`podi-eval-category-tile${item.category === activeCategory ? ' podi-eval-category-tile--active' : ''}`}
+                style={{ '--podi-category-accent': item.visual.accent } as CSSProperties}
+                onClick={() => setActiveCategory(item.category)}
+              >
+                <span className="podi-eval-category-tile__icon">{item.visual.icon}</span>
+                <span className="podi-eval-category-tile__body">
+                  <span className="podi-eval-category-tile__name">{item.category}</span>
+                  <span className="podi-eval-category-tile__summary">{item.visual.summary}</span>
+                  <span className="podi-eval-category-tile__meta">
+                    {item.count} 个功能 · 近 72 小时成功 {item.recentSuccessCount} 次
+                  </span>
+                </span>
+                <Tag theme={item.theme} variant="light">
+                  {item.label}
+                </Tag>
+              </button>
+            ))}
+          </div>
+        </details>
+      ) : null}
     </Space>
   );
 }

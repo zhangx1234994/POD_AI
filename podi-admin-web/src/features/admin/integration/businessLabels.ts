@@ -1,6 +1,6 @@
 import type { BusinessCapability } from '../../../types/admin';
 
-export const coreBusinessKeys = ['pattern_extract', 'fission', 'image_edit', 'outpaint'] as const;
+export const coreBusinessKeys = ['pattern_extract', 'fission', 'image_edit', 'outpaint', 'text_fission'] as const;
 
 export const canonicalBusinessKey = (key?: string | null) => {
   const normalized = String(key || '').trim();
@@ -16,6 +16,7 @@ export const businessKeyLabel = (key?: string | null) => {
   if (normalized === 'image_edit') return '图编辑';
   if (normalized === 'fission_evaluate') return '裂变评分';
   if (normalized === 'outpaint') return '扩图';
+  if (normalized === 'text_fission') return '文字裂变';
   if (key === 'seamless_pattern') return '连续图';
   if (key === 'cutout') return '抠图';
   if (key === 'image_composition') return '图像融合';

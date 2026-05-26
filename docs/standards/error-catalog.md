@@ -99,6 +99,9 @@
 | BUSINESS_ACCEPTANCE_STATUS_INVALID | 业务版本验收状态非法 | 400，允许 `passed` / `failed` / `warning` / `waived` |
 | BUSINESS_ACCEPTANCE_REQUIRED | 业务版本缺少最近一次“验收通过”记录 | 409，默认版本切换申请或直接设默认前必须先记录验收 |
 | BUSINESS_RELEASE_ACCEPTANCE_REQUIRED | 业务版本发布缺少验收证据 | 发布门禁提示码，需先登记真实样本或人工验收 |
+| BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED | 业务版本发布缺少出图质量复盘 | 发布门禁提示码，核心业务默认切换前需至少完成一张输出质量标注 |
+| BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED | 业务版本发布缺少可用质量样本 | 发布门禁提示码，近 168 小时没有 `excellent` 或 `usable` 样本时阻断默认切换 |
+| BUSINESS_RELEASE_QUALITY_REVIEW_RISKY | 业务版本发布存在风险质量样本 | 发布门禁提示码，近 168 小时存在 `borderline` / `bad` / `blocked` 样本时提示复核 |
 | BUSINESS_RELEASE_GATE_BLOCKED | 业务版本完整上线门禁未通过 | 409，默认版本切换、审批申请或直接设默认前必须补齐治理阻断项 |
 | HEALTH_WATCH_SYSTEMD_UNAVAILABLE | 当前环境无法读取 systemd | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
 | HEALTH_WATCH_UNIT_UNAVAILABLE | 自检守护单元未安装或不可加载 | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
@@ -169,6 +172,28 @@
 | BUSINESS_RUN_TEMPORARY_UNAVAILABLE | 业务任务结果查询临时不可用，可稍后重试 | 503 |
 | BUSINESS_RUN_IDS_REQUIRED | 批量业务任务操作缺少 runId 列表 | 400 |
 | BUSINESS_RUN_BULK_LIMIT_EXCEEDED | 批量业务任务操作超过单次 100 条限制 | 400 |
+| BUSINESS_OUTPUT_REVIEW_ITEMS_REQUIRED | 业务输出复盘提交缺少标注项 | 400 |
+| BUSINESS_OUTPUT_REVIEW_LIMIT_EXCEEDED | 业务输出复盘单次提交超过 100 条限制 | 400 |
+| BUSINESS_OUTPUT_REVIEW_GRADE_INVALID | 业务输出复盘质量档位非法 | 400，允许 `pending` / `excellent` / `usable` / `borderline` / `bad` / `blocked` |
+| BUSINESS_OUTPUT_REVIEW_ACTION_INVALID | 业务输出复盘建议动作非法 | 400，允许 `accept` / `tune_params` / `route_split` / `switch_lora` / `manual_review` / `pause_recommendation` |
+| BUSINESS_QUALITY_SAMPLE_BUSINESS_KEY_REQUIRED | 固定质量样例缺少业务标识 | 400 |
+| BUSINESS_QUALITY_SAMPLE_KEY_REQUIRED | 固定质量样例缺少样例 Key | 400，更新样例 Key 为空时触发 |
+| BUSINESS_QUALITY_SAMPLE_LABEL_REQUIRED | 固定质量样例缺少样例名称 | 400 |
+| BUSINESS_QUALITY_SAMPLE_IMAGE_URL_REQUIRED | 固定质量样例缺少图片 URL | 400 |
+| BUSINESS_QUALITY_SAMPLE_IMAGE_URL_INVALID | 固定质量样例图片 URL 非公网 HTTP(S) URL | 400 |
+| BUSINESS_QUALITY_SAMPLE_STATUS_INVALID | 固定质量样例状态非法 | 400，允许 `active` / `inactive` / `archived` |
+| BUSINESS_QUALITY_SAMPLE_KEY_DUPLICATED | 同一业务下固定质量样例 Key 重复 | 409 |
+| BUSINESS_QUALITY_SAMPLE_NOT_FOUND | 固定质量样例不存在 | 404 |
+| BUSINESS_QUALITY_SAMPLE_IMPORT_EMPTY | 固定质量样例批量导入 items 为空 | 400 |
+| BUSINESS_QUALITY_SAMPLE_IMPORT_LIMIT_EXCEEDED | 固定质量样例批量导入超过单次 200 条限制 | 400 |
+| BUSINESS_QUALITY_ACTION_BUSINESS_KEY_REQUIRED | 质量治理台账缺少业务标识 | 400 |
+| BUSINESS_QUALITY_ACTION_KEY_REQUIRED | 质量治理台账缺少规则 Key | 400，更新规则 Key 为空时触发 |
+| BUSINESS_QUALITY_ACTION_TITLE_REQUIRED | 质量治理台账缺少标题 | 400 |
+| BUSINESS_QUALITY_ACTION_TYPE_INVALID | 质量治理动作类型非法 | 400，允许 `watch_only` / `tune_params` / `route_split` / `switch_lora` / `switch_workflow` / `pause_recommendation` |
+| BUSINESS_QUALITY_ACTION_STATUS_INVALID | 质量治理状态非法 | 400，允许 `draft` / `candidate` / `validated` / `default` / `paused` / `rejected` / `archived` |
+| BUSINESS_QUALITY_ACTION_KEY_DUPLICATED | 同一业务下质量治理规则 Key 重复 | 409 |
+| BUSINESS_QUALITY_ACTION_TARGET_VERSION_NOT_FOUND | 质量治理目标候选版本不存在或不属于该业务 | 404 |
+| BUSINESS_QUALITY_ACTION_NOT_FOUND | 质量治理台账不存在 | 404 |
 | BUSINESS_RUN_RETEST_PAYLOAD_INVALID | 业务复测无法从原任务还原有效入参 | 409 |
 | BUSINESS_CALLBACK_NOT_CONFIGURED | 业务任务没有配置回调地址，无法重试回调 | 409 |
 | BUSINESS_RUN_NOT_FINISHED | 业务任务仍在排队或执行中，不能重试终态回调 | 409 |

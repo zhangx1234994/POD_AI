@@ -57,6 +57,18 @@ interface BusinessDashboardActionsParams {
   setBusinessUsageSummary: Dispatch<SetStateAction<BusinessUsageSummaryResponse | null>>;
 }
 
+export interface BusinessDraftRunBatchItem {
+  capability: BusinessCapability;
+  payload: Record<string, unknown>;
+}
+
+export interface BusinessDraftRunBatchResult {
+  submitted: number;
+  total: number;
+  runIds: string[];
+  errors: string[];
+}
+
 export const useBusinessDashboardActions = ({
   businessForm,
   businessRuns,
@@ -430,6 +442,84 @@ export const useBusinessDashboardActions = ({
     ],
   );
 
+  const handleBusinessDraftRunBatch = useCallback(
+    async (items: BusinessDraftRunBatchItem[]): Promise<BusinessDraftRunBatchResult> => {
+      setBusinessActionError(null);
+      const total = items.length;
+      const runIds: string[] = [];
+      const errors: string[] = [];
+      if (total <= 0) {
+        setBusinessActionError('没有可提交的固定样例。');
+        return { submitted: 0, total: 0, runIds, errors: ['没有可提交的固定样例。'] };
+      }
+      setBusinessActionLoadingId('draft-run-batch');
+      try {
+        let latestRun: BusinessRun | null = null;
+        for (const entry of items) {
+          const item = entry.capability;
+          const businessKey = canonicalBusinessKey(item.businessKey);
+          const imageUrl = String(entry.payload.imageUrl || entry.payload.originalImageUrl || '').trim();
+          const generatedImageUrl = String(entry.payload.generatedImageUrl || '').trim();
+          if (!imageUrl) {
+            errors.push(`${businessKeyLabel(item.businessKey)} ${item.version}：缺少样例图片 URL`);
+            continue;
+          }
+          if (businessKey === 'fission_evaluate' && !generatedImageUrl) {
+            errors.push(`${businessKeyLabel(item.businessKey)} ${item.version}：缺少生成图 URL`);
+            continue;
+          }
+          const metadata =
+            entry.payload.metadata && typeof entry.payload.metadata === 'object' && !Array.isArray(entry.payload.metadata)
+              ? (entry.payload.metadata as Record<string, unknown>)
+              : {};
+          const payload: Record<string, unknown> = {
+            ...entry.payload,
+            imageUrl,
+            source: 'admin-fixed-sample-batch',
+            channel: 'admin-web',
+            requestId: `admin-qsample-${Date.now()}-${runIds.length + errors.length}`,
+            metadata: {
+              ...metadata,
+              adminDraftRun: true,
+              fixedSampleBatch: true,
+              capabilityId: item.id,
+            },
+          };
+          if (businessKey === 'fission_evaluate') {
+            payload.originalImageUrl = imageUrl;
+            payload.generatedImageUrl = generatedImageUrl;
+          }
+          try {
+            const run = await adminApi.runBusinessCapabilityDraft(item.id, payload);
+            latestRun = run;
+            runIds.push(run.runId || run.id);
+          } catch (error: any) {
+            console.error('run business fixed sample batch item failed', error);
+            errors.push(`${businessKeyLabel(item.businessKey)} ${item.version}：${error?.message || '提交失败'}`);
+          }
+        }
+        if (latestRun) {
+          setBusinessRunDetail(latestRun);
+        }
+        await refreshBusinessRuns();
+        const message =
+          errors.length > 0
+            ? `固定样例批量提交 ${runIds.length}/${total}，失败 ${errors.length} 条：${errors.slice(0, 2).join('；')}`
+            : `固定样例批量提交完成：${runIds.length}/${total}。等待结果完成后到 runId 详情标注质量。`;
+        setBusinessActionError(message);
+        return { submitted: runIds.length, total, runIds, errors };
+      } finally {
+        setBusinessActionLoadingId(null);
+      }
+    },
+    [
+      refreshBusinessRuns,
+      setBusinessActionError,
+      setBusinessActionLoadingId,
+      setBusinessRunDetail,
+    ],
+  );
+
   const exportBusinessRuns = useCallback(async () => {
     setBusinessActionError(null);
     setBusinessActionLoadingId('export:runs');
@@ -618,6 +708,7 @@ export const useBusinessDashboardActions = ({
     handleBusinessToggleActive,
     handleBusinessRecordAcceptance,
     handleBusinessDraftRun,
+    handleBusinessDraftRunBatch,
     handleBusinessCompare,
     handleBusinessRollback,
     refreshBusinessRuns,

@@ -1365,6 +1365,37 @@ def prepare_text_fission_prompt_for_eval(
     )
 
 
+@router.get(
+    "/business/quality-samples",
+    response_model=business_schemas.BusinessQualitySampleListResponse,
+    response_model_by_alias=False,
+)
+def list_eval_business_quality_samples(
+    request: Request,
+    response: Response,
+    business_key: str | None = Query(default=None),
+    status: str = Query(default="active"),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> business_schemas.BusinessQualitySampleListResponse:
+    """Expose active quality samples to the internal eval console.
+
+    The admin console remains the write surface. Eval users only need reusable
+    sample inputs for consistent business acceptance and version comparison.
+    """
+
+    _require_public_enabled(request)
+    _get_or_set_rater_id(request, response)
+    normalized_status = str(status or "active").strip().lower()
+    if normalized_status not in {"active", "inactive"}:
+        raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_SAMPLE_STATUS_INVALID")
+    return get_business_run_service().list_quality_samples(
+        business_key=business_key,
+        status=normalized_status,
+        include_archived=False,
+        limit=limit,
+    )
+
+
 @router.get("/workflow-versions", response_model=list[EvalWorkflowVersionResponse])
 def list_workflow_versions(
     request: Request,

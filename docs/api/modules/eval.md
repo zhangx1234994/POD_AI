@@ -154,6 +154,56 @@ python3 backend/scripts/check_eval_operations_health.py
     - 评测 API 可正常创建 run，OSS 图片 URL 能正确进入执行链路。
     - 当前主要待优化点在上游 prompt 生成质量，而非评测执行接口本身。
 
+### GET /api/evals/business/quality-samples
+
+测评端读取固定质量样例库。写入、停用、归档仍只允许管理端通过 `/api/admin/business/quality-samples` 操作；该接口只给内部测评页提供“用同一张图复跑”的样例入口。
+
+**请求**
+
+```http
+GET /api/evals/business/quality-samples?business_key=fission&status=active&limit=50
+```
+
+查询参数：
+
+- `business_key`：可选，按业务过滤，例如 `fission`、`image_edit`、`outpaint`、`pattern_extract`、`text_fission`。
+- `status`：默认 `active`；测评端只允许 `active` / `inactive`，不暴露 `archived`。
+- `limit`：默认 200，范围 1-500。
+
+**响应**
+
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "id": "bizsample_xxx",
+      "businessKey": "fission",
+      "sampleKey": "dense-pattern-a",
+      "label": "满版图案 A",
+      "description": "结构稳定性回归样例",
+      "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/quality/fission/a.png",
+      "prompt": "保持主体结构",
+      "generatedImageUrl": null,
+      "inputTags": ["满版图案"],
+      "defaultParams": {"quality": "preview"},
+      "status": "active",
+      "sortOrder": 1,
+      "createdByUserId": null,
+      "createdByUsername": "admin",
+      "createdAt": "2026-05-26T10:00:00",
+      "updatedAt": "2026-05-26T10:00:00"
+    }
+  ]
+}
+```
+
+**错误**
+
+- `NOT_FOUND`：`EVAL_PUBLIC_ENABLED=false` 时隐藏公共测评接口。
+- `UNAUTHORIZED`：配置了 `EVAL_PUBLIC_TOKEN` 但未传或传错。
+- `BUSINESS_QUALITY_SAMPLE_STATUS_INVALID`：`status` 不是 `active` / `inactive`，或试图读取 `archived`。
+
 ### GET /api/evals/metrics/workflows
 
 返回每个评测工作流的评分汇总和近期运行概况，测评端首页卡片用它判断“最近可用 / 最近失败 / 生成未回填 / 暂无运行”。

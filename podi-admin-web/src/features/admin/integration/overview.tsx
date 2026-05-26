@@ -1199,6 +1199,34 @@ export function OverviewPanel({
       theme: 'success',
     });
   }
+  const overviewFocusItems = operatorFocusItems.slice(0, 3);
+  const primaryOverviewAction = overviewFocusItems[0] || operatorFocusItems[0];
+  const platformConclusionTheme: 'success' | 'warning' | 'danger' | 'default' =
+    stabilityDangerSignals.length > 0
+      ? 'danger'
+      : stabilityWarningSignals.length > 0 || releaseReadinessBlockers.length > 0
+        ? 'warning'
+        : 'success';
+  const platformConclusionTitle =
+    platformConclusionTheme === 'danger'
+      ? '当前有阻塞'
+      : platformConclusionTheme === 'warning'
+        ? '可用，待确认'
+        : '当前可用';
+  const platformConclusionMessage =
+    platformConclusionTheme === 'danger'
+      ? `先处理 ${stabilityDangerSignals.map((item) => item.title).join('、')}，再继续验收或发布。`
+      : platformConclusionTheme === 'warning'
+        ? `${stabilitySummaryMessage}；封版结论为“${releaseReadinessTitle}”。`
+        : '线上稳定信号正常，下一步继续跑真实链路巡检并登记结论。';
+  const platformConclusionAlertTheme =
+    platformConclusionTheme === 'danger'
+      ? 'error'
+      : platformConclusionTheme === 'warning'
+        ? 'warning'
+        : platformConclusionTheme === 'success'
+          ? 'success'
+          : 'info';
   const submitReleaseDecision = (status: 'approved' | 'deferred' | 'blocked') => {
     const note = releaseDecisionNote.trim();
     const title =
@@ -1225,95 +1253,116 @@ export function OverviewPanel({
 
   return (
     <>
-      <Card bordered className="podi-executive-overview-card">
+      <Card bordered className={`podi-overview-command-card podi-overview-command-card--${platformConclusionTheme}`}>
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <div>
-              <Typography.Text strong>线上稳定性与封版判断</Typography.Text>
-              <div>
-                <Typography.Text theme="secondary">先判断线上是否稳定，再判断能不能封版、卡在哪里。</Typography.Text>
-              </div>
+          <div className="podi-overview-command-hero">
+            <div className="podi-overview-command-hero__main">
+              <Typography.Text theme="secondary">总览状态结论</Typography.Text>
+              <Typography.Title level="h2" style={{ margin: 0 }}>
+                {platformConclusionTitle}
+              </Typography.Title>
+              <Typography.Text theme="secondary">{platformConclusionMessage}</Typography.Text>
             </div>
-            <Button size="small" variant="outline" loading={loading} onClick={onRefresh}>
-              刷新总览
-            </Button>
-          </Space>
-          <Alert theme={stabilityAlertTheme} message={`线上观察：${stabilitySummaryTitle}。${stabilitySummaryMessage}`} />
-          <div className="podi-stability-signal-grid">
-            {stabilitySignals.map((signal) => (
-              <button
-                key={signal.key}
-                type="button"
-                className={`podi-stability-signal podi-stability-signal--${signal.theme}`}
-                onClick={() => onNavigate?.(signal.target)}
-              >
-                <span className="podi-stability-signal__topline">
-                  <span>{signal.title}</span>
-                  <Tag theme={signal.theme} variant="light" size="small">
-                    {signal.status}
-                  </Tag>
-                </span>
-                <span className="podi-stability-signal__detail">{signal.detail}</span>
-                <span className="podi-stability-signal__action">{signal.action}</span>
-              </button>
-            ))}
+            <div className="podi-overview-command-hero__side">
+              <Tag theme={platformConclusionTheme} variant="light">
+                线上观察：{stabilitySummaryTitle}
+              </Tag>
+              <Tag theme={releaseReadinessTheme} variant="light">
+                封版：{releaseReadinessTitle}
+              </Tag>
+              <Button size="small" variant="outline" loading={loading} onClick={onRefresh}>
+                刷新总览
+              </Button>
+            </div>
           </div>
-          <Alert
-            theme={
-              releaseReadinessTheme === 'danger'
-                ? 'error'
-                : releaseReadinessTheme === 'warning'
-                  ? 'warning'
-                  : releaseReadinessTheme === 'success'
-                    ? 'success'
-                    : 'info'
-            }
-            message={`封版结论：${releaseReadinessTitle}。${releaseReadinessMessage}`}
-          />
-          {releaseAttentionItems.length > 0 ? (
-            <div className="podi-operator-focus-list">
-              {releaseAttentionItems.slice(0, 5).map((item, index) => (
-              <button
-                key={`${item.title}-${item.status}-${index}`}
-                type="button"
-                className={`podi-operator-focus-item podi-operator-focus-item--${item.theme}`}
-                onClick={() => onNavigate?.(readinessIssueTarget(item.title))}
+          <div className="podi-overview-command-grid">
+            <section className="podi-overview-command-section">
+              <div className="podi-overview-command-section__title">当前关注</div>
+              <div className="podi-overview-focus-list">
+                {overviewFocusItems.map((item, index) => (
+                  <button
+                    key={`${item.key}-${index}`}
+                    type="button"
+                    className={`podi-overview-focus-item podi-overview-focus-item--${item.theme}`}
+                    onClick={() => onNavigate?.(item.target)}
+                  >
+                    <span className="podi-overview-focus-item__index">{index + 1}</span>
+                    <span className="podi-overview-focus-item__body">
+                      <span className="podi-overview-focus-item__topline">
+                        <Tag theme={item.theme} variant="light" size="small">
+                          {item.priority}
+                        </Tag>
+                        <span>{item.action}</span>
+                      </span>
+                      <span className="podi-overview-focus-item__title">{item.title}</span>
+                      <span className="podi-overview-focus-item__detail">{item.detail}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="podi-overview-next-action">
+              <div className="podi-overview-command-section__title">下一步</div>
+              <Typography.Text strong>{primaryOverviewAction?.title || releaseReadinessTitle}</Typography.Text>
+              <Typography.Text theme="secondary">
+                {primaryOverviewAction?.detail || releaseReadinessMessage}
+              </Typography.Text>
+              <Button
+                size="small"
+                theme={platformConclusionTheme === 'danger' ? 'danger' : 'primary'}
+                variant={platformConclusionTheme === 'success' ? 'outline' : 'base'}
+                onClick={() => primaryOverviewAction ? onNavigate?.(primaryOverviewAction.target) : onRefresh()}
               >
-                <span className="podi-operator-focus-item__index">{index + 1}</span>
-                <span className="podi-operator-focus-item__body">
-                  <span className="podi-operator-focus-item__topline">
-                    <Tag theme={item.theme} variant="light" size="small">
-                      {item.status}
+                {primaryOverviewAction?.action || '刷新总览'}
+              </Button>
+            </section>
+          </div>
+          <Alert theme={platformConclusionAlertTheme} message={`封版结论：${releaseReadinessMessage}`} />
+          <details className="podi-overview-signal-collapse">
+            <summary>
+              <span>
+                信号明细
+                <small>{stabilitySignals.length} 个稳定性信号，默认折叠排障细节。</small>
+              </span>
+              <Tag theme={stabilityAlertTheme === 'error' ? 'danger' : stabilityAlertTheme} variant="light">
+                {stabilitySummaryTitle}
+              </Tag>
+            </summary>
+            <div className="podi-stability-signal-grid podi-stability-signal-grid--compact">
+              {stabilitySignals.map((signal) => (
+                <button
+                  key={signal.key}
+                  type="button"
+                  className={`podi-stability-signal podi-stability-signal--${signal.theme}`}
+                  onClick={() => onNavigate?.(signal.target)}
+                >
+                  <span className="podi-stability-signal__topline">
+                    <span>{signal.title}</span>
+                    <Tag theme={signal.theme} variant="light" size="small">
+                      {signal.status}
                     </Tag>
-                    <span>去处理</span>
                   </span>
-                  <span className="podi-operator-focus-item__title">{item.title}</span>
-                  <span className="podi-operator-focus-item__detail">{item.detail}</span>
-                </span>
-              </button>
+                  <span className="podi-stability-signal__detail">{signal.detail}</span>
+                  <span className="podi-stability-signal__action">{signal.action}</span>
+                </button>
               ))}
             </div>
-          ) : (
-            <Alert theme="success" message="当前没有封版阻断项；下一步跑真实链路巡检并登记结果。" />
-          )}
+          </details>
         </Space>
       </Card>
 
-      <Card bordered className="podi-feature-map-card">
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <div>
-              <Typography.Text strong>平台功能入口地图</Typography.Text>
-              <div>
-                <Typography.Text theme="secondary">
-                  已开发能力统一在这里暴露入口；不要求用户先理解导航分组或高级模块开关。
-                </Typography.Text>
-              </div>
-            </div>
+      <details className="podi-feature-map-collapse">
+        <summary>
+          <span>
+            平台功能入口地图
+            <small>入口较多，默认折叠；需要切换模块时再展开。</small>
+          </span>
+          <span className="podi-feature-map-collapse__meta">
             <Tag theme="primary" variant="light">
               {featureExposureItems.length} 个入口
             </Tag>
-          </Space>
+          </span>
+        </summary>
           <div className="podi-feature-map-grid">
             {featureExposureItems.map((item) => (
               <button
@@ -1334,8 +1383,7 @@ export function OverviewPanel({
               </button>
             ))}
           </div>
-        </Space>
-      </Card>
+      </details>
 
       <details className="podi-feature-ledger-collapse">
         <summary>
@@ -1618,8 +1666,11 @@ export function OverviewPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {healthWatchItems.map((item: HealthWatchUnitStatus) => (
-                    <tr key={item.unit} className="border-t border-slate-100 dark:border-slate-800">
+                  {healthWatchItems.map((item: HealthWatchUnitStatus, index) => (
+                    <tr
+                      key={`${item.unit || item.title || 'health-watch'}-${index}`}
+                      className="border-t border-slate-100 dark:border-slate-800"
+                    >
                       <td className="px-3 py-2">
                         <Space direction="vertical" size={2}>
                           <Typography.Text>{item.title}</Typography.Text>

@@ -49,6 +49,8 @@ import type {
   BusinessDefaultApproval,
   BusinessCapabilityFormState,
   BusinessOperationLog,
+  BusinessOutputReview,
+  BusinessOutputReviewSummaryResponse,
   BusinessRun,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
@@ -231,9 +233,12 @@ import {
   BusinessCoreClosurePanel,
   BusinessCoreDecisionPanel,
   BusinessEntryCommandPanel,
+  BusinessFlowMonitoringPanel,
   BusinessGovernancePanel,
   BusinessOrchestrationMapPanel,
   BusinessOperationLogPanel,
+  BusinessQualityCandidatePanel,
+  BusinessQualityReviewPanel,
   BusinessReleaseGuardPanel,
   BusinessRunHistoryPanel,
   BusinessUsageSummaryPanel,
@@ -1455,6 +1460,10 @@ export function IntegrationDashboard({
   const [businessRuns, setBusinessRuns] = useState<BusinessRun[]>([]);
   const [businessRunTotal, setBusinessRunTotal] = useState(0);
   const [businessUsageSummary, setBusinessUsageSummary] = useState<BusinessUsageSummaryResponse | null>(null);
+  const [businessOutputReviewSummary, setBusinessOutputReviewSummary] = useState<BusinessOutputReviewSummaryResponse | null>(null);
+  const [businessOutputReviews, setBusinessOutputReviews] = useState<BusinessOutputReview[]>([]);
+  const [businessOutputReviewsLoading, setBusinessOutputReviewsLoading] = useState(false);
+  const [businessOutputReviewsError, setBusinessOutputReviewsError] = useState<string | null>(null);
   const [businessOperationLogs, setBusinessOperationLogs] = useState<BusinessOperationLog[]>([]);
   const [businessDefaultApprovals, setBusinessDefaultApprovals] = useState<BusinessDefaultApproval[]>([]);
   const [businessRunFilters, setBusinessRunFilters] = useState<BusinessRunFilters>({
@@ -1473,6 +1482,7 @@ export function IntegrationDashboard({
   });
   const [businessRunDetail, setBusinessRunDetail] = useState<BusinessRun | null>(null);
   const [businessRunDetailOpen, setBusinessRunDetailOpen] = useState(false);
+  const [businessOutputReviewFocus, setBusinessOutputReviewFocus] = useState<{ runId: string; outputIndex: number } | null>(null);
   const [focusedBusinessRunId, setFocusedBusinessRunId] = useState<string>(() => readBusinessRunIdFromHash());
   const [businessRunAutoRefresh, setBusinessRunAutoRefresh] = useState(true);
   const [businessWorkspaceTab, setBusinessWorkspaceTab] = useState<BusinessWorkspaceTab>(() => readBusinessWorkspaceTabFromHash() ?? 'runs');
@@ -3113,6 +3123,7 @@ export function IntegrationDashboard({
           adminApi.listBusinessCapabilities(),
           adminApi.listBusinessRuns(businessRunFilters),
           adminApi.getBusinessUsageSummary(businessRunFilters),
+          adminApi.getBusinessOutputReviewSummary({ windowHours: 168 }),
         ]);
         const errors: string[] = [];
         if (settled[0].status === 'fulfilled') {
@@ -3131,6 +3142,11 @@ export function IntegrationDashboard({
         } else {
           errors.push(`业务统计：${settled[2].reason?.message || '请求失败'}`);
         }
+        if (settled[3].status === 'fulfilled') {
+          setBusinessOutputReviewSummary(settled[3].value);
+        } else {
+          errors.push(`质量复盘：${settled[3].reason?.message || '请求失败'}`);
+        }
         setBusinessOperationLogs([]);
         setBusinessDefaultApprovals([]);
         setLoadErrors(errors);
@@ -3139,6 +3155,9 @@ export function IntegrationDashboard({
       const businessCapabilityPromise = adminApi.listBusinessCapabilities();
       const businessRunPromise = adminApi.listBusinessRuns(businessRunFilters);
       const businessUsagePromise = adminApi.getBusinessUsageSummary(businessRunFilters).catch((error) => ({ __error: error }));
+      const businessOutputReviewSummaryPromise = adminApi
+        .getBusinessOutputReviewSummary({ windowHours: 168 })
+        .catch((error) => ({ __error: error }));
       const businessOperationLogPromise = isBusinessReadOnly
         ? Promise.resolve({ items: [] })
         : adminApi
@@ -3159,6 +3178,9 @@ export function IntegrationDashboard({
         .catch(() => {});
       void businessUsagePromise.then((res: any) => {
         if (res && !res.__error) setBusinessUsageSummary(res as BusinessUsageSummaryResponse);
+      });
+      void businessOutputReviewSummaryPromise.then((res: any) => {
+        if (res && !res.__error) setBusinessOutputReviewSummary(res as BusinessOutputReviewSummaryResponse);
       });
 
       const settled = await Promise.allSettled([
@@ -5051,6 +5073,7 @@ export function IntegrationDashboard({
     handleBusinessToggleActive,
     handleBusinessRecordAcceptance,
     handleBusinessDraftRun,
+    handleBusinessDraftRunBatch,
     handleBusinessCompare,
     handleBusinessRollback,
     refreshBusinessRuns,
@@ -5087,11 +5110,78 @@ export function IntegrationDashboard({
     setBusinessUsageSummary,
   });
 
+  const loadBusinessOutputReviews = useCallback(async (runId: string) => {
+    const normalizedRunId = runId.trim();
+    if (!normalizedRunId) {
+      setBusinessOutputReviews([]);
+      setBusinessOutputReviewsError(null);
+      return;
+    }
+    setBusinessOutputReviewsLoading(true);
+    setBusinessOutputReviewsError(null);
+    try {
+      const response = await adminApi.listBusinessOutputReviews(normalizedRunId);
+      setBusinessOutputReviews(response.items || []);
+    } catch (error: any) {
+      setBusinessOutputReviews([]);
+      setBusinessOutputReviewsError(error?.message || '加载出图质量标注失败，请刷新后重试。');
+    } finally {
+      setBusinessOutputReviewsLoading(false);
+    }
+  }, []);
+
+  const handleBusinessOutputReviewSave = useCallback(
+    async (
+      runId: string,
+      item: {
+        outputIndex: number;
+        outputUrl?: string | null;
+        qualityGrade: string;
+        inputTags?: string[];
+        issueTags?: string[];
+        nextAction?: string | null;
+        note?: string | null;
+      },
+    ) => {
+      if (isBusinessReadOnly) return;
+      const normalizedRunId = runId.trim();
+      if (!normalizedRunId) return;
+      const actionId = `output-review:${normalizedRunId}:${item.outputIndex}`;
+      setBusinessActionLoadingId(actionId);
+      setBusinessOutputReviewsError(null);
+      try {
+        const response = await adminApi.upsertBusinessOutputReviews(normalizedRunId, { items: [item] });
+        setBusinessOutputReviews(response.items || []);
+        void adminApi
+          .getBusinessOutputReviewSummary({ windowHours: 168 })
+          .then(setBusinessOutputReviewSummary)
+          .catch(() => undefined);
+      } catch (error: any) {
+        setBusinessOutputReviewsError(error?.message || '保存出图质量标注失败，请检查填写内容后重试。');
+      } finally {
+        setBusinessActionLoadingId((prev) => (prev === actionId ? null : prev));
+      }
+    },
+    [isBusinessReadOnly],
+  );
+
+  const activeBusinessRunReviewRunId = businessRunDetailOpen ? businessRunDetail?.runId || businessRunDetail?.id || '' : '';
+
+  useEffect(() => {
+    if (!activeBusinessRunReviewRunId) {
+      setBusinessOutputReviews([]);
+      setBusinessOutputReviewsError(null);
+      return;
+    }
+    void loadBusinessOutputReviews(activeBusinessRunReviewRunId);
+  }, [activeBusinessRunReviewRunId, loadBusinessOutputReviews]);
+
   const handleOpenBusinessRunDetail = useCallback((row: BusinessRun) => {
     const runId = row.runId || row.id;
     setBusinessWorkspaceTab('runs');
     setBusinessRunDetail(row);
     setBusinessRunDetailOpen(true);
+    setBusinessOutputReviewFocus(null);
     setFocusedBusinessRunId(runId);
     setBusinessActionError(null);
     void adminApi
@@ -5108,6 +5198,21 @@ export function IntegrationDashboard({
     setActiveNav('business');
     setBusinessWorkspaceTab('runs');
     setFocusedBusinessRunId(normalizedRunId);
+    setBusinessOutputReviewFocus(null);
+    setBusinessRunDetail(null);
+    setBusinessRunDetailOpen(true);
+    setBusinessActionError(null);
+    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleOpenBusinessOutputReview = useCallback((review: BusinessOutputReview) => {
+    const runId = String(review.runId || (review as any)?.run_id || '').trim();
+    if (!runId) return;
+    const outputIndex = Number(review.outputIndex ?? (review as any)?.output_index ?? 0);
+    setActiveNav('business');
+    setBusinessWorkspaceTab('runs');
+    setFocusedBusinessRunId(runId);
+    setBusinessOutputReviewFocus({ runId, outputIndex });
     setBusinessRunDetail(null);
     setBusinessRunDetailOpen(true);
     setBusinessActionError(null);
@@ -5116,6 +5221,7 @@ export function IntegrationDashboard({
 
   const handleCloseBusinessRunDetail = useCallback(() => {
     setBusinessRunDetailOpen(false);
+    setBusinessOutputReviewFocus(null);
     setFocusedBusinessRunId('');
   }, []);
 
@@ -6397,8 +6503,8 @@ const extractErrorMessage = (error: unknown): string => {
             {hasCompactNavSelect ? null : <Typography.Text theme="secondary">当前模块未在核心导航中展示，请检查高级模块开关。</Typography.Text>}
           </Space>
           <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
-            <Tag variant="light" theme={coreBusinessOverviewItems.length >= 3 ? 'success' : 'warning'}>
-              主业务 {coreBusinessOverviewItems.length}/3
+            <Tag variant="light" theme={coreBusinessOverviewItems.length >= coreBusinessKeys.length ? 'success' : 'warning'}>
+              主业务 {coreBusinessOverviewItems.length}/{coreBusinessKeys.length}
             </Tag>
             <Tag variant="light" theme={Number(abilityHealthSummary?.failed || 0) > 0 ? 'danger' : 'success'}>
               能力异常 {abilityHealthSummary?.failed || 0}
@@ -6542,6 +6648,13 @@ const extractErrorMessage = (error: unknown): string => {
                       summary={businessUsageSummary}
                       formatDateTime={formatDateTime}
                     />
+                    <BusinessFlowMonitoringPanel summary={businessUsageSummary} />
+                    <BusinessQualityReviewPanel
+                      summary={businessUsageSummary}
+                      runs={businessRuns}
+                      qualitySummary={businessOutputReviewSummary}
+                      onOpenReview={handleOpenBusinessOutputReview}
+                    />
                     <BusinessRunHistoryPanel
                       runs={businessRuns}
                       total={businessRunTotal}
@@ -6554,6 +6667,10 @@ const extractErrorMessage = (error: unknown): string => {
                       actionLoadingId={businessActionLoadingId}
                       detail={businessRunDetail}
                       detailOpen={businessRunDetailOpen}
+                      outputReviews={businessOutputReviews}
+                      outputReviewsLoading={businessOutputReviewsLoading}
+                      outputReviewsError={businessOutputReviewsError}
+                      outputReviewFocus={businessOutputReviewFocus}
                       autoRefresh={businessRunAutoRefresh}
                       onFiltersChange={setBusinessRunFilters}
                       onAutoRefreshChange={setBusinessRunAutoRefresh}
@@ -6566,6 +6683,8 @@ const extractErrorMessage = (error: unknown): string => {
                       onOpenDetail={handleOpenBusinessRunDetail}
                       onCloseDetail={handleCloseBusinessRunDetail}
                       onCallbackRetry={handleBusinessCallbackRetry}
+                      onRefreshOutputReviews={loadBusinessOutputReviews}
+                      onSaveOutputReview={handleBusinessOutputReviewSave}
                       formatDateTime={formatDateTime}
                     />
                     <BusinessUsageSummaryPanel
@@ -6595,6 +6714,16 @@ const extractErrorMessage = (error: unknown): string => {
                 ) : null}
                 {businessWorkspaceTab === 'versions' ? (
                   <>
+                    <BusinessQualityCandidatePanel
+                      capabilities={businessCapabilities}
+                      qualitySummary={businessOutputReviewSummary}
+                      isReadOnly={isBusinessReadOnly}
+                      actionLoadingId={businessActionLoadingId}
+                      onDraftRun={handleBusinessDraftRun}
+                      onDraftRunBatch={handleBusinessDraftRunBatch}
+                      onOpenReview={handleOpenBusinessOutputReview}
+                      formatDateTime={formatDateTime}
+                    />
                     <BusinessCapabilityGrid
                       capabilities={businessCapabilities}
                       pendingApprovals={businessDefaultApprovals}

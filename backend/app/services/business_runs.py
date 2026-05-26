@@ -20,7 +20,7 @@ from uuid import uuid4
 import httpx
 from fastapi import HTTPException
 from PIL import Image, ImageDraw
-from sqlalchemy import and_, case, func, not_, or_, select, update
+from sqlalchemy import and_, case, func, inspect, not_, or_, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import load_only
 
@@ -36,6 +36,10 @@ from app.models.integration import (
     BusinessApiKeyUsageLog,
     BusinessDefaultApproval,
     BusinessOperationLog,
+    BusinessOutputReview,
+    BusinessQualityActionRule,
+    BusinessQualitySample,
+    BusinessQualitySampleVersion,
     BusinessRun,
     BusinessRunStep,
     VendorModelCatalog,
@@ -56,6 +60,12 @@ from app.schemas.business import (
     BusinessClientUpdateRequest,
     BusinessDefaultApprovalCreateRequest,
     BusinessDefaultApprovalDecisionRequest,
+    BusinessOutputReviewUpsertRequest,
+    BusinessQualityActionRuleCreateRequest,
+    BusinessQualityActionRuleUpdateRequest,
+    BusinessQualitySampleCreateRequest,
+    BusinessQualitySampleImportRequest,
+    BusinessQualitySampleUpdateRequest,
     BusinessRunCreateRequest,
     TextFissionPromptRequest,
 )
@@ -134,6 +144,79 @@ IMAGE_EDIT_QUALITY_MAP = {
     "medium": "medium",
     "high": "high",
 }
+BUSINESS_OUTPUT_REVIEW_GRADES = {"pending", "excellent", "usable", "borderline", "bad", "blocked"}
+BUSINESS_OUTPUT_REVIEW_ACTIONS = {
+    "accept",
+    "tune_params",
+    "route_split",
+    "switch_lora",
+    "manual_review",
+    "pause_recommendation",
+}
+BUSINESS_QUALITY_ACTION_TYPES = {
+    "watch_only",
+    "tune_params",
+    "route_split",
+    "switch_lora",
+    "switch_workflow",
+    "pause_recommendation",
+}
+BUSINESS_QUALITY_ACTION_STATUSES = {"draft", "candidate", "validated", "default", "paused", "rejected", "archived"}
+BUSINESS_QUALITY_GATE_KEYS = {"pattern_extract", "fission", "image_edit", "outpaint", "text_fission"}
+BUSINESS_QUALITY_ACCEPTED_GRADES = {"excellent", "usable"}
+BUSINESS_QUALITY_RISK_GRADES = {"borderline", "bad", "blocked"}
+BUSINESS_QUALITY_GATE_WINDOW_HOURS = 168
+BUSINESS_FLOW_STAGE_ORDER = [
+    "entry",
+    "version",
+    "preprocess",
+    "routing",
+    "primary",
+    "output",
+    "callback-billing",
+]
+BUSINESS_FLOW_STAGE_LABELS = {
+    "entry": "提交入口",
+    "version": "版本命中",
+    "preprocess": "输入预处理",
+    "routing": "路由/分流",
+    "primary": "主执行",
+    "output": "结果入库",
+    "callback-billing": "回调/计费",
+}
+BUSINESS_FLOW_CANDIDATE_SELECTORS = {
+    "admin_draft",
+    "candidate",
+    "quality_rule",
+    "route_split",
+    "rollout_allowlist",
+    "rollout_percent",
+    "switch_lora",
+    "switch_workflow",
+}
+BUSINESS_FLOW_LORA_KEYS = {
+    "lora",
+    "loras",
+    "loraname",
+    "lora_name",
+    "lorafile",
+    "lora_file",
+    "lorafilename",
+    "lora_filename",
+    "loramodel",
+    "lora_model",
+}
+BUSINESS_FLOW_WORKFLOW_KEYS = {
+    "workflow",
+    "workflowid",
+    "workflow_id",
+    "workflowkey",
+    "workflow_key",
+    "workflowname",
+    "workflow_name",
+    "comfyuiworkflowkey",
+    "comfyui_workflow_key",
+}
 IMAGE_EDIT_OUTPAINT_ANCHORS = {
     "center",
     "left",
@@ -173,6 +256,25 @@ class BusinessRunService:
                 .all()
             )
             return [self._capability_to_dict(row, session=session) for row in rows]
+
+    @staticmethod
+    def _optional_table_exists(session, table_name: str) -> bool:
+        return inspect(session.get_bind()).has_table(table_name)
+
+    @staticmethod
+    def _empty_output_review_summary(*, window_hours: int, filters: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "window_hours": window_hours,
+            "filters": filters,
+            "total": 0,
+            "by_grade": [],
+            "by_business": [],
+            "by_version": [],
+            "by_batch": [],
+            "top_issue_tags": [],
+            "top_input_tags": [],
+            "recent_reviews": [],
+        }
 
     def list_clients(
         self,
@@ -1341,6 +1443,49 @@ class BusinessRunService:
         by_id = {row.id: row for row in rows}
         return [by_id[run_id] for run_id in run_ids if run_id in by_id]
 
+    def _load_usage_steps_by_run(self, session, run_ids: list[str]) -> dict[str, list[BusinessRunStep]]:
+        if not run_ids:
+            return {}
+        steps_by_run: dict[str, list[BusinessRunStep]] = {}
+        chunk_size = 900
+        for offset in range(0, len(run_ids), chunk_size):
+            chunk = run_ids[offset : offset + chunk_size]
+            rows = (
+                session.execute(
+                    select(BusinessRunStep)
+                    .options(
+                        load_only(
+                            BusinessRunStep.id,
+                            BusinessRunStep.run_id,
+                            BusinessRunStep.step_order,
+                            BusinessRunStep.step_id,
+                            BusinessRunStep.step_type,
+                            BusinessRunStep.role,
+                            BusinessRunStep.display_name,
+                            BusinessRunStep.status,
+                            BusinessRunStep.ability_id,
+                            BusinessRunStep.ability_name,
+                            BusinessRunStep.ability_provider,
+                            BusinessRunStep.ability_task_id,
+                            BusinessRunStep.request_payload,
+                            BusinessRunStep.result_payload,
+                            BusinessRunStep.error_message,
+                            BusinessRunStep.duration_ms,
+                            BusinessRunStep.started_at,
+                            BusinessRunStep.finished_at,
+                            BusinessRunStep.created_at,
+                        )
+                    )
+                    .where(BusinessRunStep.run_id.in_(chunk))
+                    .order_by(BusinessRunStep.run_id.asc(), BusinessRunStep.step_order.asc(), BusinessRunStep.id.asc())
+                )
+                .scalars()
+                .all()
+            )
+            for row in rows:
+                steps_by_run.setdefault(row.run_id, []).append(row)
+        return steps_by_run
+
     def usage_summary(
         self,
         *,
@@ -1386,6 +1531,7 @@ class BusinessRunService:
                 .all()
             )
             rows = self._load_run_summaries_by_ids(session, run_ids)
+            steps_by_run = self._load_usage_steps_by_run(session, run_ids)
             issue_summaries = {
                 row.id: self._build_run_issue_summary(row, steps=[])
                 for row in rows
@@ -1396,6 +1542,7 @@ class BusinessRunService:
                     for row in rows
                     if issue_summaries.get(row.id, {}).get("category") == normalized_issue_category
                 ]
+                steps_by_run = {row.id: steps_by_run.get(row.id, []) for row in rows}
             unresolved_issues = self._usage_unresolved_issue_buckets(
                 rows,
                 issue_summaries,
@@ -1411,6 +1558,7 @@ class BusinessRunService:
                 issue_summaries,
                 session=session,
             )
+            flow_evidence = self._usage_flow_evidence(rows, steps_by_run)
 
         summary = self._summarize_usage_bucket("all", "全部业务", rows)
         recent_failures = [
@@ -1457,6 +1605,7 @@ class BusinessRunService:
             "unresolved_by_business": unresolved_by_business,
             "recent_unresolved_issues": recent_unresolved_issues,
             "recent_failures": recent_failures,
+            "flow_evidence": flow_evidence,
         }
 
     def _usage_buckets(self, rows: list[BusinessRun], key_func, label_func=None) -> list[dict[str, Any]]:
@@ -1504,6 +1653,433 @@ class BusinessRunService:
             key=lambda item: (0 if item.get("key") == "none" else 1, int(item.get("total") or 0)),
             reverse=True,
         )
+
+    def _usage_flow_evidence(
+        self,
+        rows: list[BusinessRun],
+        steps_by_run: dict[str, list[BusinessRunStep]],
+    ) -> dict[str, Any]:
+        stage_events: dict[str, list[dict[str, Any]]] = {key: [] for key in BUSINESS_FLOW_STAGE_ORDER}
+        route_groups: dict[str, dict[str, Any]] = {}
+        candidate_groups: dict[str, dict[str, Any]] = {}
+        lora_groups: dict[str, dict[str, Any]] = {}
+        workflow_groups: dict[str, dict[str, Any]] = {}
+
+        for row in rows:
+            steps = steps_by_run.get(row.id, [])
+            route = self._usage_flow_route_info(row)
+            selected_by = self._first_string(route.get("selectedBy")) or "default"
+            selected_capability_id = self._first_string(route.get("selectedCapabilityId"), route.get("businessVersionId"))
+            selected_version = self._first_string(route.get("version"), row.version)
+            lora_name = self._usage_flow_extract_value(
+                [route, row.request_payload, row.result_payload, *self._usage_flow_step_payloads(steps)],
+                BUSINESS_FLOW_LORA_KEYS,
+            )
+            workflow_key = self._usage_flow_extract_value(
+                [route, row.request_payload, row.result_payload, *self._usage_flow_step_payloads(steps)],
+                BUSINESS_FLOW_WORKFLOW_KEYS,
+            )
+
+            duration_by_stage: dict[str, int] = {}
+            step_counts_by_stage: dict[str, int] = {}
+            for step in steps:
+                stage_key = self._usage_flow_stage_for_step(step)
+                if not stage_key:
+                    continue
+                step_counts_by_stage[stage_key] = step_counts_by_stage.get(stage_key, 0) + 1
+                duration_ms = self._usage_flow_duration_ms(
+                    self._first_int(step.duration_ms),
+                    self._calculate_duration_ms(step.started_at, step.finished_at),
+                )
+                if duration_ms is not None:
+                    duration_by_stage[stage_key] = duration_by_stage.get(stage_key, 0) + duration_ms
+
+            queue_duration_ms = self._usage_flow_duration_ms(
+                self._calculate_duration_ms(row.created_at, row.started_at)
+            )
+            primary_duration_ms = duration_by_stage.get("primary")
+            if primary_duration_ms is None:
+                primary_duration_ms = self._usage_flow_duration_ms(self._first_int(row.duration_ms))
+            output_state = self._usage_flow_output_state(row)
+            callback_state = self._usage_flow_callback_state(row)
+            billing_state = self._business_billing_status(row)
+
+            common_evidence = {
+                "businessKey": row.business_key,
+                "version": selected_version,
+                "selectedBy": selected_by,
+                "selectedCapabilityId": selected_capability_id,
+                "loraName": lora_name,
+                "workflowKey": workflow_key,
+            }
+            stage_events["entry"].append(
+                self._usage_flow_record(
+                    row,
+                    duration_ms=queue_duration_ms,
+                    evidence={**common_evidence, "source": row.source, "tenantId": row.tenant_id, "clientId": row.client_id},
+                )
+            )
+            stage_events["version"].append(
+                self._usage_flow_record(
+                    row,
+                    evidence={**common_evidence, "businessVersionId": row.business_version_id},
+                )
+            )
+            stage_events["preprocess"].append(
+                self._usage_flow_record(
+                    row,
+                    duration_ms=duration_by_stage.get("preprocess"),
+                    evidence={**common_evidence, "stepCount": step_counts_by_stage.get("preprocess", 0)},
+                )
+            )
+            stage_events["routing"].append(
+                self._usage_flow_record(
+                    row,
+                    evidence=common_evidence,
+                )
+            )
+            stage_events["primary"].append(
+                self._usage_flow_record(
+                    row,
+                    duration_ms=primary_duration_ms,
+                    evidence={**common_evidence, "stepCount": step_counts_by_stage.get("primary", 0)},
+                )
+            )
+            stage_events["output"].append(
+                self._usage_flow_record(
+                    row,
+                    duration_ms=duration_by_stage.get("output"),
+                    evidence={
+                        **common_evidence,
+                        "outputState": output_state,
+                        "imageCount": len(row.image_urls or []),
+                        "videoCount": len(row.video_urls or []),
+                        "textCount": len(row.texts or []),
+                    },
+                )
+            )
+            stage_events["callback-billing"].append(
+                self._usage_flow_record(
+                    row,
+                    duration_ms=duration_by_stage.get("callback-billing"),
+                    evidence={**common_evidence, "callbackState": callback_state, "billingState": billing_state},
+                )
+            )
+
+            self._add_usage_flow_group(
+                route_groups,
+                selected_by,
+                selected_by,
+                row,
+                duration_ms=primary_duration_ms,
+                evidence=common_evidence,
+            )
+            if self._usage_flow_is_candidate_selector(selected_by):
+                candidate_key = selected_capability_id or selected_version or selected_by
+                candidate_label = f"{selected_by} · {selected_version or selected_capability_id or row.business_key}"
+                self._add_usage_flow_group(
+                    candidate_groups,
+                    candidate_key,
+                    candidate_label,
+                    row,
+                    duration_ms=primary_duration_ms,
+                    evidence=common_evidence,
+                )
+            if lora_name:
+                self._add_usage_flow_group(
+                    lora_groups,
+                    lora_name,
+                    lora_name,
+                    row,
+                    duration_ms=primary_duration_ms,
+                    evidence=common_evidence,
+                )
+            if workflow_key:
+                self._add_usage_flow_group(
+                    workflow_groups,
+                    workflow_key,
+                    workflow_key,
+                    row,
+                    duration_ms=primary_duration_ms,
+                    evidence=common_evidence,
+                )
+
+        return {
+            "stage_evidence": [
+                self._summarize_usage_flow_records(key, BUSINESS_FLOW_STAGE_LABELS.get(key, key), stage_events.get(key, []))
+                for key in BUSINESS_FLOW_STAGE_ORDER
+            ],
+            "route_hits": self._usage_flow_group_buckets(route_groups),
+            "candidate_hits": self._usage_flow_group_buckets(candidate_groups),
+            "lora_hits": self._usage_flow_group_buckets(lora_groups),
+            "workflow_hits": self._usage_flow_group_buckets(workflow_groups),
+        }
+
+    def _usage_flow_group_buckets(self, groups: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        buckets = [
+            self._summarize_usage_flow_records(
+                key,
+                str(group.get("label") or key),
+                group.get("events") or [],
+            )
+            for key, group in groups.items()
+        ]
+        return sorted(
+            buckets,
+            key=lambda item: (int(item.get("total") or 0), item.get("latest_at") or datetime.min),
+            reverse=True,
+        )[:20]
+
+    def _summarize_usage_flow_records(
+        self,
+        key: str,
+        label: str,
+        events: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        statuses = {
+            "succeeded": 0,
+            "failed": 0,
+            "running": 0,
+            "queued": 0,
+            "cancelled": 0,
+        }
+        durations: list[int] = []
+        latest_at: datetime | None = None
+        sample_run_ids: list[str] = []
+        evidence_counts: dict[str, dict[str, int]] = {}
+        for event in events:
+            row = event.get("row")
+            if not isinstance(row, BusinessRun):
+                continue
+            status = str(row.status or "").strip().lower()
+            if status in statuses:
+                statuses[status] += 1
+            duration_ms = self._usage_flow_duration_ms(event.get("duration_ms"))
+            if duration_ms is not None:
+                durations.append(duration_ms)
+            if row.created_at and (latest_at is None or row.created_at > latest_at):
+                latest_at = row.created_at
+            if len(sample_run_ids) < 3 and row.id:
+                sample_run_ids.append(row.id)
+            evidence = event.get("evidence") if isinstance(event.get("evidence"), dict) else {}
+            for field in ("businessKey", "selectedBy", "version", "loraName", "workflowKey", "outputState", "callbackState", "billingState"):
+                value = self._usage_flow_text(evidence.get(field))
+                if not value:
+                    continue
+                field_counts = evidence_counts.setdefault(field, {})
+                field_counts[value] = field_counts.get(value, 0) + 1
+
+        total = len(events)
+        durations_sorted = sorted(durations)
+        p95_duration_ms = None
+        if durations_sorted:
+            index = min(len(durations_sorted) - 1, max(0, math.ceil(len(durations_sorted) * 0.95) - 1))
+            p95_duration_ms = durations_sorted[index]
+        return {
+            "key": key,
+            "label": label,
+            "total": total,
+            **statuses,
+            "success_rate": round(statuses["succeeded"] / total, 4) if total else None,
+            "avg_duration_ms": int(sum(durations) / len(durations)) if durations else None,
+            "p95_duration_ms": p95_duration_ms,
+            "latest_at": latest_at,
+            "evidence": {
+                "durationSamples": len(durations),
+                "sampleRunIds": sample_run_ids,
+                "top": {
+                    field: self._usage_flow_top_counts(counts)
+                    for field, counts in evidence_counts.items()
+                    if counts
+                },
+            },
+        }
+
+    @staticmethod
+    def _usage_flow_top_counts(counts: dict[str, int]) -> list[dict[str, Any]]:
+        return [
+            {"key": key, "total": total}
+            for key, total in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:5]
+        ]
+
+    @staticmethod
+    def _usage_flow_record(
+        row: BusinessRun,
+        *,
+        duration_ms: Any | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {"row": row, "duration_ms": duration_ms, "evidence": evidence or {}}
+
+    def _add_usage_flow_group(
+        self,
+        groups: dict[str, dict[str, Any]],
+        key: str | None,
+        label: str | None,
+        row: BusinessRun,
+        *,
+        duration_ms: Any | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
+        normalized_key = self._usage_flow_text(key)
+        if not normalized_key:
+            return
+        group = groups.setdefault(normalized_key, {"label": label or normalized_key, "events": []})
+        group["events"].append(self._usage_flow_record(row, duration_ms=duration_ms, evidence=evidence))
+
+    @staticmethod
+    def _usage_flow_is_candidate_selector(selected_by: str | None) -> bool:
+        normalized = str(selected_by or "").strip().lower()
+        return normalized in BUSINESS_FLOW_CANDIDATE_SELECTORS or "candidate" in normalized or "draft" in normalized
+
+    def _usage_flow_route_info(self, row: BusinessRun) -> dict[str, Any]:
+        request_payload = row.request_payload if isinstance(row.request_payload, dict) else {}
+        result_payload = row.result_payload if isinstance(row.result_payload, dict) else {}
+        route: dict[str, Any] = {}
+        for payload in (request_payload, result_payload):
+            for key in ("_route", "routeInfo", "route_info", "routing", "route"):
+                value = payload.get(key)
+                if isinstance(value, dict):
+                    route.update(value)
+        selected_capability_id = self._first_string(
+            route.get("selectedCapabilityId"),
+            route.get("selected_capability_id"),
+            route.get("businessVersionId"),
+            route.get("business_version_id"),
+            row.business_version_id,
+        )
+        return {
+            **route,
+            "businessKey": self._first_string(route.get("businessKey"), route.get("business_key"), row.business_key),
+            "businessVersionId": self._first_string(
+                route.get("businessVersionId"),
+                route.get("business_version_id"),
+                row.business_version_id,
+                selected_capability_id,
+            ),
+            "selectedCapabilityId": selected_capability_id,
+            "version": self._first_string(route.get("version"), route.get("selectedVersion"), route.get("selected_version"), row.version),
+            "selectedBy": self._first_string(route.get("selectedBy"), route.get("selected_by")) or "default",
+        }
+
+    def _usage_flow_stage_for_step(self, step: BusinessRunStep) -> str | None:
+        normalized_type = str(step.step_type or "").strip().lower()
+        normalized_role = str(step.role or "").strip().lower()
+        trace_type = self._trace_step_type(normalized_type, normalized_role)
+        if trace_type == "vl":
+            return "preprocess"
+        if trace_type == "generation":
+            return "primary"
+        if trace_type == "score" or normalized_role in {"output", "result"}:
+            return "output"
+        if trace_type == "callback" or normalized_role in {"callback", "billing"} or normalized_type in {"billing", "settlement"}:
+            return "callback-billing"
+        if any(token in normalized_type for token in ("oss", "ingest", "result", "output")):
+            return "output"
+        return None
+
+    @staticmethod
+    def _usage_flow_step_payloads(steps: list[BusinessRunStep]) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        for step in steps:
+            if isinstance(step.request_payload, dict):
+                payloads.append(step.request_payload)
+            if isinstance(step.result_payload, dict):
+                payloads.append(step.result_payload)
+        return payloads
+
+    def _usage_flow_extract_value(self, values: list[Any], target_keys: set[str]) -> str | None:
+        normalized_targets = {self._usage_flow_key(key) for key in target_keys}
+        for value in values:
+            found = self._usage_flow_find_nested_value(value, normalized_targets)
+            text = self._usage_flow_text(found)
+            if text:
+                return text
+        return None
+
+    def _usage_flow_find_nested_value(self, value: Any, target_keys: set[str], depth: int = 0) -> Any | None:
+        if value in (None, "", []):
+            return None
+        if depth > 5:
+            return None
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if self._usage_flow_key(key) in target_keys:
+                    text = self._usage_flow_text(item)
+                    if text:
+                        return text
+                    nested = self._usage_flow_find_nested_value(item, target_keys, depth + 1)
+                    if nested not in (None, "", []):
+                        return nested
+            for item in value.values():
+                nested = self._usage_flow_find_nested_value(item, target_keys, depth + 1)
+                if nested not in (None, "", []):
+                    return nested
+        if isinstance(value, list):
+            for item in value:
+                nested = self._usage_flow_find_nested_value(item, target_keys, depth + 1)
+                if nested not in (None, "", []):
+                    return nested
+        return None
+
+    @staticmethod
+    def _usage_flow_key(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value or "").strip().lower())
+
+    @staticmethod
+    def _usage_flow_text(value: Any) -> str | None:
+        if value in (None, "", []):
+            return None
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                text = BusinessRunService._usage_flow_text(item)
+                if text:
+                    return text
+            return None
+        if isinstance(value, dict):
+            for key in ("name", "file", "filename", "value", "key", "id"):
+                text = BusinessRunService._usage_flow_text(value.get(key))
+                if text:
+                    return text
+            return None
+        text = str(value).strip()
+        if not text or text.lower() in {"none", "null", "undefined"}:
+            return None
+        return text[:160]
+
+    @staticmethod
+    def _usage_flow_duration_ms(*values: Any) -> int | None:
+        for value in values:
+            if value in (None, ""):
+                continue
+            try:
+                duration = int(float(value))
+            except (TypeError, ValueError):
+                continue
+            if duration >= 0:
+                return duration
+        return None
+
+    def _usage_flow_output_state(self, row: BusinessRun) -> str:
+        if (row.image_urls or []) or (row.video_urls or []) or (row.texts or []):
+            return "stored"
+        result_payload = row.result_payload if isinstance(row.result_payload, dict) else {}
+        if self._count_structured_outputs(result_payload) or self._count_resource_outputs(result_payload):
+            return "structured"
+        if str(row.status or "").lower() == "succeeded":
+            return "missing"
+        return "pending"
+
+    @staticmethod
+    def _usage_flow_callback_state(row: BusinessRun) -> str:
+        callback_status = str(row.callback_status or "").strip().lower()
+        if callback_status:
+            return callback_status
+        if row.callback_error:
+            return "failed"
+        if row.callback_url:
+            return "missing"
+        return "none"
 
     def _usage_unresolved_issue_buckets(
         self,
@@ -3389,6 +3965,882 @@ class BusinessRunService:
             "markdown": markdown,
             "items": items,
         }
+
+    def list_output_reviews(
+        self,
+        *,
+        run_id: str,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        del actor
+        with get_session() as session:
+            run = session.get(BusinessRun, run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+            if not self._optional_table_exists(session, "business_output_reviews"):
+                return {"total": 0, "items": []}
+            rows = (
+                session.execute(
+                    select(BusinessOutputReview)
+                    .where(BusinessOutputReview.run_id == run_id)
+                    .order_by(BusinessOutputReview.output_index.asc())
+                )
+                .scalars()
+                .all()
+            )
+            return {"total": len(rows), "items": [self._output_review_to_dict(row) for row in rows]}
+
+    def upsert_output_reviews(
+        self,
+        *,
+        run_id: str,
+        payload: BusinessOutputReviewUpsertRequest,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        if not payload.items:
+            raise HTTPException(status_code=400, detail="BUSINESS_OUTPUT_REVIEW_ITEMS_REQUIRED")
+        if len(payload.items) > 100:
+            raise HTTPException(status_code=400, detail="BUSINESS_OUTPUT_REVIEW_LIMIT_EXCEEDED")
+        now = datetime.utcnow()
+        with get_session() as session:
+            run = session.get(BusinessRun, run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+            output_indexes = [int(item.outputIndex) for item in payload.items]
+            existing = (
+                session.execute(
+                    select(BusinessOutputReview).where(
+                        BusinessOutputReview.run_id == run_id,
+                        BusinessOutputReview.output_index.in_(output_indexes),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            existing_by_index = {int(row.output_index): row for row in existing}
+            touched: list[BusinessOutputReview] = []
+            before_payload: list[dict[str, Any]] = []
+            after_payload: list[dict[str, Any]] = []
+            for item in payload.items:
+                output_index = int(item.outputIndex)
+                grade = self._normalize_output_review_grade(item.qualityGrade)
+                next_action = self._normalize_output_review_action(item.nextAction)
+                input_tags = self._normalize_output_review_tags(item.inputTags)
+                issue_tags = self._normalize_output_review_tags(item.issueTags)
+                output_url = self._clean_optional_text(item.outputUrl) or self._business_run_output_url(run, output_index)
+                sample_meta = self._output_review_sample_meta_from_run(run)
+                sample_key = self._short_text(item.sampleKey, 64) or sample_meta.get("sample_key")
+                sample_label = self._short_text(item.sampleLabel, 128) or sample_meta.get("sample_label")
+                batch_id = self._short_text(item.batchId, 64) or sample_meta.get("batch_id")
+                note = self._short_text(item.note, 4000) if item.note else None
+                row = existing_by_index.get(output_index)
+                if row is None:
+                    row = BusinessOutputReview(
+                        id=f"bizreview_{uuid4().hex}",
+                        run_id=run.id,
+                        business_key=run.business_key,
+                        business_version_id=run.business_version_id,
+                        version=run.version,
+                        output_index=output_index,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    session.add(row)
+                    existing_by_index[output_index] = row
+                    before_payload.append({"outputIndex": output_index, "created": True})
+                else:
+                    before_payload.append(self._output_review_to_dict(row))
+                row.business_key = run.business_key
+                row.business_version_id = run.business_version_id
+                row.version = run.version
+                row.output_url = output_url
+                row.sample_key = sample_key
+                row.sample_label = sample_label
+                row.batch_id = batch_id
+                row.quality_grade = grade
+                row.input_tags = input_tags
+                row.issue_tags = issue_tags
+                row.next_action = next_action
+                row.note = note
+                row.reviewer_user_id = self._safe_user_id(actor)
+                row.reviewer_username = self._actor_username(actor)
+                row.updated_at = now
+                session.add(row)
+                touched.append(row)
+                after_payload.append(
+                    {
+                        "outputIndex": output_index,
+                        "qualityGrade": grade,
+                        "sampleKey": sample_key,
+                        "sampleLabel": sample_label,
+                        "batchId": batch_id,
+                        "inputTags": input_tags,
+                        "issueTags": issue_tags,
+                        "nextAction": next_action,
+                    }
+                )
+            self._record_business_operation(
+                session=session,
+                action="upsert_output_review",
+                target_type="business_run",
+                target_id=run.id,
+                business_key=run.business_key,
+                tenant_id=run.tenant_id,
+                client_id=run.client_id,
+                actor=actor,
+                note=f"更新业务输出质量复盘：{len(touched)} 条。",
+                before_payload={"items": before_payload},
+                after_payload={"items": after_payload},
+            )
+            session.commit()
+            for row in touched:
+                session.refresh(row)
+            touched.sort(key=lambda row: int(row.output_index))
+            return {"total": len(touched), "items": [self._output_review_to_dict(row) for row in touched]}
+
+    def output_review_summary(
+        self,
+        *,
+        window_hours: int = 168,
+        business_key: str | None = None,
+        version: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        normalized_window = max(1, min(int(window_hours or 168), 2160))
+        normalized_limit = max(1, min(int(limit or 20), 100))
+        since = datetime.utcnow() - timedelta(hours=normalized_window)
+        filters = {
+            "window_hours": normalized_window,
+            "business_key": business_key,
+            "version": version,
+            "limit": normalized_limit,
+        }
+        with get_session() as session:
+            if not self._optional_table_exists(session, "business_output_reviews"):
+                return self._empty_output_review_summary(window_hours=normalized_window, filters=filters)
+            stmt = select(BusinessOutputReview).where(BusinessOutputReview.created_at >= since)
+            if business_key:
+                stmt = stmt.where(BusinessOutputReview.business_key == business_key)
+            if version:
+                stmt = stmt.where(BusinessOutputReview.version == version)
+            rows = (
+                session.execute(stmt.order_by(BusinessOutputReview.created_at.desc()).limit(5000))
+                .scalars()
+                .all()
+            )
+        recent = sorted(rows, key=lambda row: row.updated_at or row.created_at, reverse=True)[:normalized_limit]
+        return {
+            "window_hours": normalized_window,
+            "filters": filters,
+            "total": len(rows),
+            "by_grade": self._output_review_grade_buckets(rows),
+            "by_business": self._output_review_business_summaries(rows),
+            "by_version": self._output_review_version_summaries(rows),
+            "by_batch": self._output_review_batch_summaries(rows),
+            "top_issue_tags": self._output_review_tag_buckets(rows, "issue_tags"),
+            "top_input_tags": self._output_review_tag_buckets(rows, "input_tags"),
+            "recent_reviews": [self._output_review_to_dict(row) for row in recent],
+        }
+
+    def export_output_reviews(
+        self,
+        *,
+        window_hours: int = 168,
+        business_key: str | None = None,
+        version: str | None = None,
+        batch_id: str | None = None,
+        limit: int = 5000,
+    ) -> dict[str, Any]:
+        normalized_window = max(1, min(int(window_hours or 168), 2160))
+        normalized_limit = max(1, min(int(limit or 5000), 10000))
+        since = datetime.utcnow() - timedelta(hours=normalized_window)
+        with get_session() as session:
+            if not self._optional_table_exists(session, "business_output_reviews"):
+                return {
+                    "window_hours": normalized_window,
+                    "filters": {
+                        "window_hours": normalized_window,
+                        "business_key": business_key,
+                        "version": version,
+                        "batch_id": batch_id,
+                        "limit": normalized_limit,
+                    },
+                    "total": 0,
+                    "items": [],
+                }
+            stmt = select(BusinessOutputReview).where(BusinessOutputReview.created_at >= since)
+            if business_key:
+                stmt = stmt.where(BusinessOutputReview.business_key == str(business_key).strip())
+            if version:
+                stmt = stmt.where(BusinessOutputReview.version == str(version).strip())
+            if batch_id:
+                stmt = stmt.where(BusinessOutputReview.batch_id == str(batch_id).strip())
+            rows = (
+                session.execute(
+                    stmt.order_by(
+                        BusinessOutputReview.batch_id.asc(),
+                        BusinessOutputReview.sample_key.asc(),
+                        BusinessOutputReview.business_key.asc(),
+                        BusinessOutputReview.version.asc(),
+                        BusinessOutputReview.output_index.asc(),
+                        BusinessOutputReview.updated_at.desc(),
+                    ).limit(normalized_limit)
+                )
+                .scalars()
+                .all()
+            )
+        return {
+            "window_hours": normalized_window,
+            "filters": {
+                "window_hours": normalized_window,
+                "business_key": business_key,
+                "version": version,
+                "batch_id": batch_id,
+                "limit": normalized_limit,
+            },
+            "total": len(rows),
+            "items": [self._output_review_to_dict(row) for row in rows],
+        }
+
+    def list_quality_samples(
+        self,
+        *,
+        business_key: str | None = None,
+        status: str | None = None,
+        include_archived: bool = False,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        normalized_limit = max(1, min(int(limit or 200), 500))
+        with get_session() as session:
+            if not self._optional_table_exists(session, "business_quality_samples"):
+                return {"total": 0, "items": []}
+            stmt = select(BusinessQualitySample)
+            if business_key:
+                stmt = stmt.where(BusinessQualitySample.business_key == str(business_key).strip())
+            if status:
+                stmt = stmt.where(BusinessQualitySample.status == self._normalize_quality_sample_status(status))
+            elif not include_archived:
+                stmt = stmt.where(BusinessQualitySample.status != "archived")
+            rows = (
+                session.execute(
+                    stmt.order_by(
+                        BusinessQualitySample.business_key.asc(),
+                        BusinessQualitySample.sort_order.asc(),
+                        BusinessQualitySample.created_at.desc(),
+                    ).limit(normalized_limit)
+                )
+                .scalars()
+                .all()
+            )
+            return {"total": len(rows), "items": [self._quality_sample_to_dict(row) for row in rows]}
+
+    def list_quality_sample_versions(
+        self,
+        sample_id: str,
+        *,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        normalized_limit = max(1, min(int(limit or 50), 100))
+        with get_session() as session:
+            sample = session.get(BusinessQualitySample, sample_id)
+            if not sample:
+                raise HTTPException(status_code=404, detail="BUSINESS_QUALITY_SAMPLE_NOT_FOUND")
+            rows = (
+                session.execute(
+                    select(BusinessQualitySampleVersion)
+                    .where(BusinessQualitySampleVersion.sample_id == sample_id)
+                    .order_by(BusinessQualitySampleVersion.version_no.desc(), BusinessQualitySampleVersion.created_at.desc())
+                    .limit(normalized_limit)
+                )
+                .scalars()
+                .all()
+            )
+            return {"total": len(rows), "items": [self._quality_sample_version_to_dict(row) for row in rows]}
+
+    def create_quality_sample(
+        self,
+        payload: BusinessQualitySampleCreateRequest,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        now = datetime.utcnow()
+        business_key = self._required_text(payload.businessKey, "BUSINESS_QUALITY_SAMPLE_BUSINESS_KEY_REQUIRED")
+        sample_key = self._normalize_quality_sample_key(payload.sampleKey) or f"sample_{uuid4().hex[:10]}"
+        label = self._required_text(payload.label, "BUSINESS_QUALITY_SAMPLE_LABEL_REQUIRED")[:128]
+        image_url = self._normalize_quality_sample_url(payload.imageUrl, required=True)
+        generated_image_url = self._normalize_quality_sample_url(payload.generatedImageUrl, required=False)
+        status = self._normalize_quality_sample_status(payload.status)
+        with get_session() as session:
+            duplicate = (
+                session.execute(
+                    select(BusinessQualitySample).where(
+                        BusinessQualitySample.business_key == business_key,
+                        BusinessQualitySample.sample_key == sample_key,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if duplicate:
+                raise HTTPException(status_code=409, detail="BUSINESS_QUALITY_SAMPLE_KEY_DUPLICATED")
+            row = BusinessQualitySample(
+                id=f"bizsample_{uuid4().hex}",
+                business_key=business_key,
+                sample_key=sample_key,
+                label=label,
+                description=self._short_text(payload.description, 1000),
+                image_url=image_url,
+                prompt=self._short_text(payload.prompt, 4000),
+                generated_image_url=generated_image_url,
+                input_tags=self._normalize_output_review_tags(payload.inputTags),
+                default_params=self._json_safe_record(payload.defaultParams),
+                status=status,
+                sort_order=int(payload.sortOrder or 0),
+                created_by_user_id=self._safe_user_id(actor),
+                created_by_username=self._actor_username(actor),
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(row)
+            self._record_quality_sample_version(
+                session=session,
+                row=row,
+                change_type="create",
+                actor=actor,
+                note=payload.changeNote or "新增固定质量样例",
+            )
+            self._record_business_operation(
+                session=session,
+                action="create_quality_sample",
+                target_type="business_quality_sample",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=f"新增固定质量样例：{row.label}",
+                after_payload=self._json_safe_payload(self._quality_sample_to_dict(row)),
+            )
+            session.commit()
+            session.refresh(row)
+            return self._quality_sample_to_dict(row)
+
+    def update_quality_sample(
+        self,
+        sample_id: str,
+        payload: BusinessQualitySampleUpdateRequest,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        with get_session() as session:
+            row = session.get(BusinessQualitySample, sample_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_QUALITY_SAMPLE_NOT_FOUND")
+            before = self._json_safe_payload(self._quality_sample_to_dict(row))
+            if "sampleKey" in payload.model_fields_set or "sample_key" in payload.model_fields_set:
+                sample_key = self._normalize_quality_sample_key(payload.sampleKey)
+                if not sample_key:
+                    raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_SAMPLE_KEY_REQUIRED")
+                duplicate = (
+                    session.execute(
+                        select(BusinessQualitySample).where(
+                            BusinessQualitySample.business_key == row.business_key,
+                            BusinessQualitySample.sample_key == sample_key,
+                            BusinessQualitySample.id != row.id,
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if duplicate:
+                    raise HTTPException(status_code=409, detail="BUSINESS_QUALITY_SAMPLE_KEY_DUPLICATED")
+                row.sample_key = sample_key
+            if payload.label is not None:
+                row.label = self._required_text(payload.label, "BUSINESS_QUALITY_SAMPLE_LABEL_REQUIRED")[:128]
+            if "description" in payload.model_fields_set:
+                row.description = self._short_text(payload.description, 1000)
+            if payload.imageUrl is not None:
+                row.image_url = self._normalize_quality_sample_url(payload.imageUrl, required=True)
+            if "prompt" in payload.model_fields_set:
+                row.prompt = self._short_text(payload.prompt, 4000)
+            if "generatedImageUrl" in payload.model_fields_set or "generated_image_url" in payload.model_fields_set:
+                row.generated_image_url = self._normalize_quality_sample_url(payload.generatedImageUrl, required=False)
+            if payload.inputTags is not None:
+                row.input_tags = self._normalize_output_review_tags(payload.inputTags)
+            if payload.defaultParams is not None:
+                row.default_params = self._json_safe_record(payload.defaultParams)
+            if payload.status is not None:
+                row.status = self._normalize_quality_sample_status(payload.status)
+            if payload.sortOrder is not None:
+                row.sort_order = int(payload.sortOrder)
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+            after = self._json_safe_payload(self._quality_sample_to_dict(row))
+            self._record_quality_sample_version(
+                session=session,
+                row=row,
+                change_type="update",
+                actor=actor,
+                note=payload.changeNote or "更新固定质量样例",
+            )
+            self._record_business_operation(
+                session=session,
+                action="update_quality_sample",
+                target_type="business_quality_sample",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=f"更新固定质量样例：{row.label}",
+                before_payload=before,
+                after_payload=after,
+            )
+            session.commit()
+            session.refresh(row)
+            return self._quality_sample_to_dict(row)
+
+    def archive_quality_sample(
+        self,
+        sample_id: str,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        with get_session() as session:
+            row = session.get(BusinessQualitySample, sample_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_QUALITY_SAMPLE_NOT_FOUND")
+            before = self._json_safe_payload(self._quality_sample_to_dict(row))
+            row.status = "archived"
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+            self._record_quality_sample_version(
+                session=session,
+                row=row,
+                change_type="archive",
+                actor=actor,
+                note="归档固定质量样例",
+            )
+            self._record_business_operation(
+                session=session,
+                action="archive_quality_sample",
+                target_type="business_quality_sample",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=f"归档固定质量样例：{row.label}",
+                before_payload=before,
+                after_payload=self._json_safe_payload(self._quality_sample_to_dict(row)),
+            )
+            session.commit()
+            session.refresh(row)
+            return self._quality_sample_to_dict(row)
+
+    def import_quality_samples(
+        self,
+        payload: BusinessQualitySampleImportRequest,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        raw_items = list(payload.items or [])
+        if not raw_items:
+            raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_SAMPLE_IMPORT_EMPTY")
+        if len(raw_items) > 200:
+            raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_SAMPLE_IMPORT_LIMIT_EXCEEDED")
+        dry_run = bool(payload.dryRun)
+        results: list[dict[str, Any]] = []
+        created = 0
+        updated = 0
+        skipped = 0
+        failed = 0
+        seen_keys: set[tuple[str, str]] = set()
+        now = datetime.utcnow()
+        with get_session() as session:
+            for index, item in enumerate(raw_items):
+                try:
+                    business_key = self._required_text(
+                        item.businessKey or payload.businessKey,
+                        "BUSINESS_QUALITY_SAMPLE_BUSINESS_KEY_REQUIRED",
+                    )
+                    sample_key = self._normalize_quality_sample_key(item.sampleKey)
+                    if not sample_key:
+                        raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_SAMPLE_KEY_REQUIRED")
+                    signature = (business_key, sample_key)
+                    if signature in seen_keys:
+                        raise HTTPException(status_code=409, detail="BUSINESS_QUALITY_SAMPLE_KEY_DUPLICATED")
+                    seen_keys.add(signature)
+                    label = self._required_text(item.label, "BUSINESS_QUALITY_SAMPLE_LABEL_REQUIRED")[:128]
+                    image_url = self._normalize_quality_sample_url(item.imageUrl, required=True)
+                    generated_image_url = self._normalize_quality_sample_url(item.generatedImageUrl, required=False)
+                    normalized_status = self._normalize_quality_sample_status(item.status)
+                    description = self._short_text(item.description, 1000)
+                    prompt = self._short_text(item.prompt, 4000)
+                    input_tags = self._normalize_output_review_tags(item.inputTags)
+                    default_params = self._json_safe_record(item.defaultParams)
+                    sort_order = int(item.sortOrder or 0)
+                    existing = (
+                        session.execute(
+                            select(BusinessQualitySample).where(
+                                BusinessQualitySample.business_key == business_key,
+                                BusinessQualitySample.sample_key == sample_key,
+                            )
+                        )
+                        .scalars()
+                        .first()
+                    )
+                    action = "update" if existing else "create"
+                    if dry_run:
+                        skipped += 1
+                        results.append(
+                            {
+                                "index": index,
+                                "action": f"dry_run_{action}",
+                                "sample_id": existing.id if existing else None,
+                                "business_key": business_key,
+                                "sample_key": sample_key,
+                                "label": label,
+                                "message": "预检查通过，未写入数据库",
+                            }
+                        )
+                        continue
+                    if existing:
+                        existing.label = label
+                        existing.description = description
+                        existing.image_url = image_url
+                        existing.prompt = prompt
+                        existing.generated_image_url = generated_image_url
+                        existing.input_tags = input_tags
+                        existing.default_params = default_params
+                        existing.status = normalized_status
+                        existing.sort_order = sort_order
+                        existing.updated_at = now
+                        session.add(existing)
+                        self._record_quality_sample_version(
+                            session=session,
+                            row=existing,
+                            change_type="import_update",
+                            actor=actor,
+                            note=item.changeNote or payload.changeNote or "批量导入更新固定质量样例",
+                        )
+                        updated += 1
+                        row = existing
+                    else:
+                        row = BusinessQualitySample(
+                            id=f"bizsample_{uuid4().hex}",
+                            business_key=business_key,
+                            sample_key=sample_key,
+                            label=label,
+                            description=description,
+                            image_url=image_url,
+                            prompt=prompt,
+                            generated_image_url=generated_image_url,
+                            input_tags=input_tags,
+                            default_params=default_params,
+                            status=normalized_status,
+                            sort_order=sort_order,
+                            created_by_user_id=self._safe_user_id(actor),
+                            created_by_username=self._actor_username(actor),
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        session.add(row)
+                        self._record_quality_sample_version(
+                            session=session,
+                            row=row,
+                            change_type="import_create",
+                            actor=actor,
+                            note=item.changeNote or payload.changeNote or "批量导入新增固定质量样例",
+                        )
+                        created += 1
+                    results.append(
+                        {
+                            "index": index,
+                            "action": "updated" if existing else "created",
+                            "sample_id": row.id,
+                            "business_key": row.business_key,
+                            "sample_key": row.sample_key,
+                            "label": row.label,
+                            "message": "已更新" if existing else "已新增",
+                        }
+                    )
+                except HTTPException as exc:
+                    failed += 1
+                    results.append(
+                        {
+                            "index": index,
+                            "action": "error",
+                            "business_key": getattr(item, "businessKey", None) or payload.businessKey,
+                            "sample_key": getattr(item, "sampleKey", None),
+                            "label": getattr(item, "label", None),
+                            "error_code": str(exc.detail or "BUSINESS_QUALITY_SAMPLE_IMPORT_ITEM_INVALID"),
+                            "message": str(exc.detail or "固定质量样例导入项非法"),
+                        }
+                    )
+            if not dry_run:
+                self._record_business_operation(
+                    session=session,
+                    action="import_quality_samples",
+                    target_type="business_quality_sample",
+                    target_id=None,
+                    business_key=str(payload.businessKey or ""),
+                    actor=actor,
+                    note=f"批量导入固定质量样例：新增 {created}，更新 {updated}，失败 {failed}",
+                    after_payload=self._json_safe_payload(
+                        {
+                            "created": created,
+                            "updated": updated,
+                            "failed": failed,
+                            "total": len(raw_items),
+                        }
+                    ),
+                )
+                session.commit()
+        return {
+            "total": len(raw_items),
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "failed": failed,
+            "dry_run": dry_run,
+            "items": results,
+        }
+
+    def list_quality_action_rules(
+        self,
+        *,
+        business_key: str | None = None,
+        status: str | None = None,
+        action_type: str | None = None,
+        include_archived: bool = False,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        normalized_limit = max(1, min(int(limit or 200), 500))
+        with get_session() as session:
+            if not self._optional_table_exists(session, "business_quality_action_rules"):
+                return {"total": 0, "items": []}
+            stmt = select(BusinessQualityActionRule)
+            if business_key:
+                stmt = stmt.where(BusinessQualityActionRule.business_key == str(business_key).strip())
+            if status:
+                stmt = stmt.where(BusinessQualityActionRule.status == self._normalize_quality_action_status(status))
+            elif not include_archived:
+                stmt = stmt.where(BusinessQualityActionRule.status != "archived")
+            if action_type:
+                stmt = stmt.where(BusinessQualityActionRule.action_type == self._normalize_quality_action_type(action_type))
+            rows = (
+                session.execute(
+                    stmt.order_by(
+                        BusinessQualityActionRule.business_key.asc(),
+                        BusinessQualityActionRule.priority.asc(),
+                        BusinessQualityActionRule.created_at.desc(),
+                    ).limit(normalized_limit)
+                )
+                .scalars()
+                .all()
+            )
+            target_ids = [row.target_business_version_id for row in rows if row.target_business_version_id]
+            target_map: dict[str, BusinessCapability] = {}
+            if target_ids:
+                target_rows = (
+                    session.execute(select(BusinessCapability).where(BusinessCapability.id.in_(target_ids)))
+                    .scalars()
+                    .all()
+                )
+                target_map = {row.id: row for row in target_rows}
+            return {
+                "total": len(rows),
+                "items": [
+                    self._quality_action_rule_to_dict(row, target=target_map.get(row.target_business_version_id or ""))
+                    for row in rows
+                ],
+            }
+
+    def create_quality_action_rule(
+        self,
+        payload: BusinessQualityActionRuleCreateRequest,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        now = datetime.utcnow()
+        business_key = self._required_text(payload.businessKey, "BUSINESS_QUALITY_ACTION_BUSINESS_KEY_REQUIRED")
+        rule_key = self._normalize_quality_action_key(payload.ruleKey or payload.title) or f"rule_{uuid4().hex[:10]}"
+        title = self._required_text(payload.title, "BUSINESS_QUALITY_ACTION_TITLE_REQUIRED")[:128]
+        action_type = self._normalize_quality_action_type(payload.actionType)
+        status = self._normalize_quality_action_status(payload.status)
+        target_ref = self._short_text(payload.targetRef, 128)
+        target_params = self._json_safe_record(payload.targetParams)
+        with get_session() as session:
+            duplicate = (
+                session.execute(
+                    select(BusinessQualityActionRule).where(
+                        BusinessQualityActionRule.business_key == business_key,
+                        BusinessQualityActionRule.rule_key == rule_key,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if duplicate:
+                raise HTTPException(status_code=409, detail="BUSINESS_QUALITY_ACTION_KEY_DUPLICATED")
+            target = self._resolve_quality_action_target(
+                session,
+                business_key=business_key,
+                target_business_version_id=payload.targetBusinessVersionId,
+            )
+            row = BusinessQualityActionRule(
+                id=f"bizqar_{uuid4().hex}",
+                business_key=business_key,
+                rule_key=rule_key,
+                title=title,
+                description=self._short_text(payload.description, 1000),
+                issue_tags=self._normalize_output_review_tags(payload.issueTags),
+                input_tags=self._normalize_output_review_tags(payload.inputTags),
+                action_type=action_type,
+                target_business_version_id=target.id if target else None,
+                target_version=target.version if target else None,
+                target_label=target.display_name if target else None,
+                target_ref=target_ref,
+                target_params=target_params,
+                sample_batch_id=self._short_text(payload.sampleBatchId, 64),
+                evidence_review_ids=self._normalize_quality_action_evidence_ids(payload.evidenceReviewIds),
+                status=status,
+                priority=int(payload.priority or 0),
+                owner_user_id=self._safe_user_id(actor),
+                owner_username=self._actor_username(actor),
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(row)
+            self._record_business_operation(
+                session=session,
+                action="create_quality_action_rule",
+                target_type="business_quality_action_rule",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=f"新增质量治理台账：{row.title}",
+                after_payload=self._json_safe_payload(self._quality_action_rule_to_dict(row, target=target)),
+            )
+            session.commit()
+            session.refresh(row)
+            return self._quality_action_rule_to_dict(row, target=target)
+
+    def update_quality_action_rule(
+        self,
+        rule_id: str,
+        payload: BusinessQualityActionRuleUpdateRequest,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        with get_session() as session:
+            row = session.get(BusinessQualityActionRule, rule_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_QUALITY_ACTION_NOT_FOUND")
+            target = self._resolve_quality_action_target(
+                session,
+                business_key=row.business_key,
+                target_business_version_id=row.target_business_version_id,
+                allow_empty=True,
+            )
+            before = self._json_safe_payload(self._quality_action_rule_to_dict(row, target=target))
+            if "ruleKey" in payload.model_fields_set or "rule_key" in payload.model_fields_set:
+                rule_key = self._normalize_quality_action_key(payload.ruleKey)
+                if not rule_key:
+                    raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_ACTION_KEY_REQUIRED")
+                duplicate = (
+                    session.execute(
+                        select(BusinessQualityActionRule).where(
+                            BusinessQualityActionRule.business_key == row.business_key,
+                            BusinessQualityActionRule.rule_key == rule_key,
+                            BusinessQualityActionRule.id != row.id,
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if duplicate:
+                    raise HTTPException(status_code=409, detail="BUSINESS_QUALITY_ACTION_KEY_DUPLICATED")
+                row.rule_key = rule_key
+            if payload.title is not None:
+                row.title = self._required_text(payload.title, "BUSINESS_QUALITY_ACTION_TITLE_REQUIRED")[:128]
+            if "description" in payload.model_fields_set:
+                row.description = self._short_text(payload.description, 1000)
+            if payload.issueTags is not None:
+                row.issue_tags = self._normalize_output_review_tags(payload.issueTags)
+            if payload.inputTags is not None:
+                row.input_tags = self._normalize_output_review_tags(payload.inputTags)
+            if payload.actionType is not None:
+                row.action_type = self._normalize_quality_action_type(payload.actionType)
+            if "targetBusinessVersionId" in payload.model_fields_set or "target_business_version_id" in payload.model_fields_set:
+                target = self._resolve_quality_action_target(
+                    session,
+                    business_key=row.business_key,
+                    target_business_version_id=payload.targetBusinessVersionId,
+                    allow_empty=True,
+                )
+                row.target_business_version_id = target.id if target else None
+                row.target_version = target.version if target else None
+                row.target_label = target.display_name if target else None
+            if "targetRef" in payload.model_fields_set or "target_ref" in payload.model_fields_set:
+                row.target_ref = self._short_text(payload.targetRef, 128)
+            if payload.targetParams is not None:
+                row.target_params = self._json_safe_record(payload.targetParams)
+            if "sampleBatchId" in payload.model_fields_set or "sample_batch_id" in payload.model_fields_set:
+                row.sample_batch_id = self._short_text(payload.sampleBatchId, 64)
+            if payload.evidenceReviewIds is not None:
+                row.evidence_review_ids = self._normalize_quality_action_evidence_ids(payload.evidenceReviewIds)
+            if payload.status is not None:
+                row.status = self._normalize_quality_action_status(payload.status)
+            if payload.priority is not None:
+                row.priority = int(payload.priority)
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+            after = self._json_safe_payload(self._quality_action_rule_to_dict(row, target=target))
+            self._record_business_operation(
+                session=session,
+                action="update_quality_action_rule",
+                target_type="business_quality_action_rule",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=f"更新质量治理台账：{row.title}",
+                before_payload=before,
+                after_payload=after,
+            )
+            session.commit()
+            session.refresh(row)
+            return self._quality_action_rule_to_dict(row, target=target)
+
+    def archive_quality_action_rule(
+        self,
+        rule_id: str,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        with get_session() as session:
+            row = session.get(BusinessQualityActionRule, rule_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_QUALITY_ACTION_NOT_FOUND")
+            target = self._resolve_quality_action_target(
+                session,
+                business_key=row.business_key,
+                target_business_version_id=row.target_business_version_id,
+                allow_empty=True,
+            )
+            before = self._json_safe_payload(self._quality_action_rule_to_dict(row, target=target))
+            row.status = "archived"
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+            self._record_business_operation(
+                session=session,
+                action="archive_quality_action_rule",
+                target_type="business_quality_action_rule",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=f"归档质量治理台账：{row.title}",
+                before_payload=before,
+                after_payload=self._json_safe_payload(self._quality_action_rule_to_dict(row, target=target)),
+            )
+            session.commit()
+            session.refresh(row)
+            return self._quality_action_rule_to_dict(row, target=target)
 
     def _build_retest_payload(self, run: BusinessRun, *, actor: User | None = None) -> dict[str, Any]:
         request_payload = dict(run.request_payload) if isinstance(run.request_payload, dict) else {}
@@ -7848,6 +9300,541 @@ class BusinessRunService:
             return [BusinessRunService._json_safe_payload(item) for item in value]
         return value
 
+    @staticmethod
+    def _normalize_output_review_grade(value: Any) -> str:
+        grade = str(value or "pending").strip().lower()
+        if grade not in BUSINESS_OUTPUT_REVIEW_GRADES:
+            raise HTTPException(status_code=400, detail="BUSINESS_OUTPUT_REVIEW_GRADE_INVALID")
+        return grade
+
+    @staticmethod
+    def _normalize_output_review_action(value: Any) -> str | None:
+        action = str(value or "").strip().lower()
+        if not action:
+            return None
+        if action not in BUSINESS_OUTPUT_REVIEW_ACTIONS:
+            raise HTTPException(status_code=400, detail="BUSINESS_OUTPUT_REVIEW_ACTION_INVALID")
+        return action
+
+    @staticmethod
+    def _normalize_output_review_tags(value: Any) -> list[str]:
+        raw_items: list[Any]
+        if value is None:
+            raw_items = []
+        elif isinstance(value, list):
+            raw_items = value
+        elif isinstance(value, str):
+            raw_items = re.split(r"[,，;；\n]+", value)
+        else:
+            raw_items = [value]
+        seen: set[str] = set()
+        tags: list[str] = []
+        for item in raw_items:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            tags.append(text[:64])
+            if len(tags) >= 12:
+                break
+        return tags
+
+    @staticmethod
+    def _normalize_quality_sample_status(value: Any) -> str:
+        status = str(value or "active").strip().lower()
+        if status not in {"active", "inactive", "archived"}:
+            raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_SAMPLE_STATUS_INVALID")
+        return status
+
+    @staticmethod
+    def _normalize_quality_sample_key(value: Any) -> str | None:
+        text = str(value or "").strip().lower()
+        if not text:
+            return None
+        normalized = re.sub(r"[^a-z0-9_-]+", "-", text).strip("-_")
+        return normalized[:64] or None
+
+    @staticmethod
+    def _normalize_quality_sample_url(value: Any, *, required: bool) -> str | None:
+        text = str(value or "").strip()
+        if not text:
+            if required:
+                raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_SAMPLE_IMAGE_URL_REQUIRED")
+            return None
+        if not (text.startswith("http://") or text.startswith("https://")):
+            raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_SAMPLE_IMAGE_URL_INVALID")
+        return text[:1024]
+
+    @staticmethod
+    def _normalize_quality_action_status(value: Any) -> str:
+        status = str(value or "candidate").strip().lower()
+        if status not in BUSINESS_QUALITY_ACTION_STATUSES:
+            raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_ACTION_STATUS_INVALID")
+        return status
+
+    @staticmethod
+    def _normalize_quality_action_type(value: Any) -> str:
+        action_type = str(value or "watch_only").strip().lower()
+        if action_type not in BUSINESS_QUALITY_ACTION_TYPES:
+            raise HTTPException(status_code=400, detail="BUSINESS_QUALITY_ACTION_TYPE_INVALID")
+        return action_type
+
+    @staticmethod
+    def _normalize_quality_action_key(value: Any) -> str | None:
+        text = str(value or "").strip().lower()
+        if not text:
+            return None
+        normalized = re.sub(r"[^a-z0-9_-]+", "-", text).strip("-_")
+        return normalized[:64] or None
+
+    @staticmethod
+    def _normalize_quality_action_evidence_ids(value: Any) -> list[str]:
+        raw_items: list[Any]
+        if value is None:
+            raw_items = []
+        elif isinstance(value, list):
+            raw_items = value
+        else:
+            raw_items = [value]
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for item in raw_items:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            normalized.append(text[:64])
+            if len(normalized) >= 50:
+                break
+        return normalized
+
+    @staticmethod
+    def _quality_action_target_to_dict(target: BusinessCapability | None) -> dict[str, Any] | None:
+        if not target:
+            return None
+        return {
+            "id": target.id,
+            "version": target.version,
+            "display_name": target.display_name,
+            "status": target.status,
+            "is_default": target.is_default,
+        }
+
+    def _resolve_quality_action_target(
+        self,
+        session: Any,
+        *,
+        business_key: str,
+        target_business_version_id: str | None,
+        allow_empty: bool = False,
+    ) -> BusinessCapability | None:
+        target_id = str(target_business_version_id or "").strip()
+        if not target_id:
+            return None if allow_empty or target_business_version_id in {None, ""} else None
+        target = session.get(BusinessCapability, target_id)
+        if not target or str(target.business_key or "").strip() != str(business_key or "").strip():
+            raise HTTPException(status_code=404, detail="BUSINESS_QUALITY_ACTION_TARGET_VERSION_NOT_FOUND")
+        return target
+
+    @staticmethod
+    def _json_safe_record(value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+        safe = BusinessRunService._json_safe_payload(value)
+        return safe if isinstance(safe, dict) else {}
+
+    @staticmethod
+    def _business_run_output_url(run: BusinessRun, output_index: int) -> str | None:
+        urls: list[str] = []
+        for source in (run.image_urls, run.video_urls):
+            if isinstance(source, list):
+                urls.extend([str(url).strip() for url in source if isinstance(url, str) and str(url).strip()])
+        if 0 <= output_index < len(urls):
+            return urls[output_index]
+        return None
+
+    @staticmethod
+    def _output_review_sample_meta_from_run(run: BusinessRun) -> dict[str, str | None]:
+        request_payload = run.request_payload if isinstance(run.request_payload, dict) else {}
+        metadata = request_payload.get("metadata") if isinstance(request_payload.get("metadata"), dict) else {}
+        quality_sample = metadata.get("qualitySample") if isinstance(metadata.get("qualitySample"), dict) else {}
+        return {
+            "sample_key": BusinessRunService._short_text(
+                quality_sample.get("sampleKey") or quality_sample.get("sample_key"),
+                64,
+            ),
+            "sample_label": BusinessRunService._short_text(
+                quality_sample.get("sampleLabel") or quality_sample.get("sample_label"),
+                128,
+            ),
+            "batch_id": BusinessRunService._short_text(
+                quality_sample.get("batchId") or quality_sample.get("batch_id"),
+                64,
+            ),
+        }
+
+    @staticmethod
+    def _output_review_to_dict(row: BusinessOutputReview) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "run_id": row.run_id,
+            "business_key": row.business_key,
+            "business_version_id": row.business_version_id,
+            "version": row.version,
+            "output_index": row.output_index,
+            "output_url": row.output_url,
+            "sample_key": row.sample_key,
+            "sample_label": row.sample_label,
+            "batch_id": row.batch_id,
+            "quality_grade": row.quality_grade,
+            "input_tags": row.input_tags if isinstance(row.input_tags, list) else [],
+            "issue_tags": row.issue_tags if isinstance(row.issue_tags, list) else [],
+            "next_action": row.next_action,
+            "note": row.note,
+            "reviewer_user_id": row.reviewer_user_id,
+            "reviewer_username": row.reviewer_username,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    @staticmethod
+    def _quality_sample_to_dict(row: BusinessQualitySample) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "business_key": row.business_key,
+            "sample_key": row.sample_key,
+            "label": row.label,
+            "description": row.description,
+            "image_url": row.image_url,
+            "prompt": row.prompt,
+            "generated_image_url": row.generated_image_url,
+            "input_tags": row.input_tags if isinstance(row.input_tags, list) else [],
+            "default_params": row.default_params if isinstance(row.default_params, dict) else {},
+            "status": row.status,
+            "sort_order": row.sort_order,
+            "created_by_user_id": row.created_by_user_id,
+            "created_by_username": row.created_by_username,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def _record_quality_sample_version(
+        self,
+        *,
+        session: Any,
+        row: BusinessQualitySample,
+        change_type: str,
+        actor: User | None = None,
+        note: str | None = None,
+    ) -> None:
+        latest_version = (
+            session.execute(
+                select(func.max(BusinessQualitySampleVersion.version_no)).where(
+                    BusinessQualitySampleVersion.sample_id == row.id
+                )
+            ).scalar()
+            or 0
+        )
+        session.add(
+            BusinessQualitySampleVersion(
+                id=f"bizsamplever_{uuid4().hex}",
+                sample_id=row.id,
+                business_key=row.business_key,
+                sample_key=row.sample_key,
+                label=row.label,
+                description=row.description,
+                image_url=row.image_url,
+                prompt=row.prompt,
+                generated_image_url=row.generated_image_url,
+                input_tags=row.input_tags if isinstance(row.input_tags, list) else [],
+                default_params=row.default_params if isinstance(row.default_params, dict) else {},
+                status=row.status,
+                sort_order=row.sort_order,
+                change_type=str(change_type or "update")[:32],
+                change_note=self._short_text(note, 1000),
+                version_no=int(latest_version) + 1,
+                actor_user_id=self._safe_user_id(actor),
+                actor_username=self._actor_username(actor),
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    @staticmethod
+    def _quality_sample_version_to_dict(row: BusinessQualitySampleVersion) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "sample_id": row.sample_id,
+            "business_key": row.business_key,
+            "sample_key": row.sample_key,
+            "label": row.label,
+            "description": row.description,
+            "image_url": row.image_url,
+            "prompt": row.prompt,
+            "generated_image_url": row.generated_image_url,
+            "input_tags": row.input_tags if isinstance(row.input_tags, list) else [],
+            "default_params": row.default_params if isinstance(row.default_params, dict) else {},
+            "status": row.status,
+            "sort_order": row.sort_order,
+            "change_type": row.change_type,
+            "change_note": row.change_note,
+            "version_no": row.version_no,
+            "actor_user_id": row.actor_user_id,
+            "actor_username": row.actor_username,
+            "created_at": row.created_at,
+        }
+
+    @staticmethod
+    def _quality_action_rule_to_dict(
+        row: BusinessQualityActionRule,
+        *,
+        target: BusinessCapability | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "business_key": row.business_key,
+            "rule_key": row.rule_key,
+            "title": row.title,
+            "description": row.description,
+            "issue_tags": row.issue_tags if isinstance(row.issue_tags, list) else [],
+            "input_tags": row.input_tags if isinstance(row.input_tags, list) else [],
+            "action_type": row.action_type,
+            "target_business_version_id": row.target_business_version_id,
+            "target_version": row.target_version,
+            "target_label": row.target_label,
+            "target_ref": row.target_ref,
+            "target_params": row.target_params if isinstance(row.target_params, dict) else {},
+            "target_capability": BusinessRunService._quality_action_target_to_dict(target),
+            "sample_batch_id": row.sample_batch_id,
+            "evidence_review_ids": row.evidence_review_ids if isinstance(row.evidence_review_ids, list) else [],
+            "status": row.status,
+            "priority": row.priority,
+            "owner_user_id": row.owner_user_id,
+            "owner_username": row.owner_username,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    @staticmethod
+    def _output_review_bucket_list(
+        counts: dict[str, int],
+        *,
+        samples_by_key: dict[str, list[BusinessOutputReview]] | None = None,
+        limit: int = 20,
+        sample_limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "key": key,
+                "label": key,
+                "total": total,
+                "sample_reviews": [
+                    BusinessRunService._output_review_to_dict(row)
+                    for row in (samples_by_key or {}).get(key, [])[:sample_limit]
+                ],
+            }
+            for key, total in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+        ]
+
+    def _output_review_grade_buckets(self, rows: list[BusinessOutputReview]) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {grade: 0 for grade in ["excellent", "usable", "borderline", "bad", "blocked", "pending"]}
+        for row in rows:
+            grade = str(row.quality_grade or "pending").strip().lower() or "pending"
+            counts[grade] = counts.get(grade, 0) + 1
+        labels = {
+            "excellent": "优秀",
+            "usable": "可用",
+            "borderline": "临界",
+            "bad": "不可用",
+            "blocked": "链路阻塞",
+            "pending": "待复盘",
+        }
+        return [
+            {"key": key, "label": labels.get(key, key), "total": total}
+            for key, total in counts.items()
+            if total > 0
+        ]
+
+    def _output_review_tag_buckets(
+        self,
+        rows: list[BusinessOutputReview],
+        attr: str,
+        *,
+        business_key: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {}
+        samples_by_key: dict[str, list[BusinessOutputReview]] = {}
+        sorted_rows = sorted(rows, key=lambda row: row.updated_at or row.created_at, reverse=True)
+        for row in sorted_rows:
+            if business_key and row.business_key != business_key:
+                continue
+            raw = getattr(row, attr, None)
+            if not isinstance(raw, list):
+                continue
+            for item in raw:
+                text = str(item or "").strip()
+                if not text:
+                    continue
+                counts[text] = counts.get(text, 0) + 1
+                samples = samples_by_key.setdefault(text, [])
+                if len(samples) < 3:
+                    samples.append(row)
+        return self._output_review_bucket_list(counts, samples_by_key=samples_by_key, limit=limit)
+
+    def _output_review_business_summaries(self, rows: list[BusinessOutputReview]) -> list[dict[str, Any]]:
+        grouped: dict[str, list[BusinessOutputReview]] = {}
+        for row in rows:
+            key = str(row.business_key or "-").strip() or "-"
+            grouped.setdefault(key, []).append(row)
+        summaries: list[dict[str, Any]] = []
+        for business_key, business_rows in grouped.items():
+            grade_counts = {str(row.quality_grade or "pending").strip().lower() or "pending": 0 for row in business_rows}
+            for row in business_rows:
+                grade = str(row.quality_grade or "pending").strip().lower() or "pending"
+                grade_counts[grade] = grade_counts.get(grade, 0) + 1
+            reviewed = sum(count for grade, count in grade_counts.items() if grade != "pending")
+            latest = max((row.updated_at or row.created_at for row in business_rows), default=None)
+            summaries.append(
+                {
+                    "business_key": business_key,
+                    "label": self._business_key_label(business_key),
+                    "total": len(business_rows),
+                    "reviewed": reviewed,
+                    "excellent": grade_counts.get("excellent", 0),
+                    "usable": grade_counts.get("usable", 0),
+                    "borderline": grade_counts.get("borderline", 0),
+                    "bad": grade_counts.get("bad", 0),
+                    "blocked": grade_counts.get("blocked", 0),
+                    "pending": grade_counts.get("pending", 0),
+                    "latest_at": latest,
+                    "top_issue_tags": self._output_review_tag_buckets(business_rows, "issue_tags", limit=5),
+                    "top_input_tags": self._output_review_tag_buckets(business_rows, "input_tags", limit=5),
+                }
+            )
+        return sorted(summaries, key=lambda item: (-int(item["total"]), str(item["business_key"])))
+
+    def _output_review_version_summaries(self, rows: list[BusinessOutputReview]) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str, str, str], list[BusinessOutputReview]] = {}
+        for row in rows:
+            business_key = str(row.business_key or "-").strip() or "-"
+            version = str(row.version or "").strip()
+            business_version_id = str(row.business_version_id or "").strip()
+            grouped.setdefault((business_key, version, business_version_id), []).append(row)
+        summaries: list[dict[str, Any]] = []
+        for (business_key, version, business_version_id), version_rows in grouped.items():
+            grade_counts = {str(row.quality_grade or "pending").strip().lower() or "pending": 0 for row in version_rows}
+            for row in version_rows:
+                grade = str(row.quality_grade or "pending").strip().lower() or "pending"
+                grade_counts[grade] = grade_counts.get(grade, 0) + 1
+            reviewed = sum(count for grade, count in grade_counts.items() if grade != "pending")
+            latest = max((row.updated_at or row.created_at for row in version_rows), default=None)
+            summaries.append(
+                {
+                    "business_key": business_key,
+                    "business_version_id": business_version_id or None,
+                    "version": version or None,
+                    "label": f"{self._business_key_label(business_key)} · {version or '未标版本'}",
+                    "total": len(version_rows),
+                    "reviewed": reviewed,
+                    "excellent": grade_counts.get("excellent", 0),
+                    "usable": grade_counts.get("usable", 0),
+                    "borderline": grade_counts.get("borderline", 0),
+                    "bad": grade_counts.get("bad", 0),
+                    "blocked": grade_counts.get("blocked", 0),
+                    "pending": grade_counts.get("pending", 0),
+                    "latest_at": latest,
+                    "top_issue_tags": self._output_review_tag_buckets(version_rows, "issue_tags", limit=5),
+                    "top_input_tags": self._output_review_tag_buckets(version_rows, "input_tags", limit=5),
+                }
+            )
+        return sorted(
+            summaries,
+            key=lambda item: (
+                str(item.get("business_key") or ""),
+                str(item.get("version") or ""),
+                str(item.get("business_version_id") or ""),
+            ),
+        )
+
+    def _output_review_batch_summaries(self, rows: list[BusinessOutputReview]) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str, str, str, str], list[BusinessOutputReview]] = {}
+        for row in rows:
+            batch_id = str(row.batch_id or "").strip()
+            if not batch_id:
+                continue
+            business_key = str(row.business_key or "-").strip() or "-"
+            sample_key = str(row.sample_key or "").strip()
+            sample_label = str(row.sample_label or "").strip()
+            grouped.setdefault((batch_id, business_key, sample_key, sample_label), []).append(row)
+
+        summaries: list[dict[str, Any]] = []
+        for (batch_id, business_key, sample_key, sample_label), batch_rows in grouped.items():
+            latest = max((row.updated_at or row.created_at for row in batch_rows), default=None)
+            good, risk, reviewed = self._output_review_good_risk_counts(batch_rows)
+            version_groups: dict[tuple[str, str], list[BusinessOutputReview]] = {}
+            for row in batch_rows:
+                version_groups.setdefault((str(row.business_version_id or ""), str(row.version or "")), []).append(row)
+            versions: list[dict[str, Any]] = []
+            for (business_version_id, version), version_rows in version_groups.items():
+                version_good, version_risk, version_reviewed = self._output_review_good_risk_counts(version_rows)
+                version_latest = max((row.updated_at or row.created_at for row in version_rows), default=None)
+                versions.append(
+                    {
+                        "business_version_id": business_version_id or None,
+                        "version": version or None,
+                        "label": version or business_version_id or "未标版本",
+                        "total": len(version_rows),
+                        "reviewed": version_reviewed,
+                        "good": version_good,
+                        "risk": version_risk,
+                        "latest_at": version_latest,
+                        "sample_reviews": [
+                            self._output_review_to_dict(row)
+                            for row in sorted(version_rows, key=lambda item: item.updated_at or item.created_at, reverse=True)[:3]
+                        ],
+                    }
+                )
+            versions.sort(key=lambda item: (-int(item["good"]), int(item["risk"]), str(item.get("version") or "")))
+            sample_reviews = [
+                self._output_review_to_dict(row)
+                for row in sorted(batch_rows, key=lambda item: item.updated_at or item.created_at, reverse=True)[:6]
+            ]
+            summaries.append(
+                {
+                    "batch_id": batch_id,
+                    "business_key": business_key,
+                    "sample_key": sample_key or None,
+                    "sample_label": sample_label or sample_key or "固定样例",
+                    "label": f"{self._business_key_label(business_key)} · {sample_label or sample_key or batch_id}",
+                    "total": len(batch_rows),
+                    "reviewed": reviewed,
+                    "good": good,
+                    "risk": risk,
+                    "latest_at": latest,
+                    "versions": versions,
+                    "top_issue_tags": self._output_review_tag_buckets(batch_rows, "issue_tags", limit=5),
+                    "top_input_tags": self._output_review_tag_buckets(batch_rows, "input_tags", limit=5),
+                    "sample_reviews": sample_reviews,
+                }
+            )
+        return sorted(summaries, key=lambda item: item.get("latest_at") or datetime.min, reverse=True)[:50]
+
+    @staticmethod
+    def _output_review_good_risk_counts(rows: list[BusinessOutputReview]) -> tuple[int, int, int]:
+        good = 0
+        risk = 0
+        reviewed = 0
+        for row in rows:
+            grade = str(row.quality_grade or "pending").strip().lower() or "pending"
+            if grade == "pending":
+                continue
+            reviewed += 1
+            if grade in {"excellent", "usable"}:
+                good += 1
+            elif grade in {"borderline", "bad", "blocked"}:
+                risk += 1
+        return good, risk, reviewed
+
     def _record_business_operation(
         self,
         *,
@@ -7988,6 +9975,7 @@ class BusinessRunService:
             latest_run=latest_run,
             run_metrics=run_metrics,
             primary_ability_id=primary_ability_id,
+            session=session,
         )
         version_line = self._business_capability_version_line(
             row,
@@ -8178,7 +10166,9 @@ class BusinessRunService:
             "image_fission": "图裂变",
             "fission": "图裂变",
             "fission_evaluate": "裂变评分",
+            "image_edit": "图编辑",
             "outpaint": "扩图",
+            "text_fission": "文字裂变",
         }
         key = str(business_key or "").strip()
         return labels.get(key, key or "未命名业务")
@@ -8294,6 +10284,8 @@ class BusinessRunService:
         release_gate = release_payload.get("release_gate") if isinstance(release_payload, dict) else None
         if not isinstance(release_gate, dict) or not release_gate.get("canRelease"):
             raise HTTPException(status_code=409, detail="BUSINESS_RELEASE_GATE_BLOCKED")
+        if not release_gate.get("canRequestDefault"):
+            raise HTTPException(status_code=409, detail="BUSINESS_RELEASE_GATE_BLOCKED")
 
     @staticmethod
     def _build_draft_publish_checks(draft_payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -8308,6 +10300,8 @@ class BusinessRunService:
         latest_status = str(latest_run.get("status") if latest_run else "").strip().lower()
         latest_has_output = bool(image_count or video_count or text_count)
         acceptance_passed = BusinessRunService._acceptance_passed(latest_acceptance)
+        quality_evidence = draft_payload.get("release_gate", {}).get("qualityEvidence") if isinstance(draft_payload.get("release_gate"), dict) else None
+        quality_ready = isinstance(quality_evidence, dict) and bool(quality_evidence.get("canRequestDefault"))
         return [
             {
                 "code": "BUSINESS_DRAFT_IDENTITY",
@@ -8343,6 +10337,14 @@ class BusinessRunService:
                 "action": "先登记验收记录，最好带 runId 或样本链接。",
             },
             {
+                "code": "BUSINESS_DRAFT_QUALITY_REVIEW_PASSED",
+                "label": "质量复盘",
+                "passed": quality_ready,
+                "level": "blocker",
+                "message": "发布前必须至少有一张输出图被标为优秀或可用。",
+                "action": "打开 runId 详情，在出图质量标注里保存质量档位和问题标签。",
+            },
+            {
                 "code": "BUSINESS_DRAFT_RECENT_FAILURES",
                 "label": "近期失败",
                 "passed": not bool((draft_payload.get("latest_run") or {}).get("error")),
@@ -8361,11 +10363,13 @@ class BusinessRunService:
         latest_run: dict[str, Any] | None,
         run_metrics: dict[str, Any] | None,
         primary_ability_id: str | None,
+        session=None,
     ) -> dict[str, Any]:
         blockers: list[str] = []
         warnings: list[str] = []
         suggestions: list[str] = []
         governance_status = str(governance.get("status") or "").strip().lower()
+        quality_evidence = self._business_capability_quality_evidence(row, session=session)
 
         if row.status != "active":
             blockers.append("BUSINESS_RELEASE_VERSION_INACTIVE")
@@ -8391,6 +10395,13 @@ class BusinessRunService:
         if run_metrics and (self._first_int(run_metrics.get("unresolved_failed")) or 0) > 0:
             warnings.append("BUSINESS_RELEASE_RECENT_FAILURES")
             suggestions.append("近窗口有失败样本，先筛选业务调用记录定位问题。")
+        for code in quality_evidence.get("blockers") or []:
+            blockers.append(str(code))
+        for code in quality_evidence.get("warnings") or []:
+            warnings.append(str(code))
+        for suggestion in quality_evidence.get("suggestions") or []:
+            if suggestion:
+                suggestions.append(str(suggestion))
 
         status = "ready"
         label = "可上线"
@@ -8404,11 +10415,119 @@ class BusinessRunService:
             "status": status,
             "label": label,
             "canRelease": status == "ready",
-            "canRequestDefault": not blockers and acceptance_ok,
+            "canRequestDefault": not blockers and acceptance_ok and bool(quality_evidence.get("canRequestDefault")),
             "acceptancePassed": acceptance_ok,
             "blockers": blockers,
             "warnings": warnings,
             "suggestions": suggestions,
+            "qualityEvidence": quality_evidence,
+        }
+
+    def _business_capability_quality_evidence(self, row: BusinessCapability, *, session=None) -> dict[str, Any]:
+        required = row.business_key in BUSINESS_QUALITY_GATE_KEYS and row.status in {"active", "draft"}
+        empty = {
+            "required": required,
+            "windowHours": BUSINESS_QUALITY_GATE_WINDOW_HOURS,
+            "total": 0,
+            "reviewed": 0,
+            "accepted": 0,
+            "risky": 0,
+            "excellent": 0,
+            "usable": 0,
+            "borderline": 0,
+            "bad": 0,
+            "blocked": 0,
+            "pending": 0,
+            "status": "not_required" if not required else "blocked",
+            "label": "不要求质量复盘" if not required else "缺少质量复盘",
+            "canRequestDefault": not required,
+            "blockers": [] if not required else ["BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED"],
+            "warnings": [],
+            "suggestions": [] if not required else ["先打开候选版本的 runId 详情，至少把一张输出标为优秀或可用。"],
+            "topIssueTags": [],
+            "topInputTags": [],
+            "latestAt": None,
+        }
+        if session is None or not required:
+            return empty
+        if not self._optional_table_exists(session, "business_output_reviews"):
+            return empty
+
+        since = datetime.utcnow() - timedelta(hours=BUSINESS_QUALITY_GATE_WINDOW_HOURS)
+        rows = (
+            session.execute(
+                select(BusinessOutputReview)
+                .where(
+                    BusinessOutputReview.updated_at >= since,
+                    or_(
+                        BusinessOutputReview.business_version_id == row.id,
+                        and_(
+                            BusinessOutputReview.business_key == row.business_key,
+                            BusinessOutputReview.version == row.version,
+                        ),
+                    ),
+                )
+                .order_by(BusinessOutputReview.updated_at.desc())
+                .limit(1000)
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            return empty
+
+        grade_counts = {grade: 0 for grade in BUSINESS_OUTPUT_REVIEW_GRADES}
+        for review in rows:
+            grade = str(review.quality_grade or "pending").strip().lower()
+            if grade in grade_counts:
+                grade_counts[grade] += 1
+        reviewed = sum(total for grade, total in grade_counts.items() if grade != "pending")
+        accepted = sum(grade_counts.get(grade, 0) for grade in BUSINESS_QUALITY_ACCEPTED_GRADES)
+        risky = sum(grade_counts.get(grade, 0) for grade in BUSINESS_QUALITY_RISK_GRADES)
+        blockers: list[str] = []
+        warnings: list[str] = []
+        suggestions: list[str] = []
+        status = "ready"
+        label = "质量证据通过"
+        if reviewed <= 0:
+            blockers.append("BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED")
+            suggestions.append("候选版本已有输出但未完成质量标注，先在 runId 详情保存质量档位。")
+            status = "blocked"
+            label = "缺少质量复盘"
+        elif accepted <= 0:
+            blockers.append("BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED")
+            suggestions.append("近 7 天没有优秀或可用样本，不能切默认。")
+            status = "blocked"
+            label = "缺少可用样本"
+        elif risky > 0:
+            warnings.append("BUSINESS_RELEASE_QUALITY_REVIEW_RISKY")
+            suggestions.append("候选版本有边界/差图样本，切默认前确认问题标签和分流方案。")
+            status = "warning"
+            label = "质量证据需复核"
+
+        latest_at = max((review.updated_at or review.created_at for review in rows if review.updated_at or review.created_at), default=None)
+        return {
+            "required": required,
+            "windowHours": BUSINESS_QUALITY_GATE_WINDOW_HOURS,
+            "total": len(rows),
+            "reviewed": reviewed,
+            "accepted": accepted,
+            "risky": risky,
+            "excellent": grade_counts.get("excellent", 0),
+            "usable": grade_counts.get("usable", 0),
+            "borderline": grade_counts.get("borderline", 0),
+            "bad": grade_counts.get("bad", 0),
+            "blocked": grade_counts.get("blocked", 0),
+            "pending": grade_counts.get("pending", 0),
+            "status": status,
+            "label": label,
+            "canRequestDefault": not blockers,
+            "blockers": blockers,
+            "warnings": warnings,
+            "suggestions": suggestions,
+            "topIssueTags": self._output_review_tag_buckets(rows, "issue_tags")[:5],
+            "topInputTags": self._output_review_tag_buckets(rows, "input_tags")[:5],
+            "latestAt": latest_at.isoformat() if latest_at else None,
         }
 
     def _business_capability_governance(
@@ -9748,6 +11867,12 @@ class BusinessRunService:
             next_action = None
 
         issue_summary = self._build_run_issue_summary(row, session=session, steps=steps)
+        route_sources: list[Any] = [route, row.request_payload, row.result_payload]
+        for step in steps:
+            if isinstance(step, dict):
+                route_sources.extend([step.get("routing"), step.get("defaultParams"), step.get("execution_evidence")])
+        route_lora_name = self._usage_flow_extract_value(route_sources, BUSINESS_FLOW_LORA_KEYS)
+        route_workflow_key = self._usage_flow_extract_value(route_sources, BUSINESS_FLOW_WORKFLOW_KEYS)
         return {
             **counts,
             "progressPercent": progress,
@@ -9770,6 +11895,8 @@ class BusinessRunService:
                 "version": row.version,
                 "selectedBy": route.get("selectedBy") or route.get("selected_by"),
                 "selectedCapabilityId": route.get("selectedCapabilityId") or route.get("selected_capability_id"),
+                "workflowKey": route_workflow_key,
+                "loraName": route_lora_name,
             },
             "ability": {
                 "id": row.ability_id or (primary_step or {}).get("ability_id"),

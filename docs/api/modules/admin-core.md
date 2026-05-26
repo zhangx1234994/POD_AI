@@ -242,6 +242,93 @@ GET /api/admin/business/operation-logs?business_key=fission&limit=20
 }
 ```
 
+### GET /api/admin/business/quality-samples
+### POST /api/admin/business/quality-samples
+### PATCH /api/admin/business/quality-samples/{sampleId}
+### DELETE /api/admin/business/quality-samples/{sampleId}
+
+维护固定质量样例库。样例用于候选版本同批复跑、测评端只读复用和默认版本切换前的质量证据留存。
+
+关键字段：
+
+- `businessKey` / `sampleKey`：同一业务下的稳定样例标识。
+- `imageUrl`：公网 HTTP(S) 图片 URL，管理端可先通过 OSS 直传填入。
+- `prompt` / `generatedImageUrl` / `inputTags` / `defaultParams`：复跑时自动带入的提示词、对照图、标签和参数。
+- `changeNote`：可选，写入样例版本历史。
+
+错误：
+
+- `BUSINESS_QUALITY_SAMPLE_BUSINESS_KEY_REQUIRED`
+- `BUSINESS_QUALITY_SAMPLE_KEY_REQUIRED`
+- `BUSINESS_QUALITY_SAMPLE_LABEL_REQUIRED`
+- `BUSINESS_QUALITY_SAMPLE_IMAGE_URL_REQUIRED`
+- `BUSINESS_QUALITY_SAMPLE_IMAGE_URL_INVALID`
+- `BUSINESS_QUALITY_SAMPLE_STATUS_INVALID`
+- `BUSINESS_QUALITY_SAMPLE_KEY_DUPLICATED`
+- `BUSINESS_QUALITY_SAMPLE_NOT_FOUND`
+
+### POST /api/admin/business/quality-samples/import
+
+批量导入或更新固定质量样例。请求体支持 `businessKey` 作为默认业务，`items[]` 中每条仍可覆盖；服务端按 `businessKey + sampleKey` upsert，`dryRun=true` 只做预检查。
+
+请求：
+
+```json
+{
+  "businessKey": "fission",
+  "dryRun": false,
+  "changeNote": "运营批量导入",
+  "items": [
+    {
+      "sampleKey": "dense-pattern-a",
+      "label": "满版图案 A",
+      "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/...",
+      "inputTags": ["满版图案"],
+      "defaultParams": {"quality": "preview"}
+    }
+  ]
+}
+```
+
+错误：
+
+- `BUSINESS_QUALITY_SAMPLE_IMPORT_EMPTY`
+- `BUSINESS_QUALITY_SAMPLE_IMPORT_LIMIT_EXCEEDED`
+- `BUSINESS_QUALITY_SAMPLE_BUSINESS_KEY_REQUIRED`
+- `BUSINESS_QUALITY_SAMPLE_KEY_REQUIRED`
+- `BUSINESS_QUALITY_SAMPLE_KEY_DUPLICATED`
+- `BUSINESS_QUALITY_SAMPLE_LABEL_REQUIRED`
+- `BUSINESS_QUALITY_SAMPLE_IMAGE_URL_REQUIRED`
+- `BUSINESS_QUALITY_SAMPLE_IMAGE_URL_INVALID`
+- `BUSINESS_QUALITY_SAMPLE_STATUS_INVALID`
+
+### GET /api/admin/business/quality-samples/{sampleId}/versions
+
+查询固定样例每次新增、更新、导入、归档时保存的快照，便于运营和研发追溯“换图/换参数”对出图效果的影响。
+
+错误：
+
+- `BUSINESS_QUALITY_SAMPLE_NOT_FOUND`
+
+### GET /api/admin/business/output-reviews/export
+
+导出业务输出质量复盘明细。主要用于固定样例同批对照复盘，可按 `batch_id` 精确导出某一批，也可按 `business_key` / `version` / `window_hours` 导出窗口内标注记录。
+
+请求参数：
+
+- `window_hours`：默认 `168`，范围 `1-2160`。
+- `business_key`：可选，业务过滤。
+- `version`：可选，版本过滤。
+- `batch_id`：可选，固定样例复跑批次过滤。
+- `limit`：默认 `5000`，范围 `1-10000`。
+
+响应：`text/csv; charset=utf-8`，列包含 `batch_id`、业务、样例、runId、版本、质量档位、下一步动作、输入/问题标签、输出 URL、备注和标注人。
+
+错误：
+
+- `ADMIN_ONLY`
+- `422` 参数范围校验失败
+
 ---
 
 ## 5) API Key 管理

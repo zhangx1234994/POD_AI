@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Col, Dialog, Input, InputNumber, Row, Select, Space, Switch, Table, Tag, Textarea, Typography } from 'tdesign-react';
 import {
   Background,
@@ -19,7 +19,19 @@ import type {
   BusinessCapabilityCompareResponse,
   BusinessCapabilityFormState,
   BusinessDefaultApproval,
+  BusinessFlowEvidenceBucket,
   BusinessOperationLog,
+  BusinessOutputReview,
+  BusinessOutputReviewBatchSummary,
+  BusinessOutputReviewBucket,
+  BusinessOutputReviewSummaryResponse,
+  BusinessOutputReviewVersionSummary,
+  BusinessQualityActionRule,
+  BusinessQualitySample,
+  BusinessQualitySampleImportItem,
+  BusinessQualitySampleImportResponse,
+  BusinessQualitySampleVersion,
+  BusinessReleaseGate,
   BusinessOrchestrationEdge,
   BusinessOrchestrationGraph,
   BusinessOrchestrationNode,
@@ -30,6 +42,7 @@ import type {
   BusinessUsageSummaryResponse,
   JsonRecord,
 } from '../../../types/admin';
+import { adminApi } from '../../../services/adminApi';
 import { GuidanceQueueCard, OperationFlowCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
 import {
   businessRunBillingStatusOptions,
@@ -901,7 +914,7 @@ export const BusinessCoreDecisionPanel = ({
       ? `先处理 ${dangerCount} 条阻塞，再谈上线或放量。`
       : warningCount > 0
         ? `${warningCount} 条主业务还需要补证据或复核。`
-        : '三条主业务当前都具备基础闭环，可继续小流量验证。';
+        : `${rows.length} 条核心业务当前都具备基础闭环，可继续小流量验证。`;
 
   return (
     <Card
@@ -910,7 +923,7 @@ export const BusinessCoreDecisionPanel = ({
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <div>
-            <Typography.Text strong>三主业务当前结论</Typography.Text>
+            <Typography.Text strong>核心业务当前结论</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
                 先看这里：每条主业务只保留状态、卡点、下一步和关键证据，详细配置再往下看。
@@ -918,7 +931,7 @@ export const BusinessCoreDecisionPanel = ({
             </div>
           </div>
           <Tag theme={summaryTheme} variant="light">
-            {successCount}/3 可推进
+            {successCount}/{rows.length} 可推进
           </Tag>
         </Space>
       }
@@ -1501,6 +1514,922 @@ export const BusinessUsageSummaryPanel = ({
   </Card>
 );
 
+type BusinessFlowMonitorStage = {
+  key: string;
+  title: string;
+  status: string;
+  detail: string;
+  evidence?: string;
+  action: string;
+  theme: BusinessRunFlowStageTheme;
+};
+
+type BusinessFlowHitGroup = {
+  key: string;
+  title: string;
+  detail: string;
+  buckets: BusinessFlowEvidenceBucket[];
+};
+
+const businessIssueBucketTotal = (summary: BusinessUsageSummaryResponse | null | undefined, keys: string[]) =>
+  (summary?.byIssue || [])
+    .filter((bucket) => keys.includes(String(bucket.key || '').toLowerCase()))
+    .reduce((total, bucket) => total + Number(bucket.total || 0), 0);
+
+const businessIssueBucketFailed = (summary: BusinessUsageSummaryResponse | null | undefined, keys: string[]) =>
+  (summary?.byIssue || [])
+    .filter((bucket) => keys.includes(String(bucket.key || '').toLowerCase()))
+    .reduce((total, bucket) => total + Number(bucket.failed || 0), 0);
+
+const businessFlowStageEvidence = (summary: BusinessUsageSummaryResponse | null | undefined, key: string) =>
+  (summary?.flowEvidence?.stageEvidence || []).find((item) => item.key === key);
+
+const businessFlowEvidenceDurationLabel = (bucket?: BusinessFlowEvidenceBucket | null) => {
+  if (!bucket) return '';
+  const parts = [
+    typeof bucket.avgDurationMs === 'number' ? `均 ${formatPanelDurationMs(bucket.avgDurationMs)}` : '',
+    typeof bucket.p95DurationMs === 'number' ? `P95 ${formatPanelDurationMs(bucket.p95DurationMs)}` : '',
+  ].filter(Boolean);
+  return parts.join(' · ');
+};
+
+const businessFlowEvidenceCountLabel = (bucket?: BusinessFlowEvidenceBucket | null) => {
+  if (!bucket) return '';
+  const durationLabel = businessFlowEvidenceDurationLabel(bucket);
+  const samples = Number((bucket.evidence as JsonRecord | undefined)?.durationSamples || 0);
+  return [durationLabel, samples > 0 ? `耗时样本 ${samples}` : ''].filter(Boolean).join(' · ');
+};
+
+const businessFlowHitDigest = (buckets?: BusinessFlowEvidenceBucket[]) => {
+  const items = (buckets || []).slice(0, 3);
+  if (items.length === 0) return '暂无命中';
+  return items.map((bucket) => `${formatShortBusinessId(bucket.label || bucket.key)} ${bucket.total}`).join(' · ');
+};
+
+const businessFlowHitGroups = (summary: BusinessUsageSummaryResponse | null | undefined): BusinessFlowHitGroup[] => {
+  const flow = summary?.flowEvidence;
+  if (!flow) return [];
+  return [
+    {
+      key: 'route',
+      title: '路由命中',
+      detail: businessFlowHitDigest(flow.routeHits),
+      buckets: flow.routeHits || [],
+    },
+    {
+      key: 'candidate',
+      title: '候选命中',
+      detail: businessFlowHitDigest(flow.candidateHits),
+      buckets: flow.candidateHits || [],
+    },
+    {
+      key: 'lora',
+      title: 'LoRA',
+      detail: businessFlowHitDigest(flow.loraHits),
+      buckets: flow.loraHits || [],
+    },
+    {
+      key: 'workflow',
+      title: 'Workflow',
+      detail: businessFlowHitDigest(flow.workflowHits),
+      buckets: flow.workflowHits || [],
+    },
+  ].filter((group) => group.buckets.length > 0);
+};
+
+const businessFlowStageTheme = ({
+  danger,
+  warning,
+  empty,
+}: {
+  danger?: boolean;
+  warning?: boolean;
+  empty?: boolean;
+}): BusinessRunFlowStageTheme => {
+  if (danger) return 'danger';
+  if (warning) return 'warning';
+  if (empty) return 'default';
+  return 'success';
+};
+
+const buildBusinessFlowMonitorStages = (
+  summary: BusinessUsageSummaryResponse | null | undefined,
+): BusinessFlowMonitorStage[] => {
+  const total = Number(summary?.total || 0);
+  const active = Number(summary?.running || 0) + Number(summary?.queued || 0);
+  const versionIssues = businessIssueBucketTotal(summary, ['version']);
+  const parameterIssues = businessIssueBucketTotal(summary, ['parameter']);
+  const executorIssues = businessIssueBucketTotal(summary, ['executor']);
+  const executorFailed = businessIssueBucketFailed(summary, ['executor']);
+  const outputIssues = businessIssueBucketTotal(summary, ['output']);
+  const outputFailed = businessIssueBucketFailed(summary, ['output']);
+  const callbackIssues = businessIssueBucketTotal(summary, ['callback']);
+  const billingIssues = businessIssueBucketTotal(summary, ['billing']);
+  const callbackFailed = Number(summary?.callbackFailed || 0);
+  const callbackRunning = Number(summary?.callbackRunning || 0);
+  const billingPending = Number(summary?.billingPending || 0);
+  const unpriced = Number(summary?.unpriced || 0);
+  const windowHours = Number(summary?.windowHours || 24);
+  const versionCount = Number(summary?.byVersion?.length || 0);
+  const businessCount = Number(summary?.byBusiness?.length || 0);
+  const sourceCount = Number(summary?.bySource?.length || 0);
+  const entryEvidence = businessFlowStageEvidence(summary, 'entry');
+  const versionEvidence = businessFlowStageEvidence(summary, 'version');
+  const preprocessEvidence = businessFlowStageEvidence(summary, 'preprocess');
+  const routingEvidence = businessFlowStageEvidence(summary, 'routing');
+  const primaryEvidence = businessFlowStageEvidence(summary, 'primary');
+  const outputEvidence = businessFlowStageEvidence(summary, 'output');
+  const callbackBillingEvidence = businessFlowStageEvidence(summary, 'callback-billing');
+  const routeHits = summary?.flowEvidence?.routeHits || [];
+  const candidateHits = summary?.flowEvidence?.candidateHits || [];
+  const loraHits = summary?.flowEvidence?.loraHits || [];
+  const workflowHits = summary?.flowEvidence?.workflowHits || [];
+  const candidateHitTotal = candidateHits.reduce((sum, bucket) => sum + Number(bucket.total || 0), 0);
+
+  return [
+    {
+      key: 'entry',
+      title: '提交入口',
+      status: total > 0 ? '有入口样本' : '暂无样本',
+      detail: `近 ${windowHours} 小时 ${total} 次调用 · 来源 ${sourceCount} 类`,
+      evidence: businessFlowEvidenceCountLabel(entryEvidence),
+      action: total > 0 ? '继续按 runId 追踪入口到结果。' : '需要封版或验收时，先跑真实业务样本。',
+      theme: businessFlowStageTheme({ empty: total <= 0 }),
+    },
+    {
+      key: 'version',
+      title: '版本命中',
+      status: versionIssues > 0 ? '版本/路由需复核' : '版本命中正常',
+      detail: `涉及 ${versionCount} 个版本 · 版本/路由问题 ${versionIssues} 条`,
+      evidence: businessFlowEvidenceCountLabel(versionEvidence),
+      action: versionIssues > 0 ? '先跑 route-preview，确认默认、灰度和候选版本命中。' : '版本命中稳定，可继续观察候选和历史版本。',
+      theme: businessFlowStageTheme({ warning: versionIssues > 0, empty: total <= 0 }),
+    },
+    {
+      key: 'preprocess',
+      title: '输入预处理',
+      status: parameterIssues > 0 ? '参数或输入需处理' : '输入未见集中问题',
+      detail: `参数问题 ${parameterIssues} 条`,
+      evidence: businessFlowEvidenceCountLabel(preprocessEvidence),
+      action: parameterIssues > 0 ? '核对图片 URL、尺寸、必填字段和业务方请求样例。' : '保留输入摘要即可，专家参数继续折叠。',
+      theme: businessFlowStageTheme({ warning: parameterIssues > 0, empty: total <= 0 }),
+    },
+    {
+      key: 'routing',
+      title: '路由/分流',
+      status: candidateHitTotal > 0 ? '已有候选分流' : businessCount > 0 ? '已有业务分布' : '暂无分布',
+      detail: `业务入口 ${businessCount} 类 · 路由 ${routeHits.length} 类 · 候选 ${candidateHitTotal} 次 · 排队/运行 ${active}`,
+      evidence: businessFlowEvidenceCountLabel(routingEvidence),
+      action:
+        candidateHitTotal > 0 || loraHits.length > 0 || workflowHits.length > 0
+          ? '下方查看候选、LoRA 和 workflow 命中，效果复盘时按命中项分组抽检。'
+          : active > 0
+            ? '关注是否长期停留 queued/running，必要时下钻 runId。'
+            : '默认路由稳定；候选策略上线后这里会自动显示命中。',
+      theme: businessFlowStageTheme({ warning: active > 0, empty: total <= 0 }),
+    },
+    {
+      key: 'primary',
+      title: '主执行',
+      status: executorIssues > 0 || active > 0 ? '执行链路需观察' : '执行链路正常',
+      detail: `执行节点问题 ${executorIssues} 条 · 执行失败 ${executorFailed} · 排队/运行 ${active}`,
+      evidence: businessFlowEvidenceCountLabel(primaryEvidence),
+      action: executorIssues > 0 || active > 0 ? '检查执行节点、队列、模型/LoRA 依赖和能力日志。' : '执行面暂无集中问题。',
+      theme: businessFlowStageTheme({ danger: executorFailed > 0, warning: executorIssues > 0 || active > 0, empty: total <= 0 }),
+    },
+    {
+      key: 'output',
+      title: '结果入库',
+      status: outputIssues > 0 ? '结果入库需处理' : '结果入库正常',
+      detail: `结果/OSS 问题 ${outputIssues} 条 · 失败 ${outputFailed}`,
+      evidence: businessFlowEvidenceCountLabel(outputEvidence),
+      action: outputIssues > 0 ? '检查输出解析、storedUrl、OSS 落盘和结果字段映射。' : '继续保证对外只暴露自有 URL。',
+      theme: businessFlowStageTheme({ danger: outputFailed > 0, warning: outputIssues > 0, empty: total <= 0 }),
+    },
+    {
+      key: 'callback-billing',
+      title: '回调/计费',
+      status: callbackFailed > 0 || callbackIssues > 0 || billingIssues > 0 || unpriced > 0 ? '交付后置需处理' : '后置链路正常',
+      detail: `回调问题 ${callbackIssues} · 回调失败 ${callbackFailed} · 回调中 ${callbackRunning} · 待计费 ${billingPending} · 未定价 ${unpriced}`,
+      evidence: businessFlowEvidenceCountLabel(callbackBillingEvidence),
+      action:
+        callbackFailed > 0
+          ? '先重试回调，再确认业务方地址和签名。'
+          : callbackIssues > 0
+            ? '检查回调配置、签名和业务方接收状态。'
+          : billingIssues > 0 || unpriced > 0
+            ? '补价格规则、套餐/钱包扣减和结算流水。'
+            : '回调和计费暂无集中阻塞。',
+      theme: businessFlowStageTheme({
+        warning: callbackFailed > 0 || callbackIssues > 0 || callbackRunning > 0 || billingPending > 0 || billingIssues > 0 || unpriced > 0,
+        empty: total <= 0,
+      }),
+    },
+  ];
+};
+
+const businessFlowMonitorBusinessRows = (summary: BusinessUsageSummaryResponse | null | undefined) =>
+  businessOrchestrationKeys.map((businessKey) => {
+    const bucket = businessUsageBucketForKey(summary, businessKey);
+    const unresolved = businessUnresolvedBucketForKey(summary, businessKey);
+    const active = Number(bucket?.running || 0) + Number(bucket?.queued || 0);
+    const unresolvedCount = Number(unresolved?.total || 0);
+    const failed = Number(bucket?.failed || 0);
+    const theme = unresolvedCount > 0 ? 'danger' : active > 0 || failed > 0 ? 'warning' : bucket?.total ? 'success' : 'default';
+    const bottleneck =
+      unresolvedCount > 0
+        ? `未恢复 ${unresolvedCount}`
+        : active > 0
+          ? `排队/运行 ${active}`
+          : failed > 0
+            ? `历史失败 ${failed}`
+            : bucket?.total
+              ? '暂无卡点'
+              : '暂无样本';
+    return {
+      businessKey,
+      bucket,
+      unresolved,
+      theme: theme as BusinessRunFlowStageTheme,
+      bottleneck,
+    };
+  });
+
+const businessFlowStageRoleActions = (stage?: BusinessFlowMonitorStage | null) => {
+  if (!stage) {
+    return {
+      operator: '先跑固定样例，补一个可追踪 runId。',
+      ops: '确认业务接口、队列和执行节点是否有可用样本。',
+    };
+  }
+  if (stage.key === 'entry') {
+    return {
+      operator: stage.theme === 'default' ? '补真实样例，形成入口样本。' : '业务反馈统一收 runId。',
+      ops: '检查认证、4xx、限流和入口日志。',
+    };
+  }
+  if (stage.key === 'version' || stage.key === 'routing') {
+    return {
+      operator: '对比默认版、候选版和固定样例结果。',
+      ops: '跑 route-preview，核对版本、灰度和路由命中。',
+    };
+  }
+  if (stage.key === 'preprocess') {
+    return {
+      operator: '收集输入图和请求参数样例。',
+      ops: '核对 schema、上传、图片 URL 和尺寸规则。',
+    };
+  }
+  if (stage.key === 'primary') {
+    return {
+      operator: '暂停扩大复跑，先等执行链路恢复。',
+      ops: '检查执行节点、ComfyUI 队列、模型和 LoRA 依赖。',
+    };
+  }
+  if (stage.key === 'output') {
+    return {
+      operator: '确认业务方拿到的结果图是否完整。',
+      ops: '检查输出解析、storedUrl、OSS 落盘和回填字段。',
+    };
+  }
+  return {
+    operator: '同步业务方回调或计费状态。',
+    ops: '重试回调，核对签名、价格规则和扣减流水。',
+  };
+};
+
+export const BusinessFlowMonitoringPanel = ({
+  summary,
+}: {
+  summary?: BusinessUsageSummaryResponse | null;
+}) => {
+  const stages = buildBusinessFlowMonitorStages(summary);
+  const rows = businessFlowMonitorBusinessRows(summary);
+  const hitGroups = businessFlowHitGroups(summary);
+  const focusedStage = stages.find((stage) => stage.theme === 'danger') || stages.find((stage) => stage.theme === 'warning') || stages[0];
+  const focusedActions = businessFlowStageRoleActions(focusedStage);
+  return (
+    <Card
+      bordered
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>流程监控摘要</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                按七阶段看近 {summary?.windowHours || 24} 小时业务是否卡在入口、版本、输入、路由、执行、入库或回调计费。
+              </Typography.Text>
+            </div>
+          </div>
+          {focusedStage ? (
+            <Tag theme={focusedStage.theme as any} variant="light">
+              当前关注：{focusedStage.title}
+            </Tag>
+          ) : null}
+          {summary?.flowEvidence ? (
+            <Tag theme="primary" variant="light">
+              流程证据已接入
+            </Tag>
+          ) : null}
+        </Space>
+      }
+    >
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <section className={`podi-business-flow-focus podi-business-flow-focus--${focusedStage?.theme || 'default'}`}>
+          <div className="podi-business-flow-focus__main">
+            <span>当前卡点</span>
+            <strong>{focusedStage ? `${focusedStage.title} · ${focusedStage.status}` : '暂无流程样本'}</strong>
+            <small>{focusedStage?.action || '先跑真实业务样本，形成可追踪 runId。'}</small>
+          </div>
+          <div className="podi-business-flow-focus__meta">
+            <span>{focusedStage?.detail || `近 ${summary?.windowHours || 24} 小时暂无样本`}</span>
+            {focusedStage?.evidence ? <span>{focusedStage.evidence}</span> : null}
+          </div>
+          <div className="podi-business-flow-focus__actions">
+            <div>
+              <span>运营</span>
+              <strong>{focusedActions.operator}</strong>
+            </div>
+            <div>
+              <span>运维</span>
+              <strong>{focusedActions.ops}</strong>
+            </div>
+          </div>
+        </section>
+        <div className="podi-business-flow-rail" aria-label="业务七阶段流程轨道">
+          {stages.map((stage, index) => (
+            <div
+              key={stage.key}
+              className={`podi-business-flow-rail__step podi-business-flow-rail__step--${stage.theme}${
+                focusedStage?.key === stage.key ? ' is-current' : ''
+              }`}
+            >
+              <span>{index + 1}</span>
+              <strong>{stage.title}</strong>
+              <small>{stage.status}</small>
+            </div>
+          ))}
+        </div>
+        {hitGroups.length > 0 ? (
+          <div className="podi-business-flow-hit-grid">
+            {hitGroups.map((group) => (
+              <section key={group.key} className="podi-business-flow-hit">
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Typography.Text strong>{group.title}</Typography.Text>
+                    <Tag size="small" variant="light">
+                      {group.buckets.reduce((sum, bucket) => sum + Number(bucket.total || 0), 0)}
+                    </Tag>
+                  </Space>
+                  <Typography.Text theme="secondary">{group.detail}</Typography.Text>
+                </Space>
+              </section>
+            ))}
+          </div>
+        ) : null}
+        <details className="podi-business-disclosure">
+          <summary>
+            <span>阶段明细</span>
+            <small>展开查看七阶段耗时、证据和处理动作</small>
+          </summary>
+          <div className="podi-business-flow-stage-grid">
+            {stages.map((stage, index) => (
+              <section key={stage.key} className={`podi-business-flow-stage-card podi-business-flow-stage-card--${stage.theme}`}>
+                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Typography.Text strong>{stage.title}</Typography.Text>
+                    <Tag theme={stage.theme as any} variant="light" size="small">
+                      {index + 1}
+                    </Tag>
+                  </Space>
+                  <Typography.Text>{stage.status}</Typography.Text>
+                  <Typography.Text theme="secondary">{stage.detail}</Typography.Text>
+                  {stage.evidence ? <Typography.Text theme="secondary">{stage.evidence}</Typography.Text> : null}
+                  <Typography.Text theme={stage.theme === 'danger' ? 'error' : stage.theme === 'warning' ? 'warning' : 'secondary'}>
+                    {stage.action}
+                  </Typography.Text>
+                </Space>
+              </section>
+            ))}
+          </div>
+        </details>
+        <div className="podi-business-command-table">
+          <div className="podi-business-command-head">
+            <span>业务能力</span>
+            <span>流程健康</span>
+            <span>近 {summary?.windowHours || 24} 小时</span>
+            <span>当前卡点</span>
+            <span>下一步</span>
+          </div>
+          {rows.map((row) => {
+            const active = Number(row.bucket?.running || 0) + Number(row.bucket?.queued || 0);
+            const nextAction =
+              row.theme === 'danger'
+                ? '打开 runId 详情，按七阶段定位并复测。'
+                : row.theme === 'warning'
+                  ? active > 0
+                    ? '观察队列和执行时长，超时后转排障。'
+                    : '保留历史失败，等待同版本成功样本覆盖。'
+                  : row.bucket?.total
+                    ? '作为稳定样本进入效果复盘。'
+                    : '需要验收时先跑固定样例。';
+            return (
+              <section key={row.businessKey} className={`podi-business-command-row podi-business-command-row--${row.theme}`}>
+                <div className="podi-business-command-cell podi-business-command-cell--entry">
+                  <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                  <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
+                </div>
+                <div className="podi-business-command-cell">
+                  <Tag theme={row.theme as any} variant="light">
+                    {row.theme === 'danger' ? '有未恢复问题' : row.theme === 'warning' ? '观察中' : row.theme === 'success' ? '稳定' : '缺样本'}
+                  </Tag>
+                  <Typography.Text theme="secondary">成功率 {formatRatePercent(row.bucket?.successRate)}</Typography.Text>
+                </div>
+                <div className="podi-business-command-cell">
+                  <Typography.Text>
+                    {row.bucket?.total || 0} 次 · 成功 {row.bucket?.succeeded || 0} · 失败 {row.bucket?.failed || 0}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">排队/运行 {active}</Typography.Text>
+                </div>
+                <div className="podi-business-command-cell">
+                  <Typography.Text theme={row.theme === 'danger' ? 'error' : row.theme === 'warning' ? 'warning' : 'secondary'}>
+                    {row.bottleneck}
+                  </Typography.Text>
+                  {row.unresolved?.label ? (
+                    <Typography.Text theme="secondary">{businessIssueLabel(row.unresolved.key, row.unresolved.label)}</Typography.Text>
+                  ) : null}
+                </div>
+                <div className="podi-business-command-cell">
+                  <Typography.Text theme="secondary">{nextAction}</Typography.Text>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </Space>
+    </Card>
+  );
+};
+
+type BusinessQualityReviewRow = {
+  businessKey: string;
+  bucket: ReturnType<typeof businessUsageBucketForKey>;
+  unresolved: ReturnType<typeof businessUnresolvedBucketForKey>;
+  loadedOutputCount: number;
+  reviewableCount: number;
+  reviewTarget: number;
+  theme: BusinessRunFlowStageTheme;
+  status: string;
+  evidence: string;
+  action: string;
+  samplePlan: string;
+  inputTags: string[];
+  issueTags: string[];
+  recordedTotal: number;
+  recordedReviewed: number;
+  recordedBad: number;
+  recordedBorderline: number;
+  recordedTopIssueTags: string[];
+  recordedTopInputTags: string[];
+  recordedTopIssueBuckets: BusinessOutputReviewBucket[];
+  recordedTopInputBuckets: BusinessOutputReviewBucket[];
+};
+
+const businessQualityInputTags = (businessKey?: string | null) => {
+  const key = canonicalBusinessKey(businessKey);
+  if (key === 'pattern_extract') return ['平铺花纹', '复杂背景', '布料纹理'];
+  if (key === 'fission') return ['主体清晰', '满版图案', '颜色敏感'];
+  if (key === 'image_edit') return ['局部修改', '参考图约束', '画布扩展'];
+  if (key === 'outpaint') return ['四边扩展', '单边扩展', '比例变化'];
+  if (key === 'text_fission') return ['中文文字', '英文数字', '版式复刻'];
+  return ['标准样例', '边界样例', '业务样例'];
+};
+
+const businessQualityIssueTags = (businessKey?: string | null) => {
+  const key = canonicalBusinessKey(businessKey);
+  if (key === 'pattern_extract') return ['主体残留', '边缘脏污', '纹理断裂', '颜色偏移'];
+  if (key === 'fission') return ['结构偏移', '主体变形', '图案密度变化', '色差过大'];
+  if (key === 'image_edit') return ['指令未执行', '参考图丢失', '局部边缘不自然', '原图被误改'];
+  if (key === 'outpaint') return ['接缝明显', '背景穿帮', '主体拉伸', '比例失真'];
+  if (key === 'text_fission') return ['文字错字', '版式漂移', '笔画糊化', '语义丢失'];
+  return ['效果不稳定', '输出不可用', '需要人工复核'];
+};
+
+const businessQualitySamplePlan = (businessKey?: string | null) => {
+  const key = canonicalBusinessKey(businessKey);
+  if (key === 'pattern_extract') return '每轮至少 3 张：干净花纹、复杂背景、布料纹理。';
+  if (key === 'fission') return '每轮至少 5 张：单主体、满版图案、颜色敏感、复杂纹理、业务真实图。';
+  if (key === 'image_edit') return '每轮至少 5 张：删除、替换、补色、参考图、扩展画布。';
+  if (key === 'outpaint') return '每轮至少 4 张：四边、单边、横向、纵向扩展。';
+  if (key === 'text_fission') return '每轮至少 3 张：中文密集、英文数字、低对比文字。';
+  return '每轮固定覆盖标准、边界和真实业务图。';
+};
+
+const businessRunVisualOutputCount = (row: BusinessRun) => {
+  const flowOutput = asJsonRecord(row.flowSummary?.output);
+  const imageCount = recordNumber(flowOutput, 'imageCount', row.imageUrls?.length || 0);
+  const videoCount = recordNumber(flowOutput, 'videoCount', row.videoUrls?.length || 0);
+  const resourceCount = recordNumber(flowOutput, 'resourceCount', 0);
+  return imageCount + videoCount + resourceCount;
+};
+
+const businessQualityReviewRunId = (review?: BusinessOutputReview | null) =>
+  String(review?.runId || (review as any)?.run_id || '').trim();
+
+const businessQualityReviewOutputIndex = (review?: BusinessOutputReview | null) =>
+  Number(review?.outputIndex ?? (review as any)?.output_index ?? 0);
+
+const businessQualityReviewSamples = (bucket?: BusinessOutputReviewBucket | null) =>
+  (bucket?.sampleReviews || (bucket as any)?.sample_reviews || []).filter(Boolean) as BusinessOutputReview[];
+
+const businessQualityReviewGradeText = (value?: string | null) => {
+  if (value === 'excellent') return '优秀';
+  if (value === 'usable') return '可用';
+  if (value === 'borderline') return '临界';
+  if (value === 'bad') return '差图';
+  if (value === 'blocked') return '阻断';
+  return '待评';
+};
+
+const businessQualityReviewGradeTheme = (value?: string | null) => {
+  if (value === 'excellent' || value === 'usable') return 'success';
+  if (value === 'borderline' || value === 'pending') return 'warning';
+  if (value === 'bad' || value === 'blocked') return 'danger';
+  return 'default';
+};
+
+const businessQualityReviewIsImage = (url?: string | null) => /\.(png|jpg|jpeg|webp|gif|bmp|svg)(\?|#|$)/i.test(String(url || ''));
+
+const buildBusinessQualityReviewRows = (
+  summary: BusinessUsageSummaryResponse | null | undefined,
+  runs: BusinessRun[] = [],
+  qualitySummary?: BusinessOutputReviewSummaryResponse | null,
+): BusinessQualityReviewRow[] =>
+  businessOrchestrationKeys.map((businessKey) => {
+    const bucket = businessUsageBucketForKey(summary, businessKey);
+    const unresolved = businessUnresolvedBucketForKey(summary, businessKey);
+    const reviewStats = (qualitySummary?.byBusiness || []).find((item) => canonicalBusinessKey(item.businessKey) === businessKey);
+    const loadedOutputCount = runs.filter((row) => canonicalBusinessKey(row.businessKey) === businessKey && businessRunVisualOutputCount(row) > 0).length;
+    const recordedTotal = Number(reviewStats?.total || 0);
+    const recordedReviewed = Number(reviewStats?.reviewed || 0);
+    const recordedBad = Number(reviewStats?.bad || 0);
+    const recordedBorderline = Number(reviewStats?.borderline || 0);
+    const reviewableCount = Math.max(Number(bucket?.succeeded || 0), loadedOutputCount, recordedTotal);
+    const reviewTarget = reviewableCount > 0 ? Math.min(5, reviewableCount) : 0;
+    const failed = Number(bucket?.failed || 0);
+    const unresolvedCount = Number(unresolved?.total || 0);
+    const successRate = typeof bucket?.successRate === 'number' ? bucket.successRate : null;
+    const lowSuccessRate = successRate !== null && successRate < 0.9;
+    const theme: BusinessRunFlowStageTheme =
+      unresolvedCount > 0
+        ? 'danger'
+        : recordedBad > 0 || recordedBorderline > 0 || failed > 0 || lowSuccessRate
+          ? 'warning'
+          : recordedReviewed > 0 || reviewableCount >= 3
+            ? 'success'
+            : reviewableCount > 0
+              ? 'warning'
+              : 'default';
+    const status =
+      unresolvedCount > 0
+        ? '先排障再评审'
+        : recordedBad > 0 || recordedBorderline > 0
+          ? '已有质量问题'
+        : failed > 0 || lowSuccessRate
+          ? '稳定性需复盘'
+          : recordedReviewed > 0 || reviewableCount >= 3
+            ? '可进入抽检'
+            : reviewableCount > 0
+              ? '样本不足'
+              : '待补固定样例';
+    const action =
+      unresolvedCount > 0
+        ? '先打开未恢复 runId，确认不是链路故障。'
+        : recordedBad > 0 || recordedBorderline > 0
+          ? '查看 Top 问题标签，决定调参、分流或换候选。'
+        : failed > 0 || lowSuccessRate
+          ? '先标失败类型，再决定分流或换 LoRA。'
+          : recordedReviewed > 0 || reviewableCount >= 3
+            ? '抽检输出图，打质量档位和问题标签。'
+            : '按固定样例池补跑标准样例。';
+    const evidence =
+      recordedReviewed > 0
+        ? `已标注 ${recordedReviewed}/${recordedTotal} · 不可用 ${recordedBad} · 临界 ${recordedBorderline}`
+        : reviewableCount > 0
+        ? `可抽检 ${reviewableCount} 张 · 本轮建议 ${reviewTarget} 张 · 成功率 ${formatRatePercent(bucket?.successRate)}`
+        : `近 ${summary?.windowHours || 24} 小时暂无可抽检输出`;
+    return {
+      businessKey,
+      bucket,
+      unresolved,
+      loadedOutputCount,
+      reviewableCount,
+      reviewTarget,
+      theme,
+      status,
+      evidence,
+      action,
+      samplePlan: businessQualitySamplePlan(businessKey),
+      inputTags: businessQualityInputTags(businessKey),
+      issueTags: businessQualityIssueTags(businessKey),
+      recordedTotal,
+      recordedReviewed,
+	      recordedBad,
+	      recordedBorderline,
+	      recordedTopIssueTags: (reviewStats?.topIssueTags || []).map((item) => item.label || item.key).filter(Boolean),
+	      recordedTopInputTags: (reviewStats?.topInputTags || []).map((item) => item.label || item.key).filter(Boolean),
+	      recordedTopIssueBuckets: reviewStats?.topIssueTags || [],
+	      recordedTopInputBuckets: reviewStats?.topInputTags || [],
+	    };
+	  });
+
+const businessQualityReviewSummary = (rows: BusinessQualityReviewRow[]) => {
+  const reviewableBusinesses = rows.filter((row) => row.reviewableCount > 0).length;
+  const reviewTargets = rows.reduce((total, row) => total + row.reviewTarget, 0);
+  const blocked = rows.filter((row) => row.theme === 'danger').length;
+  const warning = rows.filter((row) => row.theme === 'warning').length;
+  const topIssueTags = Array.from(new Set(rows.flatMap((row) => row.issueTags))).slice(0, 8);
+  return { reviewableBusinesses, reviewTargets, blocked, warning, topIssueTags };
+};
+
+const businessQualityReviewFocusRow = (rows: BusinessQualityReviewRow[]) => {
+  const candidates = [...rows].sort((a, b) => {
+    const priority = (row: BusinessQualityReviewRow) =>
+      row.theme === 'danger' ? 400 : row.theme === 'warning' ? 300 : row.reviewTarget > 0 ? 200 : 100;
+    return (
+      priority(b) - priority(a) ||
+      b.recordedBad - a.recordedBad ||
+      b.recordedBorderline - a.recordedBorderline ||
+      b.reviewTarget - a.reviewTarget ||
+      b.reviewableCount - a.reviewableCount
+    );
+  });
+  return candidates[0] || null;
+};
+
+const businessQualityReviewRoleActions = (row?: BusinessQualityReviewRow | null) => {
+  if (!row) {
+    return {
+      operator: '先补固定样例，跑出可标注输出。',
+      engineer: '确认业务版本、样例池和质量标签口径。',
+    };
+  }
+  if (row.theme === 'danger') {
+    return {
+      operator: '暂停效果判断，先跟进未恢复 runId。',
+      engineer: '排除链路故障后，再评估模型、LoRA 或 workflow。',
+    };
+  }
+  if (row.recordedBad > 0 || row.recordedBorderline > 0) {
+    return {
+      operator: '补同类样例标注，确认问题是否集中。',
+      engineer: '按问题标签准备分流、调参或候选 LoRA/workflow。',
+    };
+  }
+  if (row.reviewTarget > 0) {
+    return {
+      operator: '按本轮建议数量抽检并打质量标签。',
+      engineer: '观察输入标签和候选命中，积累默认切换证据。',
+    };
+  }
+  return {
+    operator: '先维护固定样例池，再发起同批复跑。',
+    engineer: '补齐样例覆盖范围，避免只凭单张图判断效果。',
+  };
+};
+
+export const BusinessQualityReviewPanel = ({
+  summary,
+  runs = [],
+  qualitySummary,
+  onOpenReview,
+}: {
+  summary?: BusinessUsageSummaryResponse | null;
+  runs?: BusinessRun[];
+  qualitySummary?: BusinessOutputReviewSummaryResponse | null;
+  onOpenReview?: (review: BusinessOutputReview) => void;
+}) => {
+  const rows = buildBusinessQualityReviewRows(summary, runs, qualitySummary);
+  const reviewSummary = businessQualityReviewSummary(rows);
+  const recordedReviewTotal = Number(qualitySummary?.total || 0);
+  const recentReviewSamples = (qualitySummary?.recentReviews || []).filter((review) => businessQualityReviewRunId(review)).slice(0, 6);
+  const focusRow = businessQualityReviewFocusRow(rows);
+  const focusActions = businessQualityReviewRoleActions(focusRow);
+  const focusIssueTags =
+    focusRow?.recordedTopIssueTags.length ? focusRow.recordedTopIssueTags.slice(0, 3).join('、') : focusRow?.issueTags.slice(0, 3).join('、') || '待标注';
+  const overallTheme: BusinessRunFlowStageTheme =
+    reviewSummary.blocked > 0 ? 'danger' : reviewSummary.warning > 0 ? 'warning' : reviewSummary.reviewableBusinesses > 0 ? 'success' : 'default';
+  const renderBucketButtons = (
+    buckets: BusinessOutputReviewBucket[],
+    fallbackTags: string[],
+    options?: { theme?: string; prefix: string },
+  ) => {
+    const visibleBuckets = buckets.length > 0 ? buckets.slice(0, 4) : [];
+    if (visibleBuckets.length > 0) {
+      return visibleBuckets.map((bucket) => {
+        const sample = businessQualityReviewSamples(bucket)[0];
+        const disabled = !sample || !onOpenReview;
+        return (
+          <Button
+            key={`${options?.prefix || 'bucket'}:${bucket.key}`}
+            size="small"
+            variant="outline"
+            theme={(options?.theme || 'default') as any}
+            disabled={disabled}
+            onClick={() => sample && onOpenReview?.(sample)}
+          >
+            {bucket.label || bucket.key} {bucket.total}
+          </Button>
+        );
+      });
+    }
+    return fallbackTags.slice(0, options?.prefix === 'issue' ? 4 : 3).map((tag) => (
+      <Tag key={`${options?.prefix || 'tag'}:${tag}`} theme={(options?.theme || 'default') as any} variant="light" size="small">
+        {tag}
+      </Tag>
+    ));
+  };
+  return (
+    <Card
+      bordered
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>出图效果复盘</Typography.Text>
+	            <div>
+	              <Typography.Text theme="secondary">
+	                先用固定样例、输入标签和问题标签做轻量抽检；Top 标签可直接打开对应 runId 和输出图。
+	              </Typography.Text>
+	            </div>
+          </div>
+          <Tag theme={overallTheme as any} variant="light">
+            本轮建议抽检 {reviewSummary.reviewTargets} 张
+          </Tag>
+        </Space>
+      }
+    >
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <section className={`podi-business-quality-focus podi-business-quality-focus--${overallTheme}`}>
+          <div className="podi-business-quality-focus__main">
+            <span>本轮关注</span>
+            <strong>{focusRow ? `${businessKeyLabel(focusRow.businessKey)} · ${focusRow.status}` : '暂无可复盘输出'}</strong>
+            <small>{focusRow?.action || '先跑固定样例，形成可标注输出。'}</small>
+          </div>
+          <div className="podi-business-quality-focus__metrics">
+            <div>
+              <span>建议抽检</span>
+              <strong>{reviewSummary.reviewTargets} 张</strong>
+              <small>已标注 {recordedReviewTotal}</small>
+            </div>
+            <div>
+              <span>业务覆盖</span>
+              <strong>{reviewSummary.reviewableBusinesses}/{rows.length}</strong>
+              <small>先排障 {reviewSummary.blocked} · 观察 {reviewSummary.warning}</small>
+            </div>
+            <div>
+              <span>问题标签</span>
+              <strong>{focusIssueTags}</strong>
+              <small>{focusRow?.samplePlan || '维护固定样例后再抽检'}</small>
+            </div>
+          </div>
+          <div className="podi-business-quality-focus__actions">
+            <div>
+              <span>运营</span>
+              <strong>{focusActions.operator}</strong>
+            </div>
+            <div>
+              <span>能力工程师</span>
+              <strong>{focusActions.engineer}</strong>
+            </div>
+          </div>
+        </section>
+        <div className="podi-business-command-table">
+          <div className="podi-business-command-head">
+            <span>业务能力</span>
+            <span>质量状态</span>
+            <span>样例与标注</span>
+            <span>下一步</span>
+            <span>下钻</span>
+          </div>
+          {rows.map((row) => (
+            <section key={row.businessKey} className={`podi-business-command-row podi-business-command-row--${row.theme}`}>
+              <div className="podi-business-command-cell podi-business-command-cell--entry">
+                <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
+              </div>
+              <div className="podi-business-command-cell">
+                <Tag theme={row.theme as any} variant="light">
+                  {row.status}
+                </Tag>
+                <Typography.Text theme="secondary">{row.evidence}</Typography.Text>
+                {row.unresolved?.label ? (
+                  <Typography.Text theme="warning">{businessIssueLabel(row.unresolved.key, row.unresolved.label)}</Typography.Text>
+                ) : null}
+              </div>
+              <div className="podi-business-command-cell">
+                <Typography.Text>
+                  可抽检 {row.reviewableCount} · 本轮 {row.reviewTarget}
+                  {row.loadedOutputCount > 0 ? ` · 当前页输出 ${row.loadedOutputCount}` : ''}
+                </Typography.Text>
+                <Typography.Text theme="secondary">{row.samplePlan}</Typography.Text>
+              </div>
+              <div className="podi-business-command-cell">
+                <Typography.Text theme={row.theme === 'danger' ? 'error' : row.theme === 'warning' ? 'warning' : 'secondary'}>
+                  {row.action}
+                </Typography.Text>
+              </div>
+              <div className="podi-business-command-cell">
+                <Typography.Text theme="secondary">
+                  输入标签 {row.recordedTopInputBuckets.length || row.inputTags.length} · 问题标签{' '}
+                  {row.recordedTopIssueBuckets.length || row.issueTags.length}
+                </Typography.Text>
+                <Typography.Text theme="secondary">展开下方查看样例和 Top 标签。</Typography.Text>
+              </div>
+            </section>
+	          ))}
+	        </div>
+        <details className="podi-business-disclosure">
+          <summary>
+            <span>标签体系与样例下钻</span>
+            <small>展开查看输入标签、问题标签和最近质量样例</small>
+          </summary>
+          <div className="podi-business-disclosure-body">
+            <div className="podi-business-quality-tag-grid">
+              {rows.map((row) => (
+                <section key={`${row.businessKey}:quality-tags`} className="podi-business-quality-tag-row">
+                  <div>
+                    <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                    <Typography.Text theme="secondary">{row.samplePlan}</Typography.Text>
+                  </div>
+                  <div>
+                    <Typography.Text theme="secondary">输入标签</Typography.Text>
+                    <Space size={4} breakLine>
+                      {renderBucketButtons(row.recordedTopInputBuckets, row.inputTags, { prefix: `input:${row.businessKey}` })}
+                    </Space>
+                  </div>
+                  <div>
+                    <Typography.Text theme="secondary">问题标签</Typography.Text>
+                    <Space size={4} breakLine>
+                      {renderBucketButtons(row.recordedTopIssueBuckets, row.issueTags, { prefix: `issue:${row.businessKey}`, theme: 'warning' })}
+                    </Space>
+                  </div>
+                </section>
+              ))}
+            </div>
+            {recentReviewSamples.length > 0 ? (
+              <div className="podi-business-quality-samples">
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                  <Typography.Text strong>最近质量样例</Typography.Text>
+                  <Typography.Text theme="secondary">用于从统计结论回到具体输出图</Typography.Text>
+                </Space>
+                <div className="podi-business-quality-sample-grid">
+                  {recentReviewSamples.map((review) => {
+                    const runId = businessQualityReviewRunId(review);
+                    const outputIndex = businessQualityReviewOutputIndex(review);
+                    const issueLabel = (review.issueTags || []).slice(0, 2).join('、') || '无问题标签';
+                    return (
+                      <div key={`${review.id}:${runId}:${outputIndex}`} className="podi-business-quality-sample-item">
+                        <div className="podi-business-quality-sample-item__preview">
+                          {businessQualityReviewIsImage(review.outputUrl) ? (
+                            <img src={review.outputUrl || ''} alt={`quality-review-${runId}-${outputIndex}`} loading="lazy" />
+                          ) : (
+                            <span>{review.outputUrl ? '资源' : '无预览'}</span>
+                          )}
+                        </div>
+                        <Space direction="vertical" size={4} style={{ minWidth: 0 }}>
+                          <Space size={4} breakLine>
+                            <Tag theme={businessQualityReviewGradeTheme(review.qualityGrade) as any} variant="light" size="small">
+                              {businessQualityReviewGradeText(review.qualityGrade)}
+                            </Tag>
+                            <Typography.Text theme="secondary">结果 {outputIndex + 1}</Typography.Text>
+                          </Space>
+                          <Typography.Text>{businessKeyLabel(review.businessKey)}</Typography.Text>
+                          <Typography.Text theme="secondary">{issueLabel}</Typography.Text>
+                          <Button size="small" variant="outline" disabled={!onOpenReview} onClick={() => onOpenReview?.(review)}>
+                            打开 runId
+                          </Button>
+                        </Space>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            <Alert
+              theme="info"
+              message={
+                recordedReviewTotal > 0
+                  ? `已接入人工标注汇总：近 ${qualitySummary?.windowHours || 168} 小时 ${recordedReviewTotal} 条；按业务、输入标签、问题标签统计 TopN 后，再决定分流、调参或切换 LoRA/workflow。`
+                  : `质量标签候选：${reviewSummary.topIssueTags.join('、')}。后续标注后，按业务、输入标签、问题标签统计 TopN，再决定分流、调参或切换 LoRA/workflow。`
+              }
+            />
+          </div>
+        </details>
+      </Space>
+    </Card>
+  );
+};
+
 type BusinessRunFilters = {
   windowHours: number;
   businessKey: string;
@@ -1644,6 +2573,26 @@ const businessFlowStageColor = (theme: BusinessRunFlowStageTheme) => {
   return 'var(--td-border-level-2-color)';
 };
 
+const businessRunStepTheme = (status?: string | null): BusinessRunFlowStageTheme => {
+  const value = String(status || '').toLowerCase();
+  if (value === 'succeeded' || value === 'success' || value === 'completed') return 'success';
+  if (value === 'failed' || value === 'error' || value === 'timeout' || value === 'cancelled') return 'danger';
+  if (value === 'running' || value === 'queued' || value === 'pending' || value === 'planned') return 'warning';
+  if (value === 'skipped') return 'default';
+  return 'default';
+};
+
+const businessRunStepDurationLabel = (step?: Pick<BusinessRunStep, 'durationMs'> | null) =>
+  typeof step?.durationMs === 'number' ? `耗时 ${formatPanelDurationMs(step.durationMs)}` : '';
+
+const businessRunStepDisplayName = (step?: BusinessRunStep | null) =>
+  step?.displayName || step?.componentLabel || step?.abilityName || step?.stepId || step?.stepType || '';
+
+const findBusinessRunStep = (detail: BusinessRun, matcher: (step: BusinessRunStep) => boolean) =>
+  (detail.steps || []).find((step) => step.enabled !== false && matcher(step));
+
+const countRequestPayloadFields = (detail: BusinessRun) => Object.keys(asJsonRecord(detail.requestPayload)).length;
+
 const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[] => {
   const route = asJsonRecord(detail.flowSummary?.route);
   const ability = asJsonRecord(detail.flowSummary?.ability);
@@ -1657,6 +2606,7 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
   const routeVersion = recordText(route, 'version', detail.version || '—');
   const routeCapabilityId = recordText(route, 'selectedCapabilityId', detail.abilityId || '');
   const routeOk = hasBusinessEvidenceValue(routeVersion) && routeVersion !== '—';
+  const routeMode = businessRunRouteLabel(detail.routeInfo);
 
   const abilityName = recordText(ability, 'name', detail.abilityName || detail.abilityId || '');
   const abilityTaskId = recordText(ability, 'taskId', detail.abilityTaskId || detail.taskId || '');
@@ -1668,6 +2618,41 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
   const executorOk = hasBusinessEvidenceValue(executorName) || hasBusinessEvidenceValue(executorId);
   const vendorModelChannel = !executorOk && businessRunUsesVendorModelChannel(detail);
   const vendorModelLabel = [detail.vendorModelProvider || detail.abilityProvider, detail.vendorModelName].filter(Boolean).join(' · ');
+  const apiSummary = detail.apiUsage?.summary || {};
+  const apiTotal = Number(apiSummary.total || 0);
+  const submitCount = Number(apiSummary.submitCount || 0);
+  const pollCount = Number(apiSummary.pollCount || 0);
+  const apiMissingForExternal = apiTotal <= 0 && !businessRunIsInternalOrEvalSource(detail);
+  const requestFieldCount = countRequestPayloadFields(detail);
+  const preprocessStep = findBusinessRunStep(detail, (step) => {
+    const role = String(step.role || '').toLowerCase();
+    const type = String(step.stepType || '').toLowerCase();
+    return (
+      role === 'preprocess' ||
+      role === 'input' ||
+      type === 'input' ||
+      type === 'input_mapping' ||
+      type === 'prompt_template' ||
+      type === 'vl_analyze' ||
+      type === 'vl_analyze_image'
+    );
+  });
+  const primaryStep = findBusinessRunStep(detail, (step) => {
+    const role = String(step.role || '').toLowerCase();
+    const type = String(step.stepType || '').toLowerCase();
+    return (
+      role === 'primary' ||
+      Boolean(step.abilityTaskId) ||
+      type === 'ability_task' ||
+      type === 'comfyui_workflow' ||
+      type === 'vendor_api'
+    );
+  });
+  const outputStep = findBusinessRunStep(detail, (step) => {
+    const role = String(step.role || '').toLowerCase();
+    const type = String(step.stepType || '').toLowerCase();
+    return role === 'output' || type === 'output_mapping' || type === 'result_mapping';
+  });
 
   const imageCount = recordNumber(output, 'imageCount', detail.imageUrls?.length || 0);
   const videoCount = recordNumber(output, 'videoCount', detail.videoUrls?.length || 0);
@@ -1694,85 +2679,153 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
   const billingPending = billingStatus === 'billing_pending' || (billingStatus === 'billable' && !settlement);
   const billingNoCharge = billingStatus === 'no_charge';
   const billingUnpriced = billingStatus === 'unpriced';
+  const callbackStageResult = callbackConfigured ? businessCallbackStatusLabel(callbackStatus) : '未配置回调';
+  const billingStageResult = billingSettled
+    ? businessWalletStatusLabel(settlement)
+    : billingFailed
+      ? '扣减失败'
+      : billingUnpriced
+        ? '成功但未定价'
+        : billingNoCharge
+          ? '本次不计费'
+          : billingPending
+            ? '等待计费确认'
+            : businessBillingStatusLabel(detail.billingStatus);
+  const primaryTheme = primaryStep
+    ? businessRunStepTheme(primaryStep.status)
+    : executorOk || vendorModelChannel || abilityOk
+      ? active
+        ? 'primary'
+        : 'success'
+      : failed
+        ? 'danger'
+        : 'warning';
+  const callbackBillingTheme: BusinessRunFlowStageTheme = callbackFailed || billingFailed
+    ? 'danger'
+    : callbackStatus === 'running' || billingUnpriced || billingPending
+      ? 'warning'
+      : finished
+        ? 'success'
+        : 'default';
 
   return [
     {
-      title: '版本选择',
+      title: '提交入口',
+      result: apiTotal > 0 ? '入口已记录' : businessRunIsInternalOrEvalSource(detail) ? '内部/测评提交' : '未记录入口',
+      detail: `${businessSourceLabel(detail.source)} · ${detail.channel || '未标记渠道'}`,
+      hint:
+        apiTotal > 0
+          ? `提交 ${submitCount} · 轮询 ${pollCount} · 最近入口 ${apiSummary.lastSeenAt || detail.createdAt}`
+          : detail.requestId || detail.traceId
+            ? `追踪：${formatShortBusinessId(detail.requestId || detail.traceId)}`
+            : '外部业务反馈时优先让对方提供 runId 和提交时间。',
+      theme: apiMissingForExternal ? 'warning' : 'success',
+    },
+    {
+      title: '版本命中',
       result: routeOk ? '已确定业务版本' : '未确认版本',
-      detail: `${routeVersion} · ${businessRunRouteLabel(detail.routeInfo)}`,
+      detail: `${routeVersion} · ${routeMode}`,
       hint: routeCapabilityId ? `对应能力：${formatShortBusinessId(routeCapabilityId)}` : '需要确认默认版本是否生效。',
       theme: routeOk ? 'success' : failed ? 'danger' : 'warning',
     },
     {
-      title: '能力下发',
-      result: abilityOk ? '已下发到原子能力' : active ? '等待下发' : '未见能力任务',
-      detail: abilityName || detail.abilityName || detail.abilityId || '未记录能力',
-      hint: abilityTaskId ? `排障编号：${formatShortBusinessId(abilityTaskId)}` : '若任务已失败，先查业务版本是否绑定了能力。',
-      theme: abilityOk ? 'success' : failed ? 'danger' : 'warning',
+      title: '输入预处理',
+      result: preprocessStep
+        ? businessRunStepStatusLabel(preprocessStep.status)
+        : requestFieldCount > 0
+          ? '已记录输入摘要'
+          : '无前置处理',
+      detail: preprocessStep ? businessRunStepDisplayName(preprocessStep) : `请求字段 ${requestFieldCount}`,
+      hint:
+        preprocessStep?.error ||
+        businessRunStepDurationLabel(preprocessStep) ||
+        (requestFieldCount > 0 ? '输入已进入业务运行记录，详情里可查看请求摘要。' : '该业务可能不需要 VL 或参数整理步骤。'),
+      theme: preprocessStep ? businessRunStepTheme(preprocessStep.status) : requestFieldCount > 0 ? 'success' : 'default',
     },
     {
-      title: '执行节点',
-      result: executorOk ? '已命中执行节点' : vendorModelChannel ? '第三方模型通道' : abilityOk && active ? '等待调度节点' : '未见执行节点',
-      detail: executorName || executorId || vendorModelLabel || '未记录节点',
-      hint: executorOk
-        ? [formatShortBusinessId(executorId), executorType].filter(Boolean).join(' · ')
-        : vendorModelChannel
-          ? '该任务走模型服务通道，不一定绑定固定执行节点。'
-          : '需检查节点健康、标签、并发和路由规则。',
-      theme: executorOk || vendorModelChannel ? 'success' : failed && abilityOk ? 'danger' : abilityOk ? 'warning' : 'default',
+      title: '路由/分流',
+      result: routeOk ? routeMode : active ? '等待路由' : '未见路由证据',
+      detail: routeCapabilityId ? `能力 ${formatShortBusinessId(routeCapabilityId)}` : abilityName || '未记录分流目标',
+      hint:
+        recordText(route, 'reason', '') ||
+        recordText(route, 'selectedBy', '') ||
+        '后续分流规则会在这里说明命中图类、灰度或候选版本。',
+      theme: routeOk ? 'success' : failed ? 'danger' : active ? 'warning' : 'default',
+    },
+    {
+      title: '主执行',
+      result: primaryStep
+        ? businessRunStepStatusLabel(primaryStep.status)
+        : executorOk
+          ? '已命中执行节点'
+          : vendorModelChannel
+            ? '第三方模型通道'
+            : abilityOk
+              ? '已下发到能力'
+              : active
+                ? '等待执行'
+                : '未见执行证据',
+      detail: businessRunStepDisplayName(primaryStep) || executorName || executorId || vendorModelLabel || abilityName || '未记录执行目标',
+      hint:
+        primaryStep?.error ||
+        businessRunStepDurationLabel(primaryStep) ||
+        (abilityTaskId ? `排障编号：${formatShortBusinessId(abilityTaskId)}` : '') ||
+        (executorOk
+          ? [formatShortBusinessId(executorId), executorType].filter(Boolean).join(' · ')
+          : vendorModelChannel
+            ? '该任务走模型服务通道，不一定绑定固定执行节点。'
+            : '需检查节点健康、标签、并发和路由规则。'),
+      theme: primaryTheme,
     },
     {
       title: '结果入库',
-      result: hasOutput ? (hasOssOutput ? '结果已入库' : '有结果，未确认自有链接') : finished ? '完成但无结果' : '等待结果',
+      result: outputStep
+        ? businessRunStepStatusLabel(outputStep.status)
+        : hasOutput
+          ? hasOssOutput
+            ? '结果已入库'
+            : '有结果，未确认自有链接'
+          : finished
+            ? '完成但无结果'
+            : '等待结果',
       detail: `图 ${imageCount} · 视频 ${videoCount} · 文字 ${textCount} · 结构化 ${structuredCount} · 资源 ${resourceCount}`,
-      hint: hasOutput
+      hint: outputStep?.error || businessRunStepDurationLabel(outputStep) || (hasOutput
         ? hasOssOutput
           ? '业务侧可直接取结果。'
           : '有输出但未确认 OSS 入库，需防止外链过期。'
         : finished
           ? '完成状态没有结果，优先查输出解析和 OSS 入库。'
-          : '未完成任务先看执行节点和队列状态。',
-      theme: hasOutput ? (hasOssOutput ? 'success' : 'warning') : finished ? 'danger' : active ? 'warning' : 'default',
+          : '未完成任务先看执行节点和队列状态。'),
+      theme: outputStep
+        ? businessRunStepTheme(outputStep.status)
+        : hasOutput
+          ? hasOssOutput
+            ? 'success'
+            : 'warning'
+          : finished
+            ? 'danger'
+            : active
+              ? 'warning'
+              : 'default',
     },
     {
-      title: '业务回调',
-      result: callbackConfigured ? businessCallbackStatusLabel(callbackStatus) : '未配置回调',
-      detail: callbackHttpStatus ? `HTTP ${callbackHttpStatus}` : callbackError || '无回调地址或无需回调',
-      hint: callbackFailed ? '先重试回调；若仍失败，检查业务方地址和签名。' : '回调不影响已入库结果，但会影响业务方自动接收。',
-      theme: callbackFailed ? 'danger' : callbackStatus === 'success' ? 'success' : callbackStatus === 'running' ? 'warning' : 'default',
-    },
-    {
-      title: '计费扣减',
-      result: billingSettled
-        ? businessWalletStatusLabel(settlement)
-        : billingFailed
-          ? '扣减失败'
-          : billingUnpriced
-            ? '成功但未定价'
-            : billingNoCharge
-              ? '本次不计费'
-              : billingPending
-                ? '等待计费确认'
-                : businessBillingStatusLabel(detail.billingStatus),
-      detail: businessWalletSummary(settlement),
+      title: '回调/计费',
+      result: `${callbackStageResult} · ${billingStageResult}`,
+      detail: callbackHttpStatus ? `HTTP ${callbackHttpStatus} · ${businessWalletSummary(settlement)}` : businessWalletSummary(settlement),
       hint: billingFailed
         ? settlement?.error || '先修复套餐或钱包扣减，再重试计费。'
-        : billingUnpriced
-          ? '先补模型成本或业务价格规则，否则无法进入收费闭环。'
-          : billingPending
-            ? '任务完成后会继续确认计费；如长期停留，检查业务结算日志。'
+        : callbackFailed
+          ? '先重试回调；若仍失败，检查业务方地址和签名。'
+          : billingUnpriced
+            ? '先补模型成本或业务价格规则，否则无法进入收费闭环。'
+            : billingPending
+              ? '任务完成后会继续确认计费；如长期停留，检查业务结算日志。'
             : billingNoCharge
               ? businessBillingReasonLabel(detail) || '该业务按规则不收费。'
               : settlement?.traceId
                 ? `流水：${formatShortBusinessId(settlement.traceId)}`
                 : '未产生套餐或钱包流水。',
-      theme: billingSettled
-        ? 'success'
-        : billingFailed
-          ? 'danger'
-          : billingUnpriced || billingPending
-            ? 'warning'
-            : 'default',
+      theme: callbackBillingTheme,
     },
   ];
 };
@@ -1821,16 +2874,29 @@ function BusinessRunNextActionAlert({ detail }: { detail: BusinessRun }) {
 
 function BusinessRunFlowEvidenceBar({ detail }: { detail: BusinessRun }) {
   const stages = buildBusinessRunFlowStages(detail);
+  const priorityStage = businessRunPriorityStage(detail);
   return (
-    <Card bordered title="业务链路判定">
+    <Card
+      bordered
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <Typography.Text strong>runId 七阶段流程</Typography.Text>
+          {priorityStage ? (
+            <Tag variant="light" theme={priorityStage.theme as any}>
+              当前关注：{priorityStage.title}
+            </Tag>
+          ) : null}
+        </Space>
+      }
+    >
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
         <Typography.Text theme="secondary">
-          按业务真实链路分段查看：红色优先处理，黄色表示等待或证据不足。
+          提交入口、版本命中、输入预处理、路由/分流、主执行、结果入库、回调/计费。
         </Typography.Text>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
             gap: 10,
           }}
         >
@@ -1843,7 +2909,7 @@ function BusinessRunFlowEvidenceBar({ detail }: { detail: BusinessRun }) {
                 borderRadius: 12,
                 padding: 12,
                 background: 'var(--td-bg-color-container)',
-                minHeight: 142,
+                minHeight: 150,
               }}
             >
               <Space direction="vertical" size={6} style={{ width: '100%' }}>
@@ -1868,15 +2934,6 @@ function BusinessRunFlowEvidenceBar({ detail }: { detail: BusinessRun }) {
     </Card>
   );
 }
-
-const businessRunStepTheme = (status?: string | null): BusinessRunFlowStageTheme => {
-  const value = String(status || '').toLowerCase();
-  if (value === 'succeeded' || value === 'success' || value === 'completed') return 'success';
-  if (value === 'failed' || value === 'error' || value === 'timeout' || value === 'cancelled') return 'danger';
-  if (value === 'running' || value === 'queued' || value === 'pending' || value === 'planned') return 'warning';
-  if (value === 'skipped') return 'default';
-  return 'default';
-};
 
 function BusinessRunTraceTreeCard({ detail }: { detail: BusinessRun }) {
   const trace = detail.traceSummary;
@@ -2567,6 +3624,640 @@ function BusinessRunRetestControlPanel({
   );
 }
 
+type BusinessOutputReviewUpsertItem = {
+  outputIndex: number;
+  outputUrl?: string | null;
+  qualityGrade: string;
+  inputTags?: string[];
+  issueTags?: string[];
+  nextAction?: string | null;
+  note?: string | null;
+};
+
+type BusinessRunVisualOutput = {
+  outputIndex: number;
+  outputUrl: string;
+  kind: 'image' | 'video' | 'resource';
+};
+
+export type BusinessOutputReviewFocus = {
+  runId: string;
+  outputIndex: number;
+};
+
+type BusinessOutputReviewDraft = {
+  qualityGrade: string;
+  inputTagsText: string;
+  issueTagsText: string;
+  nextAction: string;
+  note: string;
+};
+
+const businessOutputReviewGradeOptions = [
+  { label: '待评', value: 'pending' },
+  { label: '优秀', value: 'excellent' },
+  { label: '可用', value: 'usable' },
+  { label: '勉强', value: 'borderline' },
+  { label: '差图', value: 'bad' },
+  { label: '阻断', value: 'blocked' },
+];
+
+const businessOutputReviewActionOptions = [
+  { label: '采纳', value: 'accept' },
+  { label: '调参', value: 'tune_params' },
+  { label: '分流', value: 'route_split' },
+  { label: '换 LoRA', value: 'switch_lora' },
+  { label: '人工复核', value: 'manual_review' },
+  { label: '暂停推荐', value: 'pause_recommendation' },
+];
+
+const businessOutputReviewGradeLabel = (value?: string | null) =>
+  businessOutputReviewGradeOptions.find((option) => option.value === value)?.label || '待评';
+
+const businessOutputReviewGradeTheme = (value?: string | null) => {
+  if (value === 'excellent' || value === 'usable') return 'success';
+  if (value === 'borderline' || value === 'pending') return 'warning';
+  if (value === 'bad' || value === 'blocked') return 'danger';
+  return 'default';
+};
+
+const businessOutputReviewActionLabel = (value?: string | null) =>
+  businessOutputReviewActionOptions.find((option) => option.value === value)?.label || '人工复核';
+
+type BusinessRunQualitySignal = {
+  theme: 'success' | 'warning' | 'danger' | 'default';
+  title: string;
+  detail: string;
+  nextAction?: string;
+  reviewCount: number;
+  goodCount: number;
+  riskCount: number;
+  pendingCount: number;
+  tags: string[];
+};
+
+const buildBusinessRunQualitySignal = (
+  detail: BusinessRun,
+  reviews?: BusinessOutputReview[] | null,
+  loading?: boolean,
+): BusinessRunQualitySignal => {
+  const outputs = buildBusinessRunVisualOutputs(detail);
+  const items = reviews || [];
+  const reviewCount = items.length;
+  const goodCount = items.filter((item) => ['excellent', 'usable'].includes(String(item.qualityGrade || ''))).length;
+  const riskCount = items.filter((item) => ['borderline', 'bad', 'blocked'].includes(String(item.qualityGrade || ''))).length;
+  const pendingCount = items.filter((item) => !item.qualityGrade || item.qualityGrade === 'pending').length;
+  const tags = Array.from(
+    new Set(items.flatMap((item) => [...(item.inputTags || []), ...(item.issueTags || [])].map((tag) => String(tag || '').trim()).filter(Boolean))),
+  ).slice(0, 5);
+  const action = items.find((item) => item.nextAction && item.nextAction !== 'accept')?.nextAction || items.find((item) => item.nextAction)?.nextAction;
+  if (loading) {
+    return {
+      theme: 'default',
+      title: '质量证据加载中',
+      detail: '正在读取本次输出的质量标注。',
+      reviewCount,
+      goodCount,
+      riskCount,
+      pendingCount,
+      tags,
+    };
+  }
+  if (outputs.length === 0) {
+    return {
+      theme: businessRunIsFinished(detail.status) ? 'danger' : 'warning',
+      title: businessRunIsFinished(detail.status) ? '完成但无输出' : '等待输出',
+      detail: businessRunIsFinished(detail.status) ? '先查主执行、结果解析和 OSS 入库。' : '任务未完成前先看执行阶段和队列。',
+      reviewCount,
+      goodCount,
+      riskCount,
+      pendingCount,
+      tags,
+    };
+  }
+  if (reviewCount === 0) {
+    return {
+      theme: 'warning',
+      title: '待质量标注',
+      detail: `已回收 ${outputs.length} 个输出，但还没有质量结论。`,
+      nextAction: 'manual_review',
+      reviewCount,
+      goodCount,
+      riskCount,
+      pendingCount,
+      tags,
+    };
+  }
+  if (riskCount > 0) {
+    return {
+      theme: 'danger',
+      title: `质量风险 ${riskCount}`,
+      detail: `已标注 ${reviewCount}，可用 ${goodCount}，待评 ${pendingCount}。`,
+      nextAction: action || 'manual_review',
+      reviewCount,
+      goodCount,
+      riskCount,
+      pendingCount,
+      tags,
+    };
+  }
+  if (goodCount > 0 && pendingCount === 0) {
+    return {
+      theme: 'success',
+      title: '质量可用',
+      detail: `已标注 ${reviewCount}，可用 ${goodCount}。`,
+      nextAction: action || 'accept',
+      reviewCount,
+      goodCount,
+      riskCount,
+      pendingCount,
+      tags,
+    };
+  }
+  return {
+    theme: 'warning',
+    title: '质量未定',
+    detail: `已标注 ${reviewCount}，仍有 ${pendingCount} 个输出待评。`,
+    nextAction: action || 'manual_review',
+    reviewCount,
+    goodCount,
+    riskCount,
+    pendingCount,
+    tags,
+  };
+};
+
+const buildBusinessRunGovernanceSignal = (detail: BusinessRun, quality: BusinessRunQualitySignal, stage?: BusinessRunFlowStage) => {
+  if (detail.issueAction) {
+    return {
+      theme: detail.issueSeverity === 'danger' ? 'danger' : 'warning',
+      title: '按链路问题处理',
+      detail: detail.issueAction,
+    };
+  }
+  if (quality.riskCount > 0) {
+    return {
+      theme: 'warning',
+      title: quality.nextAction ? businessOutputReviewActionLabel(quality.nextAction) : '沉淀治理项',
+      detail: '把问题标签、输入标签和样例 batchId 记录到治理台账，再复跑候选版本验证。',
+    };
+  }
+  if (quality.reviewCount === 0 && buildBusinessRunVisualOutputs(detail).length > 0) {
+    return {
+      theme: 'warning',
+      title: '补质量标注',
+      detail: '先标出质量档位、输入标签和问题标签，再决定是否分流或切默认。',
+    };
+  }
+  if (stage?.theme === 'danger') {
+    return {
+      theme: 'danger',
+      title: `处理 ${stage.title}`,
+      detail: stage.hint || stage.detail || '按当前卡点排查链路证据。',
+    };
+  }
+  if (businessRunIsActive(detail.status)) {
+    return {
+      theme: 'warning',
+      title: '继续观察',
+      detail: '任务仍在排队或执行中，超过正常耗时后再进入排障。',
+    };
+  }
+  if (quality.goodCount > 0 && quality.riskCount === 0) {
+    return {
+      theme: 'success',
+      title: '可进入样例复盘',
+      detail: '本次输出可作为候选版本或固定样例批次的正向证据。',
+    };
+  }
+  return {
+    theme: stage?.theme || 'default',
+    title: '保持记录',
+    detail: stage?.hint || '当前没有明确治理动作，保留 runId 作为后续对照样本。',
+  };
+};
+
+function BusinessRunFlowMonitorBrief({
+  detail,
+  reviews,
+  reviewsLoading,
+  formatDateTime,
+}: {
+  detail: BusinessRun;
+  reviews?: BusinessOutputReview[];
+  reviewsLoading?: boolean;
+  formatDateTime: (value?: string | null) => string;
+}) {
+  const stages = buildBusinessRunFlowStages(detail);
+  const priorityStage = businessRunPriorityStage(detail);
+  const quality = buildBusinessRunQualitySignal(detail, reviews, reviewsLoading);
+  const governance = buildBusinessRunGovernanceSignal(detail, quality, priorityStage);
+  const dangerCount = stages.filter((stage) => stage.theme === 'danger').length;
+  const warningCount = stages.filter((stage) => stage.theme === 'warning' || stage.theme === 'primary').length;
+  const successCount = stages.filter((stage) => stage.theme === 'success').length;
+  const verdictTheme =
+    dangerCount > 0 || quality.theme === 'danger'
+      ? 'danger'
+      : warningCount > 0 || quality.theme === 'warning'
+        ? 'warning'
+        : 'success';
+  const verdictText =
+    verdictTheme === 'danger'
+      ? '需要处理'
+      : verdictTheme === 'warning'
+        ? '需要确认'
+        : businessRunIsActive(detail.status)
+          ? '观察中'
+          : '链路可用';
+  const actionMessage = [
+    priorityStage ? `${priorityStage.title}：${priorityStage.result}` : '',
+    quality.title,
+    governance.detail,
+  ].filter(Boolean).join('。');
+
+  return (
+    <Card
+      bordered
+      className="podi-business-run-monitor"
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>流程监控结论</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                runId {formatShortBusinessId(detail.runId || detail.id)} · {formatDateTime(detail.createdAt)}
+              </Typography.Text>
+            </div>
+          </div>
+          <Tag variant="light" theme={verdictTheme as any}>
+            {verdictText}
+          </Tag>
+        </Space>
+      }
+    >
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <div className="podi-business-run-monitor__grid">
+          <div className="podi-business-run-monitor__item" data-theme={priorityStage?.theme || 'default'}>
+            <span>当前卡点</span>
+            <strong>{priorityStage?.title || '暂无卡点'}</strong>
+            <small>{[priorityStage?.result, priorityStage?.detail].filter(Boolean).join(' · ') || '等待更多链路证据'}</small>
+          </div>
+          <div className="podi-business-run-monitor__item" data-theme={quality.theme}>
+            <span>质量证据</span>
+            <strong>{quality.title}</strong>
+            <small>{quality.detail}</small>
+          </div>
+          <div className="podi-business-run-monitor__item" data-theme={governance.theme}>
+            <span>治理动作</span>
+            <strong>{governance.title}</strong>
+            <small>{governance.detail}</small>
+          </div>
+          <div className="podi-business-run-monitor__item" data-theme={verdictTheme}>
+            <span>阶段完整度</span>
+            <strong>
+              {successCount}/{stages.length}
+            </strong>
+            <small>风险 {dangerCount} · 待确认 {warningCount}</small>
+          </div>
+        </div>
+        <Space size={6} breakLine>
+          {quality.tags.length > 0 ? (
+            quality.tags.map((tag) => (
+              <Tag key={tag} variant="light" size="small">
+                {tag}
+              </Tag>
+            ))
+          ) : (
+            <Tag variant="light" size="small">
+              暂无质量标签
+            </Tag>
+          )}
+          {quality.nextAction ? (
+            <Tag variant="light" theme={quality.theme as any} size="small">
+              建议动作：{businessOutputReviewActionLabel(quality.nextAction)}
+            </Tag>
+          ) : null}
+        </Space>
+        <Alert
+          theme={verdictTheme === 'danger' ? 'error' : verdictTheme === 'warning' ? 'warning' : 'success'}
+          message={actionMessage || '当前没有明确阻塞，继续保留 runId 作为复盘证据。'}
+        />
+      </Space>
+    </Card>
+  );
+}
+
+const splitBusinessOutputReviewTags = (value?: string | null) =>
+  String(value || '')
+    .split(/[,，;；\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
+const businessOutputReviewElementId = (runId: string, outputIndex: number) =>
+  `podi-output-review-${String(runId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}-${outputIndex}`;
+
+const classifyBusinessOutputUrl = (url?: string | null): BusinessRunVisualOutput['kind'] => {
+  const value = String(url || '').toLowerCase();
+  if (/\.(png|jpg|jpeg|webp|gif|bmp|svg)(\?|#|$)/i.test(value)) return 'image';
+  if (/\.(mp4|mov|webm|m4v|avi|mkv)(\?|#|$)/i.test(value)) return 'video';
+  return 'resource';
+};
+
+const collectBusinessOutputUrls = (value: unknown, depth = 0): string[] => {
+  if (depth > 3 || value === undefined || value === null) return [];
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return /^https?:\/\//i.test(text) ? [text] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectBusinessOutputUrls(item, depth + 1));
+  }
+  if (typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  const directKeys = [
+    'storedUrl',
+    'stored_url',
+    'ossUrl',
+    'oss_url',
+    'imageUrl',
+    'image_url',
+    'videoUrl',
+    'video_url',
+    'url',
+    'sourceUrl',
+    'source_url',
+  ];
+  const nestedKeys = [
+    'assets',
+    'images',
+    'videos',
+    'imageUrls',
+    'image_urls',
+    'videoUrls',
+    'video_urls',
+    'resultUrls',
+    'result_urls',
+    'outputs',
+    'results',
+    'data',
+    'result',
+  ];
+  return [
+    ...directKeys.flatMap((key) => collectBusinessOutputUrls(record[key], depth + 1)),
+    ...nestedKeys.flatMap((key) => collectBusinessOutputUrls(record[key], depth + 1)),
+  ];
+};
+
+const buildBusinessRunVisualOutputs = (detail: BusinessRun): BusinessRunVisualOutput[] => {
+  const candidates: Array<Omit<BusinessRunVisualOutput, 'outputIndex'>> = [
+    ...(detail.imageUrls || []).map((url) => ({ outputUrl: String(url || '').trim(), kind: 'image' as const })),
+    ...(detail.videoUrls || []).map((url) => ({ outputUrl: String(url || '').trim(), kind: 'video' as const })),
+    ...collectBusinessOutputUrls(detail.resultPayload).map((url) => ({
+      outputUrl: url,
+      kind: classifyBusinessOutputUrl(url),
+    })),
+  ];
+  const seen = new Set<string>();
+  return candidates
+    .filter((item) => {
+      if (!item.outputUrl || seen.has(item.outputUrl)) return false;
+      seen.add(item.outputUrl);
+      return true;
+    })
+    .map((item, index) => ({
+      ...item,
+      outputIndex: index,
+    }));
+};
+
+const businessOutputReviewDraftFromReview = (review?: BusinessOutputReview | null): BusinessOutputReviewDraft => ({
+  qualityGrade: review?.qualityGrade || 'pending',
+  inputTagsText: (review?.inputTags || []).join(', '),
+  issueTagsText: (review?.issueTags || []).join(', '),
+  nextAction: review?.nextAction || 'manual_review',
+  note: review?.note || '',
+});
+
+function BusinessRunOutputReviewCard({
+  detail,
+  reviews,
+  loading,
+  error,
+  isReadOnly,
+  actionLoadingId,
+  outputReviewFocus,
+  onRefreshOutputReviews,
+  onSaveOutputReview,
+}: {
+  detail: BusinessRun;
+  reviews?: BusinessOutputReview[];
+  loading?: boolean;
+  error?: string | null;
+  isReadOnly: boolean;
+  actionLoadingId?: string | null;
+  outputReviewFocus?: BusinessOutputReviewFocus | null;
+  onRefreshOutputReviews?: (runId: string) => void;
+  onSaveOutputReview?: (runId: string, item: BusinessOutputReviewUpsertItem) => Promise<void> | void;
+}) {
+  const runKey = detail.runId || detail.id;
+  const outputs = useMemo(() => buildBusinessRunVisualOutputs(detail), [detail]);
+  const focusedOutputIndex =
+    outputReviewFocus && outputReviewFocus.runId === runKey ? Number(outputReviewFocus.outputIndex || 0) : null;
+  const reviewByIndex = useMemo(() => {
+    const map = new Map<number, BusinessOutputReview>();
+    (reviews || []).forEach((review) => map.set(Number(review.outputIndex || 0), review));
+    return map;
+  }, [reviews]);
+  const [drafts, setDrafts] = useState<Record<number, BusinessOutputReviewDraft>>({});
+
+  useEffect(() => {
+    const next: Record<number, BusinessOutputReviewDraft> = {};
+    outputs.forEach((output) => {
+      next[output.outputIndex] = businessOutputReviewDraftFromReview(reviewByIndex.get(output.outputIndex));
+    });
+    setDrafts(next);
+  }, [outputs, reviewByIndex, runKey]);
+
+  useEffect(() => {
+    if (focusedOutputIndex === null || focusedOutputIndex === undefined) return;
+    window.setTimeout(() => {
+      document.getElementById(businessOutputReviewElementId(runKey, focusedOutputIndex))?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }, 80);
+  }, [focusedOutputIndex, runKey]);
+
+  const updateDraft = (outputIndex: number, patch: Partial<BusinessOutputReviewDraft>) => {
+    setDrafts((prev) => ({
+      ...prev,
+      [outputIndex]: {
+        ...(prev[outputIndex] || businessOutputReviewDraftFromReview(reviewByIndex.get(outputIndex))),
+        ...patch,
+      },
+    }));
+  };
+
+  const saveDraft = (output: BusinessRunVisualOutput) => {
+    if (!onSaveOutputReview) return;
+    const draft = drafts[output.outputIndex] || businessOutputReviewDraftFromReview(reviewByIndex.get(output.outputIndex));
+    void onSaveOutputReview(runKey, {
+      outputIndex: output.outputIndex,
+      outputUrl: output.outputUrl,
+      qualityGrade: draft.qualityGrade || 'pending',
+      inputTags: splitBusinessOutputReviewTags(draft.inputTagsText),
+      issueTags: splitBusinessOutputReviewTags(draft.issueTagsText),
+      nextAction: draft.nextAction || 'manual_review',
+      note: draft.note.trim() || null,
+    });
+  };
+
+  const reviewedCount = (reviews || []).filter((item) => item.qualityGrade && item.qualityGrade !== 'pending').length;
+
+  return (
+    <Card
+      bordered
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Space direction="vertical" size={2}>
+            <Typography.Text strong>出图质量标注</Typography.Text>
+            <Typography.Text theme="secondary">
+              按单张结果记录质量、输入特征和问题标签，后续用于分流、调参和 LoRA/workflow 切换。
+            </Typography.Text>
+          </Space>
+          <Space size="small">
+            <Tag variant="light" theme={reviewedCount > 0 ? 'success' : 'warning'}>
+              已评 {reviewedCount}/{outputs.length}
+            </Tag>
+            <Button
+              size="small"
+              variant="outline"
+              loading={loading}
+              onClick={() => onRefreshOutputReviews?.(runKey)}
+            >
+              刷新标注
+            </Button>
+          </Space>
+        </Space>
+      }
+    >
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        {error ? <Alert theme="error" message={error} /> : null}
+        {outputs.length === 0 ? (
+          <Alert theme="warning" message="这条 run 还没有可标注的图片或视频结果；先确认结果回填和 OSS 落盘是否正常。" />
+        ) : (
+          <div className="podi-business-output-review-grid">
+            {outputs.map((output) => {
+              const review = reviewByIndex.get(output.outputIndex);
+              const draft = drafts[output.outputIndex] || businessOutputReviewDraftFromReview(review);
+              const savingKey = `output-review:${runKey}:${output.outputIndex}`;
+              return (
+                <div
+                  id={businessOutputReviewElementId(runKey, output.outputIndex)}
+                  key={`${output.outputIndex}-${output.outputUrl}`}
+                  className={`podi-business-output-review-item${
+                    focusedOutputIndex === output.outputIndex ? ' podi-business-output-review-item--focused' : ''
+                  }`}
+                >
+                  <div className="podi-business-output-review-item__preview">
+                    {output.kind === 'image' ? (
+                      <img src={output.outputUrl} alt={`business-output-${output.outputIndex + 1}`} loading="lazy" />
+                    ) : output.kind === 'video' ? (
+                      <video src={output.outputUrl} controls preload="metadata" />
+                    ) : (
+                      <a href={output.outputUrl} target="_blank" rel="noreferrer">
+                        打开资源
+                      </a>
+                    )}
+                  </div>
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Space size={6}>
+                        <Typography.Text strong>结果 {output.outputIndex + 1}</Typography.Text>
+                        <Tag variant="light">{output.kind === 'image' ? '图片' : output.kind === 'video' ? '视频' : '资源'}</Tag>
+                        <Tag variant="light" theme={businessOutputReviewGradeTheme(review?.qualityGrade) as any}>
+                          {businessOutputReviewGradeLabel(review?.qualityGrade)}
+                        </Tag>
+                      </Space>
+                      {review?.updatedAt ? (
+                        <Typography.Text theme="secondary">{review.reviewerUsername || '已标注'}</Typography.Text>
+                      ) : null}
+                    </Space>
+                    <Row gutter={[8, 8]}>
+                      <Col xs={12} lg={6}>
+                        <Typography.Text theme="secondary">质量</Typography.Text>
+                        <Select
+                          value={draft.qualityGrade}
+                          options={businessOutputReviewGradeOptions}
+                          disabled={isReadOnly}
+                          onChange={(value) => updateDraft(output.outputIndex, { qualityGrade: String(value || 'pending') })}
+                        />
+                      </Col>
+                      <Col xs={12} lg={6}>
+                        <Typography.Text theme="secondary">下一步</Typography.Text>
+                        <Select
+                          value={draft.nextAction}
+                          options={businessOutputReviewActionOptions}
+                          disabled={isReadOnly}
+                          onChange={(value) => updateDraft(output.outputIndex, { nextAction: String(value || 'manual_review') })}
+                        />
+                      </Col>
+                      <Col xs={12} lg={6}>
+                        <Typography.Text theme="secondary">输入标签</Typography.Text>
+                        <Input
+                          value={draft.inputTagsText}
+                          disabled={isReadOnly}
+                          placeholder="如 商品图, 复杂花型, 横图"
+                          onChange={(value) => updateDraft(output.outputIndex, { inputTagsText: String(value || '') })}
+                        />
+                      </Col>
+                      <Col xs={12} lg={6}>
+                        <Typography.Text theme="secondary">问题标签</Typography.Text>
+                        <Input
+                          value={draft.issueTagsText}
+                          disabled={isReadOnly}
+                          placeholder="如 主体变形, 边缘接缝, 色偏"
+                          onChange={(value) => updateDraft(output.outputIndex, { issueTagsText: String(value || '') })}
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">备注</Typography.Text>
+                        <Textarea
+                          value={draft.note}
+                          disabled={isReadOnly}
+                          placeholder="只记录影响判断的事实，例如哪类图不稳定、是否需要换参数或 LoRA。"
+                          autosize={{ minRows: 2, maxRows: 4 }}
+                          onChange={(value) => updateDraft(output.outputIndex, { note: String(value || '') })}
+                        />
+                      </Col>
+                    </Row>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Typography.Text theme="secondary">
+                        {draft.nextAction ? `动作：${businessOutputReviewActionLabel(draft.nextAction)}` : '等待复核'}
+                      </Typography.Text>
+                      <Button
+                        size="small"
+                        theme="primary"
+                        disabled={isReadOnly || !onSaveOutputReview}
+                        loading={actionLoadingId === savingKey}
+                        onClick={() => saveDraft(output)}
+                      >
+                        保存标注
+                      </Button>
+                    </Space>
+                  </Space>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Space>
+    </Card>
+  );
+}
+
 export const BusinessRunHistoryPanel = ({
   runs,
   total,
@@ -2579,6 +4270,10 @@ export const BusinessRunHistoryPanel = ({
   actionLoadingId,
   detail,
   detailOpen,
+  outputReviews,
+  outputReviewsLoading,
+  outputReviewsError,
+  outputReviewFocus,
   autoRefresh,
   onFiltersChange,
   onAutoRefreshChange,
@@ -2591,6 +4286,8 @@ export const BusinessRunHistoryPanel = ({
   onOpenDetail,
   onCloseDetail,
   onCallbackRetry,
+  onRefreshOutputReviews,
+  onSaveOutputReview,
   formatDateTime,
 }: {
   runs: BusinessRun[];
@@ -2604,6 +4301,10 @@ export const BusinessRunHistoryPanel = ({
   actionLoadingId?: string | null;
   detail?: BusinessRun | null;
   detailOpen: boolean;
+  outputReviews?: BusinessOutputReview[];
+  outputReviewsLoading?: boolean;
+  outputReviewsError?: string | null;
+  outputReviewFocus?: BusinessOutputReviewFocus | null;
   autoRefresh: boolean;
   onFiltersChange: (updater: (prev: BusinessRunFilters) => BusinessRunFilters) => void;
   onAutoRefreshChange: (value: boolean) => void;
@@ -2616,6 +4317,8 @@ export const BusinessRunHistoryPanel = ({
   onOpenDetail: (row: BusinessRun) => void;
   onCloseDetail: () => void;
   onCallbackRetry: (row: BusinessRun) => void;
+  onRefreshOutputReviews?: (runId: string) => void;
+  onSaveOutputReview?: (runId: string, item: BusinessOutputReviewUpsertItem) => Promise<void> | void;
   formatDateTime: (value?: string | null) => string;
 }) => (
   <>
@@ -3063,12 +4766,13 @@ export const BusinessRunHistoryPanel = ({
     >
       {detail ? (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Alert
-            theme="info"
-            message="先看这次调用的入口、版本、状态、结果和回调；如果失败，再看下方具体卡在哪一步。"
+          <BusinessRunFlowMonitorBrief
+            detail={detail}
+            reviews={outputReviews}
+            reviewsLoading={outputReviewsLoading}
+            formatDateTime={formatDateTime}
           />
           <BusinessRunParentTaskCard detail={detail} formatDateTime={formatDateTime} />
-          <BusinessRunNextActionAlert detail={detail} />
           <BusinessRunApiUsageEvidenceCard detail={detail} formatDateTime={formatDateTime} />
           <Row gutter={[12, 12]}>
             <Col span={6}>
@@ -3168,6 +4872,17 @@ export const BusinessRunHistoryPanel = ({
           </Row>
           <BusinessRunTraceTreeCard detail={detail} />
           <BusinessRunFlowEvidenceBar detail={detail} />
+          <BusinessRunOutputReviewCard
+            detail={detail}
+            reviews={outputReviews}
+            loading={outputReviewsLoading}
+            error={outputReviewsError}
+            isReadOnly={isReadOnly}
+            actionLoadingId={actionLoadingId}
+            outputReviewFocus={outputReviewFocus}
+            onRefreshOutputReviews={onRefreshOutputReviews}
+            onSaveOutputReview={onSaveOutputReview}
+          />
           <Card bordered title="本次业务编排">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Typography.Text theme="secondary">
@@ -5005,10 +6720,11 @@ const businessCapabilityGroupHint = (businessKey?: string | null) => {
   if (key === 'image_edit') return '通用改图组件入口，承接主图、标注、参考图、蒙版和编辑指令。';
   if (key === 'fission_evaluate') return '评估裂变结果质量和逻辑合理性，作为图裂变的质检接口。';
   if (key === 'outpaint') return '在原图基础上向外扩展画面，主要服务构图补全和素材延展。';
+  if (key === 'text_fission') return '文字强化裂变两步式入口，先生成可编辑提示词，再提交文生图。';
   return '承载一个对业务方稳定暴露的功能入口，底层能力可以独立换版本。';
 };
 
-const businessOrchestrationKeys = ['pattern_extract', 'fission', 'image_edit', 'fission_evaluate', 'outpaint'] as const;
+const businessOrchestrationKeys = ['pattern_extract', 'fission', 'image_edit', 'outpaint', 'text_fission'] as const;
 
 const businessApiEntryPath = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
@@ -5017,6 +6733,7 @@ const businessApiEntryPath = (businessKey?: string | null) => {
   if (key === 'image_edit') return '/api/business/image-edit/runs';
   if (key === 'fission_evaluate') return '/api/business/fission-evaluate/runs';
   if (key === 'outpaint') return '/api/business/outpaint/runs';
+  if (key === 'text_fission') return '/api/business/text-fission/runs';
   return '/api/business/{business}/runs';
 };
 
@@ -5030,6 +6747,7 @@ const businessEntryUsageHint = (businessKey?: string | null) => {
   if (key === 'fission_evaluate') return '通常在裂变完成后调用，用于判断结果是否可用或是否需要重跑。';
   if (key === 'pattern_extract') return '作为素材生产上游入口，可被裂变、扩图或人工流程复用。';
   if (key === 'outpaint') return '对业务方保持固定入口，底层可以在 ComfyUI 或商业模型间切换。';
+  if (key === 'text_fission') return '业务方先调用 prompts 生成可编辑提示词，再确认后提交 runs。';
   return '业务方只需要调用固定入口，内部版本和处理步骤由中台管理。';
 };
 
@@ -5273,6 +6991,7 @@ const businessCapabilityMediaLabel = (item: BusinessCapability) => {
   if (key === 'image_edit') return '输入主图/参考图 · 输出改图结果';
   if (key === 'fission_evaluate') return '输入原图和结果图 · 输出评分';
   if (key === 'outpaint') return '输入图片 · 输出扩展图';
+  if (key === 'text_fission') return '输入图片/确认提示词 · 输出文字强化图';
   const output = item.outputSchema || {};
   const text = JSON.stringify(output).toLowerCase();
   if (text.includes('video')) return '输出视频';
@@ -5308,6 +7027,17 @@ const businessCapabilityRiskTag = (item: BusinessCapability) => {
     return { theme: 'success', text: '生产默认', detail: '当前业务入口默认使用这个版本。' };
   }
   return { theme: 'primary', text: '备用版本', detail: '可用于灰度、对照或回滚。' };
+};
+
+const businessCapabilityIsHistoricalVersion = (item: BusinessCapability, supersededIds?: Set<string>) => {
+  if (item.isDefault || item.status === 'draft') return false;
+  const status = String(item.status || '').toLowerCase();
+  const lifecycle = String(item.versionFamily?.lifecycleKey || '').toLowerCase();
+  const line = businessCapabilityVersionLine(item);
+  if (['deprecated', 'disabled', 'inactive'].includes(status)) return true;
+  if (['deprecated', 'disabled', 'inactive'].includes(lifecycle)) return true;
+  if (line.key === 'legacy') return true;
+  return Boolean(item.id && supersededIds?.has(item.id));
 };
 
 const businessCoreEntrySuggestion = ({
@@ -5592,7 +7322,7 @@ export const BusinessCoreClosurePanel = ({
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <div>
-            <Typography.Text strong>三主业务闭环总表</Typography.Text>
+            <Typography.Text strong>核心业务闭环总表</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
                 一张表核对默认版本、验收、真实样本、回调、计费和回滚；先看这里，再进入版本卡片或运行记录。
@@ -6057,11 +7787,17 @@ const businessReleaseGateIssueLabel = (value?: string | null) => {
     BUSINESS_RELEASE_GOVERNANCE_BLOCKED: '底层能力或模型治理未通过',
     BUSINESS_RELEASE_GOVERNANCE_WARNING: '底层治理信息需要补齐',
     BUSINESS_RELEASE_ACCEPTANCE_REQUIRED: '缺少真实链路验收记录',
+    BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED: '缺少出图质量标注',
+    BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED: '缺少可用/优秀样本',
+    BUSINESS_RELEASE_QUALITY_REVIEW_RISKY: '质量样本有风险',
     BUSINESS_RELEASE_LATEST_RUN_FAILED: '最近一次运行失败',
     BUSINESS_RELEASE_RECENT_FAILURES: '近期存在失败样本',
   };
   return labels[value || ''] || value || '';
 };
+
+const businessReleaseGateHasQualityBlocker = (releaseGate?: BusinessReleaseGate | null) =>
+  (releaseGate?.blockers || []).some((code) => String(code || '').includes('QUALITY_REVIEW'));
 
 function BusinessCapabilityReleaseEvidence({
   item,
@@ -6075,6 +7811,14 @@ function BusinessCapabilityReleaseEvidence({
   const blockers = (releaseGate?.blockers || []).map((item) => businessReleaseGateIssueLabel(item)).filter(Boolean);
   const warnings = (releaseGate?.warnings || []).map((item) => businessReleaseGateIssueLabel(item)).filter(Boolean);
   const suggestions = releaseGate?.suggestions || [];
+  const qualityEvidence = (releaseGate?.qualityEvidence || {}) as JsonRecord;
+  const qualityRequired = Boolean(qualityEvidence.required);
+  const qualityReviewed = Number(qualityEvidence.reviewed || 0);
+  const qualityAccepted = Number(qualityEvidence.accepted || 0);
+  const qualityRisky = Number(qualityEvidence.risky || 0);
+  const qualityStatus = String(qualityEvidence.status || '');
+  const qualityTheme =
+    qualityStatus === 'ready' ? 'success' : qualityStatus === 'warning' ? 'warning' : qualityRequired ? 'danger' : 'default';
   const latestRun = item.latestRun;
   const outputCount = Number(latestRun?.imageCount || latestRun?.image_count || 0) + Number(latestRun?.videoCount || latestRun?.video_count || 0);
   const governanceTags = [
@@ -6132,6 +7876,14 @@ function BusinessCapabilityReleaseEvidence({
           {latestRun ? <StatusBadge status={latestRun.status} /> : <Tag variant="light">暂无真实样本</Tag>}
           <Typography.Text theme={latestRun?.error ? 'error' : 'secondary'}>
             {latestRun ? `最近样本：${businessCapabilityLatestRunLabel(item)}${outputCount > 0 ? ` · 输出 ${outputCount} 个` : ''}` : '还没有运行记录'}
+          </Typography.Text>
+        </Space>
+        <Space size={6} breakLine>
+          <Tag theme={qualityTheme as any} variant="light" size="small">
+            {qualityEvidence.label ? String(qualityEvidence.label) : qualityRequired ? '缺少质量复盘' : '质量非强制'}
+          </Tag>
+          <Typography.Text theme="secondary">
+            标注 {qualityReviewed} · 可用 {qualityAccepted} · 风险 {qualityRisky}
           </Typography.Text>
         </Space>
         <Space size={6} breakLine>
@@ -6210,6 +7962,1712 @@ function BusinessCapabilityTechnicalDetails({ item }: { item: BusinessCapability
     </details>
   );
 }
+
+type BusinessFixedSamplePreset = {
+  key: string;
+  label: string;
+  hint: string;
+  prompt?: string;
+  imageUrl?: string;
+  generatedImageUrl?: string;
+  sampleId?: string;
+  source?: 'preset' | 'library';
+  inputs?: Record<string, unknown>;
+};
+
+type BusinessFixedSampleBatchRow = {
+  enabled: boolean;
+  imageUrl: string;
+  prompt: string;
+  generatedImageUrl: string;
+};
+
+type BusinessDraftRunBatchRequest = {
+  capability: BusinessCapability;
+  payload: Record<string, unknown>;
+};
+
+type BusinessDraftRunBatchResult = {
+  submitted: number;
+  total: number;
+  runIds: string[];
+  errors: string[];
+};
+
+type BusinessFixedSampleBatchReport = BusinessDraftRunBatchResult & {
+  batchId: string;
+  businessKey: string;
+  sampleCount: number;
+  targetCount: number;
+  createdAt: string;
+};
+
+const businessFixedSamplePresets = (businessKey?: string | null): BusinessFixedSamplePreset[] => {
+  const key = canonicalBusinessKey(businessKey);
+  if (key === 'pattern_extract') {
+    return [
+      { key: 'clean-pattern', label: '干净花纹', hint: '边缘干净、主体完整，检查是否有残留。' },
+      { key: 'complex-background', label: '复杂背景', hint: '背景干扰明显，检查抠取和边缘脏污。' },
+      { key: 'fabric-texture', label: '布料纹理', hint: '布料纹理或褶皱图，检查纹理断裂和色偏。' },
+    ];
+  }
+  if (key === 'fission') {
+    return [
+      { key: 'single-subject', label: '单主体', hint: '主体清晰，检查结构是否稳定。' },
+      { key: 'dense-pattern', label: '满版图案', hint: '高密度图案，检查密度变化和重复瑕疵。' },
+      { key: 'color-sensitive', label: '颜色敏感', hint: '品牌色或强色块，检查色差。' },
+      { key: 'complex-texture', label: '复杂纹理', hint: '复杂纹理，检查主体变形。' },
+      { key: 'business-real', label: '业务真实图', hint: '线上真实样例，检查最终业务可用性。' },
+    ];
+  }
+  if (key === 'image_edit') {
+    return [
+      { key: 'remove-object', label: '删除修补', hint: '检查局部删除后边缘和背景连贯性。', inputs: { editSkill: 'remove_object' } },
+      { key: 'replace-reference', label: '参考替换', hint: '检查参考图约束和原图保留。', inputs: { editSkill: 'replace_with_reference' } },
+      { key: 'color-repair', label: '补色校正', hint: '检查局部颜色是否自然。', inputs: { editSkill: 'color_repair' } },
+      { key: 'canvas-outpaint', label: '扩展画布', hint: '检查扩展边缘、接缝和原图区域。', inputs: { editSkill: 'canvas_outpaint' } },
+    ];
+  }
+  if (key === 'outpaint') {
+    return [
+      { key: 'all-sides', label: '四边扩展', hint: '检查四边接缝和主体比例。', inputs: { expand_left: 256, expand_right: 256, expand_top: 256, expand_bottom: 256 } },
+      { key: 'single-side', label: '单边扩展', hint: '检查单侧背景延展是否穿帮。', inputs: { expand_right: 512 } },
+      { key: 'wide-ratio', label: '横向扩展', hint: '检查横幅比例和主体拉伸。', inputs: { expand_left: 512, expand_right: 512 } },
+      { key: 'tall-ratio', label: '纵向扩展', hint: '检查竖图比例和上下背景。', inputs: { expand_top: 512, expand_bottom: 512 } },
+    ];
+  }
+  if (key === 'text_fission') {
+    return [
+      { key: 'dense-chinese', label: '中文密集', hint: '检查错字、笔画和版式漂移。' },
+      { key: 'english-number', label: '英文数字', hint: '检查字母数字是否保真。' },
+      { key: 'low-contrast-text', label: '低对比文字', hint: '检查低对比文字可读性。' },
+    ];
+  }
+  return [
+    { key: 'standard', label: '标准样例', hint: '覆盖常规输入。' },
+    { key: 'edge', label: '边界样例', hint: '覆盖风险输入。' },
+    { key: 'real', label: '业务样例', hint: '覆盖真实业务图。' },
+  ];
+};
+
+const businessQualitySampleToPreset = (sample: BusinessQualitySample): BusinessFixedSamplePreset => ({
+  key: sample.sampleKey || sample.id,
+  label: sample.label,
+  hint: sample.description || (sample.inputTags || []).join('、') || '样例库保存样例',
+  prompt: sample.prompt || '',
+  imageUrl: sample.imageUrl,
+  generatedImageUrl: sample.generatedImageUrl || '',
+  sampleId: sample.id,
+  source: 'library',
+  inputs: sample.defaultParams || {},
+});
+
+const parseBusinessQualitySampleDefaultParams = (value: unknown): JsonRecord => {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value as JsonRecord;
+  const text = String(value || '').trim();
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as JsonRecord;
+  } catch {
+    throw new Error('defaultParams 必须是 JSON 对象。');
+  }
+  throw new Error('defaultParams 必须是 JSON 对象。');
+};
+
+const normalizeBusinessQualitySampleImportItem = (
+  raw: Record<string, unknown>,
+  fallbackBusinessKey?: string,
+): BusinessQualitySampleImportItem => {
+  const inputTags = raw.inputTags ?? raw.input_tags;
+  return {
+    businessKey: String(raw.businessKey ?? raw.business_key ?? fallbackBusinessKey ?? '').trim() || undefined,
+    sampleKey: String(raw.sampleKey ?? raw.sample_key ?? '').trim() || undefined,
+    label: String(raw.label ?? raw.name ?? '').trim() || undefined,
+    description: String(raw.description ?? raw.desc ?? '').trim() || undefined,
+    imageUrl: String(raw.imageUrl ?? raw.image_url ?? raw.url ?? '').trim() || undefined,
+    prompt: String(raw.prompt ?? '').trim() || undefined,
+    generatedImageUrl: String(raw.generatedImageUrl ?? raw.generated_image_url ?? '').trim() || undefined,
+    inputTags: Array.isArray(inputTags) ? inputTags.map((item) => String(item || '').trim()).filter(Boolean) : splitBusinessOutputReviewTags(String(inputTags || '')),
+    defaultParams: parseBusinessQualitySampleDefaultParams(raw.defaultParams ?? raw.default_params),
+    status: String(raw.status || 'active').trim() || 'active',
+    sortOrder: Number(raw.sortOrder ?? raw.sort_order ?? 0) || 0,
+    changeNote: String(raw.changeNote ?? raw.change_note ?? '').trim() || undefined,
+  };
+};
+
+const parseBusinessQualitySampleImportText = (
+  value: string,
+  fallbackBusinessKey?: string,
+): BusinessQualitySampleImportItem[] => {
+  const text = value.trim();
+  if (!text) throw new Error('请粘贴 JSON 或 CSV 样例数据。');
+  if (text.startsWith('[') || text.startsWith('{')) {
+    const parsed = JSON.parse(text);
+    const rawItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
+    if (rawItems.length === 0) throw new Error('JSON 中没有 items。');
+    return rawItems.map((item: unknown) => normalizeBusinessQualitySampleImportItem(item as Record<string, unknown>, fallbackBusinessKey));
+  }
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) throw new Error('CSV 内容为空。');
+  const firstCells = lines[0].split(/\t|,/).map((cell) => cell.trim());
+  const hasHeader = firstCells.some((cell) => ['businessKey', 'business_key', 'sampleKey', 'sample_key', 'imageUrl', 'image_url'].includes(cell));
+  const headers = hasHeader
+    ? firstCells
+    : ['businessKey', 'sampleKey', 'label', 'imageUrl', 'prompt', 'inputTags', 'defaultParams', 'status', 'sortOrder'];
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+  return dataLines.map((line) => {
+    const cells = line.split(/\t|,/);
+    const row = headers.reduce<Record<string, unknown>>((map, key, index) => {
+      map[key] = cells[index] || '';
+      return map;
+    }, {});
+    return normalizeBusinessQualitySampleImportItem(row, fallbackBusinessKey);
+  });
+};
+
+const businessFixedSampleOptions = (
+  businessKey: string | null | undefined,
+  qualitySamples: BusinessQualitySample[],
+): BusinessFixedSamplePreset[] => {
+  const key = canonicalBusinessKey(businessKey);
+  const saved = qualitySamples
+    .filter((sample) => canonicalBusinessKey(sample.businessKey) === key && sample.status !== 'archived' && sample.status !== 'inactive')
+    .sort((left, right) => {
+      const sortDiff = Number(left.sortOrder || 0) - Number(right.sortOrder || 0);
+      if (sortDiff !== 0) return sortDiff;
+      return String(right.createdAt || '').localeCompare(String(left.createdAt || ''));
+    })
+    .map(businessQualitySampleToPreset);
+  return saved.length > 0 ? saved : businessFixedSamplePresets(key);
+};
+
+const findBusinessCapabilityField = (value: unknown, names: string[], depth = 0): string => {
+  if (!value || depth > 4) return '';
+  if (typeof value !== 'object') return '';
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findBusinessCapabilityField(item, names, depth + 1);
+      if (found) return found;
+    }
+    return '';
+  }
+  const record = value as Record<string, unknown>;
+  for (const [key, item] of Object.entries(record)) {
+    if (names.includes(key) && item !== undefined && item !== null && item !== '') {
+      return String(item);
+    }
+  }
+  for (const item of Object.values(record)) {
+    const found = findBusinessCapabilityField(item, names, depth + 1);
+    if (found) return found;
+  }
+  return '';
+};
+
+const businessCapabilityCandidateRoute = (item: BusinessCapability) => {
+  const sources = [item.recipe, item.metadata, item.inputSchema, item.outputSchema];
+  const workflow =
+    item.metadata && typeof item.metadata.workflow_key === 'string'
+      ? item.metadata.workflow_key
+      : sources.map((source) => findBusinessCapabilityField(source, ['workflowKey', 'workflow_key', 'workflowId', 'workflow_id'])).find(Boolean) || '';
+  const lora = sources.map((source) => findBusinessCapabilityField(source, ['lora', 'loraName', 'lora_name', 'loraFile', 'lora_file'])).find(Boolean) || '';
+  const model =
+    item.vendorModelName ||
+    sources.map((source) => findBusinessCapabilityField(source, ['modelId', 'model_id', 'model', 'modelName', 'model_name'])).find(Boolean) ||
+    item.primaryAbilityProvider ||
+    '';
+  return {
+    workflow,
+    lora,
+    model,
+    label: [workflow ? `workflow ${workflow}` : '', lora ? `LoRA ${lora}` : '', model ? `模型 ${model}` : ''].filter(Boolean).join(' · ') || '沿用业务默认路线',
+  };
+};
+
+const businessQualityVersionSummaryForCapability = (
+  qualitySummary: BusinessOutputReviewSummaryResponse | null | undefined,
+  item: BusinessCapability,
+): BusinessOutputReviewVersionSummary | null =>
+  (qualitySummary?.byVersion || []).find(
+    (row) =>
+      (row.businessVersionId && row.businessVersionId === item.id) ||
+      (canonicalBusinessKey(row.businessKey) === canonicalBusinessKey(item.businessKey) && String(row.version || '') === String(item.version || '')),
+  ) || null;
+
+const businessCandidateQualityLabel = (item: BusinessCapability, summary?: BusinessOutputReviewVersionSummary | null) => {
+  const qualityEvidence = (item.releaseGate?.qualityEvidence || {}) as JsonRecord;
+  const reviewed = Number(summary?.reviewed ?? qualityEvidence.reviewed ?? 0);
+  const accepted = Number((summary?.excellent || 0) + (summary?.usable || 0) || qualityEvidence.accepted || 0);
+  const risky = Number((summary?.borderline || 0) + (summary?.bad || 0) + (summary?.blocked || 0) || qualityEvidence.risky || 0);
+  if (reviewed <= 0) return { theme: 'warning', text: '待质量标注', detail: '还没有可用于切默认的输出样例。', reviewed, accepted, risky };
+  if (accepted <= 0) return { theme: 'danger', text: '缺可用样本', detail: `已标注 ${reviewed}，但没有优秀/可用样本。`, reviewed, accepted, risky };
+  if (risky > 0) return { theme: 'warning', text: '需复核', detail: `可用 ${accepted}，风险 ${risky}。`, reviewed, accepted, risky };
+  return { theme: 'success', text: '质量可用', detail: `可用 ${accepted}/${reviewed}。`, reviewed, accepted, risky };
+};
+
+type BusinessCandidateQualityView = ReturnType<typeof businessCandidateQualityLabel>;
+
+type BusinessCandidateVersionView = {
+  item: BusinessCapability;
+  route: ReturnType<typeof businessCapabilityCandidateRoute>;
+  summary?: BusinessOutputReviewVersionSummary | null;
+  quality: BusinessCandidateQualityView;
+};
+
+const businessCandidateLatestRunTime = (item?: BusinessCapability | null) =>
+  Date.parse(String(item?.latestRun?.createdAt || item?.latestRun?.created_at || item?.latestRun?.finishedAt || item?.latestRun?.finished_at || '')) || 0;
+
+const businessCandidateFocus = ({
+  presetsCount,
+  libraryCount,
+  actionRulesCount,
+  versionRows,
+  candidateCount,
+}: {
+  presetsCount: number;
+  libraryCount: number;
+  actionRulesCount: number;
+  versionRows: BusinessCandidateVersionView[];
+  candidateCount: number;
+}) => {
+  const noQualityCount = versionRows.filter((row) => row.quality.reviewed <= 0).length;
+  const dangerQualityCount = versionRows.filter((row) => row.quality.theme === 'danger').length;
+  const riskyCount = versionRows.filter((row) => row.quality.risky > 0).length;
+  if (libraryCount <= 0) {
+    return {
+      theme: 'warning',
+      title: '先补样例库',
+      detail: presetsCount > 0 ? '当前只有内置样例，建议沉淀可复用样例库。' : '还没有固定样例，无法做标准批量对照。',
+      action: '导入样例',
+    };
+  }
+  if (dangerQualityCount > 0) {
+    return {
+      theme: 'danger',
+      title: '质量阻断',
+      detail: `${dangerQualityCount} 个版本缺少可用样本，先补标注或换候选策略。`,
+      action: '记录治理项',
+    };
+  }
+  if (riskyCount > 0) {
+    return {
+      theme: 'warning',
+      title: '处理风险样本',
+      detail: `${riskyCount} 个版本存在风险标注，优先沉淀分流、LoRA 或 workflow 策略。`,
+      action: actionRulesCount > 0 ? '复跑治理项' : '记录治理项',
+    };
+  }
+  if (noQualityCount > 0) {
+    return {
+      theme: 'warning',
+      title: '补质量标注',
+      detail: `${noQualityCount} 个版本没有质量证据，先用固定样例跑同批对照。`,
+      action: '批量复跑',
+    };
+  }
+  if (candidateCount > 0) {
+    return {
+      theme: 'success',
+      title: '可做候选验收',
+      detail: `已有 ${candidateCount} 条候选路线，可继续用固定样例做版本对照。`,
+      action: '批量复跑',
+    };
+  }
+  return {
+    theme: 'default',
+    title: '保持观察',
+    detail: '当前只有默认路线，继续积累样例和质量标注。',
+    action: '观察',
+  };
+};
+
+const createBusinessFixedSamplePayload = ({
+  imageUrl,
+  generatedImageUrl,
+  prompt,
+  preset,
+  capability,
+  batchId,
+  batchMode = false,
+  extraParams = {},
+}: {
+  imageUrl: string;
+  generatedImageUrl?: string;
+  prompt?: string;
+  preset?: BusinessFixedSamplePreset;
+  capability: BusinessCapability;
+  batchId?: string;
+  batchMode?: boolean;
+  extraParams?: Record<string, unknown>;
+}): Record<string, unknown> => {
+  const payload: Record<string, unknown> = {
+    ...(preset?.inputs || {}),
+    ...extraParams,
+    imageUrl,
+    variation_preset: preset?.key || 'fixed-sample',
+    metadata: {
+      qualitySample: {
+        batchId,
+        batchMode,
+        businessKey: canonicalBusinessKey(capability.businessKey),
+        businessVersionId: capability.id,
+        version: capability.version,
+        sampleId: preset?.sampleId,
+        sampleKey: preset?.key || 'fixed-sample',
+        sampleLabel: preset?.label || '固定样例',
+        sampleHint: preset?.hint || '',
+        sampleSource: preset?.source || 'preset',
+        source: 'admin-quality-candidate-panel',
+      },
+    },
+  };
+  if (prompt?.trim()) payload.prompt = prompt.trim();
+  if (generatedImageUrl?.trim()) {
+    payload.originalImageUrl = imageUrl;
+    payload.generatedImageUrl = generatedImageUrl.trim();
+  }
+  return payload;
+};
+
+const businessBatchSummaryLabel = (batch: BusinessOutputReviewBatchSummary) => {
+  if (batch.reviewed <= 0) return { theme: 'warning', text: '待标注', detail: `已回收 ${batch.total} 张输出，尚未形成质量结论。` };
+  if (batch.good <= 0) return { theme: 'danger', text: '无可用样本', detail: `已标注 ${batch.reviewed}，暂无优秀/可用。` };
+  if (batch.risk > 0) return { theme: 'warning', text: '需复核', detail: `可用 ${batch.good}，风险 ${batch.risk}。` };
+  return { theme: 'success', text: '同批可用', detail: `可用 ${batch.good}/${batch.reviewed}。` };
+};
+
+const businessQualityActionTypeOptions = [
+  { label: '观察记录', value: 'watch_only' },
+  { label: '调参', value: 'tune_params' },
+  { label: '分流', value: 'route_split' },
+  { label: '换 LoRA', value: 'switch_lora' },
+  { label: '换 workflow', value: 'switch_workflow' },
+  { label: '暂停推荐', value: 'pause_recommendation' },
+];
+
+const businessQualityActionStatusOptions = [
+  { label: '草稿', value: 'draft' },
+  { label: '候选', value: 'candidate' },
+  { label: '已验证', value: 'validated' },
+  { label: '默认策略', value: 'default' },
+  { label: '暂停', value: 'paused' },
+  { label: '拒绝', value: 'rejected' },
+  { label: '已归档', value: 'archived' },
+];
+
+const businessQualityActionTypeLabel = (value?: string | null) =>
+  businessQualityActionTypeOptions.find((option) => option.value === value)?.label || '观察记录';
+
+const businessQualityActionStatusLabel = (value?: string | null) =>
+  businessQualityActionStatusOptions.find((option) => option.value === value)?.label || '候选';
+
+const businessQualityActionStatusTheme = (value?: string | null) => {
+  if (value === 'validated' || value === 'default') return 'success';
+  if (value === 'paused' || value === 'rejected') return 'danger';
+  if (value === 'draft' || value === 'candidate') return 'warning';
+  return 'default';
+};
+
+type BusinessQualityActionRuleForm = {
+  title: string;
+  actionType: string;
+  status: string;
+  targetBusinessVersionId: string;
+  targetRef: string;
+  issueTagsText: string;
+  inputTagsText: string;
+  description: string;
+};
+
+const defaultBusinessQualityActionRuleForm = (): BusinessQualityActionRuleForm => ({
+  title: '',
+  actionType: 'watch_only',
+  status: 'candidate',
+  targetBusinessVersionId: '',
+  targetRef: '',
+  issueTagsText: '',
+  inputTagsText: '',
+  description: '',
+});
+
+const downloadBusinessQualityCsv = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+const businessQualityFileToken = (value?: string | null) =>
+  String(value || 'all')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .slice(0, 80) || 'all';
+
+export const BusinessQualityCandidatePanel = ({
+  capabilities,
+  qualitySummary,
+  isReadOnly,
+  actionLoadingId,
+  onDraftRun,
+  onDraftRunBatch,
+  onOpenReview,
+  formatDateTime,
+}: {
+  capabilities: BusinessCapability[];
+  qualitySummary?: BusinessOutputReviewSummaryResponse | null;
+  isReadOnly: boolean;
+  actionLoadingId?: string | null;
+  onDraftRun: (item: BusinessCapability, payload?: Record<string, unknown>) => void | Promise<void>;
+  onDraftRunBatch: (items: BusinessDraftRunBatchRequest[]) => Promise<BusinessDraftRunBatchResult>;
+  onOpenReview?: (review: BusinessOutputReview) => void;
+  formatDateTime: (value?: string | null) => string;
+}) => {
+  const [sampleTarget, setSampleTarget] = useState<BusinessCapability | null>(null);
+  const [batchTarget, setBatchTarget] = useState<{ businessKey: string; items: BusinessCapability[] } | null>(null);
+  const [sampleForm, setSampleForm] = useState({
+    sampleKey: '',
+    imageUrl: '',
+    prompt: '',
+    generatedImageUrl: '',
+    extraParamsText: '',
+  });
+  const [batchRows, setBatchRows] = useState<Record<string, BusinessFixedSampleBatchRow>>({});
+  const [batchTargetIds, setBatchTargetIds] = useState<string[]>([]);
+  const [batchExtraParamsText, setBatchExtraParamsText] = useState('');
+  const [sampleError, setSampleError] = useState<string | null>(null);
+  const [sampleNotice, setSampleNotice] = useState<string | null>(null);
+  const [sampleSaving, setSampleSaving] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchReport, setBatchReport] = useState<BusinessFixedSampleBatchReport | null>(null);
+  const [qualitySamples, setQualitySamples] = useState<BusinessQualitySample[]>([]);
+  const [qualitySamplesLoading, setQualitySamplesLoading] = useState(false);
+  const [qualitySamplesError, setQualitySamplesError] = useState<string | null>(null);
+  const [sampleUploadLoading, setSampleUploadLoading] = useState(false);
+  const [sampleImportVisible, setSampleImportVisible] = useState(false);
+  const [sampleImportBusinessKey, setSampleImportBusinessKey] = useState('all');
+  const [sampleImportText, setSampleImportText] = useState('');
+  const [sampleImportDryRun, setSampleImportDryRun] = useState(false);
+  const [sampleImportLoading, setSampleImportLoading] = useState(false);
+  const [sampleImportError, setSampleImportError] = useState<string | null>(null);
+  const [sampleImportReport, setSampleImportReport] = useState<BusinessQualitySampleImportResponse | null>(null);
+  const [sampleHistoryTargetId, setSampleHistoryTargetId] = useState('');
+  const [sampleHistoryItems, setSampleHistoryItems] = useState<BusinessQualitySampleVersion[]>([]);
+  const [sampleHistoryLoading, setSampleHistoryLoading] = useState(false);
+  const [sampleHistoryError, setSampleHistoryError] = useState<string | null>(null);
+  const [qualityActionRules, setQualityActionRules] = useState<BusinessQualityActionRule[]>([]);
+  const [qualityActionRulesLoading, setQualityActionRulesLoading] = useState(false);
+  const [qualityActionRulesError, setQualityActionRulesError] = useState<string | null>(null);
+  const [ruleDialogBusinessKey, setRuleDialogBusinessKey] = useState<string | null>(null);
+  const [ruleEditTarget, setRuleEditTarget] = useState<BusinessQualityActionRule | null>(null);
+  const [ruleForm, setRuleForm] = useState<BusinessQualityActionRuleForm>(() => defaultBusinessQualityActionRuleForm());
+  const [ruleError, setRuleError] = useState<string | null>(null);
+  const [ruleSaving, setRuleSaving] = useState(false);
+  const [ruleArchivingId, setRuleArchivingId] = useState<string | null>(null);
+  const [reviewExportingKey, setReviewExportingKey] = useState<string | null>(null);
+  const [reviewExportError, setReviewExportError] = useState<string | null>(null);
+  const refreshQualitySamples = async () => {
+    setQualitySamplesLoading(true);
+    setQualitySamplesError(null);
+    try {
+      const response = await adminApi.listBusinessQualitySamples({ limit: 500 });
+      setQualitySamples(response.items || []);
+    } catch (error: any) {
+      setQualitySamples([]);
+      setQualitySamplesError(error?.message || '固定样例库暂不可用。');
+    } finally {
+      setQualitySamplesLoading(false);
+    }
+  };
+  const uploadSampleImageToOss = async (file?: File | null) => {
+    if (!file) return;
+    setSampleUploadLoading(true);
+    setSampleError(null);
+    setSampleNotice(null);
+    try {
+      const { uploadAbilityTestFile } = await import('../../../utils/ossUploader');
+      const uploaded = await uploadAbilityTestFile(file, {
+        action: 'business-quality-sample',
+        channel: 'admin-quality-sample-library',
+      });
+      setSampleForm((prev) => ({ ...prev, imageUrl: uploaded.url }));
+      setSampleNotice(`已上传到 OSS：${uploaded.name}`);
+    } catch (error: any) {
+      setSampleError(error?.message || 'OSS 上传失败，请稍后重试。');
+    } finally {
+      setSampleUploadLoading(false);
+    }
+  };
+  const openSampleImportDialog = (businessKey?: string) => {
+    setSampleImportVisible(true);
+    setSampleImportBusinessKey(businessKey ? canonicalBusinessKey(businessKey) : 'all');
+    setSampleImportError(null);
+    setSampleImportReport(null);
+    setSampleHistoryError(null);
+    setSampleHistoryItems([]);
+    setSampleHistoryTargetId((prev) => prev || qualitySamples[0]?.id || '');
+  };
+  const submitSampleImport = async () => {
+    const businessKey = sampleImportBusinessKey !== 'all' ? sampleImportBusinessKey : undefined;
+    let items: BusinessQualitySampleImportItem[] = [];
+    try {
+      items = parseBusinessQualitySampleImportText(sampleImportText, businessKey);
+    } catch (error: any) {
+      setSampleImportError(error?.message || '导入内容解析失败。');
+      return;
+    }
+    setSampleImportLoading(true);
+    setSampleImportError(null);
+    try {
+      const response = await adminApi.importBusinessQualitySamples({
+        businessKey,
+        items,
+        dryRun: sampleImportDryRun,
+        changeNote: sampleImportDryRun ? '管理端批量导入预检查' : '管理端批量导入',
+      });
+      setSampleImportReport(response);
+      if (!sampleImportDryRun && (response.created > 0 || response.updated > 0)) {
+        await refreshQualitySamples();
+      }
+    } catch (error: any) {
+      setSampleImportError(error?.message || '批量导入失败。');
+    } finally {
+      setSampleImportLoading(false);
+    }
+  };
+  const loadSampleHistory = async (sampleId?: string) => {
+    const targetId = sampleId || sampleHistoryTargetId;
+    if (!targetId) {
+      setSampleHistoryError('请选择样例。');
+      return;
+    }
+    setSampleHistoryLoading(true);
+    setSampleHistoryError(null);
+    try {
+      const response = await adminApi.listBusinessQualitySampleVersions(targetId, 50);
+      setSampleHistoryItems(response.items || []);
+      setSampleHistoryTargetId(targetId);
+    } catch (error: any) {
+      setSampleHistoryItems([]);
+      setSampleHistoryError(error?.message || '样例历史加载失败。');
+    } finally {
+      setSampleHistoryLoading(false);
+    }
+  };
+  const refreshQualityActionRules = async () => {
+    setQualityActionRulesLoading(true);
+    setQualityActionRulesError(null);
+    try {
+      const response = await adminApi.listBusinessQualityActionRules({ limit: 500 });
+      setQualityActionRules(response.items || []);
+    } catch (error: any) {
+      setQualityActionRules([]);
+      setQualityActionRulesError(error?.message || '质量治理台账暂不可用。');
+    } finally {
+      setQualityActionRulesLoading(false);
+    }
+  };
+  const exportBusinessQualityReviews = async (options?: { batch?: BusinessOutputReviewBatchSummary; businessKey?: string }) => {
+    const batch = options?.batch;
+    const exportKey = batch?.batchId || options?.businessKey || 'all';
+    setReviewExportingKey(exportKey);
+    setReviewExportError(null);
+    try {
+      const blob = await adminApi.exportBusinessOutputReviews({
+        windowHours: qualitySummary?.windowHours || 168,
+        businessKey: batch?.businessKey || options?.businessKey,
+        batchId: batch?.batchId,
+        limit: 5000,
+      });
+      const filename = batch
+        ? `business-quality-${businessQualityFileToken(batch.businessKey)}-${businessQualityFileToken(batch.batchId)}.csv`
+        : `business-quality-${businessQualityFileToken(options?.businessKey)}-${Date.now()}.csv`;
+      downloadBusinessQualityCsv(blob, filename);
+    } catch (error: any) {
+      setReviewExportError(error?.message || '质量结果导出失败，请稍后重试。');
+    } finally {
+      setReviewExportingKey(null);
+    }
+  };
+  useEffect(() => {
+    void refreshQualitySamples();
+    void refreshQualityActionRules();
+  }, []);
+  const grouped = capabilities.reduce<Record<string, BusinessCapability[]>>((map, item) => {
+    const key = canonicalBusinessKey(item.businessKey);
+    if (!businessOrchestrationKeys.includes(key as any)) return map;
+    map[key] = map[key] || [];
+    map[key].push(item);
+    return map;
+  }, {});
+  const groupKeys = businessOrchestrationKeys.filter((key) => grouped[key]?.length);
+  const openSampleRun = (item: BusinessCapability, preset?: BusinessFixedSamplePreset) => {
+    const firstPreset = preset || businessFixedSampleOptions(item.businessKey, qualitySamples)[0];
+    setSampleTarget(item);
+    setSampleError(null);
+    setSampleNotice(null);
+    setSampleForm({
+      sampleKey: firstPreset?.key || '',
+      imageUrl: firstPreset?.imageUrl || '',
+      prompt: firstPreset?.prompt || '',
+      generatedImageUrl: firstPreset?.generatedImageUrl || '',
+      extraParamsText: '',
+    });
+  };
+  const openBatchRun = (businessKey: string, items: BusinessCapability[]) => {
+    const presets = businessFixedSampleOptions(businessKey, qualitySamples);
+    const nextRows = presets.reduce<Record<string, BusinessFixedSampleBatchRow>>((map, preset) => {
+      map[preset.key] = {
+        enabled: true,
+        imageUrl: preset.imageUrl || '',
+        prompt: preset.prompt || '',
+        generatedImageUrl: preset.generatedImageUrl || '',
+      };
+      return map;
+    }, {});
+    const runnable = items.filter((item) => item.status !== 'deprecated' && item.status !== 'disabled');
+    const defaultTarget = runnable.find((item) => item.isDefault);
+    const candidateTarget = runnable.find((item) => !item.isDefault);
+    const defaultIds = [defaultTarget?.id, candidateTarget?.id].filter(Boolean) as string[];
+    setBatchTarget({ businessKey, items: runnable });
+    setBatchTargetIds(defaultIds.length > 0 ? defaultIds : runnable.slice(0, 2).map((item) => item.id));
+    setBatchRows(nextRows);
+    setBatchExtraParamsText('');
+    setBatchError(null);
+  };
+  const openQualityActionRuleDialog = (businessKey: string, items: BusinessCapability[]) => {
+    const key = canonicalBusinessKey(businessKey);
+    const businessSummary = (qualitySummary?.byBusiness || []).find((item) => canonicalBusinessKey(item.businessKey) === key);
+    const topIssue = businessSummary?.topIssueTags?.[0]?.key || '';
+    const topInput = businessSummary?.topInputTags?.[0]?.key || '';
+    const candidate = items.find((item) => !item.isDefault && item.status !== 'deprecated' && item.status !== 'disabled');
+    setRuleDialogBusinessKey(key);
+    setRuleEditTarget(null);
+    setRuleError(null);
+    setRuleForm({
+      title: topIssue ? `${businessKeyLabel(key)} · ${topIssue}` : `${businessKeyLabel(key)}质量治理`,
+      actionType: topIssue ? 'route_split' : 'watch_only',
+      status: 'candidate',
+      targetBusinessVersionId: candidate?.id || '',
+      targetRef: '',
+      issueTagsText: topIssue,
+      inputTagsText: topInput,
+      description: '',
+    });
+  };
+  const openQualityActionRuleEditDialog = (rule: BusinessQualityActionRule) => {
+    setRuleDialogBusinessKey(canonicalBusinessKey(rule.businessKey));
+    setRuleEditTarget(rule);
+    setRuleError(null);
+    setRuleForm({
+      title: rule.title || '',
+      actionType: rule.actionType || 'watch_only',
+      status: rule.status || 'candidate',
+      targetBusinessVersionId: rule.targetBusinessVersionId || '',
+      targetRef: rule.targetRef || '',
+      issueTagsText: (rule.issueTags || []).join('、'),
+      inputTagsText: (rule.inputTags || []).join('、'),
+      description: rule.description || '',
+    });
+  };
+  const submitQualityActionRule = async () => {
+    const businessKey = ruleDialogBusinessKey;
+    if (!businessKey) return;
+    const title = ruleForm.title.trim();
+    if (!title) {
+      setRuleError('请填写治理项标题。');
+      return;
+    }
+    setRuleSaving(true);
+    setRuleError(null);
+    try {
+      const payload: Partial<BusinessQualityActionRule> = {
+        businessKey,
+        title,
+        actionType: ruleForm.actionType,
+        status: ruleForm.status,
+        targetBusinessVersionId: ruleForm.targetBusinessVersionId || null,
+        targetRef: ruleForm.targetRef.trim() || null,
+        issueTags: splitBusinessOutputReviewTags(ruleForm.issueTagsText),
+        inputTags: splitBusinessOutputReviewTags(ruleForm.inputTagsText),
+        description: ruleForm.description.trim() || null,
+      };
+      if (ruleEditTarget) {
+        await adminApi.updateBusinessQualityActionRule(ruleEditTarget.id, payload);
+      } else {
+        await adminApi.createBusinessQualityActionRule(payload);
+      }
+      await refreshQualityActionRules();
+      setRuleDialogBusinessKey(null);
+      setRuleEditTarget(null);
+    } catch (error: any) {
+      setRuleError(error?.message || '质量治理项保存失败。');
+    } finally {
+      setRuleSaving(false);
+    }
+  };
+  const archiveQualityActionRule = async (rule: BusinessQualityActionRule) => {
+    setRuleArchivingId(rule.id);
+    setQualityActionRulesError(null);
+    try {
+      await adminApi.archiveBusinessQualityActionRule(rule.id);
+      await refreshQualityActionRules();
+    } catch (error: any) {
+      setQualityActionRulesError(error?.message || '质量治理项归档失败。');
+    } finally {
+      setRuleArchivingId(null);
+    }
+  };
+  const submitSampleRun = async () => {
+    if (!sampleTarget) return;
+    const imageUrl = sampleForm.imageUrl.trim();
+    if (!imageUrl) {
+      setSampleError('请填写固定样例图片 URL。');
+      return;
+    }
+    const preset = samplePresets.find((item) => item.key === sampleForm.sampleKey);
+    let extraParams: Record<string, unknown> = {};
+    if (sampleForm.extraParamsText.trim()) {
+      try {
+        const parsed = JSON.parse(sampleForm.extraParamsText);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          setSampleError('附加参数必须是 JSON 对象。');
+          return;
+        }
+        extraParams = parsed as Record<string, unknown>;
+      } catch {
+        setSampleError('附加参数 JSON 格式不正确。');
+        return;
+      }
+    }
+    const payload = createBusinessFixedSamplePayload({
+      imageUrl,
+      generatedImageUrl: sampleForm.generatedImageUrl,
+      prompt: sampleForm.prompt,
+      preset,
+      capability: sampleTarget,
+      batchMode: false,
+      extraParams,
+    });
+    await onDraftRun(sampleTarget, payload);
+    setSampleTarget(null);
+  };
+  const saveCurrentSampleToLibrary = async () => {
+    if (!sampleTarget) return;
+    const imageUrl = sampleForm.imageUrl.trim();
+    if (!imageUrl) {
+      setSampleError('请先填写样例图片 URL。');
+      return;
+    }
+    let extraParams: Record<string, unknown> = {};
+    if (sampleForm.extraParamsText.trim()) {
+      try {
+        const parsed = JSON.parse(sampleForm.extraParamsText);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          setSampleError('附加参数必须是 JSON 对象。');
+          return;
+        }
+        extraParams = parsed as Record<string, unknown>;
+      } catch {
+        setSampleError('附加参数 JSON 格式不正确。');
+        return;
+      }
+    }
+    const preset = samplePresets.find((item) => item.key === sampleForm.sampleKey);
+    setSampleSaving(true);
+    setSampleError(null);
+    setSampleNotice(null);
+    try {
+      const created = await adminApi.createBusinessQualitySample({
+        businessKey: canonicalBusinessKey(sampleTarget.businessKey),
+        label: preset?.label || '固定样例',
+        description: preset?.hint || '',
+        imageUrl,
+        prompt: sampleForm.prompt.trim() || undefined,
+        generatedImageUrl: sampleForm.generatedImageUrl.trim() || undefined,
+        inputTags: preset?.label ? [preset.label] : [],
+        defaultParams: {
+          ...(preset?.inputs || {}),
+          ...extraParams,
+        } as JsonRecord,
+        status: 'active',
+        changeNote: '管理端保存固定样例',
+      });
+      await refreshQualitySamples();
+      setSampleNotice(`已保存到样例库：${created.label}`);
+    } catch (error: any) {
+      setSampleError(error?.message || '保存固定样例失败，请检查 URL 和样例名称。');
+    } finally {
+      setSampleSaving(false);
+    }
+  };
+  const submitBatchRun = async () => {
+    if (!batchTarget) return;
+    if (batchTargetIds.length === 0) {
+      setBatchError('至少选择一个要复跑的版本。');
+      return;
+    }
+    let extraParams: Record<string, unknown> = {};
+    if (batchExtraParamsText.trim()) {
+      try {
+        const parsed = JSON.parse(batchExtraParamsText);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          setBatchError('批量附加参数必须是 JSON 对象。');
+          return;
+        }
+        extraParams = parsed as Record<string, unknown>;
+      } catch {
+        setBatchError('批量附加参数 JSON 格式不正确。');
+        return;
+      }
+    }
+    const presets = batchPresets;
+    const selectedTargets = batchTarget.items.filter((item) => batchTargetIds.includes(item.id));
+    const enabledSamples = presets
+      .map((preset) => ({ preset, row: batchRows[preset.key] }))
+      .filter(({ row }) => row?.enabled && row.imageUrl.trim());
+    if (enabledSamples.length === 0) {
+      setBatchError('至少填写一个启用样例的图片 URL。');
+      return;
+    }
+    const batchId = `qsample-${canonicalBusinessKey(batchTarget.businessKey)}-${Date.now()}`;
+    const requests: BusinessDraftRunBatchRequest[] = [];
+    for (const target of selectedTargets) {
+      for (const { preset, row } of enabledSamples) {
+        requests.push({
+          capability: target,
+          payload: createBusinessFixedSamplePayload({
+            imageUrl: row.imageUrl.trim(),
+            generatedImageUrl: row.generatedImageUrl,
+            prompt: row.prompt,
+            preset,
+            capability: target,
+            batchId,
+            batchMode: true,
+            extraParams,
+          }),
+        });
+      }
+    }
+    const result = await onDraftRunBatch(requests);
+    setBatchReport({
+      ...result,
+      batchId,
+      businessKey: batchTarget.businessKey,
+      sampleCount: enabledSamples.length,
+      targetCount: selectedTargets.length,
+      createdAt: new Date().toISOString(),
+    });
+    if (result.submitted > 0) {
+      setBatchTarget(null);
+    } else if (result.errors.length > 0) {
+      setBatchError(result.errors.slice(0, 3).join('；'));
+    }
+  };
+  const samplePresets = businessFixedSampleOptions(sampleTarget?.businessKey, qualitySamples);
+  const sampleBusy = Boolean(sampleTarget && actionLoadingId === `draft-run:${sampleTarget.id}`);
+  const batchPresets = businessFixedSampleOptions(batchTarget?.businessKey, qualitySamples);
+  const batchBusy = actionLoadingId === 'draft-run-batch';
+  const ruleTargetItems = ruleDialogBusinessKey ? grouped[ruleDialogBusinessKey] || [] : [];
+  const ruleTargetOptions = [
+    { label: '不绑定候选版本', value: '' },
+    ...ruleTargetItems.map((item) => ({
+      label: `${item.isDefault ? '默认 · ' : ''}${item.version} · ${item.displayName}`,
+      value: item.id,
+    })),
+  ];
+
+  if (groupKeys.length === 0) return null;
+
+  return (
+    <>
+      <Card
+        bordered
+        title={
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>候选对照与固定样例复跑</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  默认版本和候选版本放在同一张表里看，先用固定样例跑同批对照，再决定分流、换 LoRA/workflow 或切默认。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag variant="light">质量窗口 {qualitySummary?.windowHours || 168} 小时</Tag>
+            <Tag theme={qualitySamplesError ? 'warning' : 'default'} variant="light">
+              样例库 {qualitySamplesLoading ? '加载中' : `${qualitySamples.length} 个`}
+            </Tag>
+            <Tag theme={qualityActionRulesError ? 'warning' : 'default'} variant="light">
+              治理台账 {qualityActionRulesLoading ? '加载中' : `${qualityActionRules.length} 条`}
+            </Tag>
+            <Button size="small" variant="outline" disabled={isReadOnly} onClick={() => openSampleImportDialog()}>
+              导入样例
+            </Button>
+            <Button size="small" variant="outline" loading={qualitySamplesLoading} onClick={() => void refreshQualitySamples()}>
+              刷新样例库
+            </Button>
+          </Space>
+        }
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {qualitySamplesError ? <Alert theme="warning" message={`固定样例库暂不可用，已退回内置样例类型：${qualitySamplesError}`} /> : null}
+          {qualityActionRulesError ? <Alert theme="warning" message={`质量治理台账暂不可用：${qualityActionRulesError}`} /> : null}
+          {reviewExportError ? <Alert theme="warning" message={`质量结果导出失败：${reviewExportError}`} /> : null}
+          {batchReport ? (
+            <Alert
+              theme={batchReport.errors.length > 0 ? 'warning' : 'success'}
+              message={`最近批量复跑 ${batchReport.submitted}/${batchReport.total} 已提交 · batchId ${batchReport.batchId}。覆盖 ${batchReport.sampleCount} 个样例、${batchReport.targetCount} 个版本；完成后到 runId 详情标注质量，会自动归入同批对照。`}
+            />
+          ) : null}
+          {(qualitySummary?.byBatch || []).length > 0 ? (
+            <details className="podi-business-disclosure">
+              <summary>
+                <span>近期同批质量对照</span>
+                <small>{(qualitySummary?.byBatch || []).length} 批 · 按 batchId 聚合同一批样例的版本质量标注</small>
+              </summary>
+              <div className="podi-business-disclosure-body">
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                  <Typography.Text theme="secondary">展开后查看批次明细；默认收起，避免占用首屏。</Typography.Text>
+                  <Button
+                    size="small"
+                    variant="outline"
+                    loading={reviewExportingKey === 'all'}
+                    onClick={() => void exportBusinessQualityReviews()}
+                  >
+                    导出窗口
+                  </Button>
+                </Space>
+                <div className="podi-business-batch-report-grid">
+                  {(qualitySummary?.byBatch || []).slice(0, 4).map((batch) => {
+                    const status = businessBatchSummaryLabel(batch);
+                    return (
+                      <div key={`${batch.batchId}:${batch.sampleKey || ''}`} className="podi-business-batch-report-card">
+                        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                          <Typography.Text strong>{batch.sampleLabel || batch.sampleKey || batch.label}</Typography.Text>
+                          <Tag theme={status.theme as any} variant="light" size="small">
+                            {status.text}
+                          </Tag>
+                        </Space>
+                        <Typography.Text theme="secondary">{batch.batchId}</Typography.Text>
+                        <Typography.Text>{status.detail}</Typography.Text>
+                        <div className="podi-business-batch-version-list">
+                          {(batch.versions || []).slice(0, 4).map((version) => (
+                            <span key={`${batch.batchId}:${version.businessVersionId || version.version || version.label}`}>
+                              {version.version || version.label}: 可用 {version.good} / 风险 {version.risk} / 标注 {version.reviewed}
+                            </span>
+                          ))}
+                        </div>
+                        <Space size={6} breakLine>
+                          <Button
+                            size="small"
+                            variant="outline"
+                            loading={reviewExportingKey === batch.batchId}
+                            onClick={() => void exportBusinessQualityReviews({ batch })}
+                          >
+                            导出 CSV
+                          </Button>
+                          <Typography.Text theme="secondary">{batch.reviewed}/{batch.total} 已标注</Typography.Text>
+                        </Space>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </details>
+          ) : null}
+          {groupKeys.map((businessKey) => {
+            const items = grouped[businessKey]
+              .slice()
+              .sort((left, right) => {
+                if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+                if (left.status !== right.status) return left.status === 'active' ? -1 : 1;
+                return String(right.releaseTime || right.createdAt || '').localeCompare(String(left.releaseTime || left.createdAt || ''));
+              });
+            const presets = businessFixedSampleOptions(businessKey, qualitySamples);
+            const libraryCount = presets.filter((preset) => preset.source === 'library').length;
+            const actionRules = qualityActionRules
+              .filter((rule) => canonicalBusinessKey(rule.businessKey) === canonicalBusinessKey(businessKey) && rule.status !== 'archived')
+              .sort((left, right) => {
+                const priorityDiff = Number(left.priority || 0) - Number(right.priority || 0);
+                if (priorityDiff !== 0) return priorityDiff;
+                return String(right.updatedAt || '').localeCompare(String(left.updatedAt || ''));
+              });
+            const versionRows: BusinessCandidateVersionView[] = items.map((item) => {
+              const summary = businessQualityVersionSummaryForCapability(qualitySummary, item);
+              return {
+                item,
+                route: businessCapabilityCandidateRoute(item),
+                summary,
+                quality: businessCandidateQualityLabel(item, summary),
+              };
+            });
+            const defaultItem = items.find((item) => item.isDefault);
+            const candidateCount = items.filter((item) => !item.isDefault && item.status !== 'deprecated' && item.status !== 'disabled').length;
+            const latestRunItem = items
+              .filter((item) => businessCandidateLatestRunTime(item) > 0)
+              .sort((left, right) => businessCandidateLatestRunTime(right) - businessCandidateLatestRunTime(left))[0];
+            const latestReviewAt = versionRows
+              .map((row) => row.summary?.latestAt)
+              .filter(Boolean)
+              .sort((left, right) => String(right).localeCompare(String(left)))[0];
+            const reviewedTotal = versionRows.reduce((sum, row) => sum + row.quality.reviewed, 0);
+            const acceptedTotal = versionRows.reduce((sum, row) => sum + row.quality.accepted, 0);
+            const riskTotal = versionRows.reduce((sum, row) => sum + row.quality.risky, 0);
+            const focus = businessCandidateFocus({
+              presetsCount: presets.length,
+              libraryCount,
+              actionRulesCount: actionRules.length,
+              versionRows,
+              candidateCount,
+            });
+            return (
+              <section key={businessKey} className="podi-business-candidate-panel">
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                  <Space direction="vertical" size={2}>
+                    <Space size={6} breakLine>
+                      <Typography.Text strong>{businessKeyLabel(businessKey)}</Typography.Text>
+                      <Tag theme={focus.theme as any} variant="light" size="small">
+                        {focus.title}
+                      </Tag>
+                    </Space>
+                    <Typography.Text theme="secondary">{focus.detail}</Typography.Text>
+                  </Space>
+                  <Space size={6} breakLine>
+                    <Tag variant="light" size="small">
+                      版本 {items.length}
+                    </Tag>
+                    <Tag theme={libraryCount > 0 ? 'success' : 'warning'} variant="light" size="small">
+                      样例库 {libraryCount}/{presets.length}
+                    </Tag>
+                    <Tag theme={actionRules.length > 0 ? 'primary' : 'default'} variant="light" size="small">
+                      治理 {actionRules.length}
+                    </Tag>
+                    <Button
+                      size="small"
+                      theme="primary"
+                      variant="outline"
+                      disabled={isReadOnly}
+                      loading={batchBusy && batchTarget?.businessKey === businessKey}
+                      onClick={() => openBatchRun(businessKey, items)}
+                    >
+                      批量复跑
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outline"
+                      disabled={isReadOnly}
+                      loading={qualityActionRulesLoading}
+                      onClick={() => openQualityActionRuleDialog(businessKey, items)}
+                    >
+                      记录治理项
+                    </Button>
+                  </Space>
+                </Space>
+                <div className="podi-business-candidate-brief-grid">
+                  <div className="podi-business-candidate-brief-item" data-theme={focus.theme}>
+                    <span>下一步</span>
+                    <strong>{focus.action}</strong>
+                    <small>{businessQualitySamplePlan(businessKey)}</small>
+                  </div>
+                  <div className="podi-business-candidate-brief-item">
+                    <span>默认版本</span>
+                    <strong>{defaultItem?.version || '未配置'}</strong>
+                    <small>{defaultItem?.displayName || '需要确认默认业务版本'}</small>
+                  </div>
+                  <div className="podi-business-candidate-brief-item">
+                    <span>候选路线</span>
+                    <strong>{candidateCount}</strong>
+                    <small>{candidateCount > 0 ? '可做同批对照' : '暂无候选版本'}</small>
+                  </div>
+                  <div className="podi-business-candidate-brief-item" data-theme={riskTotal > 0 ? 'warning' : reviewedTotal > 0 ? 'success' : 'default'}>
+                    <span>质量证据</span>
+                    <strong>标注 {reviewedTotal}</strong>
+                    <small>可用 {acceptedTotal} · 风险 {riskTotal}</small>
+                  </div>
+                  <div className="podi-business-candidate-brief-item" data-theme={latestRunItem?.latestRun?.error ? 'danger' : 'default'}>
+                    <span>最近运行</span>
+                    <strong>{latestRunItem ? businessCapabilityLatestRunLabel(latestRunItem) : '暂无运行'}</strong>
+                    <small>{latestReviewAt ? `最近标注 ${formatDateTime(latestReviewAt)}` : '未形成版本级质量样本'}</small>
+                  </div>
+                </div>
+                <details className="podi-business-disclosure">
+                  <summary>
+                    <span>固定样例</span>
+                    <small>{presets.length} 个 · 只在需要维护样例时展开</small>
+                  </summary>
+                  <div className="podi-business-disclosure-body">
+                    <Space size={6} breakLine>
+                      {presets.length > 0 ? (
+                        presets.map((preset) => (
+                          <Tag key={preset.key} theme={preset.source === 'library' ? 'success' : 'default'} variant="light" size="small">
+                            {preset.label}
+                          </Tag>
+                        ))
+                      ) : (
+                        <Typography.Text theme="secondary">暂无固定样例。</Typography.Text>
+                      )}
+                      <Button size="small" variant="outline" disabled={isReadOnly} onClick={() => openSampleImportDialog(businessKey)}>
+                        导入本业务样例
+                      </Button>
+                    </Space>
+                  </div>
+                </details>
+                <details className="podi-business-disclosure">
+                  <summary>
+                    <span>质量治理台账</span>
+                    <small>{actionRules.length} 条 · 分流、调参、换 LoRA/workflow 的候选策略</small>
+                  </summary>
+                  <div className="podi-business-disclosure-body">
+                    {actionRules.length > 0 ? (
+                      <div className="podi-business-quality-action-rules">
+                        {actionRules.slice(0, 4).map((rule) => (
+                          <div key={rule.id} className="podi-business-quality-action-rule">
+                            <Space size={4} breakLine>
+                              <Tag theme={businessQualityActionStatusTheme(rule.status) as any} variant="light" size="small">
+                                {businessQualityActionStatusLabel(rule.status)}
+                              </Tag>
+                              <Tag variant="light" size="small">
+                                {businessQualityActionTypeLabel(rule.actionType)}
+                              </Tag>
+                              <Typography.Text strong>{rule.title}</Typography.Text>
+                            </Space>
+                            <Typography.Text theme="secondary">
+                              {[rule.issueTags?.join('、'), rule.inputTags?.length ? `输入：${rule.inputTags.join('、')}` : '', rule.targetLabel || rule.targetVersion || rule.targetRef]
+                                .filter(Boolean)
+                                .join(' · ') || '待补充证据'}
+                            </Typography.Text>
+                            <Space size={6} breakLine>
+                              <Button size="small" variant="outline" disabled={isReadOnly} onClick={() => openQualityActionRuleEditDialog(rule)}>
+                                编辑
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="text"
+                                theme="danger"
+                                disabled={isReadOnly}
+                                loading={ruleArchivingId === rule.id}
+                                onClick={() => void archiveQualityActionRule(rule)}
+                              >
+                                归档
+                              </Button>
+                            </Space>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <Typography.Text theme="secondary">暂无治理项；发现质量风险后再记录分流、调参或切换策略。</Typography.Text>
+                    )}
+                  </div>
+                </details>
+                <details className="podi-business-disclosure">
+                  <summary>
+                    <span>版本明细</span>
+                    <small>{items.length} 个版本 · 查看路线、质量样例和单版本复跑动作</small>
+                  </summary>
+                  <div className="podi-business-disclosure-body">
+                    <div className="podi-business-candidate-table">
+                      <div className="podi-business-candidate-head">
+                        <span>版本</span>
+                        <span>候选路线</span>
+                        <span>质量证据</span>
+                        <span>最近运行</span>
+                        <span>动作</span>
+                      </div>
+                      {versionRows.map(({ item, route, summary, quality }) => {
+                        const issueBucket = summary?.topIssueTags?.[0];
+                        const issueSample = businessQualityReviewSamples(issueBucket)[0];
+                        const actionId = `draft-run:${item.id}`;
+                        return (
+                          <div key={item.id} className="podi-business-candidate-row">
+                            <div className="podi-business-candidate-cell">
+                              <Space size={4} breakLine>
+                                <Tag theme={item.isDefault ? 'success' : item.status === 'draft' ? 'warning' : 'default'} variant="light" size="small">
+                                  {item.isDefault ? '默认' : item.status === 'draft' ? '草稿' : '候选'}
+                                </Tag>
+                                <Typography.Text strong>{item.version}</Typography.Text>
+                              </Space>
+                              <Typography.Text theme="secondary">{item.displayName}</Typography.Text>
+                            </div>
+                            <div className="podi-business-candidate-cell">
+                              <Typography.Text>{route.label}</Typography.Text>
+                              <Typography.Text theme="secondary">{businessCapabilityVersionLine(item).label}</Typography.Text>
+                            </div>
+                            <div className="podi-business-candidate-cell">
+                              <Space size={4} breakLine>
+                                <Tag theme={quality.theme as any} variant="light" size="small">
+                                  {quality.text}
+                                </Tag>
+                                <Typography.Text theme="secondary">
+                                  标注 {quality.reviewed} · 可用 {quality.accepted} · 风险 {quality.risky}
+                                </Typography.Text>
+                              </Space>
+                              <Typography.Text theme={quality.theme === 'danger' ? 'error' : quality.theme === 'warning' ? 'warning' : 'secondary'}>
+                                {issueBucket ? `Top 问题：${issueBucket.label || issueBucket.key} ${issueBucket.total}` : quality.detail}
+                              </Typography.Text>
+                            </div>
+                            <div className="podi-business-candidate-cell">
+                              <Typography.Text theme={item.latestRun?.error ? 'error' : 'secondary'}>
+                                {businessCapabilityLatestRunLabel(item)}
+                              </Typography.Text>
+                              <Typography.Text theme="secondary">{summary?.latestAt ? `最近标注 ${formatDateTime(summary.latestAt)}` : '未形成版本级质量样本'}</Typography.Text>
+                            </div>
+                            <div className="podi-business-candidate-cell">
+                              <Space size={6} breakLine>
+                                <Button
+                                  size="small"
+                                  theme="primary"
+                                  variant="outline"
+                                  disabled={isReadOnly || item.status === 'deprecated' || item.status === 'disabled'}
+                                  loading={actionLoadingId === actionId}
+                                  onClick={() => openSampleRun(item)}
+                                >
+                                  跑固定样例
+                                </Button>
+                                <Button size="small" variant="outline" disabled={!issueSample || !onOpenReview} onClick={() => issueSample && onOpenReview?.(issueSample)}>
+                                  看质量样例
+                                </Button>
+                              </Space>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </details>
+              </section>
+	                  );
+	                })}
+	              </Space>
+	            </Card>
+      <Dialog
+        visible={Boolean(ruleDialogBusinessKey)}
+        header={
+          ruleDialogBusinessKey
+            ? `${ruleEditTarget ? '编辑' : '记录'}质量治理项 · ${businessKeyLabel(ruleDialogBusinessKey)}`
+            : '记录质量治理项'
+        }
+        width={720}
+        confirmBtn={ruleSaving ? '保存中...' : ruleEditTarget ? '保存修改' : '保存治理项'}
+        cancelBtn="取消"
+        onClose={() => {
+          setRuleDialogBusinessKey(null);
+          setRuleEditTarget(null);
+        }}
+        onConfirm={submitQualityActionRule}
+      >
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          {ruleError ? <Alert theme="error" message={ruleError} /> : null}
+          <Typography.Text theme="secondary">把“哪类图要分流、调参、换 LoRA/workflow”先记成候选策略，验证后再切默认。</Typography.Text>
+          <Row gutter={[12, 12]}>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">标题</Typography.Text>
+              <Input
+                value={ruleForm.title}
+                placeholder="例如：满版图案切候选 LoRA"
+                onChange={(value) => setRuleForm((prev) => ({ ...prev, title: String(value || '') }))}
+              />
+            </Col>
+            <Col xs={12} lg={3}>
+              <Typography.Text theme="secondary">动作</Typography.Text>
+              <Select
+                value={ruleForm.actionType}
+                options={businessQualityActionTypeOptions}
+                onChange={(value) => setRuleForm((prev) => ({ ...prev, actionType: String(value || 'watch_only') }))}
+              />
+            </Col>
+            <Col xs={12} lg={3}>
+              <Typography.Text theme="secondary">状态</Typography.Text>
+              <Select
+                value={ruleForm.status}
+                options={businessQualityActionStatusOptions}
+                onChange={(value) => setRuleForm((prev) => ({ ...prev, status: String(value || 'candidate') }))}
+              />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">目标候选版本</Typography.Text>
+              <Select
+                value={ruleForm.targetBusinessVersionId}
+                options={ruleTargetOptions}
+                onChange={(value) => setRuleForm((prev) => ({ ...prev, targetBusinessVersionId: String(value || '') }))}
+              />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">目标 LoRA / workflow / 参数引用</Typography.Text>
+              <Input
+                value={ruleForm.targetRef}
+                placeholder="例如：YinHuaTiQu-v2.safetensors"
+                onChange={(value) => setRuleForm((prev) => ({ ...prev, targetRef: String(value || '') }))}
+              />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">问题标签</Typography.Text>
+              <Input
+                value={ruleForm.issueTagsText}
+                placeholder="例如：结构偏移, 边缘脏污"
+                onChange={(value) => setRuleForm((prev) => ({ ...prev, issueTagsText: String(value || '') }))}
+              />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">输入标签</Typography.Text>
+              <Input
+                value={ruleForm.inputTagsText}
+                placeholder="例如：满版图案, 颜色敏感"
+                onChange={(value) => setRuleForm((prev) => ({ ...prev, inputTagsText: String(value || '') }))}
+              />
+            </Col>
+            <Col xs={12}>
+              <Typography.Text theme="secondary">说明</Typography.Text>
+              <Textarea
+                value={ruleForm.description}
+                autosize={{ minRows: 3, maxRows: 5 }}
+                placeholder="记录验证依据、适用边界和下一次复跑样例。"
+                onChange={(value) => setRuleForm((prev) => ({ ...prev, description: String(value || '') }))}
+              />
+            </Col>
+          </Row>
+          <Space size={8} breakLine>
+            <Button size="small" variant="outline" loading={qualityActionRulesLoading} onClick={() => void refreshQualityActionRules()}>
+              刷新台账
+            </Button>
+          </Space>
+        </Space>
+      </Dialog>
+      <Dialog
+        visible={Boolean(sampleTarget)}
+        header={sampleTarget ? `固定样例复跑 · ${businessCapabilityVersionOptionLabel(sampleTarget)}` : '固定样例复跑'}
+        width={680}
+        confirmBtn={sampleBusy ? '提交中...' : '提交复跑'}
+        cancelBtn="取消"
+        onClose={() => setSampleTarget(null)}
+        onConfirm={submitSampleRun}
+      >
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          {sampleError ? <Alert theme="error" message={sampleError} /> : null}
+          {sampleNotice ? <Alert theme="success" message={sampleNotice} /> : null}
+          <Typography.Text theme="secondary">同一个样例 URL 应在默认版和候选版各跑一次，跑完后到 runId 详情标注质量。</Typography.Text>
+          <Row gutter={[12, 12]}>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">样例类型</Typography.Text>
+              <Select
+                value={sampleForm.sampleKey}
+                options={samplePresets.map((preset) => ({
+                  label: `${preset.source === 'library' ? '样例库 · ' : ''}${preset.label} · ${preset.hint}`,
+                  value: preset.key,
+                }))}
+                onChange={(value) => {
+                  const nextKey = String(value || '');
+                  const preset = samplePresets.find((item) => item.key === nextKey);
+                  setSampleForm((prev) => ({
+                    ...prev,
+                    sampleKey: nextKey,
+                    imageUrl: preset?.imageUrl || prev.imageUrl,
+                    prompt: preset?.prompt || '',
+                    generatedImageUrl: preset?.generatedImageUrl || '',
+                    extraParamsText: preset?.source === 'library' && preset.inputs && Object.keys(preset.inputs).length > 0
+                      ? JSON.stringify(preset.inputs, null, 2)
+                      : prev.extraParamsText,
+                  }));
+                }}
+              />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">样例图片 URL</Typography.Text>
+              <Input
+                value={sampleForm.imageUrl}
+                placeholder="https://..."
+                onChange={(value) => setSampleForm((prev) => ({ ...prev, imageUrl: String(value || '') }))}
+              />
+              <div className="podi-business-sample-upload-row">
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={isReadOnly || sampleUploadLoading}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0] || null;
+                    event.currentTarget.value = '';
+                    void uploadSampleImageToOss(file);
+                  }}
+                />
+                <Typography.Text theme="secondary">
+                  {sampleUploadLoading ? '上传中...' : '上传后自动填入 OSS URL'}
+                </Typography.Text>
+              </div>
+            </Col>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">提示词 / 指令</Typography.Text>
+              <Input
+                value={sampleForm.prompt}
+                placeholder="可选，按业务需要填写"
+                onChange={(value) => setSampleForm((prev) => ({ ...prev, prompt: String(value || '') }))}
+              />
+            </Col>
+            <Col xs={12} lg={6}>
+              <Typography.Text theme="secondary">生成图 URL</Typography.Text>
+              <Input
+                value={sampleForm.generatedImageUrl}
+                placeholder="仅裂变评分或对照样例需要"
+                onChange={(value) => setSampleForm((prev) => ({ ...prev, generatedImageUrl: String(value || '') }))}
+              />
+            </Col>
+            <Col span={12}>
+              <Typography.Text theme="secondary">附加参数 JSON</Typography.Text>
+              <Textarea
+                value={sampleForm.extraParamsText}
+                autosize={{ minRows: 3, maxRows: 6 }}
+                placeholder='例如 {"width": 1536, "height": 1536}'
+                onChange={(value) => setSampleForm((prev) => ({ ...prev, extraParamsText: String(value || '') }))}
+              />
+            </Col>
+          </Row>
+          <Space size={8} breakLine>
+            <Button
+              size="small"
+              variant="outline"
+              loading={sampleSaving}
+              disabled={isReadOnly || sampleBusy || sampleSaving}
+              onClick={saveCurrentSampleToLibrary}
+            >
+              保存到样例库
+            </Button>
+            <Button size="small" variant="outline" loading={qualitySamplesLoading} onClick={() => void refreshQualitySamples()}>
+              刷新样例库
+            </Button>
+          </Space>
+        </Space>
+      </Dialog>
+      <Dialog
+        visible={sampleImportVisible}
+        header="固定样例库维护"
+        width={860}
+        confirmBtn={sampleImportLoading ? '处理中...' : sampleImportDryRun ? '预检查' : '导入 / 更新'}
+        cancelBtn="关闭"
+        onClose={() => setSampleImportVisible(false)}
+        onConfirm={submitSampleImport}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {sampleImportError ? <Alert theme="error" message={sampleImportError} /> : null}
+          {sampleImportReport ? (
+            <Alert
+              theme={sampleImportReport.failed > 0 ? 'warning' : 'success'}
+              message={`导入结果：新增 ${sampleImportReport.created}，更新 ${sampleImportReport.updated}，预检查 ${sampleImportReport.skipped}，失败 ${sampleImportReport.failed}。`}
+            />
+          ) : null}
+          <Row gutter={[12, 12]}>
+            <Col xs={12} lg={4}>
+              <Typography.Text theme="secondary">默认业务</Typography.Text>
+              <Select
+                value={sampleImportBusinessKey}
+                options={[
+                  { label: '按数据中的 businessKey', value: 'all' },
+                  ...businessOrchestrationKeys.map((key) => ({ label: businessKeyLabel(key), value: key })),
+                ]}
+                onChange={(value) => setSampleImportBusinessKey(String(value || 'all'))}
+              />
+            </Col>
+            <Col xs={12} lg={8}>
+              <Typography.Text theme="secondary">模式</Typography.Text>
+              <div className="podi-business-sample-maintenance-switch">
+                <Switch value={sampleImportDryRun} onChange={(value) => setSampleImportDryRun(Boolean(value))} />
+                <Typography.Text theme="secondary">先预检查，不写入数据库</Typography.Text>
+              </div>
+            </Col>
+            <Col xs={12}>
+              <Typography.Text theme="secondary">批量数据</Typography.Text>
+              <Textarea
+                value={sampleImportText}
+                autosize={{ minRows: 7, maxRows: 12 }}
+                placeholder={`支持 JSON 数组或 CSV。字段：businessKey,sampleKey,label,imageUrl,prompt,inputTags,defaultParams,status,sortOrder\n例如：fission,dense-pattern,满版图案,https://...,保持纹理,满版图案,"{""quality"":""preview""}",active,10`}
+                onChange={(value) => setSampleImportText(String(value || ''))}
+              />
+            </Col>
+          </Row>
+          {sampleImportReport?.items?.length ? (
+            <div className="podi-business-sample-import-report">
+              {sampleImportReport.items.slice(0, 8).map((item) => (
+                <div key={`${item.index}:${item.sampleKey || item.errorCode || item.action}`}>
+                  <Tag theme={item.action === 'error' ? 'danger' : item.action.includes('dry_run') ? 'warning' : 'success'} variant="light" size="small">
+                    {item.action}
+                  </Tag>
+                  <Typography.Text>{[item.businessKey, item.sampleKey, item.label].filter(Boolean).join(' · ') || `第 ${item.index + 1} 行`}</Typography.Text>
+                  {item.errorCode ? <Typography.Text theme="error">{item.errorCode}</Typography.Text> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="podi-business-sample-history-panel">
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+              <Typography.Text strong>样例版本历史</Typography.Text>
+              <Space size={8} breakLine>
+                <Select
+                  value={sampleHistoryTargetId}
+                  style={{ minWidth: 260 }}
+                  options={qualitySamples.map((sample) => ({
+                    label: `${businessKeyLabel(sample.businessKey)} · ${sample.label}`,
+                    value: sample.id,
+                  }))}
+                  onChange={(value) => {
+                    setSampleHistoryTargetId(String(value || ''));
+                    setSampleHistoryItems([]);
+                  }}
+                />
+                <Button size="small" variant="outline" loading={sampleHistoryLoading} onClick={() => void loadSampleHistory()}>
+                  查看历史
+                </Button>
+              </Space>
+            </Space>
+            {sampleHistoryError ? <Alert theme="error" message={sampleHistoryError} /> : null}
+            {sampleHistoryItems.length > 0 ? (
+              <div className="podi-business-sample-history-list">
+                {sampleHistoryItems.map((item) => (
+                  <div key={item.id} className="podi-business-sample-history-item">
+                    <Space size={6} breakLine>
+                      <Tag variant="light" size="small">
+                        v{item.versionNo}
+                      </Tag>
+                      <Tag theme={item.changeType.includes('import') ? 'primary' : item.changeType === 'archive' ? 'danger' : 'default'} variant="light" size="small">
+                        {item.changeType}
+                      </Tag>
+                      <Typography.Text strong>{item.label}</Typography.Text>
+                      <Typography.Text theme="secondary">{formatDateTime(item.createdAt)}</Typography.Text>
+                    </Space>
+                    <Typography.Text theme="secondary">
+                      {[item.actorUsername, item.changeNote, item.status, item.imageUrl].filter(Boolean).join(' · ')}
+                    </Typography.Text>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Typography.Text theme="secondary">选择样例后可查看每次新增、更新、导入或归档快照。</Typography.Text>
+            )}
+          </div>
+        </Space>
+      </Dialog>
+      <Dialog
+        visible={Boolean(batchTarget)}
+        header={batchTarget ? `批量复跑样例集 · ${businessKeyLabel(batchTarget.businessKey)}` : '批量复跑样例集'}
+        width={860}
+        confirmBtn={batchBusy ? '提交中...' : '提交批量复跑'}
+        cancelBtn="取消"
+        onClose={() => setBatchTarget(null)}
+        onConfirm={submitBatchRun}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {batchError ? <Alert theme="error" message={batchError} /> : null}
+          <Typography.Text theme="secondary">
+            建议选择“当前默认 + 一个候选版”，同一批样例会写入同一个 batchId。结果完成后，运营在 runId 详情标注质量，面板会形成同批对照。
+          </Typography.Text>
+          <div className="podi-business-batch-targets">
+            <Typography.Text theme="secondary">复跑版本</Typography.Text>
+            <Space size={6} breakLine>
+              {(batchTarget?.items || []).map((item) => {
+                const selected = batchTargetIds.includes(item.id);
+                return (
+                  <Button
+                    key={item.id}
+                    size="small"
+                    variant={selected ? 'base' : 'outline'}
+                    theme={item.isDefault ? 'success' : selected ? 'primary' : 'default'}
+                    onClick={() =>
+                      setBatchTargetIds((prev) =>
+                        prev.includes(item.id) ? prev.filter((id) => id !== item.id) : [...prev, item.id],
+                      )
+                    }
+                  >
+                    {item.isDefault ? '默认 · ' : ''}
+                    {item.version}
+                  </Button>
+                );
+              })}
+            </Space>
+          </div>
+          <div className="podi-business-batch-sample-list">
+            {batchPresets.map((preset) => {
+              const row = batchRows[preset.key] || { enabled: true, imageUrl: '', prompt: '', generatedImageUrl: '' };
+              const updateRow = (patch: Partial<BusinessFixedSampleBatchRow>) =>
+                setBatchRows((prev) => {
+                  const current = prev[preset.key] || {
+                    enabled: true,
+                    imageUrl: '',
+                    prompt: preset.prompt || '',
+                    generatedImageUrl: '',
+                  };
+                  return {
+                    ...prev,
+                    [preset.key]: {
+                      ...current,
+                      ...patch,
+                    },
+                  };
+                });
+              return (
+                <section key={preset.key} className="podi-business-batch-sample-row">
+                  <div className="podi-business-batch-sample-title">
+                    <Switch value={row.enabled} onChange={(value) => updateRow({ enabled: Boolean(value) })} />
+	                    <div>
+	                      <Typography.Text strong>{preset.label}</Typography.Text>
+	                      <div>
+	                        <Typography.Text theme="secondary">
+	                          {preset.source === 'library' ? '样例库 · ' : ''}
+	                          {preset.hint}
+	                        </Typography.Text>
+	                      </div>
+	                    </div>
+                  </div>
+                  <Row gutter={[10, 10]}>
+                    <Col xs={12} lg={6}>
+                      <Typography.Text theme="secondary">样例图片 URL</Typography.Text>
+                      <Input
+                        value={row.imageUrl}
+                        disabled={!row.enabled}
+                        placeholder="https://..."
+                        onChange={(value) => updateRow({ imageUrl: String(value || '') })}
+                      />
+                    </Col>
+                    <Col xs={12} lg={3}>
+                      <Typography.Text theme="secondary">提示词 / 指令</Typography.Text>
+                      <Input
+                        value={row.prompt}
+                        disabled={!row.enabled}
+                        placeholder="可选"
+                        onChange={(value) => updateRow({ prompt: String(value || '') })}
+                      />
+                    </Col>
+                    <Col xs={12} lg={3}>
+                      <Typography.Text theme="secondary">生成图 URL</Typography.Text>
+                      <Input
+                        value={row.generatedImageUrl}
+                        disabled={!row.enabled}
+                        placeholder="评分场景可填"
+                        onChange={(value) => updateRow({ generatedImageUrl: String(value || '') })}
+                      />
+                    </Col>
+                  </Row>
+                </section>
+              );
+            })}
+          </div>
+          <div>
+            <Typography.Text theme="secondary">批量附加参数 JSON</Typography.Text>
+            <Textarea
+              value={batchExtraParamsText}
+              autosize={{ minRows: 3, maxRows: 6 }}
+              placeholder='可选，例如 {"quality":"preview"}，会附加到本批所有样例'
+              onChange={(value) => setBatchExtraParamsText(String(value || ''))}
+            />
+          </div>
+        </Space>
+      </Dialog>
+    </>
+  );
+};
 
 export const BusinessCapabilityGrid = ({
   capabilities,
@@ -6320,7 +9778,7 @@ export const BusinessCapabilityGrid = ({
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Alert
           theme="info"
-          message="命名规则：同一业务目标默认作为版本升级。技术路线、模型替换、参数修补放到版本族，不单独起功能名。"
+          message="默认只看线上默认、草稿和候选版本；已停用或被替代的历史版本收起到下方，排障或回滚追溯时再展开。"
         />
         {groupKeys.map((businessKey) => {
           const items = grouped[businessKey].slice().sort((left, right) => {
@@ -6332,7 +9790,14 @@ export const BusinessCapabilityGrid = ({
           });
           const defaultItem = items.find((item) => item.isDefault);
           const activeCount = items.filter((item) => item.status === 'active').length;
-          const lineGroups = items.reduce<Record<string, BusinessCapability[]>>((map, item) => {
+          const supersededIds = new Set(
+            items.map((item) => businessCapabilityVersionLineage(item).supersedesVersionId).filter(Boolean) as string[],
+          );
+          const currentItems = items.filter((item) => !businessCapabilityIsHistoricalVersion(item, supersededIds));
+          const visibleItems = currentItems.length > 0 ? currentItems : items.slice(0, 1);
+          const visibleItemIds = new Set(visibleItems.map((item) => item.id));
+          const historicalItems = items.filter((item) => !visibleItemIds.has(item.id));
+          const lineGroups = visibleItems.reduce<Record<string, BusinessCapability[]>>((map, item) => {
             const line = businessCapabilityVersionLine(item);
             if (!map[line.key]) map[line.key] = [];
             map[line.key].push(item);
@@ -6356,13 +9821,14 @@ export const BusinessCapabilityGrid = ({
                     </div>
                   </div>
                   <Space breakLine>
-                    <Tag theme={defaultItem ? 'success' : 'danger'} variant="light">
-                      默认：{defaultItem ? businessCapabilityVersionRoleLabel(defaultItem) : '未设置'}
-                    </Tag>
-                    <Tag variant="light">启用 {activeCount}/{items.length}</Tag>
-                  </Space>
-                </Space>
-              }
+	                    <Tag theme={defaultItem ? 'success' : 'danger'} variant="light">
+	                      默认：{defaultItem ? businessCapabilityVersionRoleLabel(defaultItem) : '未设置'}
+	                    </Tag>
+	                    <Tag variant="light">启用 {activeCount}/{items.length}</Tag>
+	                    {historicalItems.length > 0 ? <Tag variant="light">历史 {historicalItems.length}</Tag> : null}
+	                  </Space>
+	                </Space>
+	              }
             >
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 {lineGroupEntries.map((lineItems) => {
@@ -6395,6 +9861,7 @@ export const BusinessCapabilityGrid = ({
                   const lockDefaultStop = isActive && item.isDefault;
                   const actionBusy = Boolean(actionLoadingId);
                   const defaultSwitchBlocked = item.releaseGate?.canRequestDefault === false;
+                  const qualitySwitchBlocked = businessReleaseGateHasQualityBlocker(item.releaseGate);
                   const pendingApproval = pendingApprovals.find(
                     (approval) => approval.targetCapabilityId === item.id && approval.status === 'pending',
                   );
@@ -6554,7 +10021,7 @@ export const BusinessCapabilityGrid = ({
                                 }
                                 onClick={() => onSetDefault(item)}
                               >
-                                {defaultSwitchBlocked ? '先验收' : pendingApproval ? '默认审批中' : '申请设为默认'}
+                                {defaultSwitchBlocked ? (qualitySwitchBlocked ? '补质量标注' : '先验收') : pendingApproval ? '默认审批中' : '申请设为默认'}
                               </Button>
                             ) : null}
                             <Button
@@ -6578,6 +10045,87 @@ export const BusinessCapabilityGrid = ({
                     </section>
                   );
                 })}
+                {historicalItems.length > 0 ? (
+                  <details className="podi-business-disclosure">
+                    <summary>
+                      <span>历史版本</span>
+                      <small>{historicalItems.length} 个已停用或被替代版本，默认不参与日常判断</small>
+                    </summary>
+                    <div className="podi-business-disclosure-body">
+                      <div className="podi-business-history-version-list">
+                        {historicalItems.map((item) => {
+                          const line = businessCapabilityVersionLine(item);
+                          const lineage = businessCapabilityVersionLineage(item);
+                          const risk = businessCapabilityRiskTag(item);
+                          const statusActionId = `status:${item.id}`;
+                          const draftRunActionId = `draft-run:${item.id}`;
+                          const actionBusy = Boolean(actionLoadingId);
+                          return (
+                            <div key={item.id} className="podi-business-history-version-row">
+                              <div>
+                                <Space size={6} breakLine>
+                                  <Typography.Text strong>{businessCapabilityVersionRoleLabel(item)}</Typography.Text>
+                                  <Tag theme={risk.theme as any} variant="light" size="small">
+                                    {risk.text}
+                                  </Tag>
+                                  <Tag theme={line.theme as any} variant="light" size="small">
+                                    {line.label}
+                                  </Tag>
+                                  <Tag variant="light" size="small">
+                                    版本 {item.version}
+                                  </Tag>
+                                </Space>
+                                <Typography.Text theme="secondary">
+                                  {[item.displayName, lineage.changeSummary, businessCapabilityVersionRelationLabel(item, items)]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </Typography.Text>
+                              </div>
+                              <div className="podi-business-history-version-row__meta">
+                                <span>{formatDateTime(item.releaseTime || item.createdAt)}</span>
+                                <span>{businessCapabilityLatestRunLabel(item)}</span>
+                              </div>
+                              {isReadOnly ? (
+                                <Tag theme="default" variant="light" size="small">
+                                  只读查看
+                                </Tag>
+                              ) : (
+                                <Space size={6} breakLine>
+                                  <Button size="small" variant="outline" onClick={() => onEdit(item)}>
+                                    编辑
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant="outline"
+                                    loading={actionLoadingId === draftRunActionId}
+                                    disabled={
+                                      item.status === 'deprecated' ||
+                                      item.status === 'disabled' ||
+                                      (actionBusy && actionLoadingId !== draftRunActionId)
+                                    }
+                                    onClick={() => openDraftRunDialog(item)}
+                                  >
+                                    跑一次验证
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    theme={item.status === 'active' ? 'warning' : 'primary'}
+                                    variant="outline"
+                                    loading={actionLoadingId === statusActionId}
+                                    disabled={(item.status === 'active' && item.isDefault) || (actionBusy && actionLoadingId !== statusActionId)}
+                                    onClick={() => onToggleActive(item)}
+                                  >
+                                    {item.status === 'active' ? '停用' : '重新启用'}
+                                  </Button>
+                                </Space>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </details>
+                ) : null}
               </Space>
             </Card>
           );

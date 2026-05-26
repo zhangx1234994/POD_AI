@@ -14,7 +14,11 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium-desktop',
-      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 960 } },
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 960 },
+        ...(process.env.PODI_EVAL_USE_SYSTEM_CHROME === '1' ? { channel: 'chrome' } : {}),
+      },
     },
   ],
   webServer: {

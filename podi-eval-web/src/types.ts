@@ -99,6 +99,30 @@ export type EvalResourceOptionsResponse = {
   items: EvalResourceOptionItem[];
 };
 
+export type EvalBusinessQualitySample = {
+  id: string;
+  businessKey: string;
+  sampleKey: string;
+  label: string;
+  description?: string | null;
+  imageUrl: string;
+  prompt?: string | null;
+  generatedImageUrl?: string | null;
+  inputTags: string[];
+  defaultParams: Record<string, unknown>;
+  status: string;
+  sortOrder: number;
+  createdByUserId?: string | null;
+  createdByUsername?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EvalBusinessQualitySampleListResponse = {
+  total: number;
+  items: EvalBusinessQualitySample[];
+};
+
 export type EvalRun = {
   id: string;
   workflow_version_id: string;

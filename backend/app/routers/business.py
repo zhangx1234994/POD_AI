@@ -307,6 +307,55 @@ def _business_runs_to_csv(items: list[dict[str, Any]]) -> str:
     return output.getvalue()
 
 
+def _business_output_reviews_to_csv(items: list[dict[str, Any]]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "batch_id",
+            "业务",
+            "样例 Key",
+            "样例名称",
+            "run_id",
+            "版本 ID",
+            "版本",
+            "输出序号",
+            "质量档位",
+            "下一步动作",
+            "输入标签",
+            "问题标签",
+            "输出 URL",
+            "备注",
+            "标注人",
+            "创建时间",
+            "更新时间",
+        ]
+    )
+    for item in items:
+        writer.writerow(
+            [
+                item.get("batch_id") or "",
+                item.get("business_key") or "",
+                item.get("sample_key") or "",
+                item.get("sample_label") or "",
+                item.get("run_id") or "",
+                item.get("business_version_id") or "",
+                item.get("version") or "",
+                item.get("output_index") if item.get("output_index") is not None else "",
+                item.get("quality_grade") or "",
+                item.get("next_action") or "",
+                "、".join(str(tag) for tag in item.get("input_tags") or []),
+                "、".join(str(tag) for tag in item.get("issue_tags") or []),
+                item.get("output_url") or "",
+                item.get("note") or "",
+                item.get("reviewer_username") or item.get("reviewer_user_id") or "",
+                _business_export_cell(item.get("created_at")),
+                _business_export_cell(item.get("updated_at")),
+            ]
+        )
+    return output.getvalue()
+
+
 def _business_api_usage_endpoint_kind(*, method: str | None, path: str | None) -> str:
     normalized_path = str(path or "")
     normalized_method = str(method or "").upper()
@@ -3502,6 +3551,247 @@ def admin_generate_business_run_issue_checklist(
         payload.runIds,
         only_failed=payload.onlyFailed,
         actor=user,
+    )
+
+
+@admin_router.get(
+    "/quality-samples",
+    response_model=schemas.BusinessQualitySampleListResponse,
+    response_model_by_alias=False,
+)
+def admin_list_business_quality_samples(
+    business_key: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    include_archived: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=500),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualitySampleListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().list_quality_samples(
+        business_key=business_key,
+        status=status,
+        include_archived=include_archived,
+        limit=limit,
+    )
+
+
+@admin_router.post(
+    "/quality-samples",
+    response_model=schemas.BusinessQualitySampleRead,
+    response_model_by_alias=False,
+)
+def admin_create_business_quality_sample(
+    payload: schemas.BusinessQualitySampleCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualitySampleRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().create_quality_sample(payload, actor=user)
+
+
+@admin_router.post(
+    "/quality-samples/import",
+    response_model=schemas.BusinessQualitySampleImportResponse,
+    response_model_by_alias=False,
+)
+def admin_import_business_quality_samples(
+    payload: schemas.BusinessQualitySampleImportRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualitySampleImportResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().import_quality_samples(payload, actor=user)
+
+
+@admin_router.get(
+    "/quality-samples/{sample_id}/versions",
+    response_model=schemas.BusinessQualitySampleVersionListResponse,
+    response_model_by_alias=False,
+)
+def admin_list_business_quality_sample_versions(
+    sample_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualitySampleVersionListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().list_quality_sample_versions(sample_id, limit=limit)
+
+
+@admin_router.patch(
+    "/quality-samples/{sample_id}",
+    response_model=schemas.BusinessQualitySampleRead,
+    response_model_by_alias=False,
+)
+def admin_update_business_quality_sample(
+    sample_id: str,
+    payload: schemas.BusinessQualitySampleUpdateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualitySampleRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().update_quality_sample(sample_id, payload, actor=user)
+
+
+@admin_router.delete(
+    "/quality-samples/{sample_id}",
+    response_model=schemas.BusinessQualitySampleRead,
+    response_model_by_alias=False,
+)
+def admin_archive_business_quality_sample(
+    sample_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualitySampleRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().archive_quality_sample(sample_id, actor=user)
+
+
+@admin_router.get(
+    "/quality-action-rules",
+    response_model=schemas.BusinessQualityActionRuleListResponse,
+    response_model_by_alias=False,
+)
+def admin_list_business_quality_action_rules(
+    business_key: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    action_type: str | None = Query(default=None),
+    include_archived: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=500),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualityActionRuleListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().list_quality_action_rules(
+        business_key=business_key,
+        status=status,
+        action_type=action_type,
+        include_archived=include_archived,
+        limit=limit,
+    )
+
+
+@admin_router.post(
+    "/quality-action-rules",
+    response_model=schemas.BusinessQualityActionRuleRead,
+    response_model_by_alias=False,
+)
+def admin_create_business_quality_action_rule(
+    payload: schemas.BusinessQualityActionRuleCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualityActionRuleRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().create_quality_action_rule(payload, actor=user)
+
+
+@admin_router.patch(
+    "/quality-action-rules/{rule_id}",
+    response_model=schemas.BusinessQualityActionRuleRead,
+    response_model_by_alias=False,
+)
+def admin_update_business_quality_action_rule(
+    rule_id: str,
+    payload: schemas.BusinessQualityActionRuleUpdateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualityActionRuleRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().update_quality_action_rule(rule_id, payload, actor=user)
+
+
+@admin_router.delete(
+    "/quality-action-rules/{rule_id}",
+    response_model=schemas.BusinessQualityActionRuleRead,
+    response_model_by_alias=False,
+)
+def admin_archive_business_quality_action_rule(
+    rule_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessQualityActionRuleRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().archive_quality_action_rule(rule_id, actor=user)
+
+
+@admin_router.get(
+    "/runs/{run_id}/output-reviews",
+    response_model=schemas.BusinessOutputReviewListResponse,
+    response_model_by_alias=False,
+)
+def admin_list_business_output_reviews(
+    run_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessOutputReviewListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().list_output_reviews(run_id=run_id, actor=user)
+
+
+@admin_router.post(
+    "/runs/{run_id}/output-reviews",
+    response_model=schemas.BusinessOutputReviewListResponse,
+    response_model_by_alias=False,
+)
+def admin_upsert_business_output_reviews(
+    run_id: str,
+    payload: schemas.BusinessOutputReviewUpsertRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessOutputReviewListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().upsert_output_reviews(run_id=run_id, payload=payload, actor=user)
+
+
+@admin_router.get(
+    "/output-reviews/summary",
+    response_model=schemas.BusinessOutputReviewSummaryResponse,
+    response_model_by_alias=False,
+)
+def admin_business_output_review_summary(
+    window_hours: int = Query(default=168, ge=1, le=2160),
+    business_key: str | None = Query(default=None),
+    version: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessOutputReviewSummaryResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().output_review_summary(
+        window_hours=window_hours,
+        business_key=business_key,
+        version=version,
+        limit=limit,
+    )
+
+
+@admin_router.get("/output-reviews/export")
+def admin_export_business_output_reviews(
+    window_hours: int = Query(default=168, ge=1, le=2160),
+    business_key: str | None = Query(default=None),
+    version: str | None = Query(default=None),
+    batch_id: str | None = Query(default=None),
+    limit: int = Query(default=5000, ge=1, le=10000),
+    user: User = Depends(_resolve_business_user),
+) -> Response:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    result = get_business_run_service().export_output_reviews(
+        window_hours=window_hours,
+        business_key=business_key,
+        version=version,
+        batch_id=batch_id,
+        limit=limit,
+    )
+    filename = "business-output-reviews.csv"
+    if batch_id:
+        safe_batch_id = re.sub(r"[^A-Za-z0-9._-]+", "-", str(batch_id).strip())[:80] or "batch"
+        filename = f"business-output-reviews-{safe_batch_id}.csv"
+    return Response(
+        content="\ufeff" + _business_output_reviews_to_csv(result["items"]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

@@ -95,6 +95,45 @@ const RUNS = [
   },
 ];
 
+const QUALITY_SAMPLES = [
+  {
+    id: "bizsample-text-1",
+    businessKey: "text_fission",
+    sampleKey: "poster-text-a",
+    label: "文字海报样例",
+    description: "文字清晰度回归",
+    imageUrl: "https://static.podi.test/source-1.jpg",
+    prompt: "保持文字清晰，强化商业海报质感",
+    generatedImageUrl: null,
+    inputTags: ["文字海报", "高清"],
+    defaultParams: { resolution: "1K" },
+    status: "active",
+    sortOrder: 1,
+    createdByUserId: null,
+    createdByUsername: "admin",
+    createdAt: NOW,
+    updatedAt: NOW,
+  },
+  {
+    id: "bizsample-pattern-1",
+    businessKey: "pattern_extract",
+    sampleKey: "dense-pattern-a",
+    label: "满版花纹样例",
+    description: "边界与细节回归",
+    imageUrl: "https://static.podi.test/source-2.jpg",
+    prompt: "保持原始纹理和边界过渡",
+    generatedImageUrl: null,
+    inputTags: ["满版图案", "细节"],
+    defaultParams: {},
+    status: "active",
+    sortOrder: 2,
+    createdByUserId: null,
+    createdByUsername: "admin",
+    createdAt: NOW,
+    updatedAt: NOW,
+  },
+];
+
 const DOC_WORKFLOWS = [
   {
     category: "通用类",
@@ -142,6 +181,10 @@ test.describe("Eval shell visual regression", () => {
       }
       if (path === "/api/evals/workflow-versions") {
         await route.fulfill(mockJson(WORKFLOWS));
+        return;
+      }
+      if (path === "/api/evals/business/quality-samples") {
+        await route.fulfill(mockJson({ total: QUALITY_SAMPLES.length, items: QUALITY_SAMPLES }));
         return;
       }
       if (path === "/api/evals/metrics/workflows") {
@@ -250,20 +293,22 @@ test.describe("Eval shell visual regression", () => {
   });
 
   test("home view baseline", async ({ page }) => {
-    await page.goto("/?view=home&category=%E9%80%9A%E7%94%A8%E7%B1%BB");
-    await expect(page.locator("body")).toContainText("评测工具箱");
+    await page.goto("/?view=home&category=%E5%B9%B3%E5%8F%B0%E5%B7%A5%E5%85%B7");
+    await expect(page.locator("body")).toContainText("业务方验收入口");
+    await expect(page.locator("body")).toContainText("固定样例");
     await expect(page).toHaveScreenshot("eval-home-default.png", { fullPage: true });
   });
 
   test("tool view baseline", async ({ page }) => {
-    await page.goto("/?view=tool&category=%E9%80%9A%E7%94%A8%E7%B1%BB&tool=wf-1");
-    await expect(page.locator("body")).toContainText("测试参数");
+    await page.goto("/?view=tool&category=%E8%8A%B1%E7%BA%B9%E6%8F%90%E5%8F%96&tool=wf-2");
+    await expect(page.locator("body")).toContainText("一次测试");
+    await expect(page.locator("body")).toContainText("满版花纹样例");
     await expect(page).toHaveScreenshot("eval-tool-default.png", { fullPage: true });
   });
 
   test("tasks view baseline", async ({ page }) => {
     await page.goto("/?view=tasks&category=%E9%80%9A%E7%94%A8%E7%B1%BB");
-    await expect(page.locator("body")).toContainText("任务管理");
+    await expect(page.locator("body")).toContainText("任务追踪结论");
     await expect(page).toHaveScreenshot("eval-tasks-default.png", { fullPage: true });
   });
 

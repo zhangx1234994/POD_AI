@@ -17,6 +17,7 @@ from app.models.integration import (
     AbilityTask,
     ApiKey,
     BusinessCapability,
+    BusinessOutputReview,
     BusinessRun,
     BusinessRunStep,
     VendorModelCatalog,
@@ -49,6 +50,54 @@ def passed_acceptance_metadata(note: str = "测试环境业务验收通过") -> 
         "createdAt": datetime.utcnow().isoformat(),
     }
     return {"latestAcceptance": record, "acceptanceRecords": [record]}
+
+
+def insert_quality_review(
+    capability_id: str,
+    *,
+    business_key: str = "fission",
+    version: str = "v2",
+    grade: str = "usable",
+    run_id: str | None = None,
+) -> str:
+    review_run_id = run_id or f"run_quality_{capability_id}"
+    now = datetime.utcnow()
+    with business_runs_module.get_session() as session:
+        run = session.get(BusinessRun, review_run_id)
+        if run is None:
+            run = BusinessRun(
+                id=review_run_id,
+                business_key=business_key,
+                business_version_id=capability_id,
+                version=version,
+                status="succeeded",
+                source="pytest-quality-review",
+                image_urls=["https://example.com/quality.png"],
+                result_payload={"imageUrls": ["https://example.com/quality.png"]},
+                created_at=now,
+                updated_at=now,
+                finished_at=now,
+            )
+            session.add(run)
+        session.add(
+            BusinessOutputReview(
+                id=f"bizreview_{capability_id}_{grade}",
+                run_id=review_run_id,
+                business_key=business_key,
+                business_version_id=capability_id,
+                version=version,
+                output_index=0,
+                output_url="https://example.com/quality.png",
+                quality_grade=grade,
+                input_tags=["固定样例"],
+                issue_tags=[] if grade in {"excellent", "usable"} else ["质量风险"],
+                next_action="accept" if grade in {"excellent", "usable"} else "manual_review",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+    return review_run_id
 
 
 def test_business_capability_version_line_prefers_recipe_metadata() -> None:
@@ -235,7 +284,7 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
             version="v2",
             displayName="新版图裂变",
             status="active",
-            isDefault=True,
+            isDefault=False,
             primaryAbilityId="ability_openai_fission",
             metadata={
                 **passed_acceptance_metadata(),
@@ -250,6 +299,11 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
                 },
             },
         )
+    )
+    insert_quality_review(created["id"], version="v2")
+    created = service.update_capability(
+        created["id"],
+        BusinessCapabilityUpdateRequest(status="active", isDefault=True),
     )
 
     assert created["business_key"] == "fission"
@@ -371,7 +425,6 @@ def test_business_capability_governance_detects_stale_recipe_step_ability(monkey
             )
         )
         session.commit()
-
     listed = {item["id"]: item for item in service.list_capabilities()}
     stale = listed["biz_fission_stale_step"]
     assert stale["governance_status"] == "blocker"
@@ -729,6 +782,7 @@ def test_business_capability_draft_publish_requires_real_run_and_acceptance(monk
         draft["id"],
         BusinessAcceptanceRecordRequest(status="passed", note="草稿真实链路验收通过"),
     )
+    insert_quality_review(draft["id"], version=draft["version"], run_id="run_draft_publish_success")
 
     validation = service.validate_capability_draft(draft["id"])
     assert validation["can_publish"] is True
@@ -763,6 +817,7 @@ def test_business_capability_update_switches_default(monkeypatch) -> None:
         created["id"],
         BusinessAcceptanceRecordRequest(status="passed", note="切默认前验收通过"),
     )
+    insert_quality_review(created["id"], version="v2")
     updated = service.update_capability(
         created["id"],
         BusinessCapabilityUpdateRequest(status="active", isDefault=True),
@@ -791,6 +846,7 @@ def test_business_capability_promote_sets_default_and_records_event(monkeypatch)
         created["id"],
         BusinessAcceptanceRecordRequest(status="passed", note="测评通过"),
     )
+    insert_quality_review(created["id"], version="v2")
 
     promoted = service.promote_capability(
         created["id"],
@@ -878,6 +934,39 @@ def test_business_default_switch_requires_manual_acceptance(monkeypatch) -> None
     assert promote_exc.value.detail == "BUSINESS_ACCEPTANCE_REQUIRED"
 
 
+def test_business_default_switch_requires_quality_review(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="needs-quality",
+            displayName="待质量复盘图裂变",
+            status="active",
+            isDefault=False,
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+    service.record_acceptance(
+        created["id"],
+        BusinessAcceptanceRecordRequest(status="passed", note="已有人工验收，但未做出图质量标注"),
+    )
+
+    listed = {item["id"]: item for item in service.list_capabilities()}
+    gate = listed[created["id"]]["release_gate"]
+    assert gate["canRequestDefault"] is False
+    assert "BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED" in gate["blockers"]
+
+    with pytest.raises(HTTPException) as approval_exc:
+        service.create_default_approval(
+            created["id"],
+            BusinessDefaultApprovalCreateRequest(note="缺少质量复盘，不能申请切默认"),
+        )
+    assert approval_exc.value.status_code == 409
+    assert approval_exc.value.detail == "BUSINESS_RELEASE_GATE_BLOCKED"
+
+
 def test_business_capability_rejects_invalid_acceptance_status(monkeypatch) -> None:
     install_business_db(monkeypatch)
     service = BusinessRunService()
@@ -910,6 +999,7 @@ def test_business_default_approval_approves_default_and_records_operation_log(mo
         created["id"],
         BusinessAcceptanceRecordRequest(status="passed", note="真实链路验收通过"),
     )
+    insert_quality_review(created["id"], version="approval-v2")
 
     approval = service.create_default_approval(
         created["id"],
@@ -955,6 +1045,7 @@ def test_business_capability_rollback_restores_previous_default(monkeypatch) -> 
         created["id"],
         BusinessAcceptanceRecordRequest(status="passed", note="灰度验证通过"),
     )
+    insert_quality_review(created["id"], version="v2")
     promoted = service.promote_capability(
         created["id"],
         BusinessCapabilityPromoteRequest(note="灰度验证通过"),
@@ -993,6 +1084,7 @@ def test_business_capability_rollback_can_use_explicit_target(monkeypatch) -> No
         created["id"],
         BusinessAcceptanceRecordRequest(status="passed", note="指定回滚前验收通过"),
     )
+    insert_quality_review(created["id"], version="v2")
     service.update_capability(
         created["id"],
         BusinessCapabilityUpdateRequest(status="active", isDefault=True),
@@ -2510,6 +2602,7 @@ def test_business_capability_release_gate_ignores_failures_recovered_by_later_su
             ]
         )
         session.commit()
+    insert_quality_review("biz_fission_old", version="old", run_id="run_later_success")
 
     listed = {item["id"]: item for item in service.list_capabilities()}
 

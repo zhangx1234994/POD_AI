@@ -5,18 +5,21 @@
 ## 当前必读
 
 1. `project-current-review-2026-05-22.md`
-2. `todo-master-2026q2.md`
-3. `business-stability-observability-v0.4.1-plan.md`
-4. `business-orchestration-workbench-v0.4-plan.md`
-5. `control-point-and-file-index-2026-05-19.md`
-6. `business-control-point-matrix-2026-05-19.md`
-7. `doc-cleanup-inventory-2026-05-18.md`
+2. `project-half-year-review-2026-05-26.md`
+3. `platform-polish-v0.5-decision-plan.md`
+4. `output-quality-review-v0.5.md`
+5. `todo-master-2026q2.md`
+6. `business-stability-observability-v0.4.1-plan.md`
+7. `business-orchestration-workbench-v0.4-plan.md`
+8. `control-point-and-file-index-2026-05-19.md`
+9. `business-control-point-matrix-2026-05-19.md`
+10. `doc-cleanup-inventory-2026-05-18.md`
 
 ## 当前阶段
 
-- 当前阶段：`v0.4.1 稳定性监控与管理端降噪版`。
-- 当前目标：在 v0.4.0 封版后补齐线上监控、发版门禁和页面可读性。
-- 当前重点：连接池/线程治理、health-watch/live patrol 常态化、ComfyUI 状态收敛、管理端首页/业务能力/接口调用/资源页降噪。
+- 当前阶段：`v0.5 平台打磨版`。
+- 当前目标：把已经跑通的中台、管理端、测评端和核心业务能力打磨到业务方愿意持续使用。
+- 当前重点：业务流可视化、流程监控、出图效果复盘、分流/LoRA 候选治理、管理端/测评端视觉降噪和业务方试用动线。
 - 当前非目标：新增大业务能力、完整低代码平台、客户端重构、正式支付、为单台 ComfyUI 机器写业务特判。
 
 ## 阶段记录
@@ -42,7 +45,9 @@
 当前执行优先看：
 
 - `docs/README.md`
-- `docs/strategy/project-current-review-2026-05-22.md`
+- `docs/strategy/project-half-year-review-2026-05-26.md`
+- `docs/strategy/platform-polish-v0.5-decision-plan.md`
+- `docs/strategy/output-quality-review-v0.5.md`
 - `docs/strategy/todo-master-2026q2.md`
 - `docs/standards/release-sop.md`
 
