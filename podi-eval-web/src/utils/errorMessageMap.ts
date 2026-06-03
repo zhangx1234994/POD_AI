@@ -28,6 +28,7 @@ const ERROR_CODE_MESSAGE_MAP: Record<string, string> = {
   KIE_TIMEOUT: 'KIE 任务超时',
   VENDOR_CREDITS_INSUFFICIENT: '第三方账号余额不足',
   IMAGE_DOWNLOAD_FAILED: '图片下载失败',
+  AGENT_PLAN_REQUIRES_CLARIFICATION: '当前改图目标还不够明确，请先补充要改哪里、保留什么、希望变成什么效果',
 };
 
 const parseErrorPayload = (message: string): string => {

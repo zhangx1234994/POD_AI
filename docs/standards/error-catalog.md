@@ -181,6 +181,7 @@
 | AGENT_PLAN_NOT_FOUND | 业务 Agent 方案不存在 | 404 |
 | AGENT_PLAN_STALE | 业务 Agent 方案已不是当前会话最新方案 | 409，需重新确认最新方案，避免旧方案误执行 |
 | AGENT_PLAN_CONFIRM_IN_PROGRESS | 业务 Agent 方案正在确认执行中 | 409，调用方稍后查询会话或重试确认 |
+| AGENT_PLAN_REQUIRES_CLARIFICATION | 业务 Agent 路由置信度不足或意图过于模糊 | 409，先追加消息补充目标、保留项或改图范围，再确认执行 |
 | AGENT_PLAN_NOT_CONFIRMABLE | 业务 Agent 方案当前状态不能确认执行 | 409 |
 | AGENT_PLAN_CONFIRM_FAILED | 业务 Agent 确认方案失败 | 500 |
 | AGENT_TOOL_CALL_FAILED | 业务 Agent 调用中台能力失败 | 502/500，通常由下游业务能力返回的错误透传 |

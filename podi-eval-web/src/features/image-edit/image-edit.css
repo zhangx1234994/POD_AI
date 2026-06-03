@@ -1449,6 +1449,44 @@
   min-width: 160px;
 }
 
+.podi-image-edit-agent__evidence {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 16%, var(--td-component-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--td-brand-color) 5%, var(--td-bg-color-container));
+  padding: 8px;
+}
+
+.podi-image-edit-agent__evidence div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.podi-image-edit-agent__evidence span {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.podi-image-edit-agent__evidence strong {
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.podi-image-edit-agent__route-reason {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .podi-image-edit-agent__inline-actions {
   display: flex;
   flex-wrap: wrap;

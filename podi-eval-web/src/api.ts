@@ -204,6 +204,23 @@ export type BusinessAgentMessage = {
   createdAt?: string;
 };
 
+export type BusinessAgentRouteEvidence = {
+  intent?: string;
+  targetAbility?: string;
+  targetBusinessKey?: string;
+  confidence?: number;
+  threshold?: number;
+  baseImageRole?: 'source_image' | 'previous_result' | 'selected_history_result' | string;
+  parentRunId?: string | null;
+  methodologyId?: string | null;
+  methodologyVersion?: string | null;
+  missingFields?: string[];
+  routeReason?: string;
+  rejectedAbilities?: Array<{ ability?: string; reason?: string }>;
+  requiresClarification?: boolean;
+  clarificationReasons?: string[];
+};
+
 export type BusinessAgentPlan = {
   id: string;
   sessionId: string;
@@ -221,6 +238,12 @@ export type BusinessAgentPlan = {
   plannerModel?: string | null;
   plannerMode?: string | null;
   warnings?: string[];
+  routeEvidence?: BusinessAgentRouteEvidence;
+  workingMemory?: Record<string, unknown>;
+  assetState?: Record<string, unknown>;
+  methodology?: Record<string, unknown>;
+  baseImageRole?: string | null;
+  parentRunId?: string | null;
   errorCode?: string | null;
   errorMessage?: string | null;
 };
@@ -249,6 +272,8 @@ export type BusinessAgentSession = {
   latestRunId?: string | null;
   traceId?: string | null;
   requestId?: string | null;
+  context?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
   messages?: BusinessAgentMessage[];
   plans?: BusinessAgentPlan[];
   toolCalls?: BusinessAgentToolCall[];

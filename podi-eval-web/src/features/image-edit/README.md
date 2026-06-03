@@ -6,9 +6,11 @@
 - `/image-edit` 托管组件入口
 - 后续内部业务方源码集成
 
-对话改图 ChatBot 是独立产品入口，不属于 `ImageEditWorkbench` 的内部模式。它应在组件外层通过 `/api/business/image-edit-chat/*` 管理会话、消息、建议确认，再由后端调用底层 `image_edit` 业务 run。
+对话改图是独立产品入口，测评端用户侧显示为“AI 改图助手”，不属于 `ImageEditWorkbench` 的内部模式。它应在组件外层通过 `/api/business/image-edit-chat/*` 管理会话、消息、建议确认，再由后端调用底层 `image_edit` 业务 run。
 
-对话改图的线程语义是“图片 Codex”，不是单次任务表单：同一会话内继续输入时，默认基于最新一次成功输出继续改；只有新建会话、上传/粘贴新的基准图时才切换图片上下文。执行结果必须作为对应 tool/run 消息的一部分回填，不能用脱离聊天流的全局结果区替代。
+对话改图的线程语义是“图片版 AI 助手”，不是单次任务表单：同一会话内继续输入时，默认基于最新一次成功输出继续改；只有新建会话、上传/粘贴新的基准图时才切换图片上下文。执行结果必须作为对应 tool/run 消息的一部分回填，不能用脱离聊天流的全局结果区替代。
+
+前端不展示模型内部思考过程，只展示可复盘执行依据：`routeEvidence.baseImageRole`、`parentRunId`、`targetAbility`、`confidence` 和 `routeReason`。如果后端返回 `routeEvidence.requiresClarification=true`，前端必须禁用执行按钮，引导用户继续补充目标。后端会把低于阈值的路由置信度、缺少 `editGoal` 等非图片关键字段统一归一为追问态，前端不能自行放行。
 
 ## 文件职责
 

@@ -298,6 +298,7 @@ def business_api_enum_doc_tokens() -> list[str]:
         "PRODUCT_DESIGN_BRIEF_REQUIRED",
         "PRODUCT_DESIGN_PRODUCT_TYPE_INVALID",
         "PRODUCT_DESIGN_SCENE_INVALID",
+        "AGENT_PLAN_REQUIRES_CLARIFICATION",
         "product_design.productType",
         "product_design.scene",
         "image_edit.output_format",

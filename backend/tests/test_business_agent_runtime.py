@@ -88,6 +88,12 @@ def test_image_edit_agent_generates_plan_without_running_tool(monkeypatch) -> No
     assert result["plan"]["status"] == "awaiting_confirmation"
     assert result["plan"]["toolPayload"]["imageUrl"].endswith("/source.png")
     assert result["plan"]["toolPayload"]["editSkill"] == "local_modify"
+    assert result["plan"]["routeEvidence"]["targetAbility"] == "business.image_edit"
+    assert result["plan"]["routeEvidence"]["baseImageRole"] == "source_image"
+    assert result["plan"]["routeEvidence"]["confidence"] >= 0.65
+    assert result["plan"]["workingMemory"]["activeSkill"] == "local_modify"
+    assert result["plan"]["assetState"]["currentBaseImageUrl"].endswith("/source.png")
+    assert result["plan"]["methodology"]["id"] == "image_edit_chat_mvp"
 
     with testing_session() as session:
         db_session = session.get(BusinessAgentSession, result["session"]["id"])
@@ -195,6 +201,9 @@ def test_image_edit_agent_confirm_submits_business_run(monkeypatch) -> None:
     assert confirmed["tool_call"]["status"] == "submitted"
     assert fake_run_service.last_payload.imageUrl.endswith("/source.png")
     assert fake_run_service.last_payload.metadata["agentPlanId"] == result["plan"]["id"]
+    assert fake_run_service.last_payload.metadata["agentRouteEvidence"]["targetAbility"] == "business.image_edit"
+    assert fake_run_service.last_payload.metadata["agentBaseImageRole"] == "source_image"
+    assert fake_run_service.last_payload.metadata["agentMethodologyId"] == "image_edit_chat_mvp"
 
 
 def test_image_edit_agent_confirm_is_idempotent_for_executed_plan(monkeypatch) -> None:
@@ -385,6 +394,134 @@ def test_image_edit_agent_rejects_stale_plan_confirmation(monkeypatch) -> None:
     with testing_session() as session:
         tool_calls = session.execute(select(BusinessAgentToolCall)).scalars().all()
     assert tool_calls == []
+
+
+def test_image_edit_agent_second_turn_records_previous_result_context(monkeypatch) -> None:
+    _install_agent_db(monkeypatch)
+    service = BusinessAgentService()
+    user = _client_user()
+    first = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/source.png",
+            message="把这张图改得更高级一些，适合连衣裙面料。",
+        ),
+        user=user,
+    )
+
+    second = service.send_message(
+        first["session"]["id"],
+        BusinessAgentMessageRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/generated.png",
+            message="第二轮让颜色更清爽，其他保持上一轮效果。",
+            context={"baseImageRole": "previous_result", "previousRunId": "run_first_round"},
+        ),
+        user=user,
+    )
+
+    evidence = second["plan"]["routeEvidence"]
+    assert second["plan"]["toolPayload"]["imageUrl"].endswith("/generated.png")
+    assert evidence["baseImageRole"] == "previous_result"
+    assert evidence["parentRunId"] == "run_first_round"
+    assert evidence["targetAbility"] == "business.image_edit"
+    assert second["plan"]["assetState"]["currentBaseImageRole"] == "previous_result"
+    assert second["session"]["context"]["assetState"]["parentRunId"] == "run_first_round"
+
+
+def test_image_edit_agent_vague_plan_requires_clarification(monkeypatch) -> None:
+    _install_agent_db(monkeypatch)
+    fake_run_service = SimpleNamespace(call_count=0)
+
+    def fake_create_run(*, business_key, payload, user, source):  # noqa: ANN001, ARG001
+        fake_run_service.call_count += 1
+        return SimpleNamespace(id="should_not_run", business_key="image_edit", status="queued")
+
+    monkeypatch.setattr(
+        business_agents_module,
+        "get_business_run_service",
+        lambda: SimpleNamespace(create_run=fake_create_run),
+    )
+    service = BusinessAgentService()
+    user = _client_user()
+    result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/source.png",
+            message="改一下",
+        ),
+        user=user,
+    )
+
+    assert result["plan"]["routeEvidence"]["requiresClarification"] is True
+    assert "editGoal" in result["plan"]["routeEvidence"]["missingFields"]
+    with pytest.raises(HTTPException) as exc:
+        service.confirm_plan(result["session"]["id"], result["plan"]["id"], BusinessAgentConfirmRequest(), user=user)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "AGENT_PLAN_REQUIRES_CLARIFICATION"
+    assert fake_run_service.call_count == 0
+
+
+def test_image_edit_agent_low_confidence_plan_requires_clarification(monkeypatch) -> None:
+    _install_agent_db(monkeypatch)
+    fake_run_service = SimpleNamespace(call_count=0)
+
+    def fake_create_run(*, business_key, payload, user, source):  # noqa: ANN001, ARG001
+        fake_run_service.call_count += 1
+        return SimpleNamespace(id="should_not_run", business_key="image_edit", status="queued")
+
+    monkeypatch.setattr(
+        business_agents_module,
+        "get_business_run_service",
+        lambda: SimpleNamespace(create_run=fake_create_run),
+    )
+    service = BusinessAgentService()
+
+    def fake_generate_plan(*, message, image_url, request_context, session_context):  # noqa: ANN001, ARG001
+        return {
+            "intent": "image_edit",
+            "title": "低置信度测试计划",
+            "summary": "用户目标不够明确。",
+            "editPlan": [{"step": "追问目标", "reason": "缺少明确改图目标。"}],
+            "toolPayload": {
+                "imageUrl": image_url,
+                "editSkill": "local_modify",
+                "instruction": "保持主体结构，等待用户补充明确目标。",
+            },
+            "estimatedCostLevel": "low",
+            "riskLevel": "low",
+            "routeEvidence": {
+                "confidence": 0.42,
+                "threshold": 0.65,
+                "missingFields": ["editGoal"],
+                "routeReason": "用户只说要调整，但没有说明目标。",
+                "requiresClarification": False,
+                "clarificationReasons": [],
+            },
+            "warnings": [],
+            "plannerMode": "test",
+            "plannerModel": "test-planner",
+            "rawResponse": {"test": True},
+        }
+
+    monkeypatch.setattr(service.planner, "generate_plan", fake_generate_plan)
+    user = _client_user()
+    result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/source.png",
+            message="帮我做一下",
+        ),
+        user=user,
+    )
+
+    evidence = result["plan"]["routeEvidence"]
+    assert evidence["requiresClarification"] is True
+    assert "missing_required_fields" in evidence["clarificationReasons"]
+    assert "low_route_confidence" in evidence["clarificationReasons"]
+    with pytest.raises(HTTPException) as exc:
+        service.confirm_plan(result["session"]["id"], result["plan"]["id"], BusinessAgentConfirmRequest(), user=user)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "AGENT_PLAN_REQUIRES_CLARIFICATION"
+    assert fake_run_service.call_count == 0
 
 
 def test_image_edit_agent_confirm_marks_failed_when_business_run_fails(monkeypatch) -> None:

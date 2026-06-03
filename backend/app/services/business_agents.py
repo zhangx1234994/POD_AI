@@ -42,6 +42,7 @@ IMAGE_EDIT_AGENT_KEY = "agent.image_edit_assistant"
 AGENT_BUSINESS_KEY = "image_edit_chat"
 IMAGE_EDIT_TOOL_NAME = "business.image_edit"
 REFERENCE_REQUIRED_SKILLS = {"reference_element_transfer", "color_reference_correction"}
+ROUTE_CONFIDENCE_THRESHOLD = 0.65
 ALLOWED_AGENT_KEYS = {IMAGE_EDIT_AGENT_KEY}
 ALLOWED_TOOL_PAYLOAD_KEYS = {
     "imageUrl",
@@ -88,6 +89,21 @@ PLAN_JSON_SCHEMA: dict[str, Any] = {
         },
         "estimatedCostLevel": {"type": "string", "enum": ["low", "medium", "high"]},
         "riskLevel": {"type": "string", "enum": ["low", "medium", "high"]},
+        "confidence": {"type": "number"},
+        "missingFields": {"type": "array", "items": {"type": "string"}},
+        "routeReason": {"type": "string"},
+        "rejectedAbilities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "ability": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["ability", "reason"],
+            },
+        },
         "warnings": {"type": "array", "items": {"type": "string"}},
     },
     "required": [
@@ -115,6 +131,7 @@ PLANNER_INSTRUCTIONS = """你是 PODI 中台的受控图编辑 Agent。你只负
 4. 如果用户没有提供参考图，不要选择 reference_element_transfer 或 color_reference_correction。
 5. 如果用户要删除/修补但没有标注或蒙版，改用 local_modify，并在 warnings 说明需要标注后效果更稳定。
 6. instruction 要能直接交给图像编辑模型执行，包含保留未提及区域、保持主体结构和避免新增无关元素等约束。
+7. 必须给出 confidence、missingFields、routeReason、rejectedAbilities，供后端做路由稳定性校验。
 """
 
 
@@ -139,6 +156,69 @@ def _first_text(*values: Any) -> str | None:
         if text:
             return text
     return None
+
+
+def _safe_float(value: Any, *, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_string_list(value: Any, *, max_items: int = 12) -> list[str]:
+    if not value:
+        return []
+    raw_items = value if isinstance(value, list) else [value]
+    items: list[str] = []
+    for item in raw_items[:max_items]:
+        text = _safe_text(item, max_length=128)
+        if text and text not in items:
+            items.append(text)
+    return items
+
+
+def _normalize_base_image_role(value: Any) -> str:
+    text = _safe_text(value)
+    if text in {"previous_result", "source_image", "selected_history_result"}:
+        return text
+    return "source_image"
+
+
+def _normalize_rejected_abilities(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    items: list[dict[str, str]] = []
+    for item in value[:8]:
+        if not isinstance(item, dict):
+            continue
+        ability = _safe_text(item.get("ability"), max_length=96)
+        reason = _safe_text(item.get("reason"), max_length=240)
+        if ability:
+            items.append({"ability": ability, "reason": reason or "本轮不匹配用户目标。"})
+    return items
+
+
+def _is_vague_edit_message(message: str) -> bool:
+    text = _safe_text(message, max_length=120).lower()
+    compact = "".join(text.split())
+    if not compact:
+        return True
+    vague_tokens = {
+        "改一下",
+        "优化一下",
+        "处理一下",
+        "修一下",
+        "做一下",
+        "随便改",
+        "好看点",
+        "高级点",
+        "变好看",
+        "makebetter",
+        "improve",
+    }
+    if compact in vague_tokens:
+        return True
+    return len(compact) <= 4 and not any(token in compact for token in ["扩", "删", "去", "色", "花", "背景", "质感"])
 
 
 def _valid_http_url(value: Any) -> str | None:
@@ -315,7 +395,13 @@ class BusinessAgentPlanner:
             data = response.json()
         output_text = self._extract_openai_output_text(data)
         parsed = json.loads(output_text)
-        normalized = self._normalize_model_plan(parsed, request_context=request_context, message=message)
+        normalized = self._normalize_model_plan(
+            parsed,
+            request_context=request_context,
+            session_context=session_context,
+            image_url=image_url,
+            message=message,
+        )
         normalized["plannerMode"] = "openai_responses"
         normalized["plannerModel"] = settings.business_agent_planner_model
         normalized["rawResponse"] = {"responseId": data.get("id"), "usage": data.get("usage")}
@@ -342,6 +428,8 @@ class BusinessAgentPlanner:
         parsed: dict[str, Any],
         *,
         request_context: dict[str, Any],
+        session_context: dict[str, Any],
+        image_url: str | None,
         message: str,
     ) -> dict[str, Any]:
         refs = _normalize_reference_images(request_context.get("referenceImages"))
@@ -363,6 +451,16 @@ class BusinessAgentPlanner:
             **({"selectionHints": selection_hints} if selection_hints else {}),
             **({"maskUrl": request_context.get("maskUrl")} if request_context.get("maskUrl") else {}),
         }
+        route_evidence = self._build_route_evidence(
+            message=message,
+            image_url=image_url,
+            request_context=request_context,
+            session_context=session_context,
+            tool_payload=tool_payload,
+            parsed=parsed,
+        )
+        if route_evidence.get("requiresClarification"):
+            warnings.append("当前意图不够明确，请先补充要改哪里、保留什么、希望变成什么效果。")
         return {
             "intent": "image_edit",
             "title": _safe_text(parsed.get("title") or "对话改图建议", max_length=128),
@@ -371,6 +469,7 @@ class BusinessAgentPlanner:
             "toolPayload": tool_payload,
             "estimatedCostLevel": self._normalize_cost_level(parsed.get("estimatedCostLevel"), tool_payload),
             "riskLevel": self._normalize_risk_level(parsed.get("riskLevel"), tool_payload),
+            "routeEvidence": route_evidence,
             "warnings": warnings,
         }
 
@@ -410,6 +509,15 @@ class BusinessAgentPlanner:
         for key in ("projectId", "flowStepKey", "flowStepName", "flowTemplateId", "inputAssetIds"):
             if session_context.get(key):
                 tool_payload[key] = session_context[key]
+        route_evidence = self._build_route_evidence(
+            message=message,
+            image_url=image_url,
+            request_context=request_context,
+            session_context=session_context,
+            tool_payload=tool_payload,
+        )
+        if route_evidence.get("requiresClarification"):
+            warnings.append("当前意图不够明确，请先补充要改哪里、保留什么、希望变成什么效果。")
         return {
             "intent": "image_edit",
             "title": self._infer_title(message, skill=skill),
@@ -418,10 +526,96 @@ class BusinessAgentPlanner:
             "toolPayload": tool_payload,
             "estimatedCostLevel": self._normalize_cost_level(None, tool_payload),
             "riskLevel": self._normalize_risk_level(None, tool_payload),
+            "routeEvidence": route_evidence,
             "warnings": warnings,
             "plannerMode": "rule",
             "plannerModel": "rule-planner-v1",
             "rawResponse": {"rulePlanner": True},
+        }
+
+    def _build_route_evidence(
+        self,
+        *,
+        message: str,
+        image_url: str | None,
+        request_context: dict[str, Any],
+        session_context: dict[str, Any],
+        tool_payload: dict[str, Any],
+        parsed: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        parsed = parsed or {}
+        skill = _safe_text(tool_payload.get("editSkill")) or "local_modify"
+        vague = _is_vague_edit_message(message)
+        has_image = bool(image_url)
+        missing_fields = _safe_string_list(parsed.get("missingFields"))
+        if not has_image and "imageUrl" not in missing_fields:
+            missing_fields.append("imageUrl")
+        if vague and "editGoal" not in missing_fields:
+            missing_fields.append("editGoal")
+
+        parsed_confidence = parsed.get("confidence")
+        if parsed_confidence is None:
+            confidence = 0.84
+            if not has_image:
+                confidence -= 0.22
+            if vague:
+                confidence -= 0.32
+            if skill == "canvas_outpaint":
+                confidence += 0.04
+            if request_context.get("editSkill"):
+                confidence += 0.04
+        else:
+            confidence = _safe_float(parsed_confidence, default=0.72)
+        confidence = max(0.25, min(0.96, round(confidence, 2)))
+
+        base_image_role = _normalize_base_image_role(
+            _first_text(
+                request_context.get("baseImageRole"),
+                request_context.get("base_image_role"),
+                (session_context.get("assetState") or {}).get("currentBaseImageRole") if isinstance(session_context.get("assetState"), dict) else None,
+            )
+        )
+        parent_run_id = _first_text(
+            request_context.get("parentRunId"),
+            request_context.get("parent_run_id"),
+            request_context.get("previousRunId"),
+            request_context.get("previous_run_id"),
+        )
+        methodology_id = _first_text(request_context.get("methodologyId"), request_context.get("methodology_id"))
+        methodology_version = _first_text(request_context.get("methodologyVersion"), request_context.get("methodology_version"))
+        route_reason = _safe_text(parsed.get("routeReason"), max_length=600)
+        if not route_reason:
+            base_reason = "当前 Agent MVP 只开放 business.image_edit 白名单工具；本轮需求被整理为受控图编辑任务。"
+            if base_image_role == "previous_result":
+                base_reason += " 用户继续同一会话，因此默认基于上一轮成功输出继续修改。"
+            elif not has_image:
+                base_reason += " 当前缺少主图，只能先整理建议，确认执行前必须补图。"
+            route_reason = base_reason
+        rejected = _normalize_rejected_abilities(parsed.get("rejectedAbilities"))
+        if not rejected:
+            rejected = [
+                {"ability": "business.product_design", "reason": "本轮是对既有图片进行修改，不是生成产品设计图。"},
+                {"ability": "business.pattern_extract", "reason": "用户没有要求提取花纹或还原边缘纹路。"},
+                {"ability": "business.promo_video", "reason": "本轮输出目标是图片，不是视频。"},
+            ]
+        clarification_reasons = []
+        if vague:
+            clarification_reasons.append("edit_goal_too_vague")
+        return {
+            "intent": "image_edit",
+            "targetAbility": IMAGE_EDIT_TOOL_NAME,
+            "targetBusinessKey": "image_edit",
+            "confidence": confidence,
+            "threshold": ROUTE_CONFIDENCE_THRESHOLD,
+            "baseImageRole": base_image_role,
+            "parentRunId": parent_run_id,
+            "methodologyId": methodology_id,
+            "methodologyVersion": methodology_version,
+            "missingFields": missing_fields,
+            "routeReason": route_reason,
+            "rejectedAbilities": rejected,
+            "requiresClarification": bool(clarification_reasons),
+            "clarificationReasons": clarification_reasons,
         }
 
     @staticmethod
@@ -638,6 +832,35 @@ class BusinessAgentService:
                 session_obj=session_obj,
                 request_context=request_context,
             )
+            route_evidence = self._normalize_route_evidence(
+                plan_payload.get("routeEvidence"),
+                session_obj=session_obj,
+                request_context=request_context,
+                tool_payload=tool_payload,
+                message=message,
+            )
+            working_memory = self._build_working_memory(
+                session_obj=session_obj,
+                message=message,
+                tool_payload=tool_payload,
+                route_evidence=route_evidence,
+            )
+            asset_state = self._build_asset_state(
+                session_obj=session_obj,
+                request_context=request_context,
+                route_evidence=route_evidence,
+            )
+            methodology = self._build_methodology_snapshot(request_context=request_context, route_evidence=route_evidence)
+            plan_raw_response = self._build_plan_raw_response(
+                plan_payload=plan_payload,
+                route_evidence=route_evidence,
+                working_memory=working_memory,
+                asset_state=asset_state,
+                methodology=methodology,
+            )
+            warnings = [str(item) for item in plan_payload.get("warnings") or [] if str(item).strip()]
+            if route_evidence.get("requiresClarification") and not any("意图不够明确" in item for item in warnings):
+                warnings.append("当前意图不够明确，请先补充要改哪里、保留什么、希望变成什么效果。")
             now = _now()
             user_message = BusinessAgentMessage(
                 id=_safe_id("agm"),
@@ -664,8 +887,8 @@ class BusinessAgentService:
                 confirmation_required=True,
                 planner_model=_safe_text(plan_payload.get("plannerModel"), max_length=128),
                 planner_mode=_safe_text(plan_payload.get("plannerMode"), max_length=64),
-                warnings=[str(item) for item in plan_payload.get("warnings") or [] if str(item).strip()],
-                raw_response=plan_payload.get("rawResponse"),
+                warnings=warnings,
+                raw_response=plan_raw_response,
                 created_at=now,
                 updated_at=now,
             )
@@ -681,6 +904,12 @@ class BusinessAgentService:
             session_obj.status = "awaiting_confirmation"
             session_obj.latest_plan_id = plan.id
             session_obj.title = session_obj.title or plan.title
+            session_obj.context = {
+                **session_context,
+                "workingMemory": working_memory,
+                "assetState": asset_state,
+                "lastRouteEvidence": route_evidence,
+            }
             session_obj.updated_at = now
             db.add(user_message)
             db.add(plan)
@@ -728,6 +957,9 @@ class BusinessAgentService:
             image_url = _valid_http_url(tool_payload.get("imageUrl") or session_obj.image_url)
             if not image_url:
                 raise HTTPException(status_code=400, detail="AGENT_IMAGE_URL_REQUIRED")
+            route_evidence = self._plan_route_evidence(plan)
+            if self._route_requires_clarification(route_evidence):
+                raise HTTPException(status_code=409, detail="AGENT_PLAN_REQUIRES_CLARIFICATION")
             tool_payload["imageUrl"] = image_url
             request_id = _safe_text(payload.requestId or session_obj.request_id or f"{session_obj.id}:{plan.id}", max_length=128)
             run_payload = self._to_business_run_request(
@@ -1010,11 +1242,196 @@ class BusinessAgentService:
     def _message_attachments(*, image_url: str | None, request_context: dict[str, Any]) -> list[dict[str, Any]]:
         attachments: list[dict[str, Any]] = []
         if image_url:
-            attachments.append({"type": "image", "url": image_url, "role": "source"})
+            role = _normalize_base_image_role(
+                _first_text(request_context.get("baseImageRole"), request_context.get("base_image_role"))
+            )
+            attachments.append({"type": "image", "url": image_url, "role": role})
         for item in request_context.get("referenceImages") or []:
             if isinstance(item, dict) and item.get("url"):
                 attachments.append({"type": "image", "url": item["url"], "role": "reference"})
         return attachments
+
+    def _normalize_route_evidence(
+        self,
+        value: Any,
+        *,
+        session_obj: BusinessAgentSession,
+        request_context: dict[str, Any],
+        tool_payload: dict[str, Any],
+        message: str,
+    ) -> dict[str, Any]:
+        evidence = value if isinstance(value, dict) else {}
+        if not evidence:
+            evidence = self.planner._build_route_evidence(
+                message=message,
+                image_url=session_obj.image_url,
+                request_context=request_context,
+                session_context=dict(session_obj.context or {}),
+                tool_payload=tool_payload,
+            )
+        confidence = max(0.0, min(1.0, round(_safe_float(evidence.get("confidence"), default=0.72), 2)))
+        threshold = max(0.0, min(1.0, _safe_float(evidence.get("threshold"), default=ROUTE_CONFIDENCE_THRESHOLD)))
+        base_role = _normalize_base_image_role(evidence.get("baseImageRole"))
+        parent_run_id = _first_text(evidence.get("parentRunId"))
+        missing_fields = _safe_string_list(evidence.get("missingFields"))
+        clarification_reasons = _safe_string_list(evidence.get("clarificationReasons"))
+        blocking_missing_fields = [
+            item
+            for item in missing_fields
+            if item.replace("_", "").lower()
+            not in {
+                "imageurl",
+                "sourceimageurl",
+                "currentbaseimageurl",
+            }
+        ]
+        if blocking_missing_fields and "missing_required_fields" not in clarification_reasons:
+            clarification_reasons.append("missing_required_fields")
+        if confidence < threshold and "low_route_confidence" not in clarification_reasons:
+            clarification_reasons.append("low_route_confidence")
+        if evidence.get("requiresClarification") and not clarification_reasons:
+            clarification_reasons.append("route_requires_clarification")
+        return {
+            "intent": _safe_text(evidence.get("intent"), max_length=64) or "image_edit",
+            "targetAbility": _safe_text(evidence.get("targetAbility"), max_length=96) or IMAGE_EDIT_TOOL_NAME,
+            "targetBusinessKey": _safe_text(evidence.get("targetBusinessKey"), max_length=64) or "image_edit",
+            "confidence": confidence,
+            "threshold": threshold,
+            "baseImageRole": base_role,
+            "parentRunId": parent_run_id,
+            "methodologyId": _first_text(evidence.get("methodologyId")),
+            "methodologyVersion": _first_text(evidence.get("methodologyVersion")),
+            "missingFields": missing_fields,
+            "routeReason": _safe_text(evidence.get("routeReason"), max_length=800)
+            or "当前 Agent MVP 只开放 business.image_edit 白名单工具；本轮需求被整理为受控图编辑任务。",
+            "rejectedAbilities": _normalize_rejected_abilities(evidence.get("rejectedAbilities")),
+            "requiresClarification": bool(clarification_reasons),
+            "clarificationReasons": clarification_reasons,
+        }
+
+    @staticmethod
+    def _build_working_memory(
+        *,
+        session_obj: BusinessAgentSession,
+        message: str,
+        tool_payload: dict[str, Any],
+        route_evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        existing = (session_obj.context or {}).get("workingMemory") if isinstance(session_obj.context, dict) else {}
+        existing = existing if isinstance(existing, dict) else {}
+        preserve = _safe_string_list(existing.get("preserveConstraints"), max_items=8)
+        for item in ["保持主体结构和构图稳定", "保持未提及区域不变", "不要新增无关文字、水印或多余元素"]:
+            if item not in preserve:
+                preserve.append(item)
+        return {
+            "latestUserGoal": _safe_text(message, max_length=500),
+            "activeSkill": _safe_text(tool_payload.get("editSkill"), max_length=64) or "local_modify",
+            "currentInstruction": _safe_text(tool_payload.get("instruction"), max_length=1000),
+            "preserveConstraints": preserve[:8],
+            "baseImageRole": route_evidence.get("baseImageRole") or "source_image",
+            "parentRunId": route_evidence.get("parentRunId"),
+            "updatedAt": _now().isoformat(),
+        }
+
+    @staticmethod
+    def _build_asset_state(
+        *,
+        session_obj: BusinessAgentSession,
+        request_context: dict[str, Any],
+        route_evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        previous_asset_state = (session_obj.context or {}).get("assetState") if isinstance(session_obj.context, dict) else {}
+        previous_asset_state = previous_asset_state if isinstance(previous_asset_state, dict) else {}
+        current_url = _safe_text(session_obj.image_url, max_length=1024) or None
+        source_url = _safe_text(previous_asset_state.get("sourceImageUrl"), max_length=1024) or current_url
+        if route_evidence.get("baseImageRole") == "source_image" and current_url:
+            source_url = current_url
+        return {
+            "sourceImageUrl": source_url,
+            "currentBaseImageUrl": current_url,
+            "currentBaseImageRole": route_evidence.get("baseImageRole") or "source_image",
+            "parentRunId": route_evidence.get("parentRunId"),
+            "referenceCount": len(request_context.get("referenceImages") or []),
+            "selectionHintCount": len(request_context.get("selectionHints") or []),
+            "updatedAt": _now().isoformat(),
+        }
+
+    @staticmethod
+    def _build_methodology_snapshot(*, request_context: dict[str, Any], route_evidence: dict[str, Any]) -> dict[str, Any]:
+        methodology_id = _first_text(
+            route_evidence.get("methodologyId"),
+            request_context.get("methodologyId"),
+            request_context.get("methodology_id"),
+            "image_edit_chat_mvp",
+        )
+        methodology_version = _first_text(
+            route_evidence.get("methodologyVersion"),
+            request_context.get("methodologyVersion"),
+            request_context.get("methodology_version"),
+            "v0.6",
+        )
+        return {
+            "id": methodology_id,
+            "version": methodology_version,
+            "phase": "single_image_edit",
+            "confirmationPoint": "before_business_run",
+        }
+
+    @staticmethod
+    def _build_plan_raw_response(
+        *,
+        plan_payload: dict[str, Any],
+        route_evidence: dict[str, Any],
+        working_memory: dict[str, Any],
+        asset_state: dict[str, Any],
+        methodology: dict[str, Any],
+    ) -> dict[str, Any]:
+        raw_response = plan_payload.get("rawResponse") if isinstance(plan_payload.get("rawResponse"), dict) else {}
+        return {
+            "plannerRawResponse": raw_response,
+            "routeEvidence": route_evidence,
+            "workingMemory": working_memory,
+            "assetState": asset_state,
+            "methodology": methodology,
+        }
+
+    @staticmethod
+    def _plan_route_evidence(plan: BusinessAgentPlan) -> dict[str, Any]:
+        raw = plan.raw_response if isinstance(plan.raw_response, dict) else {}
+        evidence = raw.get("routeEvidence") if isinstance(raw.get("routeEvidence"), dict) else {}
+        return evidence
+
+    @staticmethod
+    def _plan_supporting_context(plan: BusinessAgentPlan, key: str) -> dict[str, Any]:
+        raw = plan.raw_response if isinstance(plan.raw_response, dict) else {}
+        value = raw.get(key) if isinstance(raw, dict) else {}
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _route_requires_clarification(route_evidence: dict[str, Any]) -> bool:
+        if not route_evidence:
+            return False
+        missing_fields = _safe_string_list(route_evidence.get("missingFields"))
+        blocking_missing_fields = [
+            item
+            for item in missing_fields
+            if item.replace("_", "").lower()
+            not in {
+                "imageurl",
+                "sourceimageurl",
+                "currentbaseimageurl",
+            }
+        ]
+        if blocking_missing_fields:
+            return True
+        confidence = _safe_float(route_evidence.get("confidence"), default=1.0)
+        threshold = _safe_float(route_evidence.get("threshold"), default=ROUTE_CONFIDENCE_THRESHOLD)
+        if confidence < threshold:
+            return True
+        if not route_evidence.get("requiresClarification"):
+            return False
+        reasons = set(_safe_string_list(route_evidence.get("clarificationReasons")))
+        return bool(reasons - {"image_missing"})
 
     @staticmethod
     def _build_tool_payload(
@@ -1067,6 +1484,9 @@ class BusinessAgentService:
         callback_headers: dict[str, str] | None,
         request_id: str,
     ) -> BusinessRunCreateRequest:
+        route_evidence = BusinessAgentService._plan_route_evidence(plan)
+        working_memory = BusinessAgentService._plan_supporting_context(plan, "workingMemory")
+        methodology = BusinessAgentService._plan_supporting_context(plan, "methodology")
         metadata = {
             **(tool_payload.get("metadata") if isinstance(tool_payload.get("metadata"), dict) else {}),
             "agentKey": session_obj.agent_key,
@@ -1075,6 +1495,12 @@ class BusinessAgentService:
             "agentPlannerMode": plan.planner_mode,
             "agentPlannerModel": plan.planner_model,
             "agentToolName": IMAGE_EDIT_TOOL_NAME,
+            "agentRouteEvidence": route_evidence,
+            "agentWorkingMemory": working_memory,
+            "agentBaseImageRole": route_evidence.get("baseImageRole"),
+            "agentParentRunId": route_evidence.get("parentRunId"),
+            "agentMethodologyId": methodology.get("id"),
+            "agentMethodologyVersion": methodology.get("version"),
         }
         return BusinessRunCreateRequest(
             imageUrl=tool_payload.get("imageUrl") or session_obj.image_url,
@@ -1210,6 +1636,7 @@ class BusinessAgentService:
 
     @staticmethod
     def _plan_to_dict(item: BusinessAgentPlan) -> dict[str, Any]:
+        route_evidence = BusinessAgentService._plan_route_evidence(item)
         return {
             "id": item.id,
             "sessionId": item.session_id,
@@ -1227,6 +1654,12 @@ class BusinessAgentService:
             "plannerModel": item.planner_model,
             "plannerMode": item.planner_mode,
             "warnings": item.warnings or [],
+            "routeEvidence": route_evidence,
+            "workingMemory": BusinessAgentService._plan_supporting_context(item, "workingMemory"),
+            "assetState": BusinessAgentService._plan_supporting_context(item, "assetState"),
+            "methodology": BusinessAgentService._plan_supporting_context(item, "methodology"),
+            "baseImageRole": route_evidence.get("baseImageRole"),
+            "parentRunId": route_evidence.get("parentRunId"),
             "errorCode": item.error_code,
             "errorMessage": item.error_message,
             "confirmedAt": item.confirmed_at,

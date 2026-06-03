@@ -291,6 +291,21 @@ Agent 状态：
 | `plan.status` | `executed` | 已确认并提交业务 run。 |
 | `plan.status` | `failed` | 确认执行失败。 |
 
+路由证据：
+
+| 字段 | 含义 |
+| --- | --- |
+| `routeEvidence.intent` | 本轮识别出的用户意图，当前固定为 `image_edit`。 |
+| `routeEvidence.targetAbility` | 后端最终允许调用的白名单工具，当前固定为 `business.image_edit`。 |
+| `routeEvidence.confidence` | 路由置信度；低置信时必须先追问，不能直接执行。 |
+| `routeEvidence.baseImageRole` | 本轮基准图来源：`source_image` / `previous_result` / `selected_history_result`。 |
+| `routeEvidence.parentRunId` | 基于上一轮结果继续改图时的父 runId。 |
+| `routeEvidence.routeReason` | 为什么选择该能力和参数。 |
+| `routeEvidence.rejectedAbilities` | 被拒绝的候选能力及原因，用于排查路由漂移。 |
+| `workingMemory` | 压缩后的会话约束，例如保留主体、禁改项和当前指令摘要。 |
+| `assetState` | 当前主图、原始主图、参考图数量、标注数量和基准图来源。 |
+| `methodology` | 后续方法论流水线占位，MVP 默认为 `image_edit_chat_mvp / v0.6`。 |
+
 工具白名单：
 
 | 工具 | 允许调用的业务能力 | 说明 |
@@ -307,6 +322,7 @@ Agent 状态：
 | `AGENT_PLAN_REQUIRED` | 会话还没有可确认建议。 |
 | `AGENT_PLAN_STALE` | 当前确认的方案不是会话最新方案。 |
 | `AGENT_PLAN_CONFIRM_IN_PROGRESS` | 方案正在确认执行中。 |
+| `AGENT_PLAN_REQUIRES_CLARIFICATION` | 当前方案仍需补充说明，不能直接执行。 |
 | `AGENT_PLAN_NOT_CONFIRMABLE` | 方案已执行或当前状态不能确认。 |
 | `AGENT_TOOL_CALL_FAILED` | 调用 `image_edit` 业务能力失败。 |
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Input, Tag, Textarea, MessagePlugin } from 'tdesign-react';
 import { ChartBubbleIcon } from 'tdesign-icons-react';
 import { evalApi } from '../../api';
-import type { BusinessAgentMessage, BusinessAgentPlan, BusinessAgentSession, BusinessRunPollResult } from '../../api';
+import type { BusinessAgentMessage, BusinessAgentPlan, BusinessAgentRouteEvidence, BusinessAgentSession, BusinessRunPollResult } from '../../api';
 import { toDisplayErrorMessage } from '../../utils/errorMessageMap';
 import { IMAGE_EDIT_SKILL_OPTIONS } from './model';
 
@@ -106,6 +106,26 @@ const shortAgentId = (value?: string | null) => {
 const formatAgentError = (err: unknown, fallback: string): string => {
   const raw = String((err as any)?.message || err || '').trim();
   return toDisplayErrorMessage(raw) || raw || fallback;
+};
+
+const baseImageRoleLabel: Record<string, string> = {
+  source_image: '原始主图',
+  previous_result: '上一轮结果',
+  selected_history_result: '历史结果',
+};
+
+const formatConfidence = (value: unknown) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '待判定';
+  return `${Math.round(Math.max(0, Math.min(1, num)) * 100)}%`;
+};
+
+const getRouteEvidence = (nextPlan?: BusinessAgentPlan | null): BusinessAgentRouteEvidence => nextPlan?.routeEvidence || {};
+
+const routeAbilityLabel = (value: unknown) => {
+  const text = String(value || '').trim();
+  if (text === 'business.image_edit') return '图编辑';
+  return text || '待判定';
 };
 
 const truncateText = (value: string, max = 24) => {
@@ -218,6 +238,8 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     const items = (session?.messages || []).filter((item) => item.role === 'user' || item.role === 'assistant' || item.role === 'tool');
     return items.length > 0 ? items : [EMPTY_CHAT_MESSAGE];
   }, [session?.messages]);
+  const planRouteEvidence = useMemo(() => getRouteEvidence(plan), [plan]);
+  const planNeedsClarification = Boolean(planRouteEvidence.requiresClarification);
   const toolRunIds = useMemo(() => {
     const ids: string[] = [];
     for (const item of session?.messages || []) {
@@ -263,7 +285,9 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
             : runStatus
               ? statusText[runStatus] || runStatus
               : currentPlanNeedsConfirmation
-                ? '等待确认'
+                ? planNeedsClarification
+                  ? '需要补充'
+                  : '等待确认'
                 : '待沟通';
 
   const rememberRunResult = (id: string, result: BusinessRunPollResult | Record<string, unknown> | null, opts?: { asCurrent?: boolean }) => {
@@ -474,6 +498,10 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
       await MessagePlugin.error('请先上传或粘贴主图。');
       return;
     }
+    if (planNeedsClarification) {
+      await MessagePlugin.warning('当前目标还不够明确，请继续补充要改哪里、保留什么、希望变成什么效果。');
+      return;
+    }
     setAgentError('');
     setStatus('confirming');
     try {
@@ -611,7 +639,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     const roleClass = item.role === 'user' ? 'user' : isTool ? 'tool' : 'assistant';
     return (
       <div key={item.id} className={`podi-image-edit-agent__message is-${roleClass}`}>
-        <span>{item.role === 'user' ? '你' : isTool ? '执行结果' : '图片 Codex'}</span>
+        <span>{item.role === 'user' ? '你' : isTool ? '执行结果' : 'AI 改图助手'}</span>
         {isTool ? (
           renderToolMessageContent(item)
         ) : (
@@ -634,7 +662,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           : `正在出图，完成后结果会直接出现在这里。已等待 ${pollElapsedSeconds}s`;
     return (
       <div className="podi-image-edit-agent__message is-working">
-        <span>图片 Codex</span>
+        <span>AI 改图助手</span>
         <p>
           <i aria-hidden="true" />
           {text}
@@ -647,7 +675,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     if (!agentError) return null;
     return (
       <div className="podi-image-edit-agent__message is-error">
-        <span>图片 Codex</span>
+        <span>AI 改图助手</span>
         <p>{agentError}</p>
       </div>
     );
@@ -656,9 +684,14 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
   const renderPlanMessage = () => {
     if (!plan) return null;
     if ((currentPlanRunId || plan.status === 'executed') && currentPlanRunStatus !== 'failed') return null;
+    const evidence = planRouteEvidence;
+    const baseRole = String(evidence.baseImageRole || plan.baseImageRole || '').trim();
+    const parentRunId = String(evidence.parentRunId || plan.parentRunId || '').trim();
+    const missingFields = Array.isArray(evidence.missingFields) ? evidence.missingFields.filter(Boolean) : [];
+    const routeReason = String(evidence.routeReason || '').trim();
     return (
       <div className="podi-image-edit-agent__message is-plan">
-        <span>图片 Codex 建议</span>
+        <span>AI 改图助手建议</span>
         <div className="podi-image-edit-agent__plan-head">
           <div>
             <strong>{plan.title || '可执行改图建议'}</strong>
@@ -676,6 +709,33 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
             </Tag>
           </div>
         </div>
+        <div className="podi-image-edit-agent__evidence" aria-label="执行依据">
+          <div>
+            <span>基准</span>
+            <strong>{baseImageRoleLabel[baseRole] || '当前主图'}</strong>
+          </div>
+          <div>
+            <span>路由</span>
+            <strong>{routeAbilityLabel(evidence.targetAbility)}</strong>
+          </div>
+          <div>
+            <span>置信度</span>
+            <strong>{formatConfidence(evidence.confidence)}</strong>
+          </div>
+          {parentRunId ? (
+            <div>
+              <span>父任务</span>
+              <strong>{shortAgentId(parentRunId)}</strong>
+            </div>
+          ) : null}
+        </div>
+        {routeReason ? <p className="podi-image-edit-agent__route-reason">{routeReason}</p> : null}
+        {planNeedsClarification ? (
+          <Alert
+            theme="warning"
+            message={`还需要补充：${missingFields.length > 0 ? missingFields.join(' / ') : '改图目标'}。请继续对话说明要改哪里、保留什么、希望变成什么效果。`}
+          />
+        ) : null}
         {(plan.editPlan || []).length > 0 ? (
           <div className="podi-image-edit-agent__steps">
             {(plan.editPlan || []).map((item, index) => (
@@ -695,8 +755,8 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           <p>{String(planPayload.instruction || plan.summary || '')}</p>
         </div>
         <div className="podi-image-edit-agent__inline-actions">
-          <Button theme="primary" loading={status === 'confirming'} disabled={busy || !activeImageUrl} onClick={() => void confirmPlan()}>
-            执行这版
+          <Button theme="primary" loading={status === 'confirming'} disabled={busy || !activeImageUrl || planNeedsClarification} onClick={() => void confirmPlan()}>
+            {planNeedsClarification ? '先补充说明' : '执行这版'}
           </Button>
           {showApplyToEditor && onApplyPlan ? (
             <Button disabled={busy} onClick={() => onApplyPlanFrom(plan)}>
@@ -716,7 +776,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
         <div className="podi-image-edit-agent__title">
           <ChartBubbleIcon />
           <div>
-            <strong>图片 Codex</strong>
+            <strong>AI 改图助手</strong>
             <span>一个改图任务一条线程：对话、执行、结果都在同一处。</span>
           </div>
         </div>
@@ -822,7 +882,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
             ) : (
               <button type="button" onClick={() => imageInputRef.current?.click()}>
                 <strong>上传主图</strong>
-                <span>让图片 Codex 先看到图片</span>
+                <span>让 AI 改图助手先看到图片</span>
               </button>
             )}
           </div>

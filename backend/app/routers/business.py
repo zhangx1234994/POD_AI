@@ -2067,14 +2067,14 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     image_edit_chat_session_response_schema = {
         "type": "object",
         "properties": {
-            "session": {"type": "object", "description": "会话详情，包含 messages/plans/latestPlan/toolCalls 等字段。"},
+            "session": {"type": "object", "description": "会话详情，包含 messages/plans/latestPlan/toolCalls、workingMemory、assetState 和 routeEvidence 等字段。"},
         },
     }
     image_edit_chat_plan_response_schema = {
         "type": "object",
         "properties": {
             "session": {"type": "object", "description": "会话详情。"},
-            "plan": {"type": "object", "description": "最新可确认建议，包含 editPlan/toolPayload/warnings。"},
+            "plan": {"type": "object", "description": "最新可确认建议，包含 editPlan/toolPayload/warnings/routeEvidence/workingMemory/assetState/methodology。"},
         },
     }
     image_edit_chat_confirm_response_schema = {
@@ -2643,7 +2643,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             *submit_errors["400"],
         ],
         "404": ["AGENT_CAPABILITY_NOT_FOUND", "AGENT_SESSION_NOT_FOUND", "AGENT_PLAN_NOT_FOUND"],
-        "409": ["AGENT_PLAN_CONFIRM_IN_PROGRESS"],
+        "409": ["AGENT_PLAN_CONFIRM_IN_PROGRESS", "AGENT_PLAN_REQUIRES_CLARIFICATION"],
         "500": ["AGENT_SESSION_CREATE_FAILED", "AGENT_MESSAGE_FAILED", "AGENT_PLAN_CONFIRM_FAILED", "AGENT_TOOL_CALL_FAILED"],
     }
     return {
