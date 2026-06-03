@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import httpx
 
 import app.services.vendor_api_client as vendor_api_client_module
+from app.models.integration import Ability
 from app.services.vendor_api_client import VendorApiClient
 
 
@@ -73,7 +74,12 @@ def test_vendor_api_invoke_forwards_metadata_request_endpoint(monkeypatch) -> No
             )
 
     monkeypatch.setattr(vendor_api_client_module.httpx, "Client", FakeClient)
-    executor = SimpleNamespace(id="executor_vendor_api_domestic_default", base_url="http://vendor.local", config={}, max_concurrency=2)
+    executor = SimpleNamespace(
+        id="executor_vendor_api_domestic_default",
+        base_url="http://vendor.local",
+        config={},
+        max_concurrency=2,
+    )
     ability = SimpleNamespace(
         provider="baidu",
         capability_key="quality_upgrade",
@@ -87,13 +93,35 @@ def test_vendor_api_invoke_forwards_metadata_request_endpoint(monkeypatch) -> No
     result = VendorApiClient().invoke(
         executor=executor,  # type: ignore[arg-type]
         ability=ability,  # type: ignore[arg-type]
-        inputs={"image_base64": "in-b64"},
+        inputs={"image_base64": "in-b64", "timeout": 420},
         assets=None,
         request_id="req_1",
     )
 
     payload = captured["json"]
     assert isinstance(payload, dict)
+    assert captured["timeout"] == 420
+    assert payload["taskPolicy"]["timeoutSeconds"] == 420
+    assert "timeout" not in payload["inputs"]
     assert payload["inputs"]["request_endpoint"] == "/rest/2.0/image-process/v1/image_quality_enhance"
     assert result["assets"][0]["base64"] == "out-b64"
     assert result["assets"][0]["contentType"] is None
+
+
+def test_vendor_timeout_prefers_ability_metadata_over_global_default() -> None:
+    ability = Ability(
+        provider="openai",
+        capability_key="gpt_image_2_edit",
+        extra_metadata={"timeoutSeconds": 420},
+    )
+    settings = SimpleNamespace(vendor_api_timeout_seconds=180)
+
+    assert VendorApiClient._vendor_timeout_seconds(settings=settings, ability=ability, inputs={}) == 420
+
+
+def test_vendor_timeout_supports_request_override_and_clamps() -> None:
+    ability = Ability(provider="openai", capability_key="gpt_image_2_edit", extra_metadata={"timeoutSeconds": 420})
+    settings = SimpleNamespace(vendor_api_timeout_seconds=180)
+
+    assert VendorApiClient._vendor_timeout_seconds(settings=settings, ability=ability, inputs={"timeout": "5"}) == 15
+    assert VendorApiClient._vendor_timeout_seconds(settings=settings, ability=ability, inputs={"timeoutSeconds": 1200}) == 900

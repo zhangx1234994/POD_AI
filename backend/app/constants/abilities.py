@@ -2509,7 +2509,12 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "description": "支持原图、蒙版、多参考图的图片编辑能力；经 vendor-api-ops 统一代理和落库。",
         "category": "image_generation",
         "input_schema": _openai_image_edit_schema(),
-        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=3),
+        "metadata": {
+            **_openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=4),
+            # Real-time GPT Image 2 edits regularly exceed the generic vendor-api
+            # 180s ceiling. Keep this as orchestration policy, not a model input.
+            "timeoutSeconds": 420,
+        },
     },
     "gpt_image_2_edit_batch": {
         "endpoint": "/v1/images/edits",

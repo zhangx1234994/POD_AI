@@ -27,6 +27,13 @@ class VendorApiClient:
         base_url = self._base_url(executor, settings.vendor_api_base_url)
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
         vendor_inputs = dict(inputs or {})
+        timeout_seconds = self._vendor_timeout_seconds(
+            settings=settings,
+            ability=ability,
+            inputs=vendor_inputs,
+        )
+        for policy_key in ("timeout", "timeoutSeconds", "timeout_seconds"):
+            vendor_inputs.pop(policy_key, None)
         for key in ("request_endpoint", "input_array_target"):
             value = metadata.get(key)
             if value not in (None, "", []):
@@ -41,7 +48,7 @@ class VendorApiClient:
             "assets": assets or [],
             "taskPolicy": {
                 "maxConcurrency": int(getattr(executor, "max_concurrency", 1) or 1),
-                "timeoutSeconds": settings.vendor_api_timeout_seconds,
+                "timeoutSeconds": timeout_seconds,
             },
             "credentials": credentials or {},
             "requestId": request_id,
@@ -49,7 +56,7 @@ class VendorApiClient:
         }
         headers = self._headers(settings.vendor_api_token)
         try:
-            with httpx.Client(timeout=settings.vendor_api_timeout_seconds) as client:
+            with httpx.Client(timeout=timeout_seconds) as client:
                 response = client.post(f"{base_url}/v1/invocations", json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.TimeoutException as exc:
@@ -93,6 +100,37 @@ class VendorApiClient:
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"VENDOR_API_UNAVAILABLE:{exc}") from exc
         return self.normalize_invocation_response(data=response.json(), executor=executor)
+
+    @staticmethod
+    def _vendor_timeout_seconds(*, settings: Any, ability: Ability, inputs: dict[str, Any]) -> int:
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        task_policy = metadata.get("taskPolicy") or metadata.get("task_policy") or metadata.get("default_task_policy")
+        candidates = [
+            inputs.get("timeoutSeconds"),
+            inputs.get("timeout_seconds"),
+            inputs.get("timeout"),
+            task_policy.get("timeoutSeconds") if isinstance(task_policy, dict) else None,
+            task_policy.get("timeout_seconds") if isinstance(task_policy, dict) else None,
+            metadata.get("timeoutSeconds"),
+            metadata.get("timeout_seconds"),
+            metadata.get("timeout"),
+            getattr(settings, "vendor_api_timeout_seconds", None),
+        ]
+        for candidate in candidates:
+            timeout = VendorApiClient._coerce_timeout_seconds(candidate)
+            if timeout is not None:
+                return timeout
+        return 180
+
+    @staticmethod
+    def _coerce_timeout_seconds(value: Any) -> int | None:
+        if value in (None, "", []):
+            return None
+        try:
+            timeout = int(float(str(value).strip()))
+        except (TypeError, ValueError):
+            return None
+        return max(15, min(timeout, 900))
 
     @staticmethod
     def normalize_invocation_response(*, data: dict[str, Any], executor: Executor | None = None) -> dict[str, Any]:
