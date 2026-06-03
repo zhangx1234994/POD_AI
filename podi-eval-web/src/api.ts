@@ -679,6 +679,12 @@ export const evalApi = {
       { method: 'POST', body: JSON.stringify(payload) },
       90000,
     ),
+  getImageEditAgentSession: (sessionId: string) =>
+    request<{ session: BusinessAgentSession }>(
+      `/api/business/image-edit-chat/sessions/${encodeURIComponent(sessionId)}`,
+      {},
+      30000,
+    ),
   sendImageEditAgentMessage: (
     sessionId: string,
     payload: {
