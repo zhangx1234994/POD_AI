@@ -3,7 +3,7 @@
 ## 用途
 
 业务能力接口是给业务方、Coze、客户端、MCP/技能复用的稳定入口。
-第一阶段开放核心业务：花纹提取、图裂变、文字强化裂变、裂变生成图评估、扩图；底层仍复用统一能力任务和 ComfyUI workflow，但对外不暴露节点、workflow、executor 等实现细节。
+第一阶段开放核心业务：花纹提取、图裂变、产品设计、图编辑、对话改图、文字强化裂变、裂变生成图评估、扩图；底层仍复用统一能力任务、商业模型和 ComfyUI workflow，但对外不暴露节点、workflow、executor 等实现细节。
 
 核心约定：
 
@@ -43,9 +43,18 @@
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
+| 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
+| 对话改图 ChatBot | `POST /api/business/image-edit-chat/sessions` + `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` | 会话可先传 `message`；执行前必须有 `imageUrl` | `editSkill`、`quality`、`size`、`referenceImages`、`selectionHints` | `messages` + `plan` + `run.runId` | 独立于直接图编辑 API 的聊天入口；ChatBot 通过白名单工具调用中台 `image_edit` 业务 run。 |
+
+调用上下文兼容接口：
+
+- 中台主概念是能力、版本、路由、调用、结果、质量和成本；客户端的项目、工单、订单、素材夹、业务流程由客户端自行组装。
+- 现存 `/api/business/projects/*` 是 v0.6 兼容调用上下文接口，用于旧链路回溯 run、资产和选择证据，不应作为新的中台产品主线。
+- 新业务提交优先使用 `clientContextId/inputAssetIds/clientRequestId` 关联客户端侧链路；只有兼容旧链路时才使用 `projectId/flowStepKey`。
+- 中台记录的是调用证据和输出资产，不负责客户端项目 CRUD 的业务语义。
 
 ### 0.1) 最小调用示例
 
@@ -90,19 +99,122 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
     "status": "active",
     "tenantId": "tenant-a",
     "clientId": "open-api",
-    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit"],
+    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit", "image_edit_chat", "product_design"],
     "expireAt": "2026-12-31T23:59:59+08:00"
   }'
 ```
 
 管理端“API 开放”页也可以直接生成、创建、停用业务 Key，并查看每个 Key 的调用记录。
 
+### 0.2) 对话改图 ChatBot
+
+对话改图 ChatBot 是独立业务入口，治理 key 为 `image_edit_chat`；直接图编辑仍是 `image_edit`，接口仍为 `/api/business/image-edit/runs`。两者共享底层图编辑能力和 runId 证据，但调用方式、产品入口和用户心智必须拆开：ChatBot 负责像聊天一样收集诉求、追问或给出可执行建议；真正执行只允许调用中台白名单工具 `business.image_edit`，最终仍产生标准 `image_edit` 业务 `runId`。
+
+会话边界和幂等规则：
+
+- 新建会话必须调用 `POST /api/business/image-edit-chat/sessions`；不传 `sessionId` 时不会隐式续聊旧会话。
+- 创建会话建议传 `requestId`；同一 `agentKey + requestId + tenantId + clientId` 重复提交会复用原会话，避免网络重试创建多个方案。
+- 创建会话如果带首轮 `message`，也可以同时传 `editSkill`、`quality`、`size`、`outputFormat`、`maskUrl`、`referenceImages`、`selectionHints`；这些字段和追加消息接口的语义一致。
+- 追加消息必须显式带 `sessionId`，每次追加都会生成新的最新方案；旧方案不能再确认执行。
+- 确认方案只允许确认当前会话的最新 `awaiting_confirmation` 方案；确认中会进入 `confirming`，成功后为 `executed` 并返回业务 `runId`。
+- 已执行方案重复确认会返回原来的 `runId`，不会重复创建图编辑业务任务。
+
+创建会话并生成首条 ChatBot 回复：
+
+```bash
+curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions" \
+  -H "X-PODI-API-Key: $PODI_BUSINESS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "imageUrl": "https://example.com/input.png",
+    "message": "把这张图改得更高级一些，适合连衣裙面料，保持主花型不变。",
+    "source": "partner-api",
+    "channel": "image-edit-chat",
+    "requestId": "image-edit-chat-session-20260602-001"
+  }'
+```
+
+响应摘要：
+
+```json
+{
+  "session": {
+    "id": "ags_xxx",
+    "agentKey": "agent.image_edit_assistant",
+    "status": "awaiting_confirmation",
+    "imageUrl": "https://example.com/input.png",
+    "latestPlanId": "agp_xxx"
+  },
+  "plan": {
+    "id": "agp_xxx",
+    "status": "awaiting_confirmation",
+    "toolName": "business.image_edit",
+    "estimatedCostLevel": "low",
+    "riskLevel": "low",
+    "toolPayload": {
+      "imageUrl": "https://example.com/input.png",
+      "editSkill": "local_modify",
+      "quality": "preview",
+      "size": "auto",
+      "output_format": "png",
+      "instruction": "..."
+    }
+  }
+}
+```
+
+追加消息生成新方案：
+
+```bash
+curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/messages" \
+  -H "X-PODI-API-Key: $PODI_BUSINESS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "再偏复古一点，但不要改变构图。",
+    "quality": "preview",
+    "size": "auto"
+  }'
+```
+
+确认最新建议并提交业务 run：
+
+```bash
+curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/confirm" \
+  -H "X-PODI-API-Key: $PODI_BUSINESS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "requestId": "image-edit-chat-confirm-agp-001",
+    "overrides": {
+      "quality": "production"
+    }
+  }'
+```
+
+确认响应会返回 `run.runId`，之后继续用 `/api/business/runs/get` 查询结果。需要严格确认某个方案版本时，也可调用兼容接口 `POST /api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm`；旧 `/api/business/agents/image-edit/*` 路径仅作为技术兼容入口，不作为新接入文档推荐。
+
+错误：
+
+| 错误码 | HTTP | 处理方式 |
+| --- | --- | --- |
+| `AGENT_CAPABILITY_NOT_FOUND` | 404 | 检查 Agent key，当前只支持 `agent.image_edit_assistant`。 |
+| `AGENT_MESSAGE_REQUIRED` | 400 | 补充用户改图诉求。 |
+| `AGENT_IMAGE_URL_INVALID` | 400 | 图片必须是 HTTP(S) URL。 |
+| `AGENT_IMAGE_URL_REQUIRED` | 400 | 确认执行前上传或传入主图。 |
+| `AGENT_SESSION_NOT_FOUND` | 404 | 检查 `sessionId`。 |
+| `AGENT_SESSION_FORBIDDEN` | 403 | 检查业务 API Key 的租户/客户端范围。 |
+| `AGENT_PLAN_REQUIRED` | 400 | 当前会话还没有可确认建议，请先发送一条消息生成建议。 |
+| `AGENT_PLAN_NOT_FOUND` | 404 | 检查 `planId` 是否属于当前会话。 |
+| `AGENT_PLAN_STALE` | 409 | 当前确认的方案不是会话最新方案，拉取会话后确认最新方案。 |
+| `AGENT_PLAN_CONFIRM_IN_PROGRESS` | 409 | 方案正在确认执行中，稍后查询会话或重试确认。 |
+| `AGENT_PLAN_NOT_CONFIRMABLE` | 409 | 方案已执行或状态不可确认，重新生成方案。 |
+| `AGENT_TOOL_CALL_FAILED` | 502/500 | 查看返回错误和对应 `image_edit` run/能力日志。 |
+
 通用追踪字段：
 
 - `source`：调用来源，例如 `coze`、`client`、`partner-api`。
 - `channel`：具体入口，例如 `coze-workflow`、`open-api`、`eval`。
 - `traceId`：跨系统排查 ID，建议业务方生成并传入。
-- `requestId`：业务方请求 ID，后续用于幂等和日志关联。
+- `requestId`：业务方请求 ID。ChatBot 创建会话时同一 `agentKey + requestId + tenantId + clientId` 会复用原会话；确认建议时用于传递到底层 `image_edit` run，建议每次确认传稳定值。
 - `tenantId/clientId`：租户和客户端标识，用于灰度、配额、统计和隔离。业务方通常不需要传，优先由业务 API Key 绑定；显式传入时必须与 Key 或登录账号范围一致。
 - `userId`：业务方自己的用户标识，只作为外部上下文和排查字段保留；不会直接写入平台用户外键，也不会替代平台登录用户。
 - `callbackUrl`：可选 Webhook。配置后任务终态会通知业务方；即使 Webhook 失败，业务方仍可用 `runId` 轮询查询结果。常规业务链路是“提交后拿 `runId` 轮询”，不要把这个和 Webhook 回调混为一谈。
@@ -122,11 +234,13 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 | 业务 OpenAPI | `GET /api/business/openapi.json` | 8) OpenAPI 工具箱 | 无 | 返回 200，且包含业务提交、路由预览、任务查询工具。 |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | 2) 提交花纹提取 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 图裂变 | `POST /api/business/fission/runs` | 3) 提交图裂变 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
+| 产品设计 | `POST /api/business/product-design/runs` | 3.3) 产品设计能力 | `imageUrl`、`designBrief` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 文字强化裂变（文生图）提示词 | `POST /api/business/text-fission/prompts` | 3.1) 文字强化裂变（文生图）两步接口 | `imageUrl` | 真实调用必须确认 `editablePrompt/promptDraftId`，并由用户确认或修改。 |
 | 文字强化裂变（文生图）生图 | `POST /api/business/text-fission/runs` | 3.1) 文字强化裂变（文生图）两步接口 | `imageUrl`、`editable_prompt` | 真实出图必须确认 `runId/status/imageUrls`；固定一次生成 1 张图。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | 4) 提交裂变生成图评估 | `originalImageUrl`、`generatedImageUrl` | 真实提交必须确认 `runId/status/texts/resultPayload`。 |
 | 扩图 | `POST /api/business/outpaint/runs` | 5) 提交扩图 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 查询业务任务 | `POST /api/business/runs/get` | 6) 查询业务任务 | `runId` | 使用不存在的 `runId` 时应返回 `BUSINESS_RUN_NOT_FOUND` 或等价 404，不应返回 500。 |
+| 兼容调用上下文 | `POST /api/business/projects` | 0.4) 兼容调用上下文 | `name` | 仅兼容旧链路；新接入优先用 `clientContextId/inputAssetIds/clientRequestId` 关联调用证据。 |
 
 维护规则：
 
@@ -145,8 +259,395 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 | 执行节点、队列或上游失败 | `COMFYUI_IMAGE_REQUIRED`、`COMFYUI_TIMEOUT`、`ABILITY_TASK_FAILED`、`VENDOR_API_EXECUTION_FAILED` | 可按业务策略稍后重试一次；连续失败时保留 `runId/taskId` 排查。 | 检查执行节点健康、队列、模型 Key、出网、OSS 回填和能力调用日志。 |
 | 查询不到任务 | `BUSINESS_RUN_NOT_FOUND`、`BUSINESS_RUN_FORBIDDEN` | 确认 `runId` 是否属于当前业务方，不要把底层 `taskId` 当 `runId` 使用。 | 排查租户隔离、任务写入和历史数据迁移。 |
 | 查询临时不可用 | `BUSINESS_RUN_TEMPORARY_UNAVAILABLE` | 稍后重试查询，不需要重新提交任务；持续出现时把 `runId/traceId` 发给平台。 | 检查数据库、索引、连接池和业务步骤查询链路，禁止把 SQL 原文返回给业务方。 |
+| 兼容调用上下文非法 | `PROJECT_NOT_FOUND`、`PROJECT_FORBIDDEN`、`PROJECT_RUN_LINK_INVALID` | 旧链路检查 `projectId/inputAssetIds/tenantId/clientId` 是否属于同一个业务方；新链路优先改用 `clientContextId`。 | 任务提交前拦截，不允许把跨上下文资产串到同一个 run。 |
+| 兼容资产或交付包非法 | `PROJECT_ASSET_TYPE_INVALID`、`PROJECT_ASSET_URL_REQUIRED`、`PROJECT_ASSET_URL_INVALID`、`PROJECT_SELECTION_ASSET_REQUIRED`、`PROJECT_EXPORT_ASSETS_EMPTY` | 修正资产类型、URL 或候选资产后重试。 | 文档、客户端表单和服务端枚举必须保持一致。 |
 
 ---
+
+### 0.4) 兼容调用上下文
+
+用途：兼容旧客户端把“上下文 -> 资产 -> 业务 run -> 候选选择 -> 交付清单”串起来的轻量证据底座。中台主线仍是能力，不负责客户端项目/工单/订单语义；新接入优先在业务提交接口传 `clientContextId/inputAssetIds/clientRequestId`。
+
+#### POST /api/business/projects
+
+请求：
+
+```json
+{
+  "name": "夏季花纹工作单",
+  "scenario": "pattern_to_product",
+  "flowTemplateId": "pattern_to_product_v1",
+  "currentFlowStepKey": "upload_assets",
+  "metadata": {
+    "clientProjectNo": "P-20260602-001"
+  }
+}
+```
+
+响应：
+
+```json
+{
+  "id": "proj_xxx",
+  "name": "夏季花纹工作单",
+  "scenario": "pattern_to_product",
+  "status": "draft",
+  "tenantId": "tenant-a",
+  "clientId": "studio",
+  "currentFlowStepKey": "upload_assets",
+  "flowTemplateId": "pattern_to_product_v1",
+  "assetCount": 0,
+  "runCount": 0,
+  "createdAt": "2026-06-02T15:30:00"
+}
+```
+
+常见错误：
+
+- `PROJECT_NAME_REQUIRED`
+- `PROJECT_SCENARIO_INVALID`
+- `BUSINESS_USER_SCOPE_REQUIRED`
+- `BUSINESS_USER_SCOPE_FORBIDDEN`
+
+#### GET /api/business/projects
+
+查询参数：
+
+- `scenario`：可选，按业务场景过滤。
+- `status`：可选，按兼容上下文状态过滤。
+- `limit/offset`：分页参数，`limit` 最大 100。
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "proj_xxx",
+      "name": "夏季花纹工作单",
+      "status": "active",
+      "assetCount": 8,
+      "runCount": 5,
+      "latestRunStatus": "succeeded"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+常见错误：
+
+- `PROJECT_STATUS_INVALID`
+- `PROJECT_SCENARIO_INVALID`
+- `BUSINESS_USER_SCOPE_REQUIRED`
+- `BUSINESS_USER_SCOPE_FORBIDDEN`
+
+#### GET /api/business/projects/{projectId}
+
+用途：返回兼容上下文、资产、run 关联、候选选择和交付包摘要，供客户端恢复工作台和渲染流程监控。
+
+响应：
+
+```json
+{
+  "project": {
+    "id": "proj_xxx",
+    "name": "夏季花纹工作单",
+    "currentFlowStepKey": "variant_fission",
+    "assetCount": 8,
+    "runCount": 5
+  },
+  "assets": [
+    {
+      "id": "asset_xxx",
+      "assetType": "variant",
+      "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/output.png",
+      "sourceRunId": "run_xxx",
+      "sourceFlowStepKey": "variant_fission",
+      "selected": true
+    }
+  ],
+  "runs": [
+    {
+      "runId": "run_xxx",
+      "businessKey": "fission",
+      "status": "succeeded",
+      "flowStepKey": "variant_fission",
+      "inputAssetIds": ["asset_input"],
+      "outputAssetIds": ["asset_xxx"],
+      "assetSyncStatus": "succeeded"
+    }
+  ],
+  "selections": [],
+  "exportPackages": []
+}
+```
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+
+#### PATCH /api/business/projects/{projectId}
+
+请求：
+
+```json
+{
+  "name": "夏季花纹工作单 A 版",
+  "status": "active",
+  "currentFlowStepKey": "variant_fission",
+  "metadata": {
+    "operatorNote": "已进入候选筛选"
+  }
+}
+```
+
+响应：同 `POST /api/business/projects`。
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+- `PROJECT_STATUS_INVALID`
+
+#### POST /api/business/projects/{projectId}/assets
+
+请求：
+
+```json
+{
+  "assetType": "input_image",
+  "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/input.png",
+  "contentType": "image/png",
+  "fileName": "input.png",
+  "flowStepKey": "upload_assets",
+  "tags": ["fabric", "summer"],
+  "metadata": {
+    "source": "client-upload"
+  }
+}
+```
+
+响应：
+
+```json
+{
+  "id": "asset_xxx",
+  "projectId": "proj_xxx",
+  "assetType": "input_image",
+  "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/input.png",
+  "sourceFlowStepKey": "upload_assets",
+  "selected": false,
+  "createdAt": "2026-06-02T15:35:00"
+}
+```
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+- `PROJECT_ASSET_TYPE_INVALID`
+- `PROJECT_ASSET_URL_REQUIRED`
+- `PROJECT_ASSET_URL_INVALID`
+
+#### GET /api/business/projects/{projectId}/assets
+
+查询参数：
+
+- `assetType`：可选，按资产类型过滤。
+- `selected`：可选，`true/false`。
+- `limit/offset`：分页参数。
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "id": "asset_xxx",
+      "assetType": "variant",
+      "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/output.png",
+      "selected": true
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+- `PROJECT_ASSET_TYPE_INVALID`
+
+#### 带兼容调用上下文提交业务 run
+
+任一业务提交接口都可以增加以下字段。字段也可放在 `metadata.projectContext`，用于兼容不同客户端封装；新接入优先使用 `clientContextId`。
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/input.png",
+  "projectId": "proj_xxx",
+  "flowStepKey": "variant_fission",
+  "flowStepName": "候选裂变",
+  "flowTemplateId": "pattern_to_product_v1",
+  "inputAssetIds": ["asset_input"],
+  "clientRequestId": "client_req_001"
+}
+```
+
+响应仍以业务 run 提交接口为准。中台额外写入兼容上下文 run 关联；run 成功终态后会将 `imageUrls/videoUrls` 自动登记为资产证据，`assetSyncStatus` 可在兼容上下文 run 列表中查看。
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+- `PROJECT_RUN_LINK_INVALID`
+- 原业务提交接口已有错误码，例如 `BUSINESS_IMAGE_URL_REQUIRED`、`BUSINESS_CLIENT_CONCURRENCY_LIMITED`、`ABILITY_TASK_FAILED`
+
+#### GET /api/business/projects/{projectId}/runs
+
+响应：
+
+```json
+{
+  "items": [
+    {
+      "runId": "run_xxx",
+      "businessKey": "fission",
+      "status": "succeeded",
+      "flowStepKey": "variant_fission",
+      "inputAssetIds": ["asset_input"],
+      "outputAssetIds": ["asset_variant"],
+      "assetSyncStatus": "succeeded",
+      "errorCode": null,
+      "errorMessage": null
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+
+#### POST /api/business/projects/{projectId}/selections
+
+用途：记录用户从候选池中选中的资产，供后续步骤读取。
+
+请求：
+
+```json
+{
+  "assetIds": ["asset_variant"],
+  "sourceFlowStepKey": "variant_fission",
+  "targetFlowStepKey": "product_design",
+  "note": "进入产品图生成"
+}
+```
+
+响应：
+
+```json
+[
+  {
+    "id": "sel_xxx",
+    "projectId": "proj_xxx",
+    "assetId": "asset_variant",
+    "sourceFlowStepKey": "variant_fission",
+    "targetFlowStepKey": "product_design",
+    "note": "进入产品图生成"
+  }
+]
+```
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+- `PROJECT_SELECTION_ASSET_REQUIRED`
+- `PROJECT_SELECTION_ASSET_INVALID`
+- `PROJECT_SELECTION_TARGET_REQUIRED`
+
+#### POST /api/business/projects/{projectId}/exports
+
+当前版本生成可下载 ZIP。ZIP 内包含 `manifest.json`、`summary.json`、`assets.json`、`run_ids.json` 和 `README.txt`；媒体文件暂不下载进包内，仍通过自有 OSS URL 引用。
+
+请求：
+
+```json
+{
+  "assetIds": ["asset_variant", "asset_product"],
+  "includeRunEvidence": true,
+  "includeQualitySummary": true,
+  "metadata": {
+    "purpose": "business-review"
+  }
+}
+```
+
+响应：
+
+```json
+{
+  "id": "pkg_xxx",
+  "projectId": "proj_xxx",
+  "status": "ready",
+  "assetIds": ["asset_variant", "asset_product"],
+  "runIds": ["run_xxx"],
+  "downloadUrl": "https://podi.example.com/api/business/projects/proj_xxx/exports/pkg_xxx/download",
+  "manifest": {
+    "projectId": "proj_xxx",
+    "assets": []
+  },
+  "summary": {
+    "assetCount": 2,
+    "runCount": 1
+  }
+}
+```
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+- `PROJECT_EXPORT_ASSETS_EMPTY`
+- `PROJECT_EXPORT_ASSET_INVALID`
+- `PROJECT_EXPORT_BUILD_FAILED`
+- `PROJECT_EXPORT_FILE_NOT_FOUND`
+
+#### GET /api/business/projects/{projectId}/exports/{packageId}
+
+响应：同 `POST /api/business/projects/{projectId}/exports`。
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+
+#### GET /api/business/projects/{projectId}/exports/{packageId}/download
+
+用途：下载兼容上下文交付 ZIP。
+
+响应：
+
+- `200 application/zip`
+- 文件名格式：`<context-name>-<packageId>.zip`
+
+常见错误：
+
+- `PROJECT_NOT_FOUND`
+- `PROJECT_FORBIDDEN`
+- `PROJECT_EXPORT_FILE_NOT_FOUND`
 
 ## 1) 业务能力清单
 
@@ -856,6 +1357,118 @@ X-PODI-API-Key: podi_xxx
 
 ---
 
+## 3.3) 产品设计能力
+
+业务名：产品设计。业务标识固定为 `product_design`，当前默认版本为 `product-design-gpt-image2-v1`。
+
+产品设计是独立业务能力，不是图编辑的内部模式。客户端可以把它放进“花纹提取 -> 裂变 -> 产品设计 -> 组图/模特图/视频”的端到端链路；中台只负责能力定义、版本路由、调用证据、结果回填和质量治理。
+
+### POST /api/business/product-design/runs
+
+用途：提交一次产品设计任务。一次请求固定生成 1 张图；业务方需要多方案时请多次提交，每次保存独立 `runId`。
+
+最小请求：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/pattern.png",
+  "productType": "apparel",
+  "designBrief": "把主图花纹应用到一款适合夏季电商展示的连衣裙产品图，保持花纹识别度和商业质感。",
+  "scene": "studio_product",
+  "quality": "production",
+  "size": "auto",
+  "output_format": "png",
+  "source": "partner-api",
+  "channel": "open-api",
+  "clientContextId": "client-flow-001",
+  "requestId": "req-product-design-001"
+}
+```
+
+带参考图请求：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/floral-pattern.png",
+  "productType": "home_textile",
+  "designBrief": "生成一张抱枕产品设计图，图案自然铺在面料上，保留原花纹颜色关系和层次。",
+  "scene": "print_mockup",
+  "referenceImages": [
+    {
+      "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/pillow-shape.png",
+      "label": "抱枕版型参考"
+    }
+  ],
+  "quality": "preview",
+  "size": "1024x1024"
+}
+```
+
+参数说明：
+
+| 参数 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `imageUrl` | 是 | 无 | 素材/花纹/参考主图 URL，必须可被中台访问。 |
+| `designBrief` | 是 | 无 | 产品设计要求，说明目标产品、风格、必须保留或避免的内容。 |
+| `productType` | 否 | `apparel` | `apparel/home_textile/bag/shoe/stationery/packaging/generic`。 |
+| `scene` | 否 | `studio_product` | `studio_product/flat_lay/ecommerce/lifestyle/print_mockup/generic`。 |
+| `referenceImages` | 否 | `[]` | 参考图列表，用于补充版型、材质或风格；不替代主图素材。 |
+| `clientContextId` | 否 | 空 | 客户端调用上下文 ID，用于跨能力链路回溯和排查。 |
+| `inputAssetIds` | 否 | `[]` | 客户端侧输入资产 ID 列表，用于回溯。 |
+| `size` | 否 | `auto` | 输出尺寸，沿用图编辑尺寸约束。 |
+| `quality` | 否 | `production` | `auto/preview/production/premium`。 |
+| `output_format` | 否 | `png` | `png/jpeg/webp`。 |
+
+提交响应体：
+
+```json
+{
+  "runId": "7f1d0c3b7f6d4c4f8897122bbdcf1a20",
+  "businessKey": "product_design",
+  "version": "product-design-gpt-image2-v1",
+  "status": "queued",
+  "taskStatus": "queued",
+  "retryAfterSeconds": 10,
+  "error": null,
+  "errorMessage": null,
+  "errorCode": null
+}
+```
+
+轮询成功响应重点字段：
+
+```json
+{
+  "runId": "7f1d0c3b7f6d4c4f8897122bbdcf1a20",
+  "businessKey": "product_design",
+  "version": "product-design-gpt-image2-v1",
+  "status": "succeeded",
+  "taskStatus": "succeeded",
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-design-output.png",
+  "imageUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-design-output.png"],
+  "expectedImageCount": 1,
+  "errorCode": null,
+  "errorMessage": null
+}
+```
+
+常见错误：
+
+- `BUSINESS_IMAGE_URL_REQUIRED`
+- `PRODUCT_DESIGN_BRIEF_REQUIRED`
+- `PRODUCT_DESIGN_PRODUCT_TYPE_INVALID`
+- `PRODUCT_DESIGN_SCENE_INVALID`
+- `IMAGE_EDIT_SIZE_INVALID`
+- `IMAGE_EDIT_QUALITY_INVALID`
+- `IMAGE_EDIT_OUTPUT_FORMAT_INVALID`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
+- `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
+- `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED`
+- `ABILITY_TASK_FAILED`
+
+---
+
 ## 4) 提交裂变生成图评估
 
 ### POST /api/business/fission-evaluate/runs
@@ -1195,8 +1808,8 @@ Coze 旧工具箱兼容查询：
     "selectedBy": "default",
     "routeKeyHash": "6f8d7a9c21ab"
   },
-  "flowSummary": {
-    "total": 2,
+	  "flowSummary": {
+	    "total": 2,
     "succeeded": 2,
     "failed": 0,
     "running": 0,
@@ -1234,9 +1847,34 @@ Coze 旧工具箱兼容查询：
       "status": null,
       "httpStatus": null,
       "error": null
-    }
-  },
-  "steps": [
+	    }
+	  },
+	  "agentTrace": {
+	    "source": "image-edit-chat",
+	    "agentKey": "agent.image_edit_assistant",
+	    "sessionId": "ags_xxx",
+	    "sessionStatus": "executed",
+	    "planId": "agp_xxx",
+	    "planStatus": "executed",
+	    "planTitle": "保留花纹主体并增强产品展示质感",
+	    "planSummary": "用户确认后由 Agent 调用 business.image_edit 创建本次业务 run。",
+	    "plannerMode": "rule",
+	    "plannerModel": "rule-fallback",
+	    "toolCallId": "agtc_xxx",
+	    "toolName": "business.image_edit",
+	    "toolCallStatus": "submitted",
+	    "runId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39",
+	    "requestId": "agent-confirm-agp-001",
+	    "traceId": "trace-outpaint-001",
+	    "instruction": "把图片改成更适合电商商品图的质感，保持主体花纹不变",
+	    "editSkill": "product-retouch",
+	    "quality": "high",
+	    "size": "auto",
+	    "outputFormat": "png",
+	    "confirmedAt": "2026-06-02T10:00:00",
+	    "executedAt": "2026-06-02T10:00:01"
+	  },
+	  "steps": [
     {
       "order": 1,
       "stepType": "vl_analyze",
@@ -1318,6 +1956,7 @@ Coze 旧工具箱兼容查询：
 - `steps` 只在 `detail=full` 或 `includeDebug=true` 时返回，是业务配方步骤状态。当前版本至少记录主执行能力；启用 VL 辅助后会额外提交并记录 VL 步骤。
 - `flowSummary` 只在完整模式返回，是给管理端和排障使用的链路证据：包含业务版本、原子能力、实际执行节点、输出回填和回调状态。业务方正常轮询只需要关注 `status/taskStatus/imageUrls/videoUrls/texts/error`。
 - `flowSummary.output` 会按 `imageCount/videoCount/textCount/structuredCount/resourceCount` 分开展示，管理端不得继续把所有结果都当图片处理。
+- `agentTrace` 只在该 run 由对话改图 ChatBot 创建时返回，用于从普通业务 `runId` 反查聊天会话、建议卡片、工具调用、确认时间和实际下发参数；非 ChatBot 入口该字段为 `null` 或不存在。
 - `steps[].executorId/executorName/executionEvidence` 来自能力调用日志，用于确认任务是否真的打到预期机器，以及结果是否已经落 OSS。
 - 默认情况下最终出图仍以主执行能力为准，VL 伴随步骤用于链路观测和结果积累。
 - 阻塞式 VL 串联开启后，主能力会等 VL 成功后再提交；查询时可能先看到 VL 运行中、主能力仍是 `planned`。
@@ -1379,9 +2018,11 @@ VL 进入统一能力弹药库，能力 ID：
 
 - `podi_business_fission_run`
 - `podi_business_outpaint_run`
+- `podi_business_product_design_run`
 - `podi_business_pattern_extract_run`
 - `podi_business_fission_route_preview`
 - `podi_business_outpaint_route_preview`
+- `podi_business_product_design_route_preview`
 - `podi_business_pattern_extract_route_preview`
 - `podi_business_run_get`
 
@@ -1427,7 +2068,7 @@ OpenAPI 内每个工具都会枚举错误响应：
   "clientId": "coze-main",
   "displayName": "业务方 A · Coze 主工作流",
   "status": "active",
-  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "image_edit"],
+  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "image_edit", "image_edit_chat", "product_design"],
   "dailyRunLimit": 200,
   "dailyQuotaUnits": 200,
   "concurrentRunLimit": 5,
@@ -1441,7 +2082,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 - `tenantId` 是业务方 ID，必填。
 - `clientId` 是具体应用或工作流 ID，可为空；为空时表示该 `tenantId` 的默认策略。
-- `allowedBusinessKeys` 为空表示不限制业务能力；填值后只允许调用这些业务，例如 `fission/text_fission/fission_evaluate/outpaint/image_edit`。
+- `allowedBusinessKeys` 为空表示不限制业务能力；填值后只允许调用这些业务，例如 `fission/text_fission/fission_evaluate/outpaint/image_edit/image_edit_chat/product_design`。
 - `dailyRunLimit` 限制当日提交次数。
 - `dailyQuotaUnits` 按估算额度限制当日用量；当前每次提交默认按 1 个额度估算，后续会接正式计费。
 - `concurrentRunLimit` 限制该业务方同时处于排队/运行中的任务数。
@@ -1497,7 +2138,7 @@ OpenAPI 内每个工具都会枚举错误响应：
   "status": "active",
   "tenantId": "tenant-a",
   "clientId": "open-api",
-  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "image_edit"],
+  "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "image_edit", "image_edit_chat", "product_design"],
   "expireAt": "2026-12-31T23:59:59"
 }
 ```
@@ -2102,7 +2743,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 参数：
 
-- `business_key`：可选，`pattern_extract` / `fission` / `text_fission` / `fission_evaluate` / `outpaint` / `image_edit`
+- `business_key`：可选，`pattern_extract` / `fission` / `product_design` / `text_fission` / `fission_evaluate` / `outpaint` / `image_edit` / `image_edit_chat`
 - `version`：可选，按业务版本过滤，例如 `v1`
 - `status`：可选，按运行状态过滤，常见值为 `queued` / `running` / `succeeded` / `failed` / `cancelled`
 - `billing_status`：可选，按计费状态过滤，取值为 `billable` / `unpriced` / `no_charge` / `billing_pending`
@@ -2125,6 +2766,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `issueCategory/issueLabel/issueAction/issueEvidence`：链路问题分类。用于管理端快速区分执行节点、结果回填、业务回调、计费扣减、参数、版本/路由等问题。
 - `retestSourceRunId/retestAttempts/retestLatestRunId/retestLatestStatus/retestRecovered/retestSummary`：复测追踪字段。原问题任务会显示复测次数、最新复测任务和是否恢复；复测任务会显示来源任务，便于从“发现问题”追到“确认恢复”。
 - `traceSummary`：一次业务调用的父子链路视图，固定包含业务入口、处理步骤、结果回填、业务回调和成本记录节点；管理端排障优先按这个字段渲染，不再把 VL、ComfyUI/OpenAI、回调和计费平铺混看。
+- `agentTrace`：仅 Agent 创建的业务 run 返回，包含 `sessionId/planId/toolCallId`、方案摘要、工具状态和确认执行时间；管理端排障时可从 run 详情直接回到“用户说了什么、Agent 建议了什么、最终调用了什么”。
 
 `traceSummary` 示例：
 
@@ -2155,7 +2797,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 参数：
 
 - `window_hours`：统计窗口，默认 24，范围 1-2160。
-- `business_key`：可选，`pattern_extract` / `fission` / `text_fission` / `fission_evaluate` / `outpaint` / `image_edit`。
+- `business_key`：可选，`pattern_extract` / `fission` / `product_design` / `text_fission` / `fission_evaluate` / `outpaint` / `image_edit` / `image_edit_chat`。
 - `version`：可选，按业务版本过滤。
 - `status`：可选，按运行状态过滤。
 - `issue_category`：可选，按链路问题过滤，取值同 `/api/admin/business/runs`。

@@ -196,7 +196,9 @@ _BUSINESS_OPERATION_LABELS = {
     "outpaint": "扩图",
     "pattern_extract": "花纹提取",
     "text_fission": "文字强化裂变",
+    "product_design": "产品设计",
     "image_edit": "图编辑",
+    "image_edit_chat": "对话改图",
 }
 
 

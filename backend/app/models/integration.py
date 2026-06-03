@@ -562,6 +562,297 @@ class BusinessRun(Base):
     business_version: Mapped[BusinessCapability | None] = relationship()
 
 
+class BusinessAgentSession(Base):
+    __tablename__ = "business_agent_sessions"
+    __table_args__ = (
+        Index("ix_business_agent_sessions_agent_status_updated", "agent_key", "status", "updated_at"),
+        Index("ix_business_agent_sessions_tenant_client_updated", "tenant_id", "client_id", "updated_at"),
+        Index("ix_business_agent_sessions_user_updated", "user_id", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    agent_key: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="collecting_context", nullable=False, index=True)
+    title: Mapped[str | None] = mapped_column(String(128))
+    image_url: Mapped[str | None] = mapped_column(String(1024))
+    latest_plan_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    latest_run_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("business_runs.id", ondelete="SET NULL"))
+    trace_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    client_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    user_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id", ondelete="SET NULL"))
+    user_name: Mapped[str | None] = mapped_column(String(128))
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    latest_run: Mapped[BusinessRun | None] = relationship()
+
+
+class BusinessAgentMessage(Base):
+    __tablename__ = "business_agent_messages"
+    __table_args__ = (
+        Index("ix_business_agent_messages_session_created", "session_id", "created_at"),
+        Index("ix_business_agent_messages_role_created", "role", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_agent_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    content: Mapped[str | None] = mapped_column(Text)
+    attachments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    plan_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("business_runs.id", ondelete="SET NULL"))
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    run: Mapped[BusinessRun | None] = relationship()
+
+
+class BusinessAgentPlan(Base):
+    __tablename__ = "business_agent_plans"
+    __table_args__ = (
+        Index("ix_business_agent_plans_session_created", "session_id", "created_at"),
+        Index("ix_business_agent_plans_status_updated", "status", "updated_at"),
+        Index("ix_business_agent_plans_tool_created", "tool_name", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_agent_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_key: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="awaiting_confirmation", nullable=False, index=True)
+    intent: Mapped[str] = mapped_column(String(64), default="image_edit", nullable=False, index=True)
+    title: Mapped[str | None] = mapped_column(String(128))
+    summary: Mapped[str | None] = mapped_column(Text)
+    edit_plan: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    tool_name: Mapped[str] = mapped_column(String(96), default="business.image_edit", nullable=False, index=True)
+    tool_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    estimated_cost_level: Mapped[str | None] = mapped_column(String(32))
+    risk_level: Mapped[str | None] = mapped_column(String(32))
+    confirmation_required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    planner_model: Mapped[str | None] = mapped_column(String(128))
+    planner_mode: Mapped[str | None] = mapped_column(String(64))
+    warnings: Mapped[list[str] | None] = mapped_column(JSON)
+    raw_response: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class BusinessAgentToolCall(Base):
+    __tablename__ = "business_agent_tool_calls"
+    __table_args__ = (
+        Index("ix_business_agent_tool_calls_session_created", "session_id", "created_at"),
+        Index("ix_business_agent_tool_calls_plan_created", "plan_id", "created_at"),
+        Index("ix_business_agent_tool_calls_business_created", "business_key", "created_at"),
+        Index("ix_business_agent_tool_calls_run_id", "run_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_agent_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    plan_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_agent_plans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tool_name: Mapped[str] = mapped_column(String(96), nullable=False, index=True)
+    business_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("business_runs.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
+    request_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    response_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    run: Mapped[BusinessRun | None] = relationship()
+
+
+class BusinessProject(Base):
+    __tablename__ = "business_projects"
+    __table_args__ = (
+        Index("ix_business_projects_tenant_client_updated", "tenant_id", "client_id", "updated_at"),
+        Index("ix_business_projects_scenario_status_updated", "scenario", "status", "updated_at"),
+        Index("ix_business_projects_owner_updated", "owner_user_id", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    scenario: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    client_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    owner_user_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    owner_user_name: Mapped[str | None] = mapped_column(String(128))
+    current_flow_step_key: Mapped[str | None] = mapped_column(String(64))
+    flow_template_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    assets: Mapped[list["BusinessProjectAsset"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    run_links: Mapped[list["BusinessProjectRunLink"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    selections: Mapped[list["BusinessProjectSelection"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    export_packages: Mapped[list["BusinessExportPackage"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+
+class BusinessProjectAsset(Base):
+    __tablename__ = "business_project_assets"
+    __table_args__ = (
+        Index("ix_business_project_assets_project_type_created", "project_id", "asset_type", "created_at"),
+        Index("ix_business_project_assets_project_selected_updated", "project_id", "selected", "updated_at"),
+        Index("ix_business_project_assets_source_run_output", "source_run_id", "source_output_index"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    url: Mapped[str | None] = mapped_column(String(1024))
+    content_type: Mapped[str | None] = mapped_column(String(64))
+    file_name: Mapped[str | None] = mapped_column(String(255))
+    source_run_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("business_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    source_business_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    source_flow_step_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    source_output_index: Mapped[int | None] = mapped_column(Integer)
+    quality_grade: Mapped[str | None] = mapped_column(String(32), index=True)
+    input_tags: Mapped[list[str] | None] = mapped_column(JSON)
+    issue_tags: Mapped[list[str] | None] = mapped_column(JSON)
+    selected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    project: Mapped[BusinessProject] = relationship(back_populates="assets")
+    source_run: Mapped[BusinessRun | None] = relationship()
+
+
+class BusinessProjectRunLink(Base):
+    __tablename__ = "business_project_run_links"
+    __table_args__ = (
+        Index("ix_business_project_run_links_project_step_created", "project_id", "flow_step_key", "created_at"),
+        Index("ix_business_project_run_links_project_client_request", "project_id", "client_request_id"),
+        Index("ix_business_project_run_links_business_created", "business_key", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_runs.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    business_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    flow_step_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    flow_step_name: Mapped[str | None] = mapped_column(String(128))
+    flow_template_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    input_asset_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    output_asset_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    client_request_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    asset_sync_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    asset_sync_error: Mapped[str | None] = mapped_column(Text)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    project: Mapped[BusinessProject] = relationship(back_populates="run_links")
+    run: Mapped[BusinessRun] = relationship()
+
+
+class BusinessProjectSelection(Base):
+    __tablename__ = "business_project_selections"
+    __table_args__ = (
+        Index("ix_business_project_selections_project_created", "project_id", "created_at"),
+        Index("ix_business_project_selections_asset_created", "asset_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_project_assets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_run_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("business_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    source_flow_step_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    target_flow_step_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    selected_by_user_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id", ondelete="SET NULL"))
+    selected_by_user_name: Mapped[str | None] = mapped_column(String(128))
+    note: Mapped[str | None] = mapped_column(Text)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    project: Mapped[BusinessProject] = relationship(back_populates="selections")
+    asset: Mapped[BusinessProjectAsset] = relationship()
+    source_run: Mapped[BusinessRun | None] = relationship()
+
+
+class BusinessExportPackage(Base):
+    __tablename__ = "business_export_packages"
+    __table_args__ = (
+        Index("ix_business_export_packages_project_created", "project_id", "created_at"),
+        Index("ix_business_export_packages_status_updated", "status", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    asset_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    run_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    download_url: Mapped[str | None] = mapped_column(String(1024))
+    manifest: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    project: Mapped[BusinessProject] = relationship(back_populates="export_packages")
+
+
 class BusinessOutputReview(Base):
     __tablename__ = "business_output_reviews"
     __table_args__ = (

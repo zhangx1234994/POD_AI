@@ -32,6 +32,7 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "/api/business/fission/runs" in paths
     assert "/api/business/image-edit/runs" in paths
     assert "/api/business/image-edit/component-config" in paths
+    assert "/api/business/product-design/runs" in paths
     assert "/api/business/fission-evaluate/runs" in paths
     assert "/api/business/text-fission/prompts" in paths
     assert "/api/business/text-fission/runs" in paths
@@ -39,6 +40,7 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "/api/business/pattern-extract/route-preview" in paths
     assert "/api/business/fission/route-preview" in paths
     assert "/api/business/outpaint/route-preview" in paths
+    assert "/api/business/product-design/route-preview" in paths
     assert "/api/business/runs/get" in paths
 
     pattern_schema = paths["/api/business/pattern-extract/runs"]["post"]["requestBody"]["content"]["application/json"][
@@ -158,6 +160,59 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "enum" not in image_edit_schema["properties"]["size"]
     assert image_edit_schema["properties"]["size"]["pattern"] == r"^(auto|[1-9]\d*x[1-9]\d*)$"
     assert image_edit_schema["x-podi-custom-size-constraints"]["max_edge"] == 3840
+    product_design_schema = paths["/api/business/product-design/runs"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert product_design_schema["required"] == ["imageUrl", "designBrief"]
+    assert {
+        "imageUrl",
+        "productType",
+        "designBrief",
+        "scene",
+        "referenceImages",
+        "clientContextId",
+        "inputAssetIds",
+        "size",
+        "quality",
+        "output_format",
+        "callbackUrl",
+        "traceId",
+        "requestId",
+        "tenantId",
+        "clientId",
+    }.issubset(product_design_schema["properties"])
+    assert product_design_schema["properties"]["productType"]["enum"] == [
+        "apparel",
+        "home_textile",
+        "bag",
+        "shoe",
+        "stationery",
+        "packaging",
+        "generic",
+    ]
+    assert product_design_schema["properties"]["scene"]["enum"] == [
+        "studio_product",
+        "flat_lay",
+        "ecommerce",
+        "lifestyle",
+        "print_mockup",
+        "generic",
+    ]
+    assert product_design_schema["properties"]["quality"]["enum"] == ["auto", "preview", "production", "premium"]
+    assert product_design_schema["properties"]["size"]["x-podi-presets"] == [
+        "auto",
+        "1024x1024",
+        "1536x1024",
+        "1024x1536",
+        "2048x2048",
+        "2048x1152",
+        "3840x2160",
+        "2160x3840",
+    ]
+    product_design_preview_schema = paths["/api/business/product-design/route-preview"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert product_design_preview_schema["required"] == []
     text_fission_prompt_schema = paths["/api/business/text-fission/prompts"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]
@@ -300,6 +355,10 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "IMAGE_EDIT_CANVAS_TOO_SMALL" in image_edit_responses["400"]["x-podi-errors"]
     assert "IMAGE_EDIT_CANVAS_PLACEMENT_INVALID" in image_edit_responses["400"]["x-podi-errors"]
     assert "IMAGE_EDIT_MASK_SIZE_MISMATCH" in image_edit_responses["400"]["x-podi-errors"]
+    product_design_responses = paths["/api/business/product-design/runs"]["post"]["responses"]
+    assert "PRODUCT_DESIGN_BRIEF_REQUIRED" in product_design_responses["400"]["x-podi-errors"]
+    assert "PRODUCT_DESIGN_PRODUCT_TYPE_INVALID" in product_design_responses["400"]["x-podi-errors"]
+    assert "PRODUCT_DESIGN_SCENE_INVALID" in product_design_responses["400"]["x-podi-errors"]
     prompt_responses = paths["/api/business/text-fission/prompts"]["post"]["responses"]
     assert "VL_IMAGE_UNREACHABLE" in prompt_responses["400"]["x-podi-errors"]
     assert "VL_PROVIDER_FAILED" in prompt_responses["503"]["x-podi-errors"]
@@ -676,6 +735,88 @@ def test_image_edit_payload_compiles_business_inputs_for_gpt_image2() -> None:
     assert request.metadata["imageEditCompiler"]["selectionHints"][0]["mention"] == "@标注1"
     assert request.metadata["imageEditCompiler"]["selectionHints"][0]["geometryText"] == "@rect(10,20 → 110,180)"
     assert request.metadata["imageEditCompiler"]["mappedQuality"] == "low"
+
+
+def test_product_design_payload_compiles_independent_business_inputs_for_gpt_image2() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/pattern.png",
+        productType="apparel",
+        designBrief="把主图花纹应用到一款适合夏季电商展示的连衣裙产品图，保持花纹识别度。",
+        scene="studio_product",
+        referenceImages=[{"url": "https://example.com/dress-shape.png", "label": "连衣裙版型"}],
+        clientContextId="client-context-001",
+        quality="production",
+        size="1024x1024",
+        output_format="png",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="product_design",
+        payload=payload,
+        image_url="https://example.com/pattern.png",
+    )
+
+    assert request.inputs["image_url"] == "https://example.com/pattern.png"
+    assert request.inputs["model"] == "gpt-image-2"
+    assert request.inputs["quality"] == "medium"
+    assert request.inputs["size"] == "1024x1024"
+    assert request.inputs["output_format"] == "png"
+    assert request.inputs["image_urls"] == ["https://example.com/dress-shape.png"]
+    assert "产品设计图" in request.inputs["prompt"]
+    assert "服装/面料" in request.inputs["prompt"]
+    assert "棚拍产品图" in request.inputs["prompt"]
+    assert "连衣裙产品图" in request.inputs["prompt"]
+    assert request.metadata["businessKey"] == "product_design"
+    assert request.metadata["productDesignCompiler"]["productType"] == "apparel"
+    assert request.metadata["productDesignCompiler"]["scene"] == "studio_product"
+    assert request.metadata["productDesignCompiler"]["clientContextId"] == "client-context-001"
+    assert request.metadata["productDesignCompiler"]["compilerVersion"] == "product_design_prompt_compiler_v1"
+    assert request.metadata["imageEditCompiler"]["editSkill"] == "local_modify"
+
+
+def test_product_design_payload_requires_design_brief() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/pattern.png",
+        productType="apparel",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        service._build_ability_payload(
+            capability_key="product_design",
+            payload=payload,
+            image_url="https://example.com/pattern.png",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "PRODUCT_DESIGN_BRIEF_REQUIRED"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_error"),
+    [
+        ({"productType": "toy"}, "PRODUCT_DESIGN_PRODUCT_TYPE_INVALID"),
+        ({"scene": "poster"}, "PRODUCT_DESIGN_SCENE_INVALID"),
+    ],
+)
+def test_product_design_payload_rejects_invalid_enums(kwargs: dict[str, str], expected_error: str) -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/pattern.png",
+        designBrief="做一张可用的产品设计图。",
+        **kwargs,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        service._build_ability_payload(
+            capability_key="product_design",
+            payload=payload,
+            image_url="https://example.com/pattern.png",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == expected_error
 
 
 def test_image_edit_visual_annotation_overlay_is_added_when_enabled(monkeypatch) -> None:

@@ -48,6 +48,25 @@ IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS = {
     "max_pixels": 8_294_400,
 }
 
+PRODUCT_DESIGN_PRODUCT_TYPE_VALUES = [
+    "apparel",
+    "home_textile",
+    "bag",
+    "shoe",
+    "stationery",
+    "packaging",
+    "generic",
+]
+
+PRODUCT_DESIGN_SCENE_VALUES = [
+    "studio_product",
+    "flat_lay",
+    "ecommerce",
+    "lifestyle",
+    "print_mockup",
+    "generic",
+]
+
 COMFYUI_FISSION_PROFILE_VALUES = [
     "pattern_risk_routed_v4",
     "pattern_color_lock_v2",
@@ -135,7 +154,16 @@ BUSINESS_CALLBACK_STATUS_VALUES = ["pending", "succeeded", "failed", "skipped"]
 BUSINESS_API_ENDPOINT_KIND_VALUES = ["submit", "poll", "callback"]
 BUSINESS_API_STATUS_GROUP_VALUES = ["success", "error"]
 BUSINESS_API_USAGE_ISSUE_CODES = ["HAS_ERROR", "POLL_WITHOUT_SUBMIT", "POLLING_TOO_FREQUENT"]
-BUSINESS_KEY_VALUES = ["pattern_extract", "fission", "text_fission", "fission_evaluate", "outpaint", "image_edit"]
+BUSINESS_KEY_VALUES = [
+    "pattern_extract",
+    "fission",
+    "text_fission",
+    "fission_evaluate",
+    "outpaint",
+    "image_edit",
+    "image_edit_chat",
+    "product_design",
+]
 
 BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "status / taskStatus", "value": "queued", "meaning": "已进入中台队列，还没开始执行。", "action": "按 retryAfterSeconds 继续查询。"},
@@ -144,6 +172,8 @@ BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "status / taskStatus", "value": "failed", "meaning": "任务失败或无法继续。", "action": "读取 errorCode / errorMessage，并按错误码处理。"},
     {"field": "businessKey", "value": "text_fission", "meaning": "文字强化裂变，两步式：先生成可编辑提示词，再提交文生图。", "action": "业务方先调 prompts，再把确认后的 editable_prompt 传给 runs。"},
     {"field": "businessKey", "value": "image_edit", "meaning": "图编辑业务，前端组件收集主图、标注、参考图和编辑指令，中台编译后调用 GPT Image 2。", "action": "提交 /api/business/image-edit/runs，拿 runId 轮询 /api/business/runs/get。"},
+    {"field": "businessKey", "value": "image_edit_chat", "meaning": "对话改图 ChatBot，先通过会话整理方案，确认后再调用 image_edit 业务 run。", "action": "使用 /api/business/image-edit-chat/sessions 系列接口。"},
+    {"field": "businessKey", "value": "product_design", "meaning": "产品设计能力，把参考图或花纹素材转成指定品类的产品设计图。", "action": "提交 /api/business/product-design/runs，拿 runId 轮询 /api/business/runs/get。"},
     {"field": "editSkill", "value": "local_modify", "meaning": "局部修改：对主图中指定对象或区域做小范围改动。", "action": "必须提供编辑指令；建议同时提供点选、框选或蒙版。"},
     {"field": "editSkill", "value": "reference_element_transfer", "meaning": "参考图替换：用参考图的对象、材质或风格替换主图指定区域。", "action": "必须提供 referenceImages。"},
     {"field": "editSkill", "value": "remove_inpaint", "meaning": "删除修补：删除指定对象并补齐背景。", "action": "必须提供编辑指令；建议同时提供点选、框选或蒙版。"},
@@ -162,6 +192,19 @@ BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "image_edit.output_format", "value": "png", "meaning": "图编辑默认输出 PNG。", "action": "需要透明度或保真时优先使用。"},
     {"field": "image_edit.output_format", "value": "jpeg", "meaning": "图编辑输出 JPEG。", "action": "需要更小文件且不需要透明通道时使用。"},
     {"field": "image_edit.output_format", "value": "webp", "meaning": "图编辑输出 WebP。", "action": "内部页面或支持 WebP 的业务可使用。"},
+    {"field": "product_design.productType", "value": "apparel", "meaning": "服装/面料方向产品设计。", "action": "适合 T 恤、连衣裙、面料图等。"},
+    {"field": "product_design.productType", "value": "home_textile", "meaning": "家纺/软装方向产品设计。", "action": "适合抱枕、床品、窗帘等。"},
+    {"field": "product_design.productType", "value": "bag", "meaning": "箱包方向产品设计。", "action": "适合托特包、手袋、背包等。"},
+    {"field": "product_design.productType", "value": "shoe", "meaning": "鞋履方向产品设计。", "action": "适合运动鞋、拖鞋等。"},
+    {"field": "product_design.productType", "value": "stationery", "meaning": "文具/小商品方向产品设计。", "action": "适合贴纸、本册、周边小物。"},
+    {"field": "product_design.productType", "value": "packaging", "meaning": "包装方向产品设计。", "action": "适合包装盒、袋、标签。"},
+    {"field": "product_design.productType", "value": "generic", "meaning": "通用产品设计。", "action": "品类不确定时使用。"},
+    {"field": "product_design.scene", "value": "studio_product", "meaning": "棚拍产品图。", "action": "适合清晰展示产品结构。"},
+    {"field": "product_design.scene", "value": "flat_lay", "meaning": "平铺产品图。", "action": "适合面料、纸品、轻量商品。"},
+    {"field": "product_design.scene", "value": "ecommerce", "meaning": "电商主图。", "action": "适合白底或干净背景展示。"},
+    {"field": "product_design.scene", "value": "lifestyle", "meaning": "生活方式场景。", "action": "适合展示使用语境。"},
+    {"field": "product_design.scene", "value": "print_mockup", "meaning": "印花/图案上产品 mockup。", "action": "适合从花纹资产验证上品效果。"},
+    {"field": "product_design.scene", "value": "generic", "meaning": "通用场景。", "action": "没有明确场景时使用。"},
     {"field": "size", "value": "auto", "meaning": "默认按原图尺寸和比例处理。", "action": "不确定尺寸时优先使用。"},
     {"field": "size", "value": "1024x1024 / 1536x1024 / 1024x1536", "meaning": "常用 1K 正方形、横图、竖图。", "action": "业务明确尺寸时传入。"},
     {"field": "profile", "value": "pattern_risk_routed_v4", "meaning": "ComfyUI 智能风险路由，默认推荐。", "action": "常规裂变优先使用。"},
@@ -194,6 +237,8 @@ REQUIRED_BUSINESS_API_ENUM_FIELDS = [
     "quality",
     "editSkill",
     "image_edit.quality",
+    "product_design.productType",
+    "product_design.scene",
     "size",
     "profile",
     "variation_preset",
@@ -248,6 +293,13 @@ def business_api_enum_doc_tokens() -> list[str]:
         "IMAGE_EDIT_MASK_ALPHA_REQUIRED",
         "IMAGE_EDIT_QUALITY_INVALID",
         "IMAGE_EDIT_OUTPUT_FORMAT_INVALID",
+        "product_design",
+        "product-design-gpt-image2-v1",
+        "PRODUCT_DESIGN_BRIEF_REQUIRED",
+        "PRODUCT_DESIGN_PRODUCT_TYPE_INVALID",
+        "PRODUCT_DESIGN_SCENE_INVALID",
+        "product_design.productType",
+        "product_design.scene",
         "image_edit.output_format",
     ]:
         add_token(token)
@@ -265,7 +317,7 @@ def business_api_enum_doc_tokens() -> list[str]:
 
 def business_api_contract_payload() -> dict[str, Any]:
     return {
-        "version": "2026-05-19",
+        "version": "2026-06-03",
         "source": "backend.app.constants.business_api_contract",
         "enumDocs": BUSINESS_API_ENUM_DOCS,
         "requiredEnumFields": REQUIRED_BUSINESS_API_ENUM_FIELDS,
@@ -280,6 +332,8 @@ def business_api_contract_payload() -> dict[str, Any]:
             "imageEditSize": IMAGE_EDIT_SIZE_VALUES,
             "imageEditOutputFormat": IMAGE_EDIT_OUTPUT_FORMAT_VALUES,
             "imageEditCustomSizeConstraints": IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
+            "productDesignProductType": PRODUCT_DESIGN_PRODUCT_TYPE_VALUES,
+            "productDesignScene": PRODUCT_DESIGN_SCENE_VALUES,
             "profile": COMFYUI_FISSION_PROFILE_VALUES,
             "variation_preset": COMFYUI_FISSION_VARIATION_PRESET_VALUES,
             "variationPresetDetails": COMFYUI_FISSION_VARIATION_PRESET_CONFIGS,

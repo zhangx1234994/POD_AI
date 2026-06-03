@@ -46,6 +46,7 @@ import { EvalShell } from './layouts/EvalShell';
 import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
 import { mapStatusToBadge } from './features/eval/shared/status';
 import { ImageEditWorkbench } from './features/image-edit/ImageEditWorkbench';
+import { ImageEditAgentPanel } from './features/image-edit/ImageEditAgentPanel';
 import {
   buildImageEditTaskSummary,
   DEFAULT_IMAGE_EDIT_OUTPAINT_SETTINGS,
@@ -293,6 +294,7 @@ type RemoteLoadError = {
 const CATEGORY_ORDER = [
   '花纹提取',
   '图裂变',
+  '产品设计',
   '图编辑',
   '扩图',
   '连续图',
@@ -305,8 +307,8 @@ const CATEGORY_ORDER = [
   '平台工具',
 ];
 const DEFAULT_CATEGORY = '图裂变';
-const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '图编辑', '扩图', '连续图']);
-const RECOMMENDED_BUSINESS_CATEGORIES = ['图裂变', '图编辑', '扩图', '花纹提取', '文本与提示词'];
+const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '产品设计', '图编辑', '扩图', '连续图']);
+const RECOMMENDED_BUSINESS_CATEGORIES = ['图裂变', '产品设计', '图编辑', '扩图', '花纹提取', '文本与提示词'];
 type EvalView = 'home' | 'tool' | 'tasks' | 'admin' | 'docs' | 'loraBatch';
 const EVAL_VIEW_SET = new Set<EvalView>(['home', 'tool', 'tasks', 'admin', 'docs', 'loraBatch']);
 
@@ -333,6 +335,7 @@ const readEvalQuery = () => {
 
 const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 const IMAGE_EDIT_WORKFLOW_ID = 'business_image_edit_gpt_image2_editor_v1';
+const IMAGE_EDIT_CHAT_WORKFLOW_ID = 'business_image_edit_chat_gpt_image2_assistant_v1';
 const SHENGTU_WORKFLOW_ID = '7602916576198656000';
 const LORA_BATCH_MAX_TASKS = 5000;
 const TOOL_MULTI_IMAGE_MAX = 50;
@@ -649,6 +652,7 @@ const normalizeCategory = (category: string | undefined | null): string => {
   if (c === '花纹提取类' || c === 'pattern_extract' || c === 'pattern' || c === 'pattern-extract') return '花纹提取';
   if (c === '图延伸类' || c === 'image_extend' || c === 'image_extension' || c === '图扩展' || c === '图延伸') return '扩图';
   if (c === '四方/两方连续图类' || c === 'continuous_pattern' || c === 'continuous' || c === 'lianxu') return '连续图';
+  if (c === '产品设计' || c === 'product_design' || c === 'product-design' || c === 'product') return '产品设计';
   if (c === 'image_edit' || c === 'image-editor' || c === 'image_editor' || c === '图像编辑' || c === '改图') return '图编辑';
   if (c === 'image_fission' || c === 'fission' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
   if (c === 'cutout' || c === 'background_remove' || c === 'matting') return '抠图';
@@ -713,8 +717,21 @@ const getWorkflowEvalExecution = (wf: EvalWorkflowVersion | null | undefined): R
   return execution && typeof execution === 'object' ? execution : null;
 };
 
+function isImageEditChatWorkflow(wf: EvalWorkflowVersion | null | undefined): boolean {
+  const execution = getWorkflowEvalExecution(wf);
+  const text = `${wf?.workflow_id || ''} ${wf?.name || ''} ${wf?.version || ''} ${wf?.category || ''}`.toLowerCase();
+  return (
+    execution?.business_key === 'image_edit_chat' ||
+    wf?.workflow_id === IMAGE_EDIT_CHAT_WORKFLOW_ID ||
+    text.includes('image-edit-chat') ||
+    text.includes('image_edit_chat') ||
+    text.includes('对话改图')
+  );
+}
+
 const isImageEditWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
   const execution = getWorkflowEvalExecution(wf);
+  if (isImageEditChatWorkflow(wf)) return false;
   const text = `${wf?.workflow_id || ''} ${wf?.name || ''} ${wf?.version || ''} ${wf?.category || ''}`.toLowerCase();
   return execution?.business_key === 'image_edit' || wf?.workflow_id === IMAGE_EDIT_WORKFLOW_ID || /image[_-]?edit|图编辑|图像编辑|改图/.test(text);
 };
@@ -722,7 +739,7 @@ const isImageEditWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolea
 const isBusinessApiWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
   const routing = getWorkflowRoutingGovernance(wf);
   const execution = getWorkflowEvalExecution(wf);
-  return routing?.entryMode === 'business_api' || execution?.mode === 'business_run' || isImageEditWorkflow(wf);
+  return routing?.entryMode === 'business_api' || execution?.mode === 'business_run' || execution?.mode === 'business_agent' || isImageEditWorkflow(wf);
 };
 
 const isTextFissionEditableWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
@@ -800,6 +817,7 @@ const inferWorkflowCategory = (
     .toLowerCase();
 
   if (/花纹|印花|pattern|yinhua/.test(text)) return '花纹提取';
+  if (/产品设计|上品|product[-_ ]?design/.test(text)) return '产品设计';
   if (/图编辑|图像编辑|改图|image[-_ ]?edit|editor/.test(text)) return '图编辑';
   if (/裂变|fission|variation|softstyle|e7|flux-strong/.test(text)) return '图裂变';
   if (/扩图|延伸|outpaint|extend|extension|klein/.test(text)) return '扩图';
@@ -894,6 +912,12 @@ const categoryVisualMeta: Record<string, { icon: ReactNode; accent: string; summ
     accent: '#f59e0b',
     summary: '强调多样性与可控变体，避免主体语义漂移。',
     cover: 'linear-gradient(120deg, rgba(245,158,11,0.18), rgba(217,119,6,0.08))',
+  },
+  产品设计: {
+    icon: <AiImageIcon size="18px" />,
+    accent: '#10b981',
+    summary: '验证素材上品、产品结构、材质贴合和商业展示效果。',
+    cover: 'linear-gradient(120deg, rgba(16,185,129,0.18), rgba(5,150,105,0.08))',
   },
   图编辑: {
     icon: <ImageEditIcon size="18px" />,
@@ -1110,6 +1134,7 @@ const getBusinessEntryLabel = (category: string): string => (category === '文�
 
 const BUSINESS_CATEGORY_KEY_MAP: Record<string, string> = {
   图裂变: 'fission',
+  产品设计: 'product_design',
   图编辑: 'image_edit',
   扩图: 'outpaint',
   花纹提取: 'pattern_extract',
@@ -1225,7 +1250,9 @@ const getWorkflowResultModeLabel = (mode: string): string => {
 };
 
 const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
+  if (isImageEditChatWorkflow(wf)) return '主图 + 对话诉求 + 确认建议';
   if (isImageEditWorkflow(wf)) return '主图 + 圈选区域 + 参考图 + 改图目标';
+  if (getWorkflowCategory(wf) === '产品设计') return '素材图 + 产品类型 + 设计要求 + 展示场景';
   const text = getSchemaFields(wf.parameters_schema)
     .map((field) => `${field.name} ${field.label || ''} ${field.description || ''}`)
     .join(' ')
@@ -1243,6 +1270,7 @@ const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
 };
 
 const getWorkflowOutputSummary = (wf: EvalWorkflowVersion): string => {
+  if (isImageEditChatWorkflow(wf)) return '会话建议 + 改图结果';
   if (isImageEditWorkflow(wf)) return '改图结果';
   const resultMode = String(getWorkflowPresentation(wf)?.resultMode || '').trim();
   const resultModeLabel = getWorkflowResultModeLabel(resultMode);
@@ -2269,6 +2297,47 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string, params
   paramsExample.source = 'partner-api';
   paramsExample.channel = 'open-api';
   paramsExample.requestId = 'biz-request-001';
+
+  if (businessKey === 'image_edit_chat') {
+    const sessionPayload = {
+      imageUrl: paramsExample.imageUrl,
+      message: paramsExample.message || '把这张图改得更高级一些，适合服装面料，保持主体结构和未提及区域不变。',
+      editSkill: paramsExample.editSkill || 'local_modify',
+      quality: paramsExample.quality || 'auto',
+      size: paramsExample.size || 'auto',
+      outputFormat: paramsExample.output_format || paramsExample.outputFormat || 'png',
+      source: 'partner-api',
+      channel: 'image-edit-chat',
+      requestId: 'biz-image-edit-chat-session-001',
+    };
+    return [
+      '【第 1 步：创建 ChatBot 会话】',
+      'curl -X POST "$PODI_BASE_URL/api/business/image-edit-chat/sessions" \\',
+      '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${JSON.stringify(sessionPayload, null, 2)}'`,
+      '',
+      '【第 2 步：继续对话】',
+      'curl -X POST "$PODI_BASE_URL/api/business/image-edit-chat/sessions/<sessionId>/messages" \\',
+      '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${JSON.stringify({ message: '请进一步保留主体花纹，只优化背景和整体质感。', imageUrl: '<可选，更新主图 URL>' }, null, 2)}'`,
+      '',
+      '【第 3 步：确认执行最新建议】',
+      'curl -X POST "$PODI_BASE_URL/api/business/image-edit-chat/sessions/<sessionId>/confirm" \\',
+      '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${JSON.stringify({ planId: '<latestPlanId>', requestId: 'biz-image-edit-chat-confirm-001' }, null, 2)}'`,
+      '',
+      '【第 4 步：查询图编辑 run 结果】',
+      'curl -X POST "$PODI_BASE_URL/api/business/runs/get" \\',
+      '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
+      '  -H "Content-Type: application/json" \\',
+      `  -d '${JSON.stringify({ runId: '<确认接口返回的 run.runId>' }, null, 2)}'`,
+      '',
+      '说明：对话改图 ChatBot 是独立入口，不是 /api/business/image-edit/runs 的别名。ChatBot 负责会话、建议和确认；确认后才由后端调用直接图编辑业务能力。',
+    ].join('\n');
+  }
 
   const endpointKey = businessKey.replaceAll('_', '-');
   const cozeTaskGetPayload = {
@@ -3485,7 +3554,7 @@ function ImageEditDeliveryBrief() {
         <div>
           <span>业务方怎么用</span>
           <strong>上传主图、标注或参考图、提交、runId 查结果</strong>
-          <small>正式接口仍是 /api/business/image-edit/runs 和 /api/business/runs/get。</small>
+          <small>正式接口是 /api/business/image-edit/runs 和 /api/business/runs/get。</small>
         </div>
         <div>
           <span>最省维护</span>
@@ -3499,6 +3568,74 @@ function ImageEditDeliveryBrief() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ImageEditEntryGuide({
+  chatTool,
+  directTool,
+  onOpenTool,
+}: {
+  chatTool: EvalWorkflowVersion | null;
+  directTool: EvalWorkflowVersion | null;
+  onOpenTool: (wf: EvalWorkflowVersion) => void;
+}) {
+  return (
+    <section className="podi-image-edit-entry-guide" aria-label="图编辑能力选择">
+      <div className="podi-image-edit-entry-guide__head">
+        <div>
+          <Typography.Text className="podi-image-edit-entry-guide__eyebrow">图编辑怎么选</Typography.Text>
+          <Typography.Title level="h4" style={{ margin: '2px 0 0' }}>
+            两个独立能力，按用户心智分开进入
+          </Typography.Title>
+        </div>
+        <Typography.Text theme="secondary">不确定怎么改就聊天；目标明确就直接进工作台。</Typography.Text>
+      </div>
+      <div className="podi-image-edit-entry-guide__grid">
+        <article className="podi-image-edit-entry-guide__path is-chat">
+          <div className="podi-image-edit-entry-guide__visual" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div>
+            <Tag theme="primary" variant="light">ChatBot</Tag>
+            <Typography.Title level="h5" style={{ margin: '8px 0 4px' }}>
+              对话改图
+            </Typography.Title>
+            <Typography.Text theme="secondary">用户只知道大概方向时，先用自然语言讨论方案，再确认执行。</Typography.Text>
+          </div>
+          <ul>
+            <li>示例：把这张图改得更高级，适合服装面料。</li>
+            <li>适合：非技术用户、需求不清晰、多轮确认。</li>
+          </ul>
+          <Button theme="primary" disabled={!chatTool} onClick={() => chatTool && onOpenTool(chatTool)}>
+            打开 ChatBot
+          </Button>
+        </article>
+        <article className="podi-image-edit-entry-guide__path is-direct">
+          <div className="podi-image-edit-entry-guide__visual" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div>
+            <Tag theme="success" variant="light">工作台</Tag>
+            <Typography.Title level="h5" style={{ margin: '8px 0 4px' }}>
+              直接图编辑
+            </Typography.Title>
+            <Typography.Text theme="secondary">用户已经知道改哪里、怎么改时，直接上传图、标区域、提交任务。</Typography.Text>
+          </div>
+          <ul>
+            <li>示例：把标注区域换成参考图里的花朵。</li>
+            <li>适合：局部修改、参考替换、删除修补、补色校正。</li>
+          </ul>
+          <Button variant="outline" disabled={!directTool} onClick={() => directTool && onOpenTool(directTool)}>
+            打开工作台
+          </Button>
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -4581,6 +4718,7 @@ export function App() {
   const isImageEditBusinessWorkflow = useMemo(() => {
     return isImageEditWorkflow(selectedTool);
   }, [selectedTool]);
+  const isImageEditChatBusinessWorkflow = useMemo(() => isImageEditChatWorkflow(selectedTool), [selectedTool]);
   const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID || isImageEditBusinessWorkflow;
   const selectedImageEditSkill = useMemo(
     () => String((formParams as any)?.editSkill || 'local_modify').trim() || 'local_modify',
@@ -8652,12 +8790,16 @@ export function App() {
     const selectedToolGovernance = getWorkflowGovernance(selectedTool);
     const selectedToolRoleTheme = getWorkflowGovernanceTheme(selectedToolGovernance?.role);
     const selectedToolRoutingTheme = getWorkflowRoutingGovernanceTheme(selectedToolRouting?.governanceStatus);
-    const selectedToolExecutionLabel = isImageEditBusinessWorkflow
-      ? '中台业务编排 · GPT Image 2'
-      : String(selectedToolRouting?.executionLabel || '执行面待确认').trim();
-    const selectedToolTrackingLabel = isImageEditBusinessWorkflow
-      ? '中台 runId 追踪'
-      : String(selectedToolRouting?.currentTrackingLabel || '追踪待确认').trim();
+    const selectedToolExecutionLabel = isImageEditChatBusinessWorkflow
+      ? 'ChatBot 会话 · 图编辑工具'
+      : isImageEditBusinessWorkflow
+        ? '中台业务编排 · GPT Image 2'
+        : String(selectedToolRouting?.executionLabel || '执行面待确认').trim();
+    const selectedToolTrackingLabel = isImageEditChatBusinessWorkflow
+      ? 'sessionId / planId / runId 追踪'
+      : isImageEditBusinessWorkflow
+        ? '中台 runId 追踪'
+        : String(selectedToolRouting?.currentTrackingLabel || '追踪待确认').trim();
     const selectedToolRoleLabel = String(selectedToolGovernance?.roleLabel || '可测版本').trim();
     const selectedToolUsesBusinessApi = isBusinessApiWorkflow(selectedTool);
     const selectedToolBusinessKey = getBusinessKeyForWorkflow(selectedTool);
@@ -8710,7 +8852,9 @@ export function App() {
       return '';
     })();
     const aiEditorBlockingReason = isAiEditor && !isImageEditBusinessWorkflow && !editorPrompt.trim() ? '请先填写提示词。' : '';
-    const runBlockingReason = imageEditBlockingReason || aiEditorBlockingReason || (!formUrl.trim() ? '请先上传或粘贴主图 URL。' : '');
+    const runBlockingReason = isImageEditChatBusinessWorkflow
+      ? ''
+      : imageEditBlockingReason || aiEditorBlockingReason || (!formUrl.trim() ? '请先上传或粘贴主图 URL。' : '');
     const imageEditTaskSummary = isImageEditBusinessWorkflow
       ? buildImageEditTaskSummary({
           skillLabel: selectedImageEditSkillConfig.label,
@@ -8792,6 +8936,15 @@ export function App() {
               ? '最新任务待回填'
               : '还未运行';
     const acceptanceFocus = (() => {
+      if (isImageEditChatBusinessWorkflow) {
+        return {
+          theme: formUrl.trim() ? ('primary' as const) : ('warning' as const),
+          label: formUrl.trim() ? '在 ChatBot 中确认方案' : '先提供主图',
+          detail: formUrl.trim() ? '发送改图诉求，确认建议后由 ChatBot 提交中台图编辑 run。' : '可以先讨论目标，但真实执行前必须上传或粘贴主图 URL。',
+          businessAction: '像聊天一样描述要怎么改，重点检查建议是否说清目标、约束和风险。',
+          platformAction: '观察会话、方案、确认动作、runId 和结果图是否可追溯。',
+        };
+      }
       if (runBlockingReason) {
         return {
           theme: 'warning' as const,
@@ -8852,8 +9005,8 @@ export function App() {
         platformAction: '把好/坏样本沉淀到历史复盘，后续用于分流、LoRA 或参数优化。',
       };
     })();
-    const testTheme = runBlockingReason ? 'warning' : isRunning ? 'primary' : 'success';
-    const testLabel = runBlockingReason ? '待输入' : isRunning ? '提交中' : '可提交';
+    const testTheme = isImageEditChatBusinessWorkflow ? 'primary' : runBlockingReason ? 'warning' : isRunning ? 'primary' : 'success';
+    const testLabel = isImageEditChatBusinessWorkflow ? 'ChatBot' : runBlockingReason ? '待输入' : isRunning ? '提交中' : '可提交';
     const resultTheme =
       visibleLatestStatusForRail === 'failed'
         ? 'danger'
@@ -8928,23 +9081,9 @@ export function App() {
       filterRating !== 'all' ||
       filterUnrated ||
       Boolean(search.trim());
-    return shell(
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setActiveView('home');
-              setSelectedTool(null);
-            }}
-          >
-            返回推荐业务
-          </Button>
-          <Typography.Text theme="secondary">
-            {getWorkflowCategory(selectedTool)} · {getWorkflowVersionLabel(selectedTool)}
-          </Typography.Text>
-        </Space>
-
+    const isImageEditFocusedTool = isImageEditBusinessWorkflow || isImageEditChatBusinessWorkflow;
+    const toolContextSection = (
+      <>
         <WorkbenchFlowRail
           testLabel={testLabel}
           testDetail={runBlockingReason || '输入齐全后提交一次真实链路。'}
@@ -9052,22 +9191,34 @@ export function App() {
                   去补输入
                 </Button>
               )}
-              <Button
-                size="small"
-                theme="primary"
-                loading={isRunning}
-                disabled={Boolean(runBlockingReason) || isRunning}
-                onClick={() => void runTool()}
-              >
-                开始生成
-              </Button>
-              <Button
-                size="small"
-                variant="text"
-                onClick={() => document.getElementById('eval-step-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              >
-                看当前结果
-              </Button>
+              {isImageEditChatBusinessWorkflow ? (
+                <Button
+                  size="small"
+                  theme="primary"
+                  onClick={() => document.getElementById('eval-step-test')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                >
+                  打开 ChatBot
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    size="small"
+                    theme="primary"
+                    loading={isRunning}
+                    disabled={Boolean(runBlockingReason) || isRunning}
+                    onClick={() => void runTool()}
+                  >
+                    开始生成
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => document.getElementById('eval-step-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  >
+                    看当前结果
+                  </Button>
+                </>
+              )}
             </div>
           </div>
           <div className="podi-business-acceptance-focus__facts" aria-label="业务验收状态">
@@ -9095,18 +9246,63 @@ export function App() {
             </div>
           </div>
         </div>
+      </>
+    );
+    const imageEditContextSection = isImageEditFocusedTool ? (
+      <details className="podi-eval-tool-context-collapse">
+        <summary>
+          <div className="podi-eval-tool-context-collapse__summary">
+            <span>版本与验收信息</span>
+            <strong>查看流程、接口说明和业务验收焦点</strong>
+          </div>
+          <Tag variant="light">{getWorkflowVersionLabel(selectedTool)}</Tag>
+        </summary>
+        <div className="podi-eval-tool-context-collapse__body">{toolContextSection}</div>
+      </details>
+    ) : null;
+    return shell(
+      <Space
+        direction="vertical"
+        size={isImageEditFocusedTool ? 'medium' : 'large'}
+        className={isImageEditFocusedTool ? 'podi-eval-tool-page podi-eval-tool-page--image-edit-first' : 'podi-eval-tool-page'}
+        style={{ width: '100%' }}
+      >
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setActiveView('home');
+              setSelectedTool(null);
+            }}
+          >
+            返回推荐业务
+          </Button>
+          <Typography.Text theme="secondary">
+            {getWorkflowCategory(selectedTool)} · {getWorkflowVersionLabel(selectedTool)}
+          </Typography.Text>
+        </Space>
+
+        {isImageEditFocusedTool ? null : toolContextSection}
 
         <Row gutter={[16, 16]} className="podi-eval-workbench">
           {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
-          <Col xs={12} xl={isImageEditBusinessWorkflow ? 12 : 4}>
+          <Col xs={12} xl={isImageEditBusinessWorkflow || isImageEditChatBusinessWorkflow ? 12 : 4}>
             <div id="eval-step-test">
             <Card
               bordered
-              className={`podi-eval-panel podi-eval-panel--input${isImageEditBusinessWorkflow ? ' podi-eval-panel--image-edit-input' : ''}`}
+              className={`podi-eval-panel podi-eval-panel--input${isImageEditBusinessWorkflow || isImageEditChatBusinessWorkflow ? ' podi-eval-panel--image-edit-input' : ''}`}
               title={
                 <div className="podi-panel-title">
-                  <strong>一次测试</strong>
-                  <span>先补齐必填参数，再提交一次可复盘的测试。</span>
+                  <strong>
+                    {isImageEditChatBusinessWorkflow ? '对话改图 ChatBot' : isImageEditBusinessWorkflow ? '图编辑工作台' : '一次测试'}
+                  </strong>
+                  <span>
+                    {isImageEditChatBusinessWorkflow
+                      ? '上传主图，用自然语言讨论方案，确认后再提交改图。'
+                      : isImageEditBusinessWorkflow
+                        ? '上传主图、选择示例或直接标注，再提交一次真实链路。'
+                        : '先补齐必填参数，再提交一次可复盘的测试。'}
+                  </span>
                 </div>
               }
             >
@@ -9115,7 +9311,40 @@ export function App() {
                 status={qualitySampleStatus}
                 onApply={(sample) => applyQualitySampleToTool(sample, selectedTool)}
               />
-              {isAiEditor ? (
+              {isImageEditChatBusinessWorkflow ? (
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <ImageEditAgentPanel
+                    imageUrl={formUrl}
+                    instruction={String((formParams as any).message || '')}
+                    editSkill={selectedImageEditSkill}
+                    quality={normalizeImageEditQuality(String((formParams as any).quality || 'auto'))}
+                    size={String((formParams as any).size || 'auto')}
+                    outputFormat={String((formParams as any).output_format || 'png')}
+                    onUploadImage={async (file) => {
+                      setUploading(true);
+                      try {
+                        const res = await evalApi.uploadImage(file);
+                        return res.url;
+                      } finally {
+                        setUploading(false);
+                      }
+                    }}
+                    onImageUrlChange={(url) => {
+                      markToolInputChanged();
+                      setFormUrl(url);
+                    }}
+                    onPreviewImage={(url, title) => setLightbox({ url, title })}
+                  />
+                  <IntegrationDocBlock
+                    doc={doc}
+                    title="业务接入文档（对话改图 ChatBot）"
+                    description="对话改图是独立 ChatBot 入口：先建会话和方案，确认后才创建图编辑 run。"
+                    expanded={showIntegrationDoc}
+                    onToggle={() => setShowIntegrationDoc((prev) => !prev)}
+                    onCopy={copyIntegrationDoc}
+                  />
+                </Space>
+              ) : isAiEditor ? (
                 isImageEditBusinessWorkflow ? (
                   <>
                   <ImageEditWorkbench
@@ -10069,7 +10298,7 @@ export function App() {
             </div>
           </Col>
 
-          <Col xs={12} xl={isImageEditBusinessWorkflow ? 12 : 8}>
+          <Col xs={12} xl={isImageEditBusinessWorkflow ? 12 : 8} style={isImageEditChatBusinessWorkflow ? { display: 'none' } : undefined}>
             <div id="eval-step-result">
             <Card
               bordered
@@ -10397,6 +10626,8 @@ export function App() {
           </Col>
         </Row>
 
+        {imageEditContextSection}
+
         <div id="eval-step-history">
         <Card bordered title={<Typography.Text strong>历史复盘</Typography.Text>}>
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -10684,6 +10915,8 @@ export function App() {
   const selectedCategorySummary = categorySummaries.find((item) => item.category === activeCategory) || categorySummaries[0] || null;
   const activeCategoryPrimaryTool = selectedCategorySummary?.primaryTool || toolList[0] || null;
   const activeCategoryFirstSample = selectedCategorySummary?.firstSample || null;
+  const activeImageEditChatTool = activeCategory === '图编辑' ? toolList.find((wf) => isImageEditChatWorkflow(wf)) || null : null;
+  const activeImageEditDirectTool = activeCategory === '图编辑' ? toolList.find((wf) => isImageEditWorkflow(wf)) || null : null;
   return shell(
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       {bootstrapLoading || workflowListStatus === 'loading' ? <Alert theme="info" message="正在加载功能清单和评分数据…" /> : null}
@@ -10699,6 +10932,13 @@ export function App() {
               重试
             </Button>
           }
+        />
+      ) : null}
+      {activeCategory === '图编辑' ? (
+        <ImageEditEntryGuide
+          chatTool={activeImageEditChatTool}
+          directTool={activeImageEditDirectTool}
+          onOpenTool={(wf) => openTool(wf)}
         />
       ) : null}
       <section className="podi-eval-business-start" aria-label="推荐业务入口">
@@ -10844,7 +11084,7 @@ export function App() {
         <Alert theme="info" message="该分类暂无功能。" />
       ) : null}
 
-      <details className="podi-eval-tool-list-collapse">
+      <details className="podi-eval-tool-list-collapse" open={activeCategory === '图编辑' || toolList.length <= 1}>
         <summary>
           <span>{getBusinessEntryLabel(activeCategory)} · 版本列表</span>
           <small>需要固定版本、回归候选版本或排障时展开。</small>

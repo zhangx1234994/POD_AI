@@ -33,6 +33,9 @@ from app.models.integration import (
     ApiKey,
     BusinessCapability,
     BusinessClient,
+    BusinessAgentPlan,
+    BusinessAgentSession,
+    BusinessAgentToolCall,
     BusinessApiKeyUsageLog,
     BusinessDefaultApproval,
     BusinessOperationLog,
@@ -76,12 +79,15 @@ from app.constants.business_api_contract import (
     IMAGE_EDIT_QUALITY_VALUES,
     IMAGE_EDIT_SIZE_VALUES,
     IMAGE_EDIT_SKILL_VALUES,
+    PRODUCT_DESIGN_PRODUCT_TYPE_VALUES,
+    PRODUCT_DESIGN_SCENE_VALUES,
 )
 from app.services.api_key_selector import is_usable
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
+from app.services.business_projects import get_business_project_service
 from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
 from app.services.fission_control_prompt import compile_comfyui_v4_prompt
 from app.services.fission_control_prompt import extract_fission_control_card
@@ -90,7 +96,7 @@ from app.services.pattern_fission_prompt import TEMPLATE_ALIASES as PATTERN_FISS
 from app.services.pattern_fission_prompt import TEMPLATE_ID as PATTERN_FISSION_TEMPLATE_ID
 from app.services.pattern_fission_prompt import compile_pattern_fission_prompt
 from app.services.routing_governance import normalize_ability_routing
-from app.services.runtime_safety import log_background_worker_decision
+from app.services.runtime_safety import log_background_worker_decision, suppress_background_threads_for_tests
 from app.services.oss import oss_service
 from app.services.task_id_codec import encode_task_id
 from app.services.wallet import wallet_service
@@ -144,6 +150,23 @@ IMAGE_EDIT_QUALITY_MAP = {
     "medium": "medium",
     "high": "high",
 }
+PRODUCT_DESIGN_PRODUCT_TYPE_LABELS = {
+    "apparel": "服装/面料",
+    "home_textile": "家纺/软装",
+    "bag": "箱包",
+    "shoe": "鞋履",
+    "stationery": "文具/小商品",
+    "packaging": "包装",
+    "generic": "通用产品",
+}
+PRODUCT_DESIGN_SCENE_LABELS = {
+    "studio_product": "棚拍产品图",
+    "flat_lay": "平铺产品图",
+    "ecommerce": "电商主图",
+    "lifestyle": "生活方式场景",
+    "print_mockup": "印花/图案上产品 mockup",
+    "generic": "通用场景",
+}
 BUSINESS_OUTPUT_REVIEW_GRADES = {"pending", "excellent", "usable", "borderline", "bad", "blocked"}
 BUSINESS_OUTPUT_REVIEW_ACTIONS = {
     "accept",
@@ -162,7 +185,7 @@ BUSINESS_QUALITY_ACTION_TYPES = {
     "pause_recommendation",
 }
 BUSINESS_QUALITY_ACTION_STATUSES = {"draft", "candidate", "validated", "default", "paused", "rejected", "archived"}
-BUSINESS_QUALITY_GATE_KEYS = {"pattern_extract", "fission", "image_edit", "outpaint", "text_fission"}
+BUSINESS_QUALITY_GATE_KEYS = {"pattern_extract", "fission", "image_edit", "outpaint", "text_fission", "product_design"}
 BUSINESS_QUALITY_ACCEPTED_GRADES = {"excellent", "usable"}
 BUSINESS_QUALITY_RISK_GRADES = {"borderline", "bad", "blocked"}
 BUSINESS_QUALITY_GATE_WINDOW_HOURS = 168
@@ -236,7 +259,7 @@ class BusinessRunService:
         worker_decision = log_background_worker_decision("BusinessRunService")
         self._background_workers_enabled = worker_decision.enabled
         self._thread_started = False
-        if self._background_workers_enabled:
+        if self._background_workers_enabled and not suppress_background_threads_for_tests():
             self._start_finalize_thread()
 
     def list_capabilities(self) -> list[BusinessCapability]:
@@ -2423,6 +2446,8 @@ class BusinessRunService:
                     raise HTTPException(status_code=400, detail="TEXT_FISSION_PROMPT_REQUIRED")
             if business_key == "image_edit":
                 self._compile_image_edit_inputs(payload=payload, image_url=image_url, validate_media=True)
+            if business_key == "product_design":
+                self._compile_product_design_inputs(payload=payload, image_url=image_url)
 
             if capability is not None:
                 route_info = self._route_info(capability, selected_by=selected_by)
@@ -2482,6 +2507,16 @@ class BusinessRunService:
             )
             session.add(run)
             self._create_run_steps(session=session, run=run, recipe=recipe, payload=payload, business_key=business_key)
+            project_context = get_business_project_service().link_run_to_project(
+                session=session,
+                run=run,
+                payload=payload,
+                trace_context=trace_context,
+                user=user,
+            )
+            if project_context and isinstance(request_payload, dict):
+                request_payload["_projectContext"] = project_context
+                run.request_payload = request_payload
             session.commit()
             session.refresh(run)
             run_id = run.id
@@ -3024,6 +3059,7 @@ class BusinessRunService:
                 run_status = run.status if run else run_status
                 terminal_after_sync = bool(run and run.status in {"succeeded", "failed", "cancelled"})
         if terminal_after_sync:
+            get_business_project_service().sync_run_outputs_to_project_assets(run_id)
             self._auto_settle_run_if_needed(run_id)
             self._deliver_callback(run_id)
 
@@ -3070,6 +3106,7 @@ class BusinessRunService:
         for run_id in waiting_primary_ids:
             self._submit_primary_after_vl_if_ready(run_id=run_id, user=None)
         for run_id in terminal_ids:
+            get_business_project_service().sync_run_outputs_to_project_assets(run_id)
             self._auto_settle_run_if_needed(run_id)
             self._deliver_callback(run_id)
 
@@ -5790,12 +5827,25 @@ class BusinessRunService:
         metadata = payload.metadata if payload and isinstance(payload.metadata, dict) else {}
         inputs = payload.inputs if payload and isinstance(payload.inputs, dict) else {}
         for source in (metadata, inputs):
-            for key in ("grayKey", "gray_key", "routeKey", "route_key", "tenantId", "tenant_id", "userId", "user_id", "traceId", "trace_id"):
+            for key in (
+                "grayKey",
+                "gray_key",
+                "routeKey",
+                "route_key",
+                "clientContextId",
+                "client_context_id",
+                "tenantId",
+                "tenant_id",
+                "userId",
+                "user_id",
+                "traceId",
+                "trace_id",
+            ):
                 value = source.get(key)
                 if isinstance(value, (str, int, float)) and str(value).strip():
                     return str(value).strip()
         if payload:
-            for value in (payload.tenantId, payload.clientId, payload.traceId, payload.requestId):
+            for value in (payload.clientContextId, payload.tenantId, payload.clientId, payload.traceId, payload.requestId):
                 if isinstance(value, (str, int, float)) and str(value).strip():
                     return str(value).strip()
         user_id = BusinessRunService._safe_user_id(user)
@@ -6840,7 +6890,7 @@ class BusinessRunService:
                 "palette_card",
                 "risk_notes",
             }
-        elif capability_key == "image_edit":
+        elif capability_key in {"image_edit", "product_design"}:
             pass_keys = {
                 "image_url",
                 "imageUrl",
@@ -6951,6 +7001,16 @@ class BusinessRunService:
                 trace_context=trace_context,
             )
             inputs.update(image_edit_compiled["ability_inputs"])
+        product_design_compiled: dict[str, Any] | None = None
+        if capability_key == "product_design":
+            product_design_compiled = self._compile_product_design_inputs(
+                payload=payload,
+                image_url=image_url,
+                include_visual_hint=include_image_edit_visual_hint,
+                trace_context=trace_context,
+            )
+            image_edit_compiled = product_design_compiled.get("image_edit_compiler")
+            inputs.update(product_design_compiled["ability_inputs"])
         if vl_summary and self._should_apply_vl_to_primary(recipe or {}):
             self._apply_vl_summary_to_inputs(
                 capability_key=capability_key,
@@ -6972,6 +7032,7 @@ class BusinessRunService:
                 inputs["aspect_recompose_guide_url"] = fission_aspect_recompose.get("guideImageUrl")
         if capability_key == "fission":
             self._enforce_single_output_fission_inputs(inputs, keep_internal_n=True)
+        project_context = self._project_context_metadata_from_payload(payload)
         ability_inputs = {key: value for key, value in inputs.items() if key in pass_keys and value not in (None, "", [])}
         return AbilityInvokeRequest(
             inputs=ability_inputs,
@@ -6988,10 +7049,240 @@ class BusinessRunService:
                 "clientId": (trace_context or {}).get("clientId"),
                 "channel": (trace_context or {}).get("channel"),
                 "source": (trace_context or {}).get("source"),
+                **({"projectContext": project_context} if project_context else {}),
                 **({"fissionAspectRecompose": fission_aspect_recompose} if fission_aspect_recompose else {}),
                 **({"imageEditCompiler": image_edit_compiled.get("metadata")} if image_edit_compiled else {}),
+                **({"productDesignCompiler": product_design_compiled.get("metadata")} if product_design_compiled else {}),
             },
         )
+
+    def _project_context_metadata_from_payload(self, payload: BusinessRunCreateRequest) -> dict[str, Any] | None:
+        metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
+        nested = metadata.get("projectContext") if isinstance(metadata.get("projectContext"), dict) else {}
+        inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
+        project_id = self._short_text(
+            self._first_string(
+                payload.projectId,
+                metadata.get("projectId"),
+                metadata.get("project_id"),
+                nested.get("projectId"),
+                nested.get("project_id"),
+                inputs.get("projectId"),
+                inputs.get("project_id"),
+            ),
+            64,
+        )
+        if not project_id:
+            return None
+        input_asset_ids = self._first_value(
+            payload.inputAssetIds,
+            metadata.get("inputAssetIds"),
+            metadata.get("input_asset_ids"),
+            nested.get("inputAssetIds"),
+            nested.get("input_asset_ids"),
+            inputs.get("inputAssetIds"),
+            inputs.get("input_asset_ids"),
+        )
+        return {
+            "projectId": project_id,
+            "flowStepKey": self._short_text(
+                self._first_string(
+                    payload.flowStepKey,
+                    metadata.get("flowStepKey"),
+                    metadata.get("flow_step_key"),
+                    nested.get("flowStepKey"),
+                    nested.get("flow_step_key"),
+                    inputs.get("flowStepKey"),
+                    inputs.get("flow_step_key"),
+                ),
+                64,
+            ),
+            "flowStepName": self._short_text(
+                self._first_string(
+                    payload.flowStepName,
+                    metadata.get("flowStepName"),
+                    metadata.get("flow_step_name"),
+                    nested.get("flowStepName"),
+                    nested.get("flow_step_name"),
+                    inputs.get("flowStepName"),
+                    inputs.get("flow_step_name"),
+                ),
+                128,
+            ),
+            "flowTemplateId": self._short_text(
+                self._first_string(
+                    payload.flowTemplateId,
+                    metadata.get("flowTemplateId"),
+                    metadata.get("flow_template_id"),
+                    nested.get("flowTemplateId"),
+                    nested.get("flow_template_id"),
+                    inputs.get("flowTemplateId"),
+                    inputs.get("flow_template_id"),
+                ),
+                64,
+            ),
+            "clientRequestId": self._short_text(
+                self._first_string(
+                    payload.clientRequestId,
+                    metadata.get("clientRequestId"),
+                    metadata.get("client_request_id"),
+                    nested.get("clientRequestId"),
+                    nested.get("client_request_id"),
+                    inputs.get("clientRequestId"),
+                    inputs.get("client_request_id"),
+                ),
+                128,
+            ),
+            "inputAssetIds": self._normalize_business_key_list(
+                input_asset_ids if isinstance(input_asset_ids, list) else [input_asset_ids] if input_asset_ids else []
+            ),
+        }
+
+    def _compile_product_design_inputs(
+        self,
+        *,
+        payload: BusinessRunCreateRequest,
+        image_url: str,
+        include_visual_hint: bool = False,
+        trace_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        request_inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
+        design_brief = self._first_string(
+            payload.designBrief,
+            payload.design_brief,
+            payload.prompt,
+            request_inputs.get("designBrief"),
+            request_inputs.get("design_brief"),
+            request_inputs.get("brief"),
+            request_inputs.get("prompt"),
+        )
+        if not design_brief:
+            raise HTTPException(status_code=400, detail="PRODUCT_DESIGN_BRIEF_REQUIRED")
+
+        product_type = (
+            self._first_string(
+                payload.productType,
+                payload.product_type,
+                request_inputs.get("productType"),
+                request_inputs.get("product_type"),
+                request_inputs.get("category"),
+            )
+            or "generic"
+        ).strip()
+        if product_type not in PRODUCT_DESIGN_PRODUCT_TYPE_VALUES:
+            raise HTTPException(status_code=400, detail="PRODUCT_DESIGN_PRODUCT_TYPE_INVALID")
+
+        scene = (
+            self._first_string(
+                payload.scene,
+                request_inputs.get("scene"),
+                request_inputs.get("usageScene"),
+                request_inputs.get("usage_scene"),
+            )
+            or "studio_product"
+        ).strip()
+        if scene not in PRODUCT_DESIGN_SCENE_VALUES:
+            raise HTTPException(status_code=400, detail="PRODUCT_DESIGN_SCENE_INVALID")
+
+        reference_images = self._normalize_image_edit_reference_images(
+            payload.referenceImages,
+            payload.reference_images,
+            request_inputs.get("referenceImages"),
+            request_inputs.get("reference_images"),
+            request_inputs.get("image_urls"),
+            request_inputs.get("imageUrls"),
+            request_inputs.get("input_urls"),
+        )
+        reference_mentions = "、".join(f"#参考图{idx}" for idx in range(1, len(reference_images) + 1))
+        user_constraints = self._first_string(
+            request_inputs.get("constraints"),
+            request_inputs.get("brandGuideline"),
+            request_inputs.get("brand_guideline"),
+            request_inputs.get("style"),
+        )
+        client_context_id = self._first_string(
+            payload.clientContextId,
+            request_inputs.get("clientContextId"),
+            request_inputs.get("client_context_id"),
+            (payload.metadata or {}).get("clientContextId") if isinstance(payload.metadata, dict) else None,
+        )
+        compiled_instruction = self._build_product_design_instruction(
+            design_brief=design_brief,
+            product_type=product_type,
+            scene=scene,
+            reference_mentions=reference_mentions,
+            constraints=user_constraints,
+        )
+        nested_inputs = {
+            **request_inputs,
+            "editSkill": "local_modify",
+            "instruction": compiled_instruction,
+            "referenceImages": reference_images,
+        }
+        if payload.quality is not None:
+            nested_inputs["quality"] = payload.quality
+        if payload.size is not None:
+            nested_inputs["size"] = payload.size
+        if payload.output_format is not None:
+            nested_inputs["output_format"] = payload.output_format
+        if payload.outputFormat is not None:
+            nested_inputs["outputFormat"] = payload.outputFormat
+        edit_payload = payload.model_copy(
+            update={
+                "editSkill": "local_modify",
+                "instruction": compiled_instruction,
+                "referenceImages": reference_images,
+                "inputs": nested_inputs,
+            }
+        )
+        image_edit_compiler = self._compile_image_edit_inputs(
+            payload=edit_payload,
+            image_url=image_url,
+            validate_media=False,
+            include_visual_hint=include_visual_hint,
+            trace_context=trace_context,
+        )
+        return {
+            "ability_inputs": image_edit_compiler["ability_inputs"],
+            "image_edit_compiler": image_edit_compiler,
+            "metadata": {
+                "productType": product_type,
+                "productTypeLabel": PRODUCT_DESIGN_PRODUCT_TYPE_LABELS.get(product_type, product_type),
+                "scene": scene,
+                "sceneLabel": PRODUCT_DESIGN_SCENE_LABELS.get(scene, scene),
+                "designBrief": design_brief,
+                "constraints": user_constraints,
+                "clientContextId": client_context_id,
+                "referenceImages": reference_images,
+                "compiledInstruction": compiled_instruction,
+                "compilerVersion": "product_design_prompt_compiler_v1",
+            },
+        }
+
+    @staticmethod
+    def _build_product_design_instruction(
+        *,
+        design_brief: str,
+        product_type: str,
+        scene: str,
+        reference_mentions: str,
+        constraints: str | None = None,
+    ) -> str:
+        product_label = PRODUCT_DESIGN_PRODUCT_TYPE_LABELS.get(product_type, product_type)
+        scene_label = PRODUCT_DESIGN_SCENE_LABELS.get(scene, scene)
+        lines = [
+            f"基于主图生成一张{product_label}方向的产品设计图。",
+            f"设计目标：{design_brief.strip()}",
+            f"展示方式：{scene_label}。",
+            "保留主图中最核心的花纹、图案语言、色彩关系或视觉资产，不要把它当成普通背景随意弱化。",
+            "输出应像真实可交付的产品设计效果图：产品结构清晰，材质合理，图案贴合产品曲面或平面透视，光照、比例和边缘自然。",
+            "不要生成多宫格、文字说明、过程图、界面截图、水印、价格牌或无关装饰文案。",
+        ]
+        if reference_mentions:
+            lines.append(f"如果参考图存在，请结合 {reference_mentions} 的材质、形态或版式约束，但不要生硬拼贴。")
+        if constraints:
+            lines.append(f"附加约束：{constraints.strip()}")
+        return "\n".join(lines)
 
     def _compile_image_edit_inputs(
         self,
@@ -10175,6 +10466,7 @@ class BusinessRunService:
             "image_fission": "图裂变",
             "fission": "图裂变",
             "fission_evaluate": "裂变评分",
+            "product_design": "产品设计",
             "image_edit": "图编辑",
             "outpaint": "扩图",
             "text_fission": "文字裂变",
@@ -10911,6 +11203,7 @@ class BusinessRunService:
             "retest_summary": retest_summary,
             "flow_summary": flow_summary,
             "trace_summary": self._build_run_trace_summary(row, steps=steps, flow_summary=flow_summary),
+            "agent_trace": self._business_agent_trace(row, session=session),
             "api_usage": self._business_api_usage_evidence(row, session=session) if include_api_usage else None,
             "orchestration_graph": self._build_run_orchestration_graph(
                 row,
@@ -10923,6 +11216,84 @@ class BusinessRunService:
             "updated_at": row.updated_at,
             "started_at": row.started_at,
             "finished_at": row.finished_at,
+        }
+
+    def _business_agent_trace(self, row: BusinessRun, *, session=None) -> dict[str, Any] | None:
+        if session is None:
+            return None
+        tool_call = (
+            session.execute(
+                select(BusinessAgentToolCall)
+                .where(BusinessAgentToolCall.run_id == row.id)
+                .order_by(BusinessAgentToolCall.created_at.desc(), BusinessAgentToolCall.id.desc())
+            )
+            .scalars()
+            .first()
+        )
+        if not tool_call:
+            metadata = row.request_payload.get("metadata") if isinstance(row.request_payload, dict) else None
+            if not isinstance(metadata, dict) or not metadata.get("agentSessionId"):
+                return None
+            session_id = str(metadata.get("agentSessionId") or "").strip()
+            plan_id = str(metadata.get("agentPlanId") or "").strip()
+            session_obj = session.get(BusinessAgentSession, session_id) if session_id else None
+            plan = session.get(BusinessAgentPlan, plan_id) if plan_id else None
+            return {
+                "source": "image-edit-chat",
+                "agentKey": getattr(session_obj, "agent_key", None) or metadata.get("agentKey"),
+                "sessionId": session_id or None,
+                "sessionStatus": getattr(session_obj, "status", None),
+                "sessionTitle": getattr(session_obj, "title", None),
+                "planId": plan_id or None,
+                "planStatus": getattr(plan, "status", None),
+                "planTitle": getattr(plan, "title", None),
+                "planSummary": getattr(plan, "summary", None),
+                "toolName": "business.image_edit",
+                "toolCallStatus": None,
+                "runId": row.id,
+                "requestId": getattr(session_obj, "request_id", None) or row.request_id,
+                "traceId": getattr(session_obj, "trace_id", None) or row.trace_id,
+                "createdAt": getattr(session_obj, "created_at", None),
+                "updatedAt": getattr(session_obj, "updated_at", None),
+            }
+
+        session_obj = session.get(BusinessAgentSession, tool_call.session_id) if tool_call.session_id else None
+        plan = session.get(BusinessAgentPlan, tool_call.plan_id) if tool_call.plan_id else None
+        tool_payload = plan.tool_payload if plan and isinstance(plan.tool_payload, dict) else {}
+        session_metadata = session_obj.extra_metadata if session_obj and isinstance(session_obj.extra_metadata, dict) else {}
+        return {
+            "source": "image-edit-chat",
+            "agentKey": getattr(session_obj, "agent_key", None) or getattr(plan, "agent_key", None),
+            "sessionId": tool_call.session_id,
+            "sessionStatus": getattr(session_obj, "status", None),
+            "sessionTitle": getattr(session_obj, "title", None),
+            "planId": tool_call.plan_id,
+            "planStatus": getattr(plan, "status", None),
+            "planTitle": getattr(plan, "title", None),
+            "planSummary": getattr(plan, "summary", None),
+            "plannerMode": getattr(plan, "planner_mode", None),
+            "plannerModel": getattr(plan, "planner_model", None),
+            "estimatedCostLevel": getattr(plan, "estimated_cost_level", None),
+            "riskLevel": getattr(plan, "risk_level", None),
+            "warnings": getattr(plan, "warnings", None) or [],
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.tool_name,
+            "toolCallStatus": tool_call.status,
+            "businessKey": tool_call.business_key,
+            "runId": row.id,
+            "requestId": getattr(session_obj, "request_id", None) or row.request_id,
+            "traceId": getattr(session_obj, "trace_id", None) or row.trace_id,
+            "entrySource": session_metadata.get("source"),
+            "channel": session_metadata.get("channel") or row.channel,
+            "instruction": tool_payload.get("instruction"),
+            "editSkill": tool_payload.get("editSkill"),
+            "quality": tool_payload.get("quality"),
+            "size": tool_payload.get("size"),
+            "outputFormat": tool_payload.get("output_format") or tool_payload.get("outputFormat"),
+            "confirmedAt": getattr(plan, "confirmed_at", None),
+            "executedAt": getattr(plan, "executed_at", None),
+            "createdAt": getattr(session_obj, "created_at", None) or tool_call.created_at,
+            "updatedAt": getattr(session_obj, "updated_at", None) or tool_call.updated_at,
         }
 
     def _business_api_usage_evidence(

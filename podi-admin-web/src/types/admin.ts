@@ -1740,6 +1740,41 @@ export interface BusinessDefaultApprovalListResponse {
   items: BusinessDefaultApproval[];
 }
 
+export interface BusinessRunAgentTrace {
+  source?: string | null;
+  agentKey?: string | null;
+  sessionId?: string | null;
+  sessionStatus?: string | null;
+  sessionTitle?: string | null;
+  planId?: string | null;
+  planStatus?: string | null;
+  planTitle?: string | null;
+  planSummary?: string | null;
+  plannerMode?: string | null;
+  plannerModel?: string | null;
+  estimatedCostLevel?: string | null;
+  riskLevel?: string | null;
+  warnings?: string[];
+  toolCallId?: string | null;
+  toolName?: string | null;
+  toolCallStatus?: string | null;
+  businessKey?: string | null;
+  runId?: string | null;
+  requestId?: string | null;
+  traceId?: string | null;
+  entrySource?: string | null;
+  channel?: string | null;
+  instruction?: string | null;
+  editSkill?: string | null;
+  quality?: string | null;
+  size?: string | null;
+  outputFormat?: string | null;
+  confirmedAt?: string | null;
+  executedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface BusinessRun {
   id: string;
   runId: string;
@@ -1799,6 +1834,7 @@ export interface BusinessRun {
   retestSummary?: JsonRecord | null;
   flowSummary?: BusinessRunFlowSummary | null;
   traceSummary?: BusinessRunTraceSummary | null;
+  agentTrace?: BusinessRunAgentTrace | null;
   apiUsage?: BusinessRunApiUsageEvidence | null;
   orchestrationGraph?: BusinessOrchestrationGraph | null;
   steps?: BusinessRunStep[];

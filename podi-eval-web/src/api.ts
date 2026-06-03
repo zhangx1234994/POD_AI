@@ -190,6 +190,86 @@ function uploadImageViaBackend(
   });
 }
 
+export type BusinessAgentMessage = {
+  id: string;
+  sessionId: string;
+  role: 'user' | 'assistant' | 'tool' | string;
+  content?: string | null;
+  attachments?: Array<Record<string, unknown>>;
+  planId?: string | null;
+  runId?: string | null;
+  createdAt?: string;
+};
+
+export type BusinessAgentPlan = {
+  id: string;
+  sessionId: string;
+  agentKey: string;
+  status: string;
+  intent: string;
+  title?: string | null;
+  summary?: string | null;
+  editPlan?: Array<{ step?: string; reason?: string }>;
+  toolName: string;
+  toolPayload: Record<string, unknown>;
+  estimatedCostLevel?: string | null;
+  riskLevel?: string | null;
+  confirmationRequired?: boolean;
+  plannerModel?: string | null;
+  plannerMode?: string | null;
+  warnings?: string[];
+  errorCode?: string | null;
+  errorMessage?: string | null;
+};
+
+export type BusinessAgentToolCall = {
+  id: string;
+  sessionId: string;
+  planId: string;
+  toolName: string;
+  businessKey?: string | null;
+  runId?: string | null;
+  status: string;
+  requestPayload?: Record<string, unknown> | null;
+  responsePayload?: Record<string, unknown> | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+};
+
+export type BusinessAgentSession = {
+  id: string;
+  agentKey: string;
+  status: string;
+  title?: string | null;
+  imageUrl?: string | null;
+  latestPlanId?: string | null;
+  latestRunId?: string | null;
+  traceId?: string | null;
+  requestId?: string | null;
+  messages?: BusinessAgentMessage[];
+  plans?: BusinessAgentPlan[];
+  toolCalls?: BusinessAgentToolCall[];
+  latestPlan?: BusinessAgentPlan | null;
+  latestToolCall?: BusinessAgentToolCall | null;
+};
+
+export type BusinessRunPollResult = {
+  runId?: string;
+  id?: string;
+  businessKey?: string;
+  status?: string;
+  version?: string | null;
+  imageUrls?: string[];
+  image_urls?: string[];
+  videoUrls?: string[];
+  texts?: string[];
+  error?: string | null;
+  errorMessage?: string | null;
+  error_message?: string | null;
+  retryAfterSeconds?: number;
+  result?: Record<string, unknown> | null;
+};
+
 export const evalApi = {
   me: () => request<{ raterId: string }>('/api/evals/me'),
   listWorkflowVersions: () => request<EvalWorkflowVersion[]>('/api/evals/workflow-versions?status=active&includeAuxiliary=true'),
@@ -574,6 +654,61 @@ export const evalApi = {
       throw new Error(`上传失败: ${String((err as any)?.message || err || '未知错误')}`);
     }
   },
+  createImageEditAgentSession: (payload: {
+    imageUrl?: string;
+    message?: string;
+    title?: string;
+    context?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+    source?: string;
+    channel?: string;
+    requestId?: string;
+    editSkill?: string;
+    quality?: string;
+    size?: string;
+    outputFormat?: string;
+    maskUrl?: string;
+    referenceImages?: Array<Record<string, unknown>> | string[];
+    selectionHints?: Array<Record<string, unknown>>;
+  }) =>
+    request<{ session: BusinessAgentSession; plan?: BusinessAgentPlan }>(
+      '/api/business/image-edit-chat/sessions',
+      { method: 'POST', body: JSON.stringify(payload) },
+      90000,
+    ),
+  sendImageEditAgentMessage: (
+    sessionId: string,
+    payload: {
+      message: string;
+      imageUrl?: string;
+      editSkill?: string;
+      quality?: string;
+      size?: string;
+      outputFormat?: string;
+      maskUrl?: string;
+      referenceImages?: Array<Record<string, unknown>> | string[];
+      selectionHints?: Array<Record<string, unknown>>;
+      context?: Record<string, unknown>;
+      metadata?: Record<string, unknown>;
+    },
+  ) =>
+    request<{ session: BusinessAgentSession; plan: BusinessAgentPlan }>(
+      `/api/business/image-edit-chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+      { method: 'POST', body: JSON.stringify(payload) },
+      90000,
+    ),
+  confirmImageEditAgentPlan: (sessionId: string, planId: string, payload?: { overrides?: Record<string, unknown>; requestId?: string }) =>
+    request<{ session: BusinessAgentSession; plan: BusinessAgentPlan; toolCall: BusinessAgentToolCall; run: Record<string, unknown> }>(
+      `/api/business/image-edit-chat/sessions/${encodeURIComponent(sessionId)}/confirm`,
+      { method: 'POST', body: JSON.stringify({ ...(payload || {}), planId }) },
+      30000,
+    ),
+  getBusinessRun: (runId: string) =>
+    request<BusinessRunPollResult>(
+      '/api/business/runs/get',
+      { method: 'POST', body: JSON.stringify({ runId }) },
+      30000,
+    ),
   adminListWorkflowVersions: async (adminToken: string) =>
     request<EvalWorkflowVersion[]>(`/api/evals/admin/workflow-versions`, { headers: { 'X-Eval-Admin-Token': adminToken } }),
   adminGetOperationsHealth: async (adminToken: string) =>

@@ -217,6 +217,15 @@ BUSINESS_TRUTH_SOURCE_SPECS: tuple[dict[str, Any], ...] = (
         "eval_version": "gpt-image2-editor-v1",
     },
     {
+        "key": "product_design",
+        "version": "product-design-gpt-image2-v1",
+        "label": "产品设计 · GPT Image 2 上品设计",
+        "submit_path": "/api/business/product-design/runs",
+        "route_path": "/api/business/product-design/route-preview",
+        "eval_workflow_id": "business_product_design_gpt_image2_v1",
+        "eval_version": "product-design-gpt-image2-v1",
+    },
+    {
         "key": "outpaint",
         "version": None,
         "label": "扩图默认版",

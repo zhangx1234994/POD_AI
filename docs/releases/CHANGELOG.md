@@ -1,5 +1,45 @@
 # PODI 版本记录
 
+## v0.6.0 - 2026-06-03
+
+基线 commit：以 114 发布脚本输出的 `DEPLOYED_COMMIT` 为准。
+
+发布范围：
+
+- 114 控制面 backend。
+- 管理端静态站点。
+- 测评端静态站点。
+- `docs/`、`scripts/` 发布与巡检材料。
+
+主要变更：
+
+- 中台主线切换为能力治理：明确能力、能力版本、路由、调用、结果、质量、成本和错误是 v0.6 主对象；调用上下文只作为证据索引。
+- 新增产品设计业务能力 `POST /api/business/product-design/runs`，底层首版复用 GPT Image 2 图片编辑能力，但以独立业务能力暴露。
+- 新增对话改图 ChatBot 独立入口 `/api/business/image-edit-chat/*`，与直接图编辑 `/api/business/image-edit/runs` 拆分。
+- 新增业务 Agent Runtime 试点：会话、消息、建议方案、确认执行和工具调用证据落库，确认后仍调用标准业务能力。
+- 补齐兼容调用上下文、资产证据、候选选择和交付包 API；文档明确它不是中台主视角，新接入优先使用 `clientContextId/inputAssetIds/clientRequestId`。
+- 管理端业务能力页和 API 暴露页补充 v0.6 能力、上下文和上线检查信息；测评端图编辑分类拆分“直接图编辑”和“对话改图”。
+- 修复测评版本 seed 在历史脏数据下的重复键问题，避免 `产品设计` 等能力默认入口被重复分类写入阻断。
+
+本地验证结果：
+
+- 后端全量测试通过：`679 passed`。
+- 管理端生产构建通过：`npm run build`。
+- 测评端生产构建通过：`npm run build`。
+- `git diff --check` 通过。
+
+待线上验证：
+
+- 114 发布源门禁、远端 `alembic upgrade head`、种子刷新、服务重启和 `/health`。
+- 远端 deploy preflight、release smoke、Coze OpenAPI、接口调用中心和业务 API 回归。
+- 核心业务真实巡检：花纹提取、图裂变、扩图、图编辑、产品设计、对话改图，以及必要的并发和数据库连接池观察。
+
+已知保留风险：
+
+- `/api/business/projects/*` 作为兼容调用上下文保留，后续不再作为中台主线扩展。
+- `podi-studio-preview/` 是并行客户端本地目录，不纳入本次中台控制面发布包。
+- Pydantic v2 弃用 warning 仍为历史技术债，当前不阻断发布。
+
 ## v0.4.1 - 2026-05-26
 
 基线 commit：`cd2b8964`

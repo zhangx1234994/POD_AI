@@ -12,6 +12,7 @@ from uuid import uuid4
 import json
 
 from sqlalchemy import select, update as sa_update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.eval import EvalBatchSession, EvalRun, EvalWorkflowVersion
@@ -64,6 +65,7 @@ ALLOWED_EVAL_CATEGORIES: set[str] = {
     "图延伸类",
     "四方/两方连续图类",
     "图裂变",
+    "产品设计",
     "图编辑",
     "图像理解",
     "通用类",
@@ -98,6 +100,12 @@ CATEGORY_FIX_WORKFLOW_IDS: dict[str, str] = {
     "7597701996124045312": "通用类",  # 4 steps
     "7597702948247830528": "通用类",  # 8 steps
     "7597659369861283840": "通用类",  # multi-model gen
+    "business_fission_gpt_image2_vl_v1": "图裂变",
+    "business_fission_comfyui_vl_control_v1": "图裂变",
+    "business_product_design_gpt_image2_v1": "产品设计",
+    "business_image_edit_chat_gpt_image2_assistant_v1": "图编辑",
+    "business_text_fission_qwen2512_text2img_user_editable_v1": "文本与提示词",
+    "ability_fission_generated_image_evaluate_v1": "图裂变",
 }
 
 OUTPAINTING_WORKFLOW_IDS: set[str] = {
@@ -146,6 +154,8 @@ IP_OUTPUT_WORKFLOW_IDS: set[str] = {
 FORCE_SYNC_EVAL_WORKFLOW_IDS: set[str] = {
     "business_fission_gpt_image2_vl_v1",
     "business_fission_comfyui_vl_control_v1",
+    "business_product_design_gpt_image2_v1",
+    "business_image_edit_chat_gpt_image2_assistant_v1",
     "business_text_fission_qwen2512_text2img_user_editable_v1",
     "ability_fission_generated_image_evaluate_v1",
     "7631838631375667200",
@@ -168,6 +178,8 @@ def _normalize_eval_category(category: str | None) -> str:
         return "四方/两方连续图类"
     if c in {"图裂变", "liebiam", "liebain", "variation", "image_variation"}:
         return "图裂变"
+    if c in {"产品设计", "product_design", "product-design", "product"}:
+        return "产品设计"
     if c in {"图编辑", "图像编辑", "改图", "image_edit", "image-editor", "image_editor", "editor"}:
         return "图编辑"
     if c in {"图像理解", "vision_analysis", "vision", "vl", "image_quality_evaluation", "quality_evaluation"}:
@@ -202,6 +214,7 @@ def _dedupe_eval_workflow_versions(session: Session) -> bool:
     for (_, desired_category), bucket in grouped.items():
         bucket.sort(
             key=lambda row: (
+                0 if row.category == desired_category else 1,
                 0 if row.status == "active" else 1,
                 row.created_at.isoformat() if getattr(row, "created_at", None) else "",
                 row.id,
@@ -1673,6 +1686,124 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             },
         },
     },
+    # 产品设计 / 中台原生业务接口：素材上品设计
+    {
+        "category": "产品设计",
+        "name": "产品设计 · GPT Image 2 上品设计",
+        "version": "product-design-gpt-image2-v1",
+        "workflow_id": "business_product_design_gpt_image2_v1",
+        "status": "active",
+        "notes": "中台原生产品设计能力。输入花纹/素材图、产品品类、设计 brief 和展示场景，提交到 /api/business/product-design/runs，底层首版复用 GPT Image 2 图片编辑能力。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "素材/花纹 URL", "type": "image", "required": True, "description": "用于上品设计的素材图、花纹图或参考主图；测评端上传后自动写入。"},
+                {
+                    "name": "productType",
+                    "label": "产品类型",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "apparel",
+                    "description": "决定设计图的产品载体。",
+                    "options": [
+                        {"label": "服装/面料", "value": "apparel"},
+                        {"label": "家纺/软装", "value": "home_textile"},
+                        {"label": "箱包", "value": "bag"},
+                        {"label": "鞋履", "value": "shoe"},
+                        {"label": "文具/小商品", "value": "stationery"},
+                        {"label": "包装", "value": "packaging"},
+                        {"label": "通用产品", "value": "generic"},
+                    ],
+                },
+                {"name": "designBrief", "label": "设计要求", "type": "textarea", "required": True, "defaultValue": "把主图花纹应用到一款适合电商展示的产品设计图，保持图案识别度和商业质感。", "description": "说明要做什么产品、目标风格、必须保留或避免的内容。"},
+                {
+                    "name": "scene",
+                    "label": "展示场景",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "studio_product",
+                    "description": "决定输出图的展示方式。",
+                    "options": [
+                        {"label": "棚拍产品图", "value": "studio_product"},
+                        {"label": "平铺产品图", "value": "flat_lay"},
+                        {"label": "电商主图", "value": "ecommerce"},
+                        {"label": "生活方式场景", "value": "lifestyle"},
+                        {"label": "印花/图案上产品 mockup", "value": "print_mockup"},
+                        {"label": "通用场景", "value": "generic"},
+                    ],
+                },
+                {"name": "referenceImages", "label": "参考图", "type": "json", "required": False, "defaultValue": "", "description": "可选参考图列表，用于补充版型、材质或风格。"},
+                {"name": "clientContextId", "label": "调用上下文 ID", "type": "text", "required": False, "defaultValue": "", "description": "客户端侧关联一次业务链路的上下文 ID，用于跨能力回溯和排查。"},
+                {
+                    "name": "size",
+                    "label": "输出尺寸",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "description": "默认跟随原图/自动；2K 以上高成本高耗时。",
+                    "options": GPT_IMAGE2_SIZE_OPTIONS,
+                },
+                {
+                    "name": "quality",
+                    "label": "质量档位",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "production",
+                    "description": "preview=快速预览，production=正式候选，premium=高质量高成本。",
+                    "options": [
+                        {"label": "自动", "value": "auto"},
+                        {"label": "快速预览", "value": "preview"},
+                        {"label": "正式候选", "value": "production"},
+                        {"label": "高质量", "value": "premium"},
+                    ],
+                },
+                {
+                    "name": "output_format",
+                    "label": "输出格式",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "png",
+                    "options": [
+                        {"label": "PNG", "value": "png"},
+                        {"label": "JPEG", "value": "jpeg"},
+                        {"label": "WebP", "value": "webp"},
+                    ],
+                },
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "imageUrls", "type": "array", "description": "中台 OSS 产品设计结果图"},
+                {"name": "runId", "type": "text", "description": "业务运行 ID"},
+                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "category_label": "产品设计",
+                "operation_label": "产品设计",
+                "variant_label": "GPT Image 2 上品设计",
+                "badges": ["新版", "原生业务接口", "端到端能力"],
+                "release_time": "2026-06-03",
+                "update_time": "2026-06-03",
+                "supports_batch": False,
+                "result_mode": "image",
+                "usage_hint": "用于验证从花纹/素材到产品设计图的中台能力，重点看图案上品、材质贴合和产品结构。",
+                "sort_order": 5,
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-06-03 新增独立产品设计能力，客户端可在后续端到端业务链路中编排调用。",
+            },
+            "eval_execution": {
+                "mode": "business_run",
+                "business_key": "product_design",
+                "version": "product-design-gpt-image2-v1",
+            },
+        },
+    },
     # 图编辑 / 中台原生业务接口：GPT Image 2 组件工作台
     {
         "category": "图编辑",
@@ -1780,6 +1911,106 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 "mode": "business_run",
                 "business_key": "image_edit",
                 "version": "gpt-image2-editor-v1",
+            },
+        },
+    },
+    # 图编辑 / 对话改图：ChatBot 独立入口
+    {
+        "category": "图编辑",
+        "name": "对话改图 ChatBot",
+        "version": "image-edit-chat-v1",
+        "workflow_id": "business_image_edit_chat_gpt_image2_assistant_v1",
+        "status": "active",
+        "notes": "独立 ChatBot 改图入口。用户通过多轮对话整理改图方案，确认后由后端调用 /api/business/image-edit/runs，最终仍产生标准 image_edit 业务 runId。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "主图 URL", "type": "image", "required": True, "description": "执行前必须提供的主图；可上传本地图片自动落 OSS。"},
+                {"name": "message", "label": "对话诉求", "type": "textarea", "required": True, "defaultValue": "把这张图改得更高级一些，适合服装面料，保持主体结构和未提及区域不变。", "description": "用户用聊天方式描述这次想怎么改。"},
+                {
+                    "name": "editSkill",
+                    "label": "默认改图技能",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "local_modify",
+                    "description": "ChatBot 可按上下文整理方案；这里仅作为默认执行倾向。",
+                    "options": [
+                        {"label": "局部修改", "value": "local_modify"},
+                        {"label": "参考图替换", "value": "reference_element_transfer"},
+                        {"label": "删除修补", "value": "remove_inpaint"},
+                        {"label": "补色校正", "value": "color_reference_correction"},
+                        {"label": "扩展画布", "value": "canvas_outpaint"},
+                    ],
+                },
+                {
+                    "name": "size",
+                    "label": "输出尺寸",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "description": "默认跟随原图/自动。",
+                    "options": GPT_IMAGE2_SIZE_OPTIONS,
+                },
+                {
+                    "name": "quality",
+                    "label": "质量档位",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "description": "preview=快速预览，production=正式候选，premium=高质量高成本。",
+                    "options": [
+                        {"label": "自动", "value": "auto"},
+                        {"label": "快速预览", "value": "preview"},
+                        {"label": "正式候选", "value": "production"},
+                        {"label": "高质量", "value": "premium"},
+                    ],
+                },
+                {
+                    "name": "output_format",
+                    "label": "输出格式",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "png",
+                    "options": [
+                        {"label": "PNG", "value": "png"},
+                        {"label": "JPEG", "value": "jpeg"},
+                        {"label": "WebP", "value": "webp"},
+                    ],
+                },
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "sessionId", "type": "text", "description": "ChatBot 会话 ID"},
+                {"name": "planId", "type": "text", "description": "确认执行的方案 ID"},
+                {"name": "runId", "type": "text", "description": "确认后创建的 image_edit 业务运行 ID"},
+                {"name": "imageUrls", "type": "array", "description": "最终 OSS 结果图"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "category_label": "图编辑",
+                "operation_label": "对话改图",
+                "variant_label": "对话改图 ChatBot",
+                "badges": ["新版", "ChatBot", "独立入口"],
+                "release_time": "2026-06-03",
+                "update_time": "2026-06-03",
+                "supports_batch": False,
+                "result_mode": "image",
+                "usage_hint": "用于验证聊天式改图：先多轮沟通生成建议，用户确认后再调用中台图编辑业务能力。",
+                "sort_order": 5,
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-06-03 拆成独立 ChatBot 能力入口，避免和直接图编辑工作台混用。",
+            },
+            "eval_execution": {
+                "mode": "business_agent",
+                "business_key": "image_edit_chat",
+                "version": "image-edit-chat-v1",
+                "agent_key": "agent.image_edit_assistant",
             },
         },
     },
@@ -1903,36 +2134,47 @@ DEFAULT_EVAL_WORKFLOW_BY_ID: dict[str, dict[str, Any]] = {
 
 def ensure_default_eval_workflow_versions(session: Session) -> bool:
     """Insert missing default workflow versions. Returns True if any created."""
-    existing = set(
-        (
-            str(row.workflow_id or "").strip(),
-            _resolve_eval_category(str(row.workflow_id or "").strip(), str(row.category or "").strip()),
+    def _insert_missing_defaults() -> bool:
+        existing = set(
+            (
+                str(row.workflow_id or "").strip(),
+                _resolve_eval_category(str(row.workflow_id or "").strip(), str(row.category or "").strip()),
+            )
+            for row in session.execute(select(EvalWorkflowVersion.workflow_id, EvalWorkflowVersion.category)).all()
         )
-        for row in session.execute(select(EvalWorkflowVersion.workflow_id, EvalWorkflowVersion.category)).all()
-    )
-    created = False
-    for item in DEFAULT_EVAL_WORKFLOW_VERSIONS:
-        workflow_id = str(item.get("workflow_id") or "").strip()
-        desired_category = _resolve_eval_category(workflow_id, str(item.get("category") or "").strip())
-        if not workflow_id or (workflow_id, desired_category) in existing:
-            continue
-        row = EvalWorkflowVersion(
-            id=uuid4().hex,
-            category=desired_category,
-            name=item["name"],
-            version=item.get("version") or "v1",
-            workflow_id=workflow_id,
-            status=item.get("status") or "active",
-            notes=item.get("notes"),
-            parameters_schema=item.get("parameters_schema"),
-            output_schema=item.get("output_schema"),
-            extra_metadata=item.get("metadata"),
-        )
-        session.add(row)
-        existing.add((workflow_id, desired_category))
-        created = True
+        inserted = False
+        for item in DEFAULT_EVAL_WORKFLOW_VERSIONS:
+            workflow_id = str(item.get("workflow_id") or "").strip()
+            desired_category = _resolve_eval_category(workflow_id, str(item.get("category") or "").strip())
+            if not workflow_id or (workflow_id, desired_category) in existing:
+                continue
+            row = EvalWorkflowVersion(
+                id=uuid4().hex,
+                category=desired_category,
+                name=item["name"],
+                version=item.get("version") or "v1",
+                workflow_id=workflow_id,
+                status=item.get("status") or "active",
+                notes=item.get("notes"),
+                parameters_schema=item.get("parameters_schema"),
+                output_schema=item.get("output_schema"),
+                extra_metadata=item.get("metadata"),
+            )
+            session.add(row)
+            existing.add((workflow_id, desired_category))
+            inserted = True
+        return inserted
+
+    created = _insert_missing_defaults()
     if created:
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            # Multiple UI/API requests can seed at the same time. Another request
+            # may have inserted the same workflow_id/category after our initial
+            # existence query; recover and continue with the normalization pass.
+            session.rollback()
+            created = False
 
     # Small safe normalizations for seeded workflows (no destructive updates):
     # - ensure ComfyUI lora field is a select with known options
@@ -1968,8 +2210,14 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                 return True
         return False
 
+    dirty = _dedupe_eval_workflow_versions(session)
+    if dirty:
+        session.commit()
+        dirty = False
+    if _insert_missing_defaults():
+        created = True
+        dirty = True
     rows = session.execute(select(EvalWorkflowVersion)).scalars().all()
-    dirty = False
     for row in rows:
         if row.workflow_id in DEPRECATED_EVAL_WORKFLOW_IDS and row.status != "inactive":
             row.status = "inactive"

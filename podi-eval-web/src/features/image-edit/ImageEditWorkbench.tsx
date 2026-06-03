@@ -59,6 +59,38 @@ const getMarkColor = (tool: ImageEditTool): string => {
   return '#16a34a';
 };
 
+const WORKBENCH_STARTER_EXAMPLES: Array<{
+  label: string;
+  title: string;
+  editSkill: string;
+  instruction: string;
+}> = [
+  {
+    label: '局部修改',
+    title: '圈住要改的位置',
+    editSkill: 'local_modify',
+    instruction: '把 @标注1 改得更精致，边缘自然融入原图，其他区域保持不变。',
+  },
+  {
+    label: '参考替换',
+    title: '用参考图换元素',
+    editSkill: 'reference_element_transfer',
+    instruction: '把 @标注1 替换成 #参考图1 的元素风格，保持原图光照和透视一致。',
+  },
+  {
+    label: '删除修补',
+    title: '去掉多余内容',
+    editSkill: 'remove_inpaint',
+    instruction: '删除 @标注1 中的多余内容，缺失区域按周围纹理自然补齐。',
+  },
+  {
+    label: '补色校正',
+    title: '统一颜色质感',
+    editSkill: 'color_reference_correction',
+    instruction: '参考 #参考图1 的色调和材质，校正主图颜色，主体结构保持不变。',
+  },
+];
+
 const clampOutpaintPixels = (value: unknown): number => {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
@@ -395,6 +427,14 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
     });
   };
 
+  const applyStarterExample = (example: (typeof WORKBENCH_STARTER_EXAMPLES)[number]) => {
+    emit({
+      editSkill: example.editSkill,
+      instruction: example.instruction,
+    });
+    if (IMAGE_EDIT_REFERENCE_REQUIRED_SKILLS.has(example.editSkill)) setReferenceFormOpen(true);
+  };
+
   const updateInstruction = (next: string) => {
     emit({ instruction: next });
     const trimmedTail = next.slice(Math.max(0, next.length - 24));
@@ -511,6 +551,25 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
         </Button>
       </div>
 
+      <div className="podi-image-edit-workbench__starter" aria-label="图编辑新手图例">
+        <div className="podi-image-edit-workbench__starter-steps">
+          {['上传主图', '标出区域', '写清目标', '提交任务'].map((item, index) => (
+            <div key={item}>
+              <span>{index + 1}</span>
+              <strong>{item}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="podi-image-edit-workbench__starter-examples">
+          {WORKBENCH_STARTER_EXAMPLES.map((example) => (
+            <button key={example.title} type="button" onClick={() => applyStarterExample(example)}>
+              <span>{example.label}</span>
+              <strong>{example.title}</strong>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="podi-image-edit-workbench__editor-shell">
         <div className="podi-image-edit-workbench__workspace-bar">
           <div className="podi-image-edit-workbench__zoom-controls" aria-label="画布缩放">
@@ -543,20 +602,22 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                 <Button variant="outline" loading={uploading} onClick={() => imageInputRef.current?.click()}>
                   上传主图
                 </Button>
-                <input
-                  ref={imageInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  disabled={uploading}
-                  onChange={async (event) => {
-                    try {
-                      await uploadMainImage(event.target.files?.[0]);
-                    } finally {
-                      event.currentTarget.value = '';
-                    }
-                  }}
-                />
+	                <input
+	                  ref={imageInputRef}
+	                  type="file"
+	                  accept="image/*"
+	                  style={{ display: 'none' }}
+	                  disabled={uploading}
+	                  onChange={async (event) => {
+	                    const input = event.currentTarget;
+	                    const file = input.files?.[0];
+	                    try {
+	                      await uploadMainImage(file);
+	                    } finally {
+	                      input.value = '';
+	                    }
+	                  }}
+	                />
               </div>
 
               {isCanvasOutpaint ? (
@@ -890,20 +951,22 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                     </div>
                   </div>
                 ) : null}
-                <input
-                  ref={referenceInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  disabled={uploading}
-                  onChange={async (event) => {
-                    try {
-                      await uploadReferenceImage(event.target.files?.[0]);
-                    } finally {
-                      event.currentTarget.value = '';
-                    }
-                  }}
-                />
+	                <input
+	                  ref={referenceInputRef}
+	                  type="file"
+	                  accept="image/*"
+	                  style={{ display: 'none' }}
+	                  disabled={uploading}
+	                  onChange={async (event) => {
+	                    const input = event.currentTarget;
+	                    const file = input.files?.[0];
+	                    try {
+	                      await uploadReferenceImage(file);
+	                    } finally {
+	                      input.value = '';
+	                    }
+	                  }}
+	                />
                 {selectedReferenceUrl ? (
                   <div className="podi-image-edit-workbench__ref-preview">
                     <div className="podi-image-edit-workbench__ref-preview-toolbar">

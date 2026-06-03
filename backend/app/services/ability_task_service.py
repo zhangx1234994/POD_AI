@@ -25,7 +25,7 @@ from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_logs import ability_log_service
 from app.services.integration_test import integration_test_service
 from app.services.api_key_selector import build_vendor_credentials
-from app.services.runtime_safety import log_background_worker_decision
+from app.services.runtime_safety import log_background_worker_decision, suppress_background_threads_for_tests
 from app.services.task_id_codec import decode_task_id
 from app.services.task_status_contract import derive_ability_task_status
 from app.services.vendor_api_client import vendor_api_client
@@ -70,6 +70,9 @@ class AbilityTaskService:
         configured_workers = max(1, settings.ability_task_max_workers)
         max_workers = self._recommended_worker_pool_size(configured_workers)
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        if suppress_background_threads_for_tests():
+            logger.warning("AbilityTaskService passive background threads disabled for pytest")
+            return
         self._cleanup_stale_running_tasks()
         self._start_cleanup_thread()
         self._start_finalize_thread()

@@ -230,7 +230,7 @@ backend/.venv/bin/python backend/scripts/morning_ops_check.py \
 backend/.venv/bin/python backend/scripts/patrol_business_api.py \
   --base-url http://127.0.0.1:8099 \
   --mode live \
-  --business pattern_extract,fission,outpaint \
+  --business pattern_extract,fission,product_design,image_edit,outpaint,text_fission \
   --image-url "$PATROL_IMAGE_URL" \
   --timeout 1200 \
   --interval 10 \

@@ -1999,6 +1999,7 @@ const businessQualityInputTags = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'pattern_extract') return ['平铺花纹', '复杂背景', '布料纹理'];
   if (key === 'fission') return ['主体清晰', '满版图案', '颜色敏感'];
+  if (key === 'product_design') return ['服装面料', '家纺软装', '电商主图'];
   if (key === 'image_edit') return ['局部修改', '参考图约束', '画布扩展'];
   if (key === 'outpaint') return ['四边扩展', '单边扩展', '比例变化'];
   if (key === 'text_fission') return ['中文文字', '英文数字', '版式复刻'];
@@ -2009,6 +2010,7 @@ const businessQualityIssueTags = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'pattern_extract') return ['主体残留', '边缘脏污', '纹理断裂', '颜色偏移'];
   if (key === 'fission') return ['结构偏移', '主体变形', '图案密度变化', '色差过大'];
+  if (key === 'product_design') return ['图案贴合差', '产品结构错误', '材质不真实', '商业感不足'];
   if (key === 'image_edit') return ['指令未执行', '参考图丢失', '局部边缘不自然', '原图被误改'];
   if (key === 'outpaint') return ['接缝明显', '背景穿帮', '主体拉伸', '比例失真'];
   if (key === 'text_fission') return ['文字错字', '版式漂移', '笔画糊化', '语义丢失'];
@@ -2019,6 +2021,7 @@ const businessQualitySamplePlan = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'pattern_extract') return '每轮至少 3 张：干净花纹、复杂背景、布料纹理。';
   if (key === 'fission') return '每轮至少 5 张：单主体、满版图案、颜色敏感、复杂纹理、业务真实图。';
+  if (key === 'product_design') return '每轮至少 5 张：服装、家纺、箱包、包装、电商主图。';
   if (key === 'image_edit') return '每轮至少 5 张：删除、替换、补色、参考图、扩展画布。';
   if (key === 'outpaint') return '每轮至少 4 张：四边、单边、横向、纵向扩展。';
   if (key === 'text_fission') return '每轮至少 3 张：中文密集、英文数字、低对比文字。';
@@ -3413,6 +3416,131 @@ function BusinessRunApiUsageEvidenceCard({
   );
 }
 
+const businessAgentStatusLabel = (value?: string | null) => {
+  if (value === 'collecting_context') return '收集上下文';
+  if (value === 'awaiting_confirmation') return '等待确认';
+  if (value === 'confirming') return '确认中';
+  if (value === 'running') return '已提交执行';
+  if (value === 'executed') return '已执行';
+  if (value === 'failed') return '失败';
+  if (value === 'submitted') return '已提交';
+  if (value === 'queued') return '已排队';
+  return value || '未记录';
+};
+
+const businessAgentStatusTheme = (value?: string | null): 'success' | 'warning' | 'danger' | 'default' => {
+  if (value === 'running' || value === 'executed' || value === 'submitted') return 'success';
+  if (value === 'awaiting_confirmation' || value === 'confirming' || value === 'queued') return 'warning';
+  if (value === 'failed') return 'danger';
+  return 'default';
+};
+
+function BusinessRunAgentTraceCard({
+  detail,
+  formatDateTime,
+}: {
+  detail: BusinessRun;
+  formatDateTime: (value?: string | null) => string;
+}) {
+  const trace = detail.agentTrace;
+  if (!trace?.sessionId && !trace?.planId && !trace?.toolCallId) return null;
+  const warnings = Array.isArray(trace.warnings) ? trace.warnings.filter(Boolean) : [];
+  return (
+    <Card bordered title="Agent 来源证据">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Alert
+          theme={trace.toolCallStatus === 'failed' || trace.planStatus === 'failed' ? 'warning' : 'info'}
+          message={
+            trace.planSummary ||
+            '这条业务 run 由对话式 Agent 确认后创建；排障时先看方案和工具调用，再看下方业务执行步骤。'
+          }
+        />
+        <Row gutter={[12, 12]}>
+          <Col span={6}>
+            <Typography.Text theme="secondary">Agent 会话</Typography.Text>
+            <Space direction="vertical" size={2}>
+              <Typography.Text code>{formatShortBusinessId(trace.sessionId)}</Typography.Text>
+              <Tag variant="light" theme={businessAgentStatusTheme(trace.sessionStatus)}>
+                {businessAgentStatusLabel(trace.sessionStatus)}
+              </Tag>
+            </Space>
+          </Col>
+          <Col span={6}>
+            <Typography.Text theme="secondary">方案</Typography.Text>
+            <Space direction="vertical" size={2}>
+              <Typography.Text>{trace.planTitle || '未记录方案标题'}</Typography.Text>
+              <Space size={4} breakLine>
+                <Tag variant="light" theme={businessAgentStatusTheme(trace.planStatus)}>
+                  {businessAgentStatusLabel(trace.planStatus)}
+                </Tag>
+                {trace.riskLevel ? <Tag variant="light">风险 {trace.riskLevel}</Tag> : null}
+                {trace.estimatedCostLevel ? <Tag variant="light">成本 {trace.estimatedCostLevel}</Tag> : null}
+              </Space>
+            </Space>
+          </Col>
+          <Col span={6}>
+            <Typography.Text theme="secondary">工具调用</Typography.Text>
+            <Space direction="vertical" size={2}>
+              <Typography.Text>{trace.toolName || 'business.image_edit'}</Typography.Text>
+              <Tag variant="light" theme={businessAgentStatusTheme(trace.toolCallStatus)}>
+                {businessAgentStatusLabel(trace.toolCallStatus)}
+              </Tag>
+            </Space>
+          </Col>
+          <Col span={6}>
+            <Typography.Text theme="secondary">Planner</Typography.Text>
+            <Typography.Text>
+              {trace.plannerMode || '未记录'} · {trace.plannerModel || '—'}
+            </Typography.Text>
+          </Col>
+          <Col span={6}>
+            <Typography.Text theme="secondary">参数</Typography.Text>
+            <Typography.Text>
+              {trace.editSkill || '图编辑'} · {trace.quality || 'auto'} · {trace.size || 'auto'} · {trace.outputFormat || 'png'}
+            </Typography.Text>
+          </Col>
+          <Col span={6}>
+            <Typography.Text theme="secondary">入口</Typography.Text>
+            <Typography.Text>
+              {businessSourceLabel(trace.entrySource || detail.source)} · {trace.channel || detail.channel || '未标记渠道'}
+            </Typography.Text>
+          </Col>
+          <Col span={6}>
+            <Typography.Text theme="secondary">确认 / 执行</Typography.Text>
+            <Typography.Text>
+              {formatDateTime(trace.confirmedAt)} / {formatDateTime(trace.executedAt)}
+            </Typography.Text>
+          </Col>
+          <Col span={6}>
+            <Typography.Text theme="secondary">请求追踪</Typography.Text>
+            <Typography.Text>{formatShortBusinessId(trace.traceId || trace.requestId)}</Typography.Text>
+          </Col>
+          {trace.instruction ? (
+            <Col span={24}>
+              <Typography.Text theme="secondary">执行指令</Typography.Text>
+              <Typography.Paragraph ellipsis={{ row: 2, expandable: true, collapsible: true }}>
+                {trace.instruction}
+              </Typography.Paragraph>
+            </Col>
+          ) : null}
+          {warnings.length > 0 ? (
+            <Col span={24}>
+              <Typography.Text theme="secondary">方案提醒</Typography.Text>
+              <Space breakLine size={4}>
+                {warnings.map((item, index) => (
+                  <Tag key={`${item}-${index}`} variant="light" theme="warning">
+                    {item}
+                  </Tag>
+                ))}
+              </Space>
+            </Col>
+          ) : null}
+        </Row>
+      </Space>
+    </Card>
+  );
+}
+
 function BusinessRunStepEvidenceCards({ steps }: { steps?: BusinessRunStep[] | null }) {
   const visibleSteps = steps || [];
   if (visibleSteps.length === 0) {
@@ -4774,6 +4902,7 @@ export const BusinessRunHistoryPanel = ({
           />
           <BusinessRunParentTaskCard detail={detail} formatDateTime={formatDateTime} />
           <BusinessRunApiUsageEvidenceCard detail={detail} formatDateTime={formatDateTime} />
+          <BusinessRunAgentTraceCard detail={detail} formatDateTime={formatDateTime} />
           <Row gutter={[12, 12]}>
             <Col span={6}>
               <Typography.Text theme="secondary">业务调用</Typography.Text>
@@ -6717,6 +6846,7 @@ const businessCapabilityGroupHint = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'pattern_extract') return '从原图中提取可复用花纹资产，是后续裂变和扩图的上游入口。';
   if (key === 'fission') return '围绕原图生成多张变化图，是当前最核心的业务入口。';
+  if (key === 'product_design') return '把花纹或素材上到具体产品载体，输出可评估的产品设计图。';
   if (key === 'image_edit') return '通用改图组件入口，承接主图、标注、参考图、蒙版和编辑指令。';
   if (key === 'fission_evaluate') return '评估裂变结果质量和逻辑合理性，作为图裂变的质检接口。';
   if (key === 'outpaint') return '在原图基础上向外扩展画面，主要服务构图补全和素材延展。';
@@ -6724,12 +6854,13 @@ const businessCapabilityGroupHint = (businessKey?: string | null) => {
   return '承载一个对业务方稳定暴露的功能入口，底层能力可以独立换版本。';
 };
 
-const businessOrchestrationKeys = ['pattern_extract', 'fission', 'image_edit', 'outpaint', 'text_fission'] as const;
+const businessOrchestrationKeys = ['pattern_extract', 'fission', 'product_design', 'image_edit', 'outpaint', 'text_fission'] as const;
 
 const businessApiEntryPath = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'pattern_extract') return '/api/business/pattern-extract/runs';
   if (key === 'fission') return '/api/business/fission/runs';
+  if (key === 'product_design') return '/api/business/product-design/runs';
   if (key === 'image_edit') return '/api/business/image-edit/runs';
   if (key === 'fission_evaluate') return '/api/business/fission-evaluate/runs';
   if (key === 'outpaint') return '/api/business/outpaint/runs';
@@ -6743,6 +6874,7 @@ const businessDraftRunRequiresGeneratedImage = (businessKey?: string | null) =>
 const businessEntryUsageHint = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
   if (key === 'fission') return '业务方、测评端和新的 Coze 工具箱都应收敛到这里，再由中台切版本。';
+  if (key === 'product_design') return '客户端可把它编排到端到端链路；中台只管理能力、版本、路由和质量。';
   if (key === 'image_edit') return '业务方可嵌入托管组件或源码组件；两者都调用同一个中台业务 API。';
   if (key === 'fission_evaluate') return '通常在裂变完成后调用，用于判断结果是否可用或是否需要重跑。';
   if (key === 'pattern_extract') return '作为素材生产上游入口，可被裂变、扩图或人工流程复用。';
@@ -6988,6 +7120,7 @@ const businessCapabilityMediaLabel = (item: BusinessCapability) => {
   const key = canonicalBusinessKey(item.businessKey);
   if (key === 'pattern_extract') return '输入图片 · 输出花纹图';
   if (key === 'fission') return '输入图片 · 输出多张图';
+  if (key === 'product_design') return '输入素材/花纹 · 输出产品设计图';
   if (key === 'image_edit') return '输入主图/参考图 · 输出改图结果';
   if (key === 'fission_evaluate') return '输入原图和结果图 · 输出评分';
   if (key === 'outpaint') return '输入图片 · 输出扩展图';
@@ -7963,6 +8096,420 @@ function BusinessCapabilityTechnicalDetails({ item }: { item: BusinessCapability
   );
 }
 
+type BusinessAbilityGovernanceRow = {
+  businessKey: string;
+  items: BusinessCapability[];
+  defaultItem?: BusinessCapability;
+  activeCount: number;
+  candidateCount: number;
+  rollbackReadyCount: number;
+  hasPendingApproval: boolean;
+  bucket?: ReturnType<typeof businessUsageBucketForKey>;
+  unresolvedBucket?: ReturnType<typeof businessUnresolvedBucketForKey>;
+  quality?: BusinessOutputReviewSummaryResponse['byBusiness'][number];
+  status: {
+    theme: 'success' | 'warning' | 'danger' | 'default';
+    label: string;
+    detail: string;
+    action: string;
+  };
+};
+
+const businessQualitySummaryForKey = (
+  qualitySummary: BusinessOutputReviewSummaryResponse | null | undefined,
+  businessKey: string,
+) => qualitySummary?.byBusiness?.find((item) => canonicalBusinessKey(item.businessKey) === canonicalBusinessKey(businessKey));
+
+const businessAbilityGovernanceStatus = ({
+  defaultItem,
+  activeCount,
+  candidateCount,
+  rollbackReadyCount,
+  hasPendingApproval,
+  bucket,
+  unresolvedBucket,
+  quality,
+}: {
+  defaultItem?: BusinessCapability;
+  activeCount: number;
+  candidateCount: number;
+  rollbackReadyCount: number;
+  hasPendingApproval: boolean;
+  bucket?: ReturnType<typeof businessUsageBucketForKey>;
+  unresolvedBucket?: ReturnType<typeof businessUnresolvedBucketForKey>;
+  quality?: BusinessOutputReviewSummaryResponse['byBusiness'][number];
+}): BusinessAbilityGovernanceRow['status'] => {
+  const unresolvedCount = Number(unresolvedBucket?.total || 0);
+  const qualityRiskCount = Number(quality?.borderline || 0) + Number(quality?.bad || 0) + Number(quality?.blocked || 0);
+  if (!defaultItem) {
+    return {
+      theme: 'danger',
+      label: '缺默认能力',
+      detail: '客户端和业务方没有稳定入口。',
+      action: '先创建或指定一个 active 默认版本。',
+    };
+  }
+  if (defaultItem.status !== 'active') {
+    return {
+      theme: 'danger',
+      label: '默认未启用',
+      detail: '默认版本不会承接新的业务请求。',
+      action: '启用默认版本，或切换到可用版本。',
+    };
+  }
+  if (!defaultItem.primaryAbilityId && !defaultItem.primaryAbilityName) {
+    return {
+      theme: 'danger',
+      label: '缺执行能力',
+      detail: '业务能力没有绑定底层原子能力。',
+      action: '先补主执行能力和配方，再跑验收。',
+    };
+  }
+  if (defaultItem.governanceStatus === 'blocker' || defaultItem.releaseGate?.status === 'blocked') {
+    return {
+      theme: 'danger',
+      label: '门禁阻塞',
+      detail: defaultItem.releaseGate?.suggestions?.[0] || defaultItem.governanceSuggestions?.[0] || '底层能力或上线门禁未通过。',
+      action: '先补验收、密钥、模型或质量证据。',
+    };
+  }
+  if (unresolvedCount > 0 || defaultItem.latestRun?.error) {
+    return {
+      theme: 'warning',
+      label: '调用需复核',
+      detail: unresolvedCount > 0 ? `${unresolvedCount} 条问题未被后续成功覆盖。` : '最近一次真实调用失败。',
+      action: '下钻到业务调用，按 runId 看失败步骤。',
+    };
+  }
+  if (qualityRiskCount > 0) {
+    return {
+      theme: 'warning',
+      label: '质量需优化',
+      detail: `质量复盘中有 ${qualityRiskCount} 条边界/差样本。`,
+      action: '进入质量样例，决定分流、换模型、换 LoRA 或调参数。',
+    };
+  }
+  if (Number(bucket?.callbackFailed || 0) > 0) {
+    return {
+      theme: 'warning',
+      label: '回填风险',
+      detail: '生成可能成功，但结果回填给业务方有失败样本。',
+      action: '先处理回填失败，再对外承诺稳定。',
+    };
+  }
+  if (defaultItem.modelCostConfigured === false || Number(bucket?.unpriced || 0) > 0) {
+    return {
+      theme: 'warning',
+      label: '成本未齐',
+      detail: '能力可跑，但成本口径不完整。',
+      action: '补模型计价和业务成本映射。',
+    };
+  }
+  if (hasPendingApproval) {
+    return {
+      theme: 'warning',
+      label: '默认切换中',
+      detail: '存在默认版本审批，线上口径还不能按新版本说明。',
+      action: '先完成审批或撤回切换。',
+    };
+  }
+  if (candidateCount === 0 || rollbackReadyCount === 0 || activeCount < 2) {
+    return {
+      theme: 'warning',
+      label: '缺备选',
+      detail: '默认版本可用，但缺少可灰度或可回滚版本。',
+      action: '保留一个候选版本或回滚版本。',
+    };
+  }
+  return {
+    theme: 'success',
+    label: '可迭代',
+    detail: '默认、调用、质量和备选版本均有基本证据。',
+    action: '继续按样例和真实调用小步优化。',
+  };
+};
+
+const buildBusinessAbilityGovernanceRows = ({
+  capabilities,
+  pendingApprovals,
+  summary,
+  qualitySummary,
+}: {
+  capabilities: BusinessCapability[];
+  pendingApprovals: BusinessDefaultApproval[];
+  summary?: BusinessUsageSummaryResponse | null;
+  qualitySummary?: BusinessOutputReviewSummaryResponse | null;
+}): BusinessAbilityGovernanceRow[] => {
+  const keySet = new Set<string>();
+  businessOrchestrationKeys.forEach((key) => keySet.add(key));
+  capabilities.forEach((item) => {
+    const key = canonicalBusinessKey(item.businessKey);
+    if (key) keySet.add(key);
+  });
+  (summary?.byBusiness || []).forEach((item) => {
+    const key = canonicalBusinessKey(item.key);
+    if (key) keySet.add(key);
+  });
+  (qualitySummary?.byBusiness || []).forEach((item) => {
+    const key = canonicalBusinessKey(item.businessKey);
+    if (key) keySet.add(key);
+  });
+
+  return Array.from(keySet)
+    .sort((left, right) => {
+      const diff = businessCapabilityGroupSortValue(left) - businessCapabilityGroupSortValue(right);
+      return diff !== 0 ? diff : businessKeyLabel(left).localeCompare(businessKeyLabel(right));
+    })
+    .map((businessKey) => {
+      const items = capabilities
+        .filter((item) => canonicalBusinessKey(item.businessKey) === businessKey)
+        .slice()
+        .sort((left, right) => {
+          if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+          if (left.status !== right.status) return left.status === 'active' ? -1 : 1;
+          const lineDiff = businessCapabilityVersionLine(left).priority - businessCapabilityVersionLine(right).priority;
+          if (lineDiff !== 0) return lineDiff;
+          return String(right.releaseTime || right.updatedAt || right.createdAt || '').localeCompare(
+            String(left.releaseTime || left.updatedAt || left.createdAt || ''),
+          );
+        });
+      const defaultItem = items.find((item) => item.isDefault);
+      const activeItems = items.filter((item) => item.status === 'active');
+      const candidateCount = activeItems.filter((item) => !item.isDefault).length;
+      const rollbackReadyCount = activeItems.filter((item) => !item.isDefault && businessCapabilityHasRollbackEvidence(item)).length;
+      const bucket = businessUsageBucketForKey(summary, businessKey);
+      const unresolvedBucket = businessUnresolvedBucketForKey(summary, businessKey);
+      const quality = businessQualitySummaryForKey(qualitySummary, businessKey);
+      const hasPendingApproval = pendingApprovals.some(
+        (item) => canonicalBusinessKey(item.businessKey) === businessKey && item.status === 'pending',
+      );
+      return {
+        businessKey,
+        items,
+        defaultItem,
+        activeCount: activeItems.length,
+        candidateCount,
+        rollbackReadyCount,
+        hasPendingApproval,
+        bucket,
+        unresolvedBucket,
+        quality,
+        status: businessAbilityGovernanceStatus({
+          defaultItem,
+          activeCount: activeItems.length,
+          candidateCount,
+          rollbackReadyCount,
+          hasPendingApproval,
+          bucket,
+          unresolvedBucket,
+          quality,
+        }),
+      };
+    });
+};
+
+export const BusinessAbilityGovernancePanel = ({
+  capabilities,
+  pendingApprovals,
+  summary,
+  qualitySummary,
+  formatDateTime,
+}: {
+  capabilities: BusinessCapability[];
+  pendingApprovals: BusinessDefaultApproval[];
+  summary?: BusinessUsageSummaryResponse | null;
+  qualitySummary?: BusinessOutputReviewSummaryResponse | null;
+  formatDateTime: (value?: string | null) => string;
+}) => {
+  const rows = useMemo(
+    () => buildBusinessAbilityGovernanceRows({ capabilities, pendingApprovals, summary, qualitySummary }),
+    [capabilities, pendingApprovals, summary, qualitySummary],
+  );
+  const blockedCount = rows.filter((row) => row.status.theme === 'danger').length;
+  const warningCount = rows.filter((row) => row.status.theme === 'warning').length;
+  const readyCount = rows.filter((row) => row.status.theme === 'success').length;
+  const totalCalls = rows.reduce((total, row) => total + Number(row.bucket?.total || 0), 0);
+  const totalFailures = rows.reduce((total, row) => total + Number(row.bucket?.failed || 0), 0);
+  const totalQualityRisk = rows.reduce(
+    (total, row) => total + Number(row.quality?.borderline || 0) + Number(row.quality?.bad || 0) + Number(row.quality?.blocked || 0),
+    0,
+  );
+  const windowHours = Number(summary?.windowHours || 24);
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Card
+        bordered
+        title={
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>能力治理总览</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  先按能力判断版本、路由、质量、成本、回滚和下一步动作；项目证据只作为下钻。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag theme={blockedCount > 0 ? 'danger' : warningCount > 0 ? 'warning' : 'success'} variant="light">
+              {readyCount}/{rows.length} 可迭代
+            </Tag>
+          </Space>
+        }
+      >
+        <Row gutter={[12, 12]}>
+          <Col xs={12} sm={6} lg={3}>
+            <BusinessMetricCard label="纳管能力" value={rows.length} sub={`默认缺失 ${rows.filter((row) => !row.defaultItem).length}`} />
+          </Col>
+          <Col xs={12} sm={6} lg={3}>
+            <BusinessMetricCard label="阻塞 / 需复核" value={`${blockedCount} / ${warningCount}`} sub="按能力聚合" />
+          </Col>
+          <Col xs={12} sm={6} lg={3}>
+            <BusinessMetricCard label={`近 ${windowHours}h 调用`} value={totalCalls} sub={`失败 ${totalFailures}`} />
+          </Col>
+          <Col xs={12} sm={6} lg={3}>
+            <BusinessMetricCard label="质量风险" value={totalQualityRisk} sub={`已标注 ${qualitySummary?.total || 0}`} />
+          </Col>
+        </Row>
+        {rows.length === 0 ? (
+          <Alert theme="warning" style={{ marginTop: 12 }} message="当前没有业务能力版本数据，请先进入版本管理新增业务能力。" />
+        ) : null}
+      </Card>
+
+      <Card bordered>
+        <Table
+          size="small"
+          rowKey="businessKey"
+          data={rows}
+          columns={[
+            {
+              colKey: 'ability',
+              title: '能力',
+              minWidth: 260,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Space size={6} breakLine>
+                    <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                    <Tag theme={row.status.theme as any} variant="light">
+                      {row.status.label}
+                    </Tag>
+                  </Space>
+                  <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
+                  <Typography.Text code>{businessApiEntryPath(row.businessKey)}</Typography.Text>
+                </Space>
+              ),
+            },
+            {
+              colKey: 'version',
+              title: '默认与备选',
+              minWidth: 260,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Typography.Text strong>{businessCapabilityVersionRoleLabel(row.defaultItem)}</Typography.Text>
+                  <Typography.Text theme="secondary">
+                    {row.defaultItem ? `版本 ${row.defaultItem.version} · ${businessCapabilityMediaLabel(row.defaultItem)}` : '还没有默认版本'}
+                  </Typography.Text>
+                  <Space size={6} breakLine>
+                    <Tag theme={row.defaultItem?.status === 'active' ? 'success' : 'default'} variant="light" size="small">
+                      启用 {row.activeCount}/{row.items.length}
+                    </Tag>
+                    <Tag theme={row.candidateCount > 0 ? 'primary' : 'warning'} variant="light" size="small">
+                      候选 {row.candidateCount}
+                    </Tag>
+                    <Tag theme={row.rollbackReadyCount > 0 ? 'success' : 'warning'} variant="light" size="small">
+                      可回滚 {row.rollbackReadyCount}
+                    </Tag>
+                    {row.hasPendingApproval ? (
+                      <Tag theme="warning" variant="light" size="small">
+                        默认审批中
+                      </Tag>
+                    ) : null}
+                  </Space>
+                </Space>
+              ),
+            },
+            {
+              colKey: 'runtime',
+              title: `近 ${windowHours}h 调用`,
+              minWidth: 190,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Typography.Text>
+                    {row.bucket?.total || 0} 次 · 成功率 {formatRatePercent(row.bucket?.successRate)}
+                  </Typography.Text>
+                  <Typography.Text theme={Number(row.unresolvedBucket?.total || 0) > 0 ? 'warning' : 'secondary'}>
+                    成功 {row.bucket?.succeeded || 0} · 失败 {row.bucket?.failed || 0} · 未恢复 {row.unresolvedBucket?.total || 0}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">
+                    排队/运行 {Number(row.bucket?.queued || 0) + Number(row.bucket?.running || 0)}
+                  </Typography.Text>
+                </Space>
+              ),
+            },
+            {
+              colKey: 'qualityCost',
+              title: '质量与成本',
+              minWidth: 220,
+              cell: ({ row }) => {
+                const qualityRisk = Number(row.quality?.borderline || 0) + Number(row.quality?.bad || 0) + Number(row.quality?.blocked || 0);
+                return (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text theme={qualityRisk > 0 ? 'warning' : 'secondary'}>
+                      质量：标注 {row.quality?.reviewed || 0} · 可用 {Number(row.quality?.excellent || 0) + Number(row.quality?.usable || 0)} · 风险 {qualityRisk}
+                    </Typography.Text>
+                    <Typography.Text theme="secondary">成本：{formatCurrencyTotals(row.bucket?.costByCurrency)}</Typography.Text>
+                    <Typography.Text theme={Number(row.bucket?.unpriced || 0) > 0 ? 'warning' : 'secondary'}>
+                      未计价 {row.bucket?.unpriced || 0}
+                    </Typography.Text>
+                  </Space>
+                );
+              },
+            },
+            {
+              colKey: 'evidence',
+              title: '门禁证据',
+              minWidth: 230,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Space size={6} breakLine>
+                    <Tag theme={businessReleaseGateStatusTheme(row.defaultItem?.releaseGate?.status)} variant="light" size="small">
+                      {row.defaultItem?.releaseGate?.label || businessReleaseGateLabel(row.defaultItem?.releaseGate?.status)}
+                    </Tag>
+                    <Tag theme={businessAcceptanceStatusTheme(row.defaultItem?.latestAcceptance?.status)} variant="light" size="small">
+                      {businessAcceptanceStatusLabel(row.defaultItem?.latestAcceptance?.status)}
+                    </Tag>
+                  </Space>
+                  <Typography.Text theme={row.defaultItem?.latestRun?.error ? 'error' : 'secondary'}>
+                    {row.defaultItem ? businessCapabilityLatestRunLabel(row.defaultItem) : '暂无真实样本'}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">
+                    {row.defaultItem?.latestRun
+                      ? formatDateTime(row.defaultItem.latestRun.finishedAt || row.defaultItem.latestRun.createdAt)
+                      : '还没有运行证据'}
+                  </Typography.Text>
+                </Space>
+              ),
+            },
+            {
+              colKey: 'next',
+              title: '当前要做',
+              minWidth: 280,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Typography.Text theme={row.status.theme === 'danger' ? 'error' : row.status.theme === 'warning' ? 'warning' : 'secondary'}>
+                    {row.status.detail}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">{row.status.action}</Typography.Text>
+                </Space>
+              ),
+            },
+          ]}
+          empty={<Typography.Text theme="secondary">暂无业务能力治理数据。</Typography.Text>}
+        />
+      </Card>
+    </Space>
+  );
+};
+
 type BusinessFixedSamplePreset = {
   key: string;
   label: string;
@@ -8018,6 +8565,15 @@ const businessFixedSamplePresets = (businessKey?: string | null): BusinessFixedS
       { key: 'color-sensitive', label: '颜色敏感', hint: '品牌色或强色块，检查色差。' },
       { key: 'complex-texture', label: '复杂纹理', hint: '复杂纹理，检查主体变形。' },
       { key: 'business-real', label: '业务真实图', hint: '线上真实样例，检查最终业务可用性。' },
+    ];
+  }
+  if (key === 'product_design') {
+    return [
+      { key: 'apparel-pattern', label: '服装面料', hint: '检查图案上身比例、褶皱贴合和商业展示感。', inputs: { productType: 'apparel', scene: 'studio_product' } },
+      { key: 'home-textile', label: '家纺软装', hint: '检查抱枕/床品/窗帘材质和花纹贴合。', inputs: { productType: 'home_textile', scene: 'print_mockup' } },
+      { key: 'bag-mockup', label: '箱包 mockup', hint: '检查包型结构、图案裁切和边缘透视。', inputs: { productType: 'bag', scene: 'studio_product' } },
+      { key: 'packaging', label: '包装设计', hint: '检查包装结构、版面清晰度和图案应用。', inputs: { productType: 'packaging', scene: 'ecommerce' } },
+      { key: 'lifestyle', label: '生活方式', hint: '检查场景合理性，避免主体被弱化或过度装饰。', inputs: { productType: 'generic', scene: 'lifestyle' } },
     ];
   }
   if (key === 'image_edit') {

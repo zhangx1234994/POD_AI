@@ -227,6 +227,7 @@ import {
   AuthPanel,
   BillingPanel,
   BindingRoutesPanel,
+  BusinessAbilityGovernancePanel,
   BusinessActionPanel,
   BusinessCapabilityEditorDialog,
   BusinessCapabilityGrid,
@@ -263,13 +264,14 @@ import {
 } from '../features/admin/integration/lazyPanels';
 import { ActionBar, ErrorState, PageHeader } from '../features/admin/shared/ui';
 
-type BusinessWorkspaceTab = 'runs' | 'map' | 'versions' | 'governance';
+type BusinessWorkspaceTab = 'governance' | 'runs' | 'map' | 'versions' | 'operations';
 
 const businessWorkspaceTabs: Array<{ label: string; value: BusinessWorkspaceTab }> = [
+  { label: '能力治理', value: 'governance' },
   { label: '业务调用', value: 'runs' },
   { label: '业务链路', value: 'map' },
   { label: '版本管理', value: 'versions' },
-  { label: '治理记录', value: 'governance' },
+  { label: '变更治理', value: 'operations' },
 ];
 
 const businessWorkspaceTabValues = new Set(businessWorkspaceTabs.map((item) => item.value));
@@ -1485,7 +1487,7 @@ export function IntegrationDashboard({
   const [businessOutputReviewFocus, setBusinessOutputReviewFocus] = useState<{ runId: string; outputIndex: number } | null>(null);
   const [focusedBusinessRunId, setFocusedBusinessRunId] = useState<string>(() => readBusinessRunIdFromHash());
   const [businessRunAutoRefresh, setBusinessRunAutoRefresh] = useState(true);
-  const [businessWorkspaceTab, setBusinessWorkspaceTab] = useState<BusinessWorkspaceTab>(() => readBusinessWorkspaceTabFromHash() ?? 'runs');
+  const [businessWorkspaceTab, setBusinessWorkspaceTab] = useState<BusinessWorkspaceTab>(() => readBusinessWorkspaceTabFromHash() ?? 'governance');
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
   const [businessForm, setBusinessForm] = useState<BusinessCapabilityFormState>(defaultBusinessCapabilityForm);
   const [businessFormError, setBusinessFormError] = useState<string | null>(null);
@@ -6605,10 +6607,10 @@ const extractErrorMessage = (error: unknown): string => {
                   <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                     <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
                       <div>
-                        <Typography.Text strong>业务工作台</Typography.Text>
-                        <div>
-                          <Typography.Text theme="secondary">
-                            默认先看业务调用；链路、版本和治理分开处理，避免所有信息挤在一个页面。
+                          <Typography.Text strong>业务工作台</Typography.Text>
+                          <div>
+                            <Typography.Text theme="secondary">
+                            默认先看能力治理；调用、链路、版本和变更记录按需下钻。
                           </Typography.Text>
                         </div>
                       </div>
@@ -6630,16 +6632,27 @@ const extractErrorMessage = (error: unknown): string => {
                       list={businessWorkspaceTabs}
                     />
                     <Typography.Text theme="secondary">
-                      {businessWorkspaceTab === 'runs'
-                        ? '排查业务是否跑通时，只看这里的一条 runId。VL、生成、评分、回填、回调都是这条调用下面的处理步骤。'
-                        : businessWorkspaceTab === 'map'
-                          ? '这里看每个业务入口当前用哪个版本、由哪些组件组成、最近是否跑通过。'
-                          : businessWorkspaceTab === 'versions'
-                            ? '这里管理业务版本、默认入口、草稿试运行和验收记录。'
-                            : '这里处理发布门禁、默认切换、回滚、复测和操作记录。'}
+                      {businessWorkspaceTab === 'governance'
+                        ? '这里先按能力判断默认版本、质量、调用、成本、回滚和下一步动作。'
+                        : businessWorkspaceTab === 'runs'
+                          ? '排查业务是否跑通时，只看这里的一条 runId。VL、生成、评分、回填、回调都是这条调用下面的处理步骤。'
+                          : businessWorkspaceTab === 'map'
+                            ? '这里看每个业务入口当前用哪个版本、由哪些组件组成、最近是否跑通过。'
+                            : businessWorkspaceTab === 'versions'
+                              ? '这里管理业务版本、默认入口、草稿试运行和验收记录。'
+                              : '这里处理发布门禁、默认切换、回滚、复测和操作记录。'}
                     </Typography.Text>
                   </Space>
                 </Card>
+                {businessWorkspaceTab === 'governance' ? (
+                  <BusinessAbilityGovernancePanel
+                    capabilities={businessCapabilities}
+                    pendingApprovals={businessDefaultApprovals}
+                    summary={businessUsageSummary}
+                    qualitySummary={businessOutputReviewSummary}
+                    formatDateTime={formatDateTime}
+                  />
+                ) : null}
                 {businessWorkspaceTab === 'runs' ? (
                   <>
                     <BusinessEntryCommandPanel
@@ -6738,7 +6751,7 @@ const extractErrorMessage = (error: unknown): string => {
                     />
                   </>
                 ) : null}
-                {businessWorkspaceTab === 'governance' ? (
+                {businessWorkspaceTab === 'operations' ? (
                   <>
                     <BusinessActionPanel
                       capabilities={businessCapabilities}

@@ -166,6 +166,24 @@
 | IMAGE_EDIT_MASK_ALPHA_REQUIRED | 图编辑蒙版缺少 Alpha 通道 | 400，mask 必须是有效透明蒙版 |
 | IMAGE_EDIT_QUALITY_INVALID | 图编辑质量档位非法 | 400，允许 `auto` / `preview` / `production` / `premium` |
 | IMAGE_EDIT_OUTPUT_FORMAT_INVALID | 图编辑输出格式非法 | 400，允许 `png` / `jpeg` / `webp` |
+| PRODUCT_DESIGN_BRIEF_REQUIRED | 产品设计缺少设计要求 | 400，`/api/business/product-design/runs` 必须传 `designBrief` 或兼容字段 |
+| PRODUCT_DESIGN_PRODUCT_TYPE_INVALID | 产品设计产品类型非法 | 400，允许 `apparel` / `home_textile` / `bag` / `shoe` / `stationery` / `packaging` / `generic` |
+| PRODUCT_DESIGN_SCENE_INVALID | 产品设计展示场景非法 | 400，允许 `studio_product` / `flat_lay` / `ecommerce` / `lifestyle` / `print_mockup` / `generic` |
+| AGENT_CAPABILITY_NOT_FOUND | 业务 Agent 能力不存在或未开放 | 404，当前仅开放 `agent.image_edit_assistant` |
+| AGENT_IMAGE_URL_INVALID | 业务 Agent 图片 URL 非 HTTP(S) 地址 | 400 |
+| AGENT_IMAGE_URL_REQUIRED | 业务 Agent 确认执行缺少主图 URL | 400 |
+| AGENT_MESSAGE_REQUIRED | 业务 Agent 消息为空 | 400 |
+| AGENT_SESSION_NOT_FOUND | 业务 Agent 会话不存在 | 404 |
+| AGENT_SESSION_FORBIDDEN | 业务 Agent 会话不属于当前租户/客户端 | 403 |
+| AGENT_SESSION_CREATE_FAILED | 业务 Agent 会话创建失败 | 500 |
+| AGENT_MESSAGE_FAILED | 业务 Agent 消息处理或方案生成失败 | 500 |
+| AGENT_PLAN_REQUIRED | 对话改图会话没有可确认方案 | 400，先发送消息生成最新建议，再确认执行 |
+| AGENT_PLAN_NOT_FOUND | 业务 Agent 方案不存在 | 404 |
+| AGENT_PLAN_STALE | 业务 Agent 方案已不是当前会话最新方案 | 409，需重新确认最新方案，避免旧方案误执行 |
+| AGENT_PLAN_CONFIRM_IN_PROGRESS | 业务 Agent 方案正在确认执行中 | 409，调用方稍后查询会话或重试确认 |
+| AGENT_PLAN_NOT_CONFIRMABLE | 业务 Agent 方案当前状态不能确认执行 | 409 |
+| AGENT_PLAN_CONFIRM_FAILED | 业务 Agent 确认方案失败 | 500 |
+| AGENT_TOOL_CALL_FAILED | 业务 Agent 调用中台能力失败 | 502/500，通常由下游业务能力返回的错误透传 |
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
 | BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |
 | BUSINESS_RUN_FORBIDDEN | 业务任务无访问权限 | 403 |
@@ -194,6 +212,24 @@
 | BUSINESS_QUALITY_ACTION_KEY_DUPLICATED | 同一业务下质量治理规则 Key 重复 | 409 |
 | BUSINESS_QUALITY_ACTION_TARGET_VERSION_NOT_FOUND | 质量治理目标候选版本不存在或不属于该业务 | 404 |
 | BUSINESS_QUALITY_ACTION_NOT_FOUND | 质量治理台账不存在 | 404 |
+| PROJECT_NAME_REQUIRED | 项目缺少名称 | 400，v0.6 项目上下文 API |
+| PROJECT_SCENARIO_INVALID | 项目业务场景非法 | 400，客户端声明的 scenario 不在允许范围 |
+| PROJECT_NOT_FOUND | 项目不存在 | 404 |
+| PROJECT_FORBIDDEN | 项目无访问权限 | 403，租户/client/用户范围不匹配 |
+| PROJECT_STATUS_INVALID | 项目状态非法 | 400，允许 `draft` / `active` / `paused` / `ready_to_export` / `exported` / `archived` |
+| PROJECT_ASSET_URL_REQUIRED | 项目资产缺少 URL | 400 |
+| PROJECT_ASSET_TYPE_INVALID | 项目资产类型非法 | 400 |
+| PROJECT_ASSET_URL_INVALID | 项目资产 URL 非受控或非法 | 400 |
+| PROJECT_ASSET_NOT_FOUND | 项目资产不存在 | 404 |
+| PROJECT_ASSET_FORBIDDEN | 项目资产无访问权限 | 403，资产不属于当前项目或租户 |
+| PROJECT_RUN_LINK_INVALID | 业务 run 项目上下文非法 | 400，projectId/inputAssetIds/clientRequestId 等上下文不一致 |
+| PROJECT_SELECTION_ASSET_REQUIRED | 项目候选选择缺少资产 | 400 |
+| PROJECT_SELECTION_ASSET_INVALID | 项目候选选择资产非法 | 400，资产不属于当前项目或不可选择 |
+| PROJECT_SELECTION_TARGET_REQUIRED | 项目候选选择缺少客户端目标步骤 | 400 |
+| PROJECT_EXPORT_ASSETS_EMPTY | 项目交付包未选择资产 | 400 |
+| PROJECT_EXPORT_ASSET_INVALID | 项目交付包资产不可导出 | 400 |
+| PROJECT_EXPORT_BUILD_FAILED | 项目交付包生成失败 | 500 |
+| PROJECT_EXPORT_FILE_NOT_FOUND | 项目交付包文件不存在或已被清理 | 404 |
 | BUSINESS_RUN_RETEST_PAYLOAD_INVALID | 业务复测无法从原任务还原有效入参 | 409 |
 | BUSINESS_CALLBACK_NOT_CONFIGURED | 业务任务没有配置回调地址，无法重试回调 | 409 |
 | BUSINESS_RUN_NOT_FINISHED | 业务任务仍在排队或执行中，不能重试终态回调 | 409 |

@@ -6,6 +6,8 @@
 - `/image-edit` 托管组件入口
 - 后续内部业务方源码集成
 
+对话改图 ChatBot 是独立产品入口，不属于 `ImageEditWorkbench` 的内部模式。它应在组件外层通过 `/api/business/image-edit-chat/*` 管理会话、消息、建议确认，再由后端调用底层 `image_edit` 业务 run。
+
 ## 文件职责
 
 - `model.ts`：交互协议和枚举真源，包括改图模式、尺寸、质量、输出格式、区域标注结构、区域序列化和任务摘要。
@@ -22,6 +24,12 @@
 - `onSubmit`：提交当前任务。业务方应在这里调用 `/api/business/image-edit/runs`。
 
 测评端的任务检查、请求预览、排障信息和业务接入文档必须在组件外层渲染，不允许塞进 `ImageEditWorkbench`。组件源码交付给业务方时，只保留图编辑操作本体。
+
+如果业务方要做聊天式改图，不要把 ChatBot 逻辑塞进编辑器组件；应使用独立会话入口：
+
+- `POST /api/business/image-edit-chat/sessions`
+- `POST /api/business/image-edit-chat/sessions/{sessionId}/messages`
+- `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm`
 
 当前源码组件依赖 `tdesign-react` 和 `tdesign-icons-react`。如果业务方页面不使用 TDesign，先按托管组件接入；源码交付时再提供同等交互的轻量样式适配层，不允许业务方自行改协议字段。
 

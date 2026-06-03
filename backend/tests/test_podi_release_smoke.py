@@ -882,6 +882,24 @@ def _truth_capabilities_payload() -> dict:
                 default=True,
             ),
             _truth_capability(
+                business_key="product_design",
+                version="product-design-gpt-image2-v1",
+                primary_ability_id="openai_gpt_image_2_edit",
+                fields=[
+                    "imageUrl",
+                    "productType",
+                    "designBrief",
+                    "scene",
+                    "referenceImages",
+                    "clientContextId",
+                    "inputAssetIds",
+                    "size",
+                    "quality",
+                    "output_format",
+                ],
+                default=True,
+            ),
+            _truth_capability(
                 business_key="outpaint",
                 version="v1",
                 primary_ability_id="ability_outpaint",
@@ -947,6 +965,35 @@ def _truth_openapi_payload(*, omit_field: str | None = None) -> dict:
                 ],
                 required=["imageUrl", "instruction"],
             ),
+            "/api/business/product-design/runs": schema(
+                common
+                + [
+                    "productType",
+                    "designBrief",
+                    "scene",
+                    "referenceImages",
+                    "clientContextId",
+                    "inputAssetIds",
+                    "size",
+                    "quality",
+                    "output_format",
+                ],
+                required=["imageUrl", "designBrief"],
+            ),
+            "/api/business/product-design/route-preview": schema(
+                common
+                + [
+                    "productType",
+                    "designBrief",
+                    "scene",
+                    "referenceImages",
+                    "clientContextId",
+                    "inputAssetIds",
+                    "size",
+                    "quality",
+                    "output_format",
+                ]
+            ),
             "/api/business/outpaint/runs": schema(
                 common + ["expand_left", "expand_right", "expand_top", "expand_bottom", "width", "height", "timeout"],
                 required=["imageUrl"],
@@ -965,6 +1012,7 @@ def _truth_eval_catalog_payload(*, omit_workflow_id: str | None = None) -> list[
         ("business_fission_comfyui_vl_control_v1", "comfyui-vl-control-v2", ["url", "bili", "profile", "reference_lock", "color_lock"]),
         ("ability_fission_generated_image_evaluate_v1", "generated-image-eval-v1", ["original_image", "generated_image", "context"]),
         ("business_image_edit_gpt_image2_editor_v1", "gpt-image2-editor-v1", ["url", "instruction", "editSkill", "size", "quality"]),
+        ("business_product_design_gpt_image2_v1", "product-design-gpt-image2-v1", ["url", "productType", "designBrief", "scene", "size", "quality"]),
     ]
     return [
         {

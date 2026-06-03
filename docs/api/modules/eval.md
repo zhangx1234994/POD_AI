@@ -166,7 +166,7 @@ GET /api/evals/business/quality-samples?business_key=fission&status=active&limit
 
 查询参数：
 
-- `business_key`：可选，按业务过滤，例如 `fission`、`image_edit`、`outpaint`、`pattern_extract`、`text_fission`。
+- `business_key`：可选，按业务过滤，例如 `fission`、`product_design`、`image_edit`、`image_edit_chat`、`outpaint`、`pattern_extract`、`text_fission`。
 - `status`：默认 `active`；测评端只允许 `active` / `inactive`，不暴露 `archived`。
 - `limit`：默认 200，范围 1-500。
 

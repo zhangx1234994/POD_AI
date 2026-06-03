@@ -95,6 +95,25 @@ class Settings(BaseSettings):
         default="runtime/desktop_releases",
         env="DESKTOP_RELEASE_STORAGE_DIR",
     )
+    # Local storage for business project export packages. Packages currently
+    # contain manifest/evidence files and reference media through controlled URLs.
+    business_export_storage_dir: str = Field(
+        default="runtime/business_exports",
+        env="BUSINESS_EXPORT_STORAGE_DIR",
+    )
+    # Optional planner for business Agent capabilities. When the key is absent
+    # or the planner call fails, the lightweight rule planner keeps test flows usable.
+    business_agent_planner_enabled: bool = Field(default=True, env="BUSINESS_AGENT_PLANNER_ENABLED")
+    business_agent_planner_model: str = Field(default="gpt-5.5", env="BUSINESS_AGENT_PLANNER_MODEL")
+    business_agent_openai_api_key: str | None = Field(
+        default=None,
+        env=["BUSINESS_AGENT_OPENAI_API_KEY", "OPENAI_API_KEY"],
+    )
+    business_agent_openai_base_url: str = Field(
+        default="https://api.openai.com",
+        env=["BUSINESS_AGENT_OPENAI_BASE_URL", "OPENAI_BASE_URL"],
+    )
+    business_agent_planner_timeout_seconds: int = Field(default=30, env="BUSINESS_AGENT_PLANNER_TIMEOUT_SECONDS")
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
     # Controls in-process background consumers/finalizers.
     # "auto" keeps production/Linux hosts enabled, but prevents local macOS

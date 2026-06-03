@@ -1,6 +1,6 @@
 # 中台业务 API 枚举与返回契约
 
-更新时间：2026-05-19
+更新时间：2026-06-03
 
 本文档是业务方直接调用 `/api/business/*` 时的枚举口径。后续对外接口、交付文档、管理端 API 开放页、测评端业务接入文档必须以本文档为准。
 
@@ -25,7 +25,7 @@
 | --- | --- | --- | --- |
 | `runId` | string | 是 | 业务运行 ID，业务方轮询和排查的主键。 |
 | `taskId` | string/null | 是 | 中台内部任务 ID，主要用于排查。 |
-| `businessKey` | string | 是 | 业务能力，如 `pattern_extract`、`fission`、`text_fission`、`fission_evaluate`、`outpaint`、`image_edit`。 |
+| `businessKey` | string | 是 | 业务能力，如 `pattern_extract`、`fission`、`text_fission`、`fission_evaluate`、`outpaint`、`image_edit`、`image_edit_chat`、`product_design`。 |
 | `version` | string/null | 是 | 命中的业务版本。 |
 | `status` | enum | 是 | 同任务状态。 |
 | `taskStatus` | enum | 是 | 兼容 Coze 工具箱口径，同任务状态。 |
@@ -51,6 +51,7 @@
 | ComfyUI 颜色锁定裂变 | `POST /api/business/fission/runs` | `POST /api/business/runs/get` | `comfyui-vl-control-v2` |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | `POST /api/business/runs/get` | `qwen2512-text2img-v1` |
 | 图编辑 | `POST /api/business/image-edit/runs` | `POST /api/business/runs/get` | `gpt-image2-editor-v1` |
+| 产品设计 | `POST /api/business/product-design/runs` | `POST /api/business/runs/get` | `product-design-gpt-image2-v1` |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `POST /api/business/runs/get` | `generated-image-eval-v1` |
 | 扩图 | `POST /api/business/outpaint/runs` | `POST /api/business/runs/get` | 当前默认版本 |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `POST /api/business/runs/get` | 当前默认版本 |
@@ -212,7 +213,162 @@
 - `canvas_outpaint` 可不传 `instruction`；可传 `expand_left/right/top/bottom` 或 `targetWidth/targetHeight`，目标尺寸会按 16 的倍数向上取整，最终尺寸以返回结果为准。
 - `canvas_outpaint` 新增错误码：`IMAGE_EDIT_CANVAS_TOO_SMALL`、`IMAGE_EDIT_CANVAS_PLACEMENT_INVALID`、`IMAGE_EDIT_CANVAS_BUILD_FAILED`。
 
-## 6. 路由预览枚举
+## 5.3 产品设计
+
+产品设计的 `businessKey` 固定为 `product_design`，当前默认版本为 `product-design-gpt-image2-v1`。它是“素材/花纹图 + 产品品类 + 设计要求 + 展示场景”的独立业务能力，不是图编辑的内部模式；底层首版复用 GPT Image 2 图片编辑能力，后续可按品类切路由、换模型或换 LoRA。
+
+调用方式：
+
+1. 提交 `POST /api/business/product-design/runs`，保存返回的 `runId`。
+2. 使用 `POST /api/business/runs/get` 轮询结果。
+3. 客户端可传 `clientContextId/inputAssetIds` 关联自己的业务链路；中台只记录调用证据，不接管客户端业务组装。
+
+`product_design.productType` / `productType`：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `productType` | `apparel` | 服装/面料方向产品设计。 |
+| `productType` | `home_textile` | 家纺/软装方向产品设计。 |
+| `productType` | `bag` | 箱包方向产品设计。 |
+| `productType` | `shoe` | 鞋履方向产品设计。 |
+| `productType` | `stationery` | 文具/小商品方向产品设计。 |
+| `productType` | `packaging` | 包装方向产品设计。 |
+| `productType` | `generic` | 通用产品设计。 |
+
+`product_design.scene` / `scene`：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `scene` | `studio_product` | 棚拍产品图。 |
+| `scene` | `flat_lay` | 平铺产品图。 |
+| `scene` | `ecommerce` | 电商主图。 |
+| `scene` | `lifestyle` | 生活方式场景。 |
+| `scene` | `print_mockup` | 印花/图案上产品 mockup。 |
+| `scene` | `generic` | 通用场景。 |
+
+约束：
+
+- `imageUrl` 和 `designBrief` 必填。
+- 单次固定生成 1 张图；多方案请多次提交或由客户端编排。
+- `referenceImages` 仅作为版型、材质或风格参考，不应替代主图素材。
+- 新增错误码：`PRODUCT_DESIGN_BRIEF_REQUIRED`、`PRODUCT_DESIGN_PRODUCT_TYPE_INVALID`、`PRODUCT_DESIGN_SCENE_INVALID`。
+
+## 5.4 对话改图 ChatBot
+
+对话改图 ChatBot 的业务治理 key 为 `image_edit_chat`，底层 Agent key 固定为 `agent.image_edit_assistant`。它不是旧的 `/api/agent/*` ComfyUI 节点协议，也不是直接图编辑接口的别名；它是面向用户聊天心智的独立入口：先通过多轮对话整理成可确认建议，再调用中台白名单工具 `business.image_edit`，最终仍落到 `image_edit` 业务 run。旧白名单 key `agent_image_edit` 仅保留兼容。
+
+调用方式：
+
+1. `POST /api/business/image-edit-chat/sessions` 创建会话；可带首轮 `message` 直接生成 ChatBot 回复和最新建议。
+2. `POST /api/business/image-edit-chat/sessions/{sessionId}/messages` 追加用户消息并生成新的最新建议。
+3. `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` 确认当前最新建议后才提交 `/api/business/image-edit/runs`。
+4. `POST /api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm` 保留给需要严格指定方案版本的调用方。
+5. 使用返回的 `run.runId` 继续调用 `POST /api/business/runs/get` 查询结果。
+
+会话和幂等：
+
+- 新建会话必须走 `sessions` 接口，追加消息必须显式带 `sessionId`；后端不做隐藏续聊。
+- `sessions` 接口的 `requestId` 是创建会话幂等键，同一 `agentKey + requestId + tenantId + clientId` 复用原会话。
+- 每次追加消息都会生成新的 `latestPlanId`；只能确认最新方案，旧方案返回 `AGENT_PLAN_STALE`。
+- 方案确认成功后重复确认同一个已执行方案，应返回原 `runId`，不能重复创建业务 run。
+
+Agent 状态：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `status` | `collecting_context` | 等待图片或用户说明。 |
+| `status` | `awaiting_confirmation` | 已生成方案，等待用户确认。 |
+| `status` | `confirming` | 正在确认并提交中台业务 run。 |
+| `status` | `running` | 已提交中台图编辑 run。 |
+| `status` | `failed` | 方案确认或工具调用失败。 |
+
+方案状态：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `plan.status` | `awaiting_confirmation` | 可确认执行。 |
+| `plan.status` | `confirming` | 正在确认并提交中台业务 run。 |
+| `plan.status` | `executed` | 已确认并提交业务 run。 |
+| `plan.status` | `failed` | 确认执行失败。 |
+
+工具白名单：
+
+| 工具 | 允许调用的业务能力 | 说明 |
+| --- | --- | --- |
+| `business.image_edit` | `image_edit` | 只通过中台业务 API 创建 run，不直连 OpenAI、ComfyUI 或 KIE。 |
+
+错误码：
+
+| 错误码 | 场景 |
+| --- | --- |
+| `AGENT_CAPABILITY_NOT_FOUND` | 非法 Agent key 或能力未开放。 |
+| `AGENT_MESSAGE_REQUIRED` | 用户消息为空。 |
+| `AGENT_IMAGE_URL_REQUIRED` | 确认执行时没有主图。 |
+| `AGENT_PLAN_REQUIRED` | 会话还没有可确认建议。 |
+| `AGENT_PLAN_STALE` | 当前确认的方案不是会话最新方案。 |
+| `AGENT_PLAN_CONFIRM_IN_PROGRESS` | 方案正在确认执行中。 |
+| `AGENT_PLAN_NOT_CONFIRMABLE` | 方案已执行或当前状态不能确认。 |
+| `AGENT_TOOL_CALL_FAILED` | 调用 `image_edit` 业务能力失败。 |
+
+## 6. 兼容调用上下文枚举
+
+这组枚举用于兼容历史 `/api/business/projects/*` 上下文接口。中台主概念仍是业务能力；客户端可以把多个业务 run 串成端到端流程，但项目、工单、订单、素材夹等业务语义由客户端负责。新接入优先使用 `clientContextId/inputAssetIds/clientRequestId` 记录调用证据，只有兼容旧链路时才使用 `projectId/flowStepKey`。
+
+兼容上下文状态：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `status` | `draft` | 草稿，兼容上下文刚创建或还未进入正式流程。 |
+| `status` | `active` | 进行中，客户端可继续提交业务 run。 |
+| `status` | `paused` | 暂停，客户端应提示用户恢复后继续。 |
+| `status` | `ready_to_export` | 已完成主要选择，等待生成交付包。 |
+| `status` | `exported` | 已交付。 |
+| `status` | `archived` | 已归档，默认不再作为活跃项目展示。 |
+
+资产类型：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `assetType` | `input_image` | 客户端上传的原始输入图。 |
+| `assetType` | `pattern` | 花纹提取结果或可复用图案。 |
+| `assetType` | `variant` | 裂变、扩图或同系列候选图。 |
+| `assetType` | `product_image` | 产品设计图。 |
+| `assetType` | `angle_image` | 多角度产品图。 |
+| `assetType` | `model_image` | 模特图或上身图。 |
+| `assetType` | `video` | 推广视频或动态图资产。 |
+| `assetType` | `text` | 文案、提示词或结构化文本资产。 |
+| `assetType` | `other` | 暂未归类的资产。 |
+
+run 调用上下文字段：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `clientContextId` | string/null | 客户端调用上下文 ID；新接入优先使用，用于跨能力链路回溯和排查。 |
+| `projectId` | string | 兼容字段，历史业务项目 ID。 |
+| `flowStepKey` | string/null | 客户端流程步骤标识，例如 `variant_fission`。 |
+| `flowStepName` | string/null | 客户端展示用步骤名称。 |
+| `flowTemplateId` | string/null | 客户端流程模板 ID，例如 `pattern_to_product_v1`。 |
+| `inputAssetIds` | string[] | 本次 run 使用的资产证据 ID；兼容 `projectId` 存在时必须属于同一个兼容上下文。 |
+| `clientRequestId` | string/null | 客户端幂等、埋点或排障用请求号；当前只记录，不做强幂等。 |
+
+兼容上下文 run 关联状态：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `assetSyncStatus` | `pending` | run 还未终态或尚未触发输出资产同步。 |
+| `assetSyncStatus` | `succeeded` | run 成功后的输出已经登记为资产证据。 |
+| `assetSyncStatus` | `failed` | 输出资产登记失败；业务 run 状态不因此回滚。 |
+
+导出包状态：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `status` | `pending` | 已创建但尚未开始生成。 |
+| `status` | `building` | 正在生成交付包。 |
+| `status` | `ready` | 清单已生成，可读取 `manifest/summary`。 |
+| `status` | `failed` | 生成失败，读取 `errorCode/errorMessage`。 |
+
+## 7. 路由预览枚举
 
 | 字段 | 允许值 | 含义 |
 | --- | --- | --- |
@@ -224,7 +380,7 @@
 | `selectedStatus` | `disabled` | 版本停用，不应作为实际执行版本。 |
 | `selectedStatus` | `archived` | 历史归档，只能用于记录或对照。 |
 
-## 7. 计费与回调状态
+## 8. 计费与回调状态
 
 当前计费和回调状态主要供管理端排障使用，对业务方默认不要求处理。
 
@@ -239,7 +395,7 @@
 | `callbackStatus` | `failed` | 回调失败。 |
 | `callbackStatus` | `skipped` | 未配置回调或无需回调。 |
 
-## 8. 常见错误码
+## 9. 常见错误码
 
 完整错误码以 `docs/standards/error-catalog.md` 为准。业务接口常见错误如下：
 
@@ -252,6 +408,21 @@
 | `BUSINESS_API_KEY_INVALID` | Key 不存在或已失效。 | 更换有效 Key。 |
 | `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED` | Key 无权调用该业务。 | 联系中台补授权。 |
 | `BUSINESS_USER_SCOPE_FORBIDDEN` | 租户或用户范围不匹配。 | 检查 `tenantId/clientId/userId`。 |
+| `PROJECT_NAME_REQUIRED` | 创建兼容调用上下文缺少名称。 | 补传 `name`。 |
+| `PROJECT_SCENARIO_INVALID` | 兼容调用场景标识非法。 | 使用字母、数字、下划线或短横线，长度不超过 64。 |
+| `PROJECT_NOT_FOUND` | 兼容调用上下文不存在。 | 检查 `projectId` 是否来自当前业务方；新接入优先使用 `clientContextId`。 |
+| `PROJECT_FORBIDDEN` | 当前 Key 或账号无权访问该兼容上下文。 | 检查租户、客户端和登录账号范围。 |
+| `PROJECT_STATUS_INVALID` | 兼容上下文状态非法。 | 改用兼容上下文状态表里的允许值。 |
+| `PROJECT_ASSET_TYPE_INVALID` | 资产证据类型非法。 | 改用资产类型表里的允许值。 |
+| `PROJECT_ASSET_URL_REQUIRED` | 资产证据缺少 URL。 | 补传自有 OSS 或公网可访问 URL。 |
+| `PROJECT_ASSET_URL_INVALID` | 资产证据 URL 非法。 | 使用 `http/https` URL。 |
+| `PROJECT_RUN_LINK_INVALID` | run 的兼容上下文不一致。 | 确认 `inputAssetIds` 都属于同一个兼容 `projectId`。 |
+| `PROJECT_SELECTION_ASSET_REQUIRED` | 候选选择缺少资产。 | 补传 `assetIds`。 |
+| `PROJECT_SELECTION_ASSET_INVALID` | 候选资产不属于当前兼容上下文。 | 重新读取资产证据后选择。 |
+| `PROJECT_SELECTION_TARGET_REQUIRED` | 候选选择缺少目标步骤。 | 补传 `targetFlowStepKey`。 |
+| `PROJECT_EXPORT_ASSETS_EMPTY` | 导出包未选择资产。 | 至少选择一个资产。 |
+| `PROJECT_EXPORT_ASSET_INVALID` | 导出资产不属于当前兼容上下文。 | 重新选择当前上下文资产。 |
+| `PROJECT_EXPORT_FILE_NOT_FOUND` | 导出包文件不存在或已被清理。 | 重新生成导出包。 |
 | `TEXT_FISSION_PROMPT_REQUIRED` | 文字强化裂变第二步缺少确认后的提示词。 | 先调用 `/api/business/text-fission/prompts`，再传 `editable_prompt`。 |
 | `TEXT_FISSION_PROMPT_EMPTY` | VL 没有返回可用提示词。 | 换图重试；如持续出现，提供图片和请求时间给中台排查。 |
 | `TEXT_FISSION_PROMPT_PREPARE_FAILED` | 文字强化裂变提示词生成失败。 | 可重试；如持续失败，提供请求时间和图片地址给中台。 |
@@ -278,7 +449,7 @@
 | `VENDOR_API_RATE_LIMITED` | 第三方模型限流。 | 降低提交频率，稍后重试。 |
 | `COMFYUI_QUEUE_FULL` | ComfyUI 队列已满。 | 按提示稍后重试。 |
 
-## 9. 接口调用中心枚举
+## 10. 接口调用中心枚举
 
 管理端 `API 开放 -> 接口调用中心` 使用以下枚举识别业务调用链路：
 
@@ -293,7 +464,7 @@
 | `issueCode` | `POLL_WITHOUT_SUBMIT` | 当前筛选范围内只有查询记录，没有提交记录。通常需要放宽时间窗口或核对 `runId`。 |
 | `issueCode` | `POLLING_TOO_FREQUENT` | 同一个 `runId` 轮询次数偏高，业务方应按 `retryAfterSeconds` 控制查询频率。 |
 
-## 10. 当前缺口
+## 11. 当前缺口
 
 以下内容需要在后续版本补到代码、OpenAPI 和页面中：
 

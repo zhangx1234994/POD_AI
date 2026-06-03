@@ -656,23 +656,15 @@ html.t-theme-dark {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.9fr);
   gap: 18px;
-  border: 1px solid color-mix(in srgb, var(--podi-tool-accent, var(--td-brand-color)) 22%, var(--td-border-level-1-color));
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--podi-tool-accent, var(--td-brand-color)) 16%, transparent), transparent 34%),
-    linear-gradient(135deg, var(--td-bg-color-container), color-mix(in srgb, var(--td-bg-color-secondarycontainer) 78%, #ffffff));
-  box-shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
-  padding: 20px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-left: 3px solid var(--podi-tool-accent, var(--td-brand-color));
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  padding: 14px;
 }
 
 .podi-eval-tool-overview::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--podi-tool-accent, var(--td-brand-color)), color-mix(in srgb, var(--podi-tool-accent, var(--td-brand-color)) 30%, #ffffff));
+  display: none;
 }
 
 .podi-eval-tool-overview__main {
@@ -697,10 +689,10 @@ html.t-theme-dark {
 
 .podi-eval-tool-overview__facts > div {
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--podi-tool-accent, var(--td-brand-color)) 14%, var(--td-border-level-1-color));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--td-bg-color-container) 82%, transparent);
-  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 94%, var(--td-bg-color-page));
+  padding: 10px;
 }
 
 .podi-eval-tool-overview__facts span,

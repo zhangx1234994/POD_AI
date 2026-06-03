@@ -120,6 +120,25 @@ IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS: list[dict[str, str]] = [
     {"label": "WebP", "value": "webp"},
 ]
 
+PRODUCT_DESIGN_PRODUCT_TYPE_OPTIONS: list[dict[str, str]] = [
+    {"label": "服装/面料", "value": "apparel"},
+    {"label": "家纺/软装", "value": "home_textile"},
+    {"label": "箱包", "value": "bag"},
+    {"label": "鞋履", "value": "shoe"},
+    {"label": "文具/小商品", "value": "stationery"},
+    {"label": "包装", "value": "packaging"},
+    {"label": "通用产品", "value": "generic"},
+]
+
+PRODUCT_DESIGN_SCENE_OPTIONS: list[dict[str, str]] = [
+    {"label": "棚拍产品图", "value": "studio_product"},
+    {"label": "平铺产品图", "value": "flat_lay"},
+    {"label": "电商主图", "value": "ecommerce"},
+    {"label": "生活方式场景", "value": "lifestyle"},
+    {"label": "印花/图案上产品 mockup", "value": "print_mockup"},
+    {"label": "通用场景", "value": "generic"},
+]
+
 
 GPT_IMAGE2_PATTERN_FISSION_VL_PROMPT = """你是一个专业的装饰图案、印花纹样、装饰插画与主视觉结构分析助手。
 
@@ -1023,6 +1042,72 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "quality_map": {"auto": "auto", "preview": "low", "production": "medium", "premium": "high"},
             "coze_strategy": "Coze 可只调用图编辑业务 API；复杂画布交互由托管组件或业务方源码组件完成。",
             "seed_version": 1,
+        },
+    ),
+    BusinessCapabilitySeed(
+        id="biz_product_design_gpt_image2_v1",
+        business_key="product_design",
+        version="product-design-gpt-image2-v1",
+        display_name="产品设计 · GPT Image 2 上品设计",
+        description="面向端到端业务闭环的产品设计能力：输入花纹/素材图、产品品类、设计 brief 和展示场景，中台编译为产品设计 prompt 后调用 GPT Image 2 图片编辑能力。",
+        status="active",
+        is_default=True,
+        release_time=datetime(2026, 6, 3, 0, 0, 0),
+        recipe={
+            "mode": "single_ability_task",
+            "primaryAbilityId": "openai_gpt_image_2_edit",
+            "steps": [
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "GPT Image 2 产品设计",
+                    "abilityId": "openai_gpt_image_2_edit",
+                }
+            ],
+            "promptCompiler": {
+                "id": "product_design_prompt_compiler_v1",
+                "location": "backend.business_runs",
+            },
+            "vlAssist": {"enabled": False},
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "素材/花纹 URL Image URL", field_type="image", required=True, description="用于上品设计的素材图、花纹图或参考主图。"),
+                _field("productType", "产品类型 Product Type", field_type="select", required=False, default="apparel", description="决定设计图的产品载体。", options=PRODUCT_DESIGN_PRODUCT_TYPE_OPTIONS),
+                _field("designBrief", "设计要求 Design Brief", field_type="textarea", required=True, default="把主图花纹应用到一款适合电商展示的产品设计图，保持图案识别度和商业质感。", description="说明要做什么产品、目标风格、必须保留或避免的内容。"),
+                _field("scene", "展示场景 Scene", field_type="select", required=False, default="studio_product", description="决定输出图的展示方式。", options=PRODUCT_DESIGN_SCENE_OPTIONS),
+                _field("referenceImages", "参考图 Reference Images", field_type="json", required=False, description="可选参考图列表，用于补充版型、材质或风格。"),
+                _field("clientContextId", "调用上下文 ID Client Context ID", required=False, description="客户端侧关联一次业务链路的上下文 ID，用于跨能力回溯和排查。"),
+                _field("inputAssetIds", "输入资产 ID Input Asset IDs", field_type="array", required=False, description="客户端侧传入的素材资产 ID 列表，便于回溯。"),
+                _field("size", "输出尺寸 Size", field_type="select", default="auto", description="默认跟随原图/自动；2K 以上高成本高耗时。", options=GPT_IMAGE2_SIZE_OPTIONS),
+                _field("quality", "质量档位 Quality", field_type="select", default="production", description="preview=快速预览，production=正式候选，premium=高质量高成本。", options=IMAGE_EDIT_QUALITY_OPTIONS),
+                _field("output_format", "输出格式 Output Format", field_type="select", default="png", description="默认 PNG。", options=IMAGE_EDIT_OUTPUT_FORMAT_OPTIONS),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "product_design",
+            "entry": "business-api",
+            "role": "candidate",
+            "badge": "新版",
+            "isNewVersion": True,
+            "provider": "openai",
+            "model": "gpt-image-2",
+            "versionLine": _version_line(
+                "product-design",
+                "产品设计能力线",
+                "把素材/花纹转成产品设计图，为客户端端到端业务闭环提供中台能力。",
+                45,
+            ),
+            "versionLineage": _version_lineage(
+                decision="new_business_entry",
+                decision_note="产品设计是独立业务能力，不归并到通用图编辑；客户端可把它编排进业务链路。",
+                change_summary="新增产品类型、展示场景、设计 brief 和调用上下文字段，底层首版复用 GPT Image 2 图片编辑能力。",
+            ),
+            "quality_map": {"auto": "auto", "preview": "low", "production": "medium", "premium": "high"},
+            "coze_strategy": "Coze 或客户端只调用产品设计业务 API；中台负责 prompt 编译、版本路由、结果回填和质量治理。",
+            "seed_version": 2,
         },
     ),
     BusinessCapabilitySeed(

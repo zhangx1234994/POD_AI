@@ -91,11 +91,14 @@ HEALTH_WATCH_UNITS = (
         "description": "最近一次评测运行健康检查结果。",
     },
 )
-CORE_BUSINESS_KEYS = ("pattern_extract", "fission", "outpaint")
+CORE_BUSINESS_KEYS = ("pattern_extract", "fission", "product_design", "image_edit", "outpaint", "text_fission")
 CORE_BUSINESS_LABELS = {
     "pattern_extract": "花纹提取",
     "fission": "图裂变",
+    "product_design": "产品设计",
+    "image_edit": "图编辑",
     "outpaint": "扩图",
+    "text_fission": "文字裂变",
 }
 VENDOR_PROVIDERS = {"openai", "openai_compatible", "volcengine", "baidu", "kie"}
 

@@ -956,7 +956,7 @@ const DEFAULT_BUSINESS_API_KEY_FORM: BusinessApiKeyFormState = {
   key: '',
   tenantId: '',
   clientId: '',
-  allowedBusinessKeys: 'fission,image_edit,fission_evaluate,outpaint,pattern_extract,text_fission',
+  allowedBusinessKeys: 'fission,product_design,image_edit,image_edit_chat,fission_evaluate,outpaint,pattern_extract,text_fission',
   expireAt: '',
 };
 
@@ -2412,7 +2412,7 @@ export function ApiExposurePanel({
                     placeholder="留空表示全部；多个用逗号分隔"
                     onChange={(value) => updateBusinessApiKeyForm('allowedBusinessKeys', String(value))}
                   />
-                  <small>常用：fission、image_edit、fission_evaluate、outpaint、pattern_extract、text_fission。</small>
+                  <small>常用：fission、product_design、image_edit、image_edit_chat、fission_evaluate、outpaint、pattern_extract、text_fission。</small>
                 </div>
                 <div className="podi-business-api-key-form__field">
                   <label>过期时间</label>

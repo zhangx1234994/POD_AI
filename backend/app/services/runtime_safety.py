@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import platform
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -25,6 +26,11 @@ def _truthy_or_falsy(value: object) -> bool | None:
     if text in {"0", "false", "no", "off", "disabled"}:
         return False
     return None
+
+
+def suppress_background_threads_for_tests() -> bool:
+    """Disable passive polling loops in pytest without changing runtime worker semantics."""
+    return _truthy_or_falsy(os.getenv("PODI_TEST_DISABLE_BACKGROUND_THREADS")) is True
 
 
 def _database_host(database_url: str) -> str:

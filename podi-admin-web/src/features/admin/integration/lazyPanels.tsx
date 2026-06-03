@@ -49,6 +49,9 @@ export const AbilityWorkbenchPanel = lazy(() =>
 export const BusinessCapabilityGrid = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessCapabilityGrid })),
 );
+export const BusinessAbilityGovernancePanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessAbilityGovernancePanel })),
+);
 export const BusinessCoreClosurePanel = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessCoreClosurePanel })),
 );

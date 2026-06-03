@@ -29,7 +29,7 @@ from app.services.ability_task_service import get_ability_task_service
 from app.services.business_runs import get_business_run_service
 from app.services.coze_client import coze_client
 from app.services.integration_test import integration_test_service
-from app.services.runtime_safety import log_background_worker_decision
+from app.services.runtime_safety import log_background_worker_decision, suppress_background_threads_for_tests
 from app.services.task_id_codec import decode_task_id
 
 
@@ -69,6 +69,9 @@ class EvalService:
         self._lock = threading.Lock()
         self._thread_started = False
         if not self._background_workers_enabled:
+            return
+        if suppress_background_threads_for_tests():
+            self._logger.warning("EvalService passive background threads disabled for pytest")
             return
         # Best-effort: never block API startup on evaluation bookkeeping.
         # (In reload mode, mapper initialization can be sensitive to import order.)

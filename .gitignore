@@ -20,6 +20,7 @@ podi-admin-web/node_modules/
 podi-admin-web/dist/
 podi-eval-web/node_modules/
 podi-eval-web/dist/
+podi-studio-preview/
 
 # Historical local client copies; current repo no longer develops these paths.
 podi-client-v2/

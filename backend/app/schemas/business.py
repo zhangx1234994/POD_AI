@@ -410,6 +410,188 @@ class BusinessRoutePreviewResponse(BaseModel):
     activeVersions: list[dict[str, Any]] = Field(default_factory=list, alias="active_versions")
 
 
+class BusinessProjectCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str
+    scenario: str = "general"
+    flowTemplateId: str | None = Field(default=None, alias="flow_template_id")
+    currentFlowStepKey: str | None = Field(default=None, alias="current_flow_step_key")
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    metadata: dict[str, Any] | None = None
+
+
+class BusinessProjectUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str | None = None
+    scenario: str | None = None
+    status: str | None = None
+    flowTemplateId: str | None = Field(default=None, alias="flow_template_id")
+    currentFlowStepKey: str | None = Field(default=None, alias="current_flow_step_key")
+    metadata: dict[str, Any] | None = None
+
+
+class BusinessProjectAssetCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    assetType: str = Field(alias="asset_type")
+    url: str | None = None
+    contentType: str | None = Field(default=None, alias="content_type")
+    fileName: str | None = Field(default=None, alias="file_name")
+    flowStepKey: str | None = Field(default=None, alias="flow_step_key")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    issueTags: list[str] = Field(default_factory=list, alias="issue_tags")
+    metadata: dict[str, Any] | None = None
+
+
+class BusinessProjectAssetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    assetId: str = Field(alias="id")
+    projectId: str = Field(alias="project_id")
+    assetType: str = Field(alias="asset_type")
+    url: str | None = None
+    contentType: str | None = Field(default=None, alias="content_type")
+    fileName: str | None = Field(default=None, alias="file_name")
+    sourceRunId: str | None = Field(default=None, alias="source_run_id")
+    sourceBusinessKey: str | None = Field(default=None, alias="source_business_key")
+    sourceFlowStepKey: str | None = Field(default=None, alias="source_flow_step_key")
+    sourceOutputIndex: int | None = Field(default=None, alias="source_output_index")
+    qualityGrade: str | None = Field(default=None, alias="quality_grade")
+    inputTags: list[str] = Field(default_factory=list, alias="input_tags")
+    issueTags: list[str] = Field(default_factory=list, alias="issue_tags")
+    selected: bool
+    metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessProjectRunLinkRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    projectId: str = Field(alias="project_id")
+    runId: str = Field(alias="run_id")
+    businessKey: str = Field(alias="business_key")
+    status: str | None = None
+    flowStepKey: str | None = Field(default=None, alias="flow_step_key")
+    flowStepName: str | None = Field(default=None, alias="flow_step_name")
+    flowTemplateId: str | None = Field(default=None, alias="flow_template_id")
+    inputAssetIds: list[str] = Field(default_factory=list, alias="input_asset_ids")
+    outputAssetIds: list[str] = Field(default_factory=list, alias="output_asset_ids")
+    clientRequestId: str | None = Field(default=None, alias="client_request_id")
+    assetSyncStatus: str = Field(alias="asset_sync_status")
+    assetSyncError: str | None = Field(default=None, alias="asset_sync_error")
+    errorCode: str | None = Field(default=None, alias="error_code")
+    errorMessage: str | None = Field(default=None, alias="error_message")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessProjectSelectionCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    assetIds: list[str] = Field(default_factory=list, alias="asset_ids")
+    assetId: str | None = Field(default=None, alias="asset_id")
+    sourceFlowStepKey: str | None = Field(default=None, alias="source_flow_step_key")
+    targetFlowStepKey: str | None = Field(default=None, alias="target_flow_step_key")
+    note: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class BusinessProjectSelectionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    projectId: str = Field(alias="project_id")
+    assetId: str = Field(alias="asset_id")
+    sourceRunId: str | None = Field(default=None, alias="source_run_id")
+    sourceFlowStepKey: str | None = Field(default=None, alias="source_flow_step_key")
+    targetFlowStepKey: str | None = Field(default=None, alias="target_flow_step_key")
+    selectedByUserId: str | None = Field(default=None, alias="selected_by_user_id")
+    selectedByUserName: str | None = Field(default=None, alias="selected_by_user_name")
+    note: str | None = None
+    metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
+    createdAt: datetime = Field(alias="created_at")
+
+
+class BusinessExportPackageCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    assetIds: list[str] = Field(default_factory=list, alias="asset_ids")
+    includeRunEvidence: bool = Field(default=True, alias="include_run_evidence")
+    includeQualitySummary: bool = Field(default=True, alias="include_quality_summary")
+    metadata: dict[str, Any] | None = None
+
+
+class BusinessExportPackageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    packageId: str = Field(alias="id")
+    projectId: str = Field(alias="project_id")
+    status: str
+    assetIds: list[str] = Field(default_factory=list, alias="asset_ids")
+    runIds: list[str] = Field(default_factory=list, alias="run_ids")
+    downloadUrl: str | None = Field(default=None, alias="download_url")
+    manifest: dict[str, Any] | None = None
+    summary: dict[str, Any] | None = None
+    errorCode: str | None = Field(default=None, alias="error_code")
+    errorMessage: str | None = Field(default=None, alias="error_message")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessProjectRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    projectId: str = Field(alias="id")
+    name: str
+    scenario: str
+    status: str
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    ownerUserId: str | None = Field(default=None, alias="owner_user_id")
+    ownerUserName: str | None = Field(default=None, alias="owner_user_name")
+    currentFlowStepKey: str | None = Field(default=None, alias="current_flow_step_key")
+    flowTemplateId: str | None = Field(default=None, alias="flow_template_id")
+    metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
+    assetCount: int = Field(default=0, alias="asset_count")
+    runCount: int = Field(default=0, alias="run_count")
+    selectionCount: int = Field(default=0, alias="selection_count")
+    exportPackageCount: int = Field(default=0, alias="export_package_count")
+    latestRunStatus: str | None = Field(default=None, alias="latest_run_status")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessProjectListResponse(BaseModel):
+    items: list[BusinessProjectRead]
+    total: int
+
+
+class BusinessProjectDetailResponse(BaseModel):
+    project: BusinessProjectRead
+    assets: list[BusinessProjectAssetRead] = Field(default_factory=list)
+    runs: list[BusinessProjectRunLinkRead] = Field(default_factory=list)
+    selections: list[BusinessProjectSelectionRead] = Field(default_factory=list)
+    exportPackages: list[BusinessExportPackageRead] = Field(default_factory=list, alias="export_packages")
+
+
+class BusinessProjectAssetListResponse(BaseModel):
+    items: list[BusinessProjectAssetRead]
+    total: int
+
+
+class BusinessProjectRunLinkListResponse(BaseModel):
+    items: list[BusinessProjectRunLinkRead]
+    total: int
+
+
 class BusinessRunCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -460,6 +642,12 @@ class BusinessRunCreateRequest(BaseModel):
     size: str | None = Field(default=None, description="商业模型输出尺寸；GPT Image 2 默认 auto")
     output_format: str | None = Field(default=None, description="商业模型输出格式；默认 png")
     outputFormat: str | None = Field(default=None, description="商业模型输出格式；camelCase 兼容字段")
+    productType: str | None = Field(default=None, description="产品设计品类；camelCase 字段")
+    product_type: str | None = Field(default=None, description="产品设计品类；snake_case 字段")
+    designBrief: str | None = Field(default=None, description="产品设计要求；camelCase 字段")
+    design_brief: str | None = Field(default=None, description="产品设计要求；snake_case 字段")
+    scene: str | None = Field(default=None, description="产品设计展示场景")
+    clientContextId: str | None = Field(default=None, description="客户端调用上下文 ID；用于跨能力链路回溯和排查", alias="client_context_id")
     maskUrl: str | None = Field(default=None, description="可选蒙版 URL；用于 OpenAI 图片编辑")
     mask_url: str | None = Field(default=None, description="可选蒙版 URL；snake_case 兼容字段")
     editSkill: str | None = Field(default=None, description="图编辑技能：局部修改、参考图替换、删除修补、补色校正、扩展画布")
@@ -501,6 +689,165 @@ class BusinessRunCreateRequest(BaseModel):
     callbackUrl: str | None = Field(default=None, description="业务任务终态回调地址")
     callbackHeaders: dict[str, str] | None = Field(default=None, description="业务任务回调请求头")
     metadata: dict[str, Any] | None = Field(default=None, description="调用来源、灰度标识等业务上下文")
+    projectId: str | None = Field(default=None, description="兼容调用上下文 ID；历史字段 projectId，仅用于旧链路回溯", alias="project_id")
+    flowStepKey: str | None = Field(default=None, description="客户端声明的业务步骤 key", alias="flow_step_key")
+    flowStepName: str | None = Field(default=None, description="客户端声明的业务步骤名称", alias="flow_step_name")
+    flowTemplateId: str | None = Field(default=None, description="客户端业务模板 ID", alias="flow_template_id")
+    inputAssetIds: list[str] | None = Field(default=None, description="输入资产证据 ID 列表；兼容旧链路使用", alias="input_asset_ids")
+    clientRequestId: str | None = Field(default=None, description="客户端请求 ID，用于幂等排查和日志关联", alias="client_request_id")
+
+
+class BusinessAgentSessionCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    agentKey: str = Field(default="agent.image_edit_assistant", alias="agent_key")
+    imageUrl: str | None = Field(default=None, alias="image_url", description="会话主图 URL")
+    message: str | None = Field(default=None, description="可选首轮用户消息；传入后会直接生成方案卡片")
+    editSkill: str | None = Field(default=None, alias="edit_skill")
+    quality: str | None = None
+    size: str | None = None
+    outputFormat: str | None = Field(default=None, alias="output_format")
+    maskUrl: str | None = Field(default=None, alias="mask_url")
+    referenceImages: list[dict[str, Any]] | list[str] | None = Field(default=None, alias="reference_images")
+    selectionHints: list[dict[str, Any]] | None = Field(default=None, alias="selection_hints")
+    title: str | None = None
+    context: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+    source: str | None = Field(default=None, description="调用来源，例如 eval / client")
+    channel: str | None = None
+    traceId: str | None = Field(default=None, alias="trace_id")
+    requestId: str | None = Field(default=None, alias="request_id")
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    projectId: str | None = Field(default=None, alias="project_id")
+
+
+class BusinessAgentMessageRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    message: str
+    imageUrl: str | None = Field(default=None, alias="image_url")
+    editSkill: str | None = Field(default=None, alias="edit_skill")
+    quality: str | None = None
+    size: str | None = None
+    outputFormat: str | None = Field(default=None, alias="output_format")
+    maskUrl: str | None = Field(default=None, alias="mask_url")
+    referenceImages: list[dict[str, Any]] | list[str] | None = Field(default=None, alias="reference_images")
+    selectionHints: list[dict[str, Any]] | None = Field(default=None, alias="selection_hints")
+    context: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class BusinessAgentConfirmRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    planId: str | None = Field(default=None, alias="plan_id")
+    overrides: dict[str, Any] | None = None
+    callbackUrl: str | None = Field(default=None, alias="callback_url")
+    callbackHeaders: dict[str, str] | None = Field(default=None, alias="callback_headers")
+    requestId: str | None = Field(default=None, alias="request_id")
+
+
+class BusinessAgentMessageRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    sessionId: str = Field(alias="session_id")
+    role: str
+    content: str | None = None
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    planId: str | None = Field(default=None, alias="plan_id")
+    runId: str | None = Field(default=None, alias="run_id")
+    metadata: dict[str, Any] | None = None
+    createdAt: datetime = Field(alias="created_at")
+
+
+class BusinessAgentPlanRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    sessionId: str = Field(alias="session_id")
+    agentKey: str = Field(alias="agent_key")
+    status: str
+    intent: str
+    title: str | None = None
+    summary: str | None = None
+    editPlan: list[dict[str, Any]] = Field(default_factory=list, alias="edit_plan")
+    toolName: str = Field(alias="tool_name")
+    toolPayload: dict[str, Any] = Field(default_factory=dict, alias="tool_payload")
+    estimatedCostLevel: str | None = Field(default=None, alias="estimated_cost_level")
+    riskLevel: str | None = Field(default=None, alias="risk_level")
+    confirmationRequired: bool = Field(alias="confirmation_required")
+    plannerModel: str | None = Field(default=None, alias="planner_model")
+    plannerMode: str | None = Field(default=None, alias="planner_mode")
+    warnings: list[str] = Field(default_factory=list)
+    errorCode: str | None = Field(default=None, alias="error_code")
+    errorMessage: str | None = Field(default=None, alias="error_message")
+    confirmedAt: datetime | None = Field(default=None, alias="confirmed_at")
+    executedAt: datetime | None = Field(default=None, alias="executed_at")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessAgentToolCallRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    sessionId: str = Field(alias="session_id")
+    planId: str = Field(alias="plan_id")
+    toolName: str = Field(alias="tool_name")
+    businessKey: str | None = Field(default=None, alias="business_key")
+    runId: str | None = Field(default=None, alias="run_id")
+    status: str
+    requestPayload: dict[str, Any] | None = Field(default=None, alias="request_payload")
+    responsePayload: dict[str, Any] | None = Field(default=None, alias="response_payload")
+    errorCode: str | None = Field(default=None, alias="error_code")
+    errorMessage: str | None = Field(default=None, alias="error_message")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessAgentSessionRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    agentKey: str = Field(alias="agent_key")
+    status: str
+    title: str | None = None
+    imageUrl: str | None = Field(default=None, alias="image_url")
+    latestPlanId: str | None = Field(default=None, alias="latest_plan_id")
+    latestRunId: str | None = Field(default=None, alias="latest_run_id")
+    traceId: str | None = Field(default=None, alias="trace_id")
+    requestId: str | None = Field(default=None, alias="request_id")
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    userId: str | None = Field(default=None, alias="user_id")
+    userName: str | None = Field(default=None, alias="user_name")
+    context: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+    messages: list[BusinessAgentMessageRead] = Field(default_factory=list)
+    plans: list[BusinessAgentPlanRead] = Field(default_factory=list)
+    toolCalls: list[BusinessAgentToolCallRead] = Field(default_factory=list, alias="tool_calls")
+    latestPlan: BusinessAgentPlanRead | None = Field(default=None, alias="latest_plan")
+    latestToolCall: BusinessAgentToolCallRead | None = Field(default=None, alias="latest_tool_call")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessAgentSessionResponse(BaseModel):
+    session: BusinessAgentSessionRead
+
+
+class BusinessAgentPlanResponse(BaseModel):
+    session: BusinessAgentSessionRead
+    plan: BusinessAgentPlanRead
+
+
+class BusinessAgentConfirmResponse(BaseModel):
+    session: BusinessAgentSessionRead
+    plan: BusinessAgentPlanRead
+    toolCall: BusinessAgentToolCallRead = Field(alias="tool_call")
+    run: dict[str, Any]
 
 
 class TextFissionPromptRequest(BaseModel):
@@ -638,6 +985,7 @@ class BusinessRunRead(BaseModel):
     retestSummary: dict[str, Any] | None = Field(default=None, alias="retest_summary")
     flowSummary: dict[str, Any] | None = Field(default=None, alias="flow_summary")
     traceSummary: dict[str, Any] | None = Field(default=None, alias="trace_summary")
+    agentTrace: dict[str, Any] | None = Field(default=None, alias="agent_trace")
     apiUsage: dict[str, Any] | None = Field(default=None, alias="api_usage")
     orchestrationGraph: dict[str, Any] | None = Field(default=None, alias="orchestration_graph")
     steps: list[BusinessRunStepRead] = Field(default_factory=list)

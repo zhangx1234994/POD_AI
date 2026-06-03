@@ -13,7 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import and_, case, func, or_, select
 
@@ -32,6 +32,8 @@ from app.constants.business_api_contract import (
     IMAGE_EDIT_QUALITY_VALUES,
     IMAGE_EDIT_SIZE_VALUES,
     IMAGE_EDIT_SKILL_VALUES,
+    PRODUCT_DESIGN_PRODUCT_TYPE_VALUES,
+    PRODUCT_DESIGN_SCENE_VALUES,
     business_api_contract_payload,
 )
 from app.constants.business_components import business_component_catalog_payload
@@ -42,7 +44,9 @@ from app.deps.internal import is_internal_request
 from app.models.integration import ApiKey, BusinessApiKeyUsageLog, BusinessRun
 from app.models.user import User
 from app.schemas import business as schemas
+from app.services.business_agents import AGENT_BUSINESS_KEY, get_business_agent_service
 from app.services.auth_service import auth_service
+from app.services.business_projects import get_business_project_service
 from app.services.business_runs import get_business_run_service
 
 
@@ -177,7 +181,7 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
         "debugUrl": full.get("debugUrl"),
         "debugResponse": error_message,
         "retryAfterSeconds": 10 if status in {"queued", "running"} else None,
-        "expectedImageCount": 1 if business_key in {"fission", "image_edit", "text_fission", "pattern_extract", "outpaint"} else None,
+        "expectedImageCount": 1 if business_key in {"fission", "image_edit", "product_design", "text_fission", "pattern_extract", "outpaint"} else None,
         "logId": full.get("abilityLogId"),
         "traceId": full.get("traceId"),
         "requestId": full.get("requestId"),
@@ -664,6 +668,19 @@ def _business_key_allowed_for_api_key(request: Request, business_key: str) -> No
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED")
 
 
+def _business_agent_allowed_for_api_key(request: Request) -> None:
+    context = getattr(request.state, "business_api_key_context", None)
+    if not isinstance(context, dict):
+        return
+    allowed = context.get("allowedBusinessKeys")
+    if not allowed:
+        return
+    raw_allowed = allowed.split(",") if isinstance(allowed, str) else allowed
+    allowed_set = {str(item).strip() for item in raw_allowed if str(item).strip()}
+    if allowed_set and not ({"image_edit_chat", "agent_image_edit", "image_edit"} & allowed_set):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED")
+
+
 def _business_api_key_metadata(
     *,
     tenant_id: str | None,
@@ -737,6 +754,22 @@ def _create_business_run_with_usage(
         raise
     _record_business_api_key_usage(request, status_code=200, business_key=business_key, run=result)
     return _business_run_submit_response(result)
+
+
+def _record_project_api_usage(
+    request: Request,
+    *,
+    status_code: int,
+    error_code: str | None = None,
+    request_payload: dict[str, Any] | None = None,
+) -> None:
+    _record_business_api_key_usage(
+        request,
+        status_code=status_code,
+        business_key="project_context",
+        error_code=error_code,
+        request_payload=request_payload,
+    )
 
 
 def _preview_business_route_with_usage(
@@ -860,6 +893,15 @@ def create_image_edit_run(
     return _create_business_run_with_usage(request=request, business_key="image_edit", payload=payload, user=user)
 
 
+@router.post("/product-design/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_product_design_run(
+    payload: schemas.BusinessRunCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    return _create_business_run_with_usage(request=request, business_key="product_design", payload=payload, user=user)
+
+
 @router.get("/image-edit/component-config", response_model=dict[str, Any], response_model_by_alias=False)
 def get_image_edit_component_config(
     request: Request,
@@ -963,6 +1005,451 @@ def get_image_edit_component_config(
     return payload
 
 
+@router.post(
+    "/image-edit-chat/sessions",
+    response_model=dict[str, Any],
+    response_model_by_alias=False,
+)
+@router.post(
+    "/agents/image-edit/sessions",
+    response_model=dict[str, Any],
+    response_model_by_alias=False,
+)
+def create_image_edit_agent_session(
+    payload: schemas.BusinessAgentSessionCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        _business_agent_allowed_for_api_key(request)
+        result = get_business_agent_service().create_session(payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code="AGENT_SESSION_CREATE_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, business_key=AGENT_BUSINESS_KEY, request_payload=request_payload)
+    return result
+
+
+@router.get(
+    "/image-edit-chat/sessions/{session_id}",
+    response_model=schemas.BusinessAgentSessionResponse,
+    response_model_by_alias=False,
+)
+@router.get(
+    "/agents/image-edit/sessions/{session_id}",
+    response_model=schemas.BusinessAgentSessionResponse,
+    response_model_by_alias=False,
+)
+def get_image_edit_agent_session(
+    session_id: str,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    try:
+        _business_agent_allowed_for_api_key(request)
+        session = get_business_agent_service().get_session(session_id, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code=str(exc.detail or ""),
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, business_key=AGENT_BUSINESS_KEY)
+    return {"session": session}
+
+
+@router.post(
+    "/image-edit-chat/sessions/{session_id}/messages",
+    response_model=schemas.BusinessAgentPlanResponse,
+    response_model_by_alias=False,
+)
+@router.post(
+    "/agents/image-edit/sessions/{session_id}/messages",
+    response_model=schemas.BusinessAgentPlanResponse,
+    response_model_by_alias=False,
+)
+def send_image_edit_agent_message(
+    session_id: str,
+    payload: schemas.BusinessAgentMessageRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        _business_agent_allowed_for_api_key(request)
+        result = get_business_agent_service().send_message(session_id, payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code="AGENT_MESSAGE_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, business_key=AGENT_BUSINESS_KEY, request_payload=request_payload)
+    return result
+
+
+@router.post(
+    "/image-edit-chat/sessions/{session_id}/plans/{plan_id}/confirm",
+    response_model=schemas.BusinessAgentConfirmResponse,
+    response_model_by_alias=False,
+)
+@router.post(
+    "/agents/image-edit/sessions/{session_id}/plans/{plan_id}/confirm",
+    response_model=schemas.BusinessAgentConfirmResponse,
+    response_model_by_alias=False,
+)
+def confirm_image_edit_agent_plan(
+    session_id: str,
+    plan_id: str,
+    payload: schemas.BusinessAgentConfirmRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        _business_agent_allowed_for_api_key(request)
+        result = get_business_agent_service().confirm_plan(session_id, plan_id, payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code="AGENT_PLAN_CONFIRM_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    run_payload = result.get("run") if isinstance(result, dict) else {}
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=AGENT_BUSINESS_KEY,
+        run_id=str(run_payload.get("runId") or "") or None,
+        request_payload=request_payload,
+    )
+    return result
+
+
+@router.post(
+    "/image-edit-chat/sessions/{session_id}/confirm",
+    response_model=schemas.BusinessAgentConfirmResponse,
+    response_model_by_alias=False,
+)
+def confirm_image_edit_chat_latest_plan(
+    session_id: str,
+    payload: schemas.BusinessAgentConfirmRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        _business_agent_allowed_for_api_key(request)
+        result = get_business_agent_service().confirm_latest_plan(session_id, payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=AGENT_BUSINESS_KEY,
+            error_code="AGENT_PLAN_CONFIRM_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    run_payload = result.get("run") if isinstance(result, dict) else {}
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=AGENT_BUSINESS_KEY,
+        run_id=str(run_payload.get("runId") or "") or None,
+        request_payload=request_payload,
+    )
+    return result
+
+
+@router.post("/projects", response_model=schemas.BusinessProjectRead, response_model_by_alias=False)
+def create_business_project(
+    payload: schemas.BusinessProjectCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectRead:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        result = get_business_project_service().create_project(payload, user=user)
+    except HTTPException as exc:
+        _record_project_api_usage(
+            request,
+            status_code=exc.status_code,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    _record_project_api_usage(request, status_code=200, request_payload=request_payload)
+    return result
+
+
+@router.get("/projects", response_model=schemas.BusinessProjectListResponse, response_model_by_alias=False)
+def list_business_projects(
+    request: Request,
+    scenario: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectListResponse:
+    total, items = get_business_project_service().list_projects(
+        user=user,
+        scenario=scenario,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+    _record_project_api_usage(request, status_code=200)
+    return schemas.BusinessProjectListResponse(total=total, items=items)
+
+
+@router.get("/projects/{project_id}", response_model=schemas.BusinessProjectDetailResponse, response_model_by_alias=False)
+def get_business_project(
+    project_id: str,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectDetailResponse:
+    try:
+        result = get_business_project_service().get_project_detail(project_id, user=user)
+    except HTTPException as exc:
+        _record_project_api_usage(request, status_code=exc.status_code, error_code=str(exc.detail or ""))
+        raise
+    _record_project_api_usage(request, status_code=200)
+    return result
+
+
+@router.patch("/projects/{project_id}", response_model=schemas.BusinessProjectRead, response_model_by_alias=False)
+def update_business_project(
+    project_id: str,
+    payload: schemas.BusinessProjectUpdateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectRead:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        result = get_business_project_service().update_project(project_id, payload, user=user)
+    except HTTPException as exc:
+        _record_project_api_usage(
+            request,
+            status_code=exc.status_code,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    _record_project_api_usage(request, status_code=200, request_payload=request_payload)
+    return result
+
+
+@router.post(
+    "/projects/{project_id}/assets",
+    response_model=schemas.BusinessProjectAssetRead,
+    response_model_by_alias=False,
+)
+def create_business_project_asset(
+    project_id: str,
+    payload: schemas.BusinessProjectAssetCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectAssetRead:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        result = get_business_project_service().create_asset(project_id, payload, user=user)
+    except HTTPException as exc:
+        _record_project_api_usage(
+            request,
+            status_code=exc.status_code,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    _record_project_api_usage(request, status_code=200, request_payload=request_payload)
+    return result
+
+
+@router.get(
+    "/projects/{project_id}/assets",
+    response_model=schemas.BusinessProjectAssetListResponse,
+    response_model_by_alias=False,
+)
+def list_business_project_assets(
+    project_id: str,
+    request: Request,
+    asset_type: str | None = Query(default=None),
+    selected: bool | None = Query(default=None),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectAssetListResponse:
+    total, items = get_business_project_service().list_assets(
+        project_id,
+        user=user,
+        asset_type=asset_type,
+        selected=selected,
+    )
+    _record_project_api_usage(request, status_code=200)
+    return schemas.BusinessProjectAssetListResponse(total=total, items=items)
+
+
+@router.get(
+    "/projects/{project_id}/runs",
+    response_model=schemas.BusinessProjectRunLinkListResponse,
+    response_model_by_alias=False,
+)
+def list_business_project_runs(
+    project_id: str,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectRunLinkListResponse:
+    total, items = get_business_project_service().list_project_runs(project_id, user=user)
+    _record_project_api_usage(request, status_code=200)
+    return schemas.BusinessProjectRunLinkListResponse(total=total, items=items)
+
+
+@router.post(
+    "/projects/{project_id}/selections",
+    response_model=list[schemas.BusinessProjectSelectionRead],
+    response_model_by_alias=False,
+)
+def create_business_project_selection(
+    project_id: str,
+    payload: schemas.BusinessProjectSelectionCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> list[schemas.BusinessProjectSelectionRead]:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        result = get_business_project_service().create_selection(project_id, payload, user=user)
+    except HTTPException as exc:
+        _record_project_api_usage(
+            request,
+            status_code=exc.status_code,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    _record_project_api_usage(request, status_code=200, request_payload=request_payload)
+    return result
+
+
+@router.post(
+    "/projects/{project_id}/exports",
+    response_model=schemas.BusinessExportPackageRead,
+    response_model_by_alias=False,
+)
+def create_business_project_export_package(
+    project_id: str,
+    payload: schemas.BusinessExportPackageCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessExportPackageRead:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        result = get_business_project_service().create_export_package(
+            project_id,
+            payload,
+            user=user,
+            base_url=str(request.base_url).rstrip("/"),
+        )
+    except HTTPException as exc:
+        _record_project_api_usage(
+            request,
+            status_code=exc.status_code,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    _record_project_api_usage(request, status_code=200, request_payload=request_payload)
+    return result
+
+
+@router.get(
+    "/projects/{project_id}/exports/{package_id}",
+    response_model=schemas.BusinessExportPackageRead,
+    response_model_by_alias=False,
+)
+def get_business_project_export_package(
+    project_id: str,
+    package_id: str,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessExportPackageRead:
+    try:
+        result = get_business_project_service().get_export_package(project_id, package_id, user=user)
+    except HTTPException as exc:
+        _record_project_api_usage(request, status_code=exc.status_code, error_code=str(exc.detail or ""))
+        raise
+    _record_project_api_usage(request, status_code=200)
+    return result
+
+
+@router.get("/projects/{project_id}/exports/{package_id}/download")
+def download_business_project_export_package(
+    project_id: str,
+    package_id: str,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> FileResponse:
+    try:
+        file_path, file_name = get_business_project_service().get_export_package_file(
+            project_id,
+            package_id,
+            user=user,
+        )
+    except HTTPException as exc:
+        _record_project_api_usage(request, status_code=exc.status_code, error_code=str(exc.detail or ""))
+        raise
+    _record_project_api_usage(request, status_code=200)
+    return FileResponse(path=file_path, filename=file_name, media_type="application/zip")
+
+
 @router.post("/pattern-extract/runs", response_model=dict[str, Any], response_model_by_alias=False)
 def create_pattern_extract_run(
     payload: schemas.BusinessRunCreateRequest,
@@ -988,6 +1475,15 @@ def preview_outpaint_route(
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRoutePreviewResponse:
     return _preview_business_route_with_usage(request=request, business_key="outpaint", payload=payload, user=user)
+
+
+@router.post("/product-design/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
+def preview_product_design_route(
+    payload: schemas.BusinessRunCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRoutePreviewResponse:
+    return _preview_business_route_with_usage(request=request, business_key="product_design", payload=payload, user=user)
 
 
 @router.post("/pattern-extract/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
@@ -1412,6 +1908,161 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         },
         "x-podi-custom-size-constraints": IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
     }
+    product_design_submit_schema = {
+        "type": "object",
+        "required": ["imageUrl", "designBrief"],
+        "properties": {
+            **base_submit_properties,
+            "productType": {
+                "type": "string",
+                "nullable": True,
+                "description": "产品设计载体；默认 apparel。业务侧可按产品线选择，后续中台可按该字段分流。",
+                "enum": PRODUCT_DESIGN_PRODUCT_TYPE_VALUES,
+                "default": "apparel",
+            },
+            "designBrief": {
+                "type": "string",
+                "description": "产品设计要求。说明产品方向、视觉目标、必须保留或避免的内容。",
+            },
+            "scene": {
+                "type": "string",
+                "nullable": True,
+                "description": "展示场景；默认 studio_product。",
+                "enum": PRODUCT_DESIGN_SCENE_VALUES,
+                "default": "studio_product",
+            },
+            "referenceImages": {
+                "oneOf": [{"type": "array", "items": {"type": "object"}}, {"type": "array", "items": {"type": "string"}}, {"type": "string"}],
+                "nullable": True,
+                "description": "可选参考图列表，用于补充版型、材质或风格。",
+            },
+            "clientContextId": {
+                "type": "string",
+                "nullable": True,
+                "description": "客户端调用上下文 ID；用于跨能力链路回溯和排查。",
+            },
+            "inputAssetIds": {
+                "type": "array",
+                "items": {"type": "string"},
+                "nullable": True,
+                "description": "客户端侧输入资产 ID 列表，便于结果回溯。",
+            },
+            "size": {
+                "type": "string",
+                "nullable": True,
+                "description": "输出尺寸。默认 auto=跟随原图/自动；自定义尺寸沿用图编辑官方约束。",
+                "default": "auto",
+                "examples": IMAGE_EDIT_SIZE_VALUES,
+                "pattern": r"^(auto|[1-9]\d*x[1-9]\d*)$",
+                "x-podi-presets": IMAGE_EDIT_SIZE_VALUES,
+            },
+            "quality": {
+                "type": "string",
+                "nullable": True,
+                "description": "质量档位：auto / preview / production / premium。",
+                "enum": IMAGE_EDIT_QUALITY_VALUES,
+                "default": "production",
+            },
+            "output_format": {
+                "type": "string",
+                "nullable": True,
+                "description": "输出格式，默认 png。",
+                "enum": IMAGE_EDIT_OUTPUT_FORMAT_VALUES,
+                "default": "png",
+            },
+        },
+        "x-podi-custom-size-constraints": IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
+    }
+    image_edit_chat_create_schema = {
+        "type": "object",
+        "description": "创建对话改图 ChatBot 会话；可带首轮 message 直接生成可确认建议。",
+        "properties": {
+            "agentKey": {
+                "type": "string",
+                "nullable": True,
+                "description": "固定为 agent.image_edit_assistant；一般不需要业务方传。",
+                "default": "agent.image_edit_assistant",
+            },
+            "imageUrl": {"type": "string", "nullable": True, "description": "会话主图 URL；也可在后续消息中补充。"},
+            "message": {"type": "string", "nullable": True, "description": "首轮用户消息；传入后会生成最新建议。"},
+            "editSkill": {"type": "string", "nullable": True, "description": "可选默认改图技能。", "enum": IMAGE_EDIT_SKILL_VALUES},
+            "quality": {"type": "string", "nullable": True, "description": "质量档位。", "enum": IMAGE_EDIT_QUALITY_VALUES},
+            "size": {"type": "string", "nullable": True, "description": "输出尺寸，默认 auto。", "examples": IMAGE_EDIT_SIZE_VALUES},
+            "outputFormat": {"type": "string", "nullable": True, "description": "输出格式。", "enum": IMAGE_EDIT_OUTPUT_FORMAT_VALUES},
+            "maskUrl": {"type": "string", "nullable": True, "description": "可选蒙版 URL。"},
+            "referenceImages": {
+                "oneOf": [{"type": "array", "items": {"type": "object"}}, {"type": "array", "items": {"type": "string"}}],
+                "nullable": True,
+                "description": "参考图列表。",
+            },
+            "selectionHints": {"type": "array", "items": {"type": "object"}, "nullable": True, "description": "标注区域提示。"},
+            "title": {"type": "string", "nullable": True, "description": "会话标题。"},
+            "context": {"type": "object", "nullable": True, "description": "上下文，如用户目标、商品类目、品牌要求。"},
+            "metadata": {"type": "object", "nullable": True, "description": "业务上下文。"},
+            "source": {"type": "string", "nullable": True, "description": "调用来源，例如 eval / client。"},
+            "channel": {"type": "string", "nullable": True},
+            "traceId": {"type": "string", "nullable": True},
+            "requestId": {"type": "string", "nullable": True, "description": "创建会话幂等键。"},
+            "tenantId": {"type": "string", "nullable": True},
+            "clientId": {"type": "string", "nullable": True},
+            "projectId": {"type": "string", "nullable": True},
+        },
+    }
+    image_edit_chat_message_schema = {
+        "type": "object",
+        "required": ["message"],
+        "description": "向已有对话改图会话追加用户消息，并生成新的最新建议。",
+        "properties": {
+            "message": {"type": "string", "description": "用户本轮自然语言改图要求。"},
+            "imageUrl": {"type": "string", "nullable": True, "description": "补充或覆盖会话主图 URL。"},
+            "editSkill": {"type": "string", "nullable": True, "description": "可选改图技能。", "enum": IMAGE_EDIT_SKILL_VALUES},
+            "quality": {"type": "string", "nullable": True, "description": "质量档位。", "enum": IMAGE_EDIT_QUALITY_VALUES},
+            "size": {"type": "string", "nullable": True, "description": "输出尺寸。", "examples": IMAGE_EDIT_SIZE_VALUES},
+            "outputFormat": {"type": "string", "nullable": True, "description": "输出格式。", "enum": IMAGE_EDIT_OUTPUT_FORMAT_VALUES},
+            "maskUrl": {"type": "string", "nullable": True, "description": "可选蒙版 URL。"},
+            "referenceImages": {
+                "oneOf": [{"type": "array", "items": {"type": "object"}}, {"type": "array", "items": {"type": "string"}}],
+                "nullable": True,
+                "description": "参考图列表。",
+            },
+            "selectionHints": {"type": "array", "items": {"type": "object"}, "nullable": True, "description": "标注区域提示。"},
+            "context": {"type": "object", "nullable": True, "description": "补充上下文。"},
+            "metadata": {"type": "object", "nullable": True, "description": "业务上下文。"},
+        },
+    }
+    image_edit_chat_confirm_schema = {
+        "type": "object",
+        "description": "确认执行最新建议或指定 planId；确认后才会提交底层 /api/business/image-edit/runs。",
+        "properties": {
+            "planId": {"type": "string", "nullable": True, "description": "可选方案 ID；不传则确认当前最新建议。"},
+            "overrides": {"type": "object", "nullable": True, "description": "执行前覆盖项，如 quality/size/callbackUrl。"},
+            "callbackUrl": {"type": "string", "nullable": True, "description": "可选终态回调地址。"},
+            "callbackHeaders": {"type": "object", "nullable": True, "description": "终态回调请求头。"},
+            "requestId": {"type": "string", "nullable": True, "description": "确认动作幂等键。"},
+        },
+    }
+    image_edit_chat_session_response_schema = {
+        "type": "object",
+        "properties": {
+            "session": {"type": "object", "description": "会话详情，包含 messages/plans/latestPlan/toolCalls 等字段。"},
+        },
+    }
+    image_edit_chat_plan_response_schema = {
+        "type": "object",
+        "properties": {
+            "session": {"type": "object", "description": "会话详情。"},
+            "plan": {"type": "object", "description": "最新可确认建议，包含 editPlan/toolPayload/warnings。"},
+        },
+    }
+    image_edit_chat_confirm_response_schema = {
+        "type": "object",
+        "properties": {
+            "session": {"type": "object", "description": "会话详情。"},
+            "plan": {"type": "object", "description": "已确认方案。"},
+            "toolCall": {"type": "object", "description": "工具调用记录。"},
+            "run": {"type": "object", "description": "底层 image_edit 业务任务回执，包含 runId/status/retryAfterSeconds。"},
+        },
+    }
     text_fission_prompt_schema = {
         "type": "object",
         "required": ["imageUrl"],
@@ -1514,10 +2165,12 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "required": [],
     }
 
-    try:
-        capability_items = get_business_run_service().list_capabilities()
-    except Exception:
-        capability_items = []
+    capability_items: list[Any] = []
+    if str(request.query_params.get("includeDynamicSchema") or "").strip().lower() in {"1", "true", "yes"}:
+        try:
+            capability_items = get_business_run_service().list_capabilities()
+        except Exception:
+            capability_items = []
 
     def _capability_value(item: Any, *keys: str) -> Any:
         if not isinstance(item, dict):
@@ -1640,6 +2293,13 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         image_edit_size_schema["examples"] = IMAGE_EDIT_SIZE_VALUES
         image_edit_size_schema["x-podi-presets"] = IMAGE_EDIT_SIZE_VALUES
         image_edit_size_schema["pattern"] = r"^(auto|[1-9]\d*x[1-9]\d*)$"
+    product_design_submit_schema = _merge_business_capability_schema("product_design", product_design_submit_schema)
+    product_design_submit_schema["required"] = ["imageUrl", "designBrief"]
+    product_design_route_preview_schema = _merge_business_capability_schema(
+        "product_design",
+        {**product_design_submit_schema, "required": []},
+        required_override=[],
+    )
     text_fission_submit_schema = _merge_business_capability_schema("text_fission", text_fission_submit_schema)
     fission_evaluate_submit_schema = _merge_business_capability_schema("fission_evaluate", fission_evaluate_submit_schema)
     outpaint_submit_schema = _merge_business_capability_schema("outpaint", outpaint_submit_schema)
@@ -1735,6 +2395,36 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "source": "partner-api",
                 "channel": "open-api",
                 "requestId": "biz-image-edit-outpaint-001",
+            },
+        },
+    }
+    product_design_examples = {
+        "apparel_product_design": {
+            "summary": "服装产品设计",
+            "value": {
+                "imageUrl": "https://example.com/pattern.png",
+                "version": "product-design-gpt-image2-v1",
+                "productType": "apparel",
+                "designBrief": "把主图花纹应用到一款适合夏季电商展示的连衣裙产品图，保持花纹识别度，整体干净高级。",
+                "scene": "studio_product",
+                "quality": "production",
+                "size": "auto",
+                "output_format": "png",
+                "source": "partner-api",
+                "channel": "open-api",
+                "requestId": "biz-product-design-001",
+            },
+        },
+        "home_textile_mockup": {
+            "summary": "家纺上品 mockup",
+            "value": {
+                "imageUrl": "https://example.com/floral-pattern.png",
+                "productType": "home_textile",
+                "designBrief": "生成一张抱枕产品设计图，图案自然铺在面料上，保留原花纹颜色关系和层次。",
+                "scene": "print_mockup",
+                "referenceImages": [{"url": "https://example.com/pillow-shape.png", "label": "抱枕版型参考"}],
+                "quality": "preview",
+                "size": "1024x1024",
             },
         },
     }
@@ -1892,6 +2582,9 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "IMAGE_EDIT_MASK_ALPHA_REQUIRED",
             "IMAGE_EDIT_QUALITY_INVALID",
             "IMAGE_EDIT_OUTPUT_FORMAT_INVALID",
+            "PRODUCT_DESIGN_BRIEF_REQUIRED",
+            "PRODUCT_DESIGN_PRODUCT_TYPE_INVALID",
+            "PRODUCT_DESIGN_SCENE_INVALID",
         ],
         "404": ["BUSINESS_CAPABILITY_NOT_FOUND"],
         "429": ["VENDOR_API_CONCURRENCY_LIMITED", "VENDOR_API_KEY_CONCURRENCY_LIMITED"],
@@ -1916,12 +2609,26 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "BUSINESS_CLIENT_DAILY_QUOTA_LIMITED",
         *submit_errors["429"],
     ]
+    agent_errors = {
+        **submit_errors,
+        "400": [
+            "AGENT_MESSAGE_REQUIRED",
+            "AGENT_IMAGE_URL_REQUIRED",
+            "AGENT_PLAN_REQUIRED",
+            "AGENT_PLAN_STALE",
+            "AGENT_PLAN_NOT_CONFIRMABLE",
+            *submit_errors["400"],
+        ],
+        "404": ["AGENT_CAPABILITY_NOT_FOUND", "AGENT_SESSION_NOT_FOUND", "AGENT_PLAN_NOT_FOUND"],
+        "409": ["AGENT_PLAN_CONFIRM_IN_PROGRESS"],
+        "500": ["AGENT_SESSION_CREATE_FAILED", "AGENT_MESSAGE_FAILED", "AGENT_PLAN_CONFIRM_FAILED", "AGENT_TOOL_CALL_FAILED"],
+    }
     return {
         "openapi": "3.0.0",
         "info": {
             "title": "PODI Business APIs",
             "version": "0.1.0",
-            "description": "业务层稳定入口：花纹提取、图裂变、图编辑、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
+            "description": "业务层稳定入口：花纹提取、图裂变、产品设计、直接图编辑、对话改图 ChatBot、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
         "components": {
@@ -1982,7 +2689,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit/runs": {
                 "post": {
                     "operationId": "podi_business_image_edit_run",
-                    "summary": "PODI · 图编辑",
+                    "summary": "PODI · 直接图编辑",
                     "description": "提交图编辑业务任务。业务方或托管组件传主图、编辑指令、标注、参考图和可选蒙版；中台编译后调用 GPT Image 2 图片编辑。",
                     "security": business_api_key_security,
                     "requestBody": {
@@ -2005,6 +2712,138 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                         success_description="Business run accepted",
                         errors_by_status=submit_errors,
                         success_schema=submit_response_schema,
+                    ),
+                }
+            },
+            "/api/business/product-design/runs": {
+                "post": {
+                    "operationId": "podi_business_product_design_run",
+                    "summary": "PODI · 产品设计",
+                    "description": "提交产品设计业务任务。业务方只传素材/花纹图、产品类型、设计要求和展示场景；中台负责 prompt 编译、版本路由和结果回填。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": product_design_submit_schema,
+                                "examples": product_design_examples,
+                            }
+                        },
+                    },
+                    "x-codeSamples": [
+                        {
+                            "lang": "curl",
+                            "label": "提交产品设计任务",
+                            "source": "curl -X POST \"$PODI_BASE_URL/api/business/product-design/runs\" \\\n  -H \"X-PODI-API-Key: $PODI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"imageUrl\":\"https://example.com/pattern.png\",\"productType\":\"apparel\",\"designBrief\":\"把主图花纹应用到一款适合电商展示的连衣裙产品图\",\"scene\":\"studio_product\",\"quality\":\"production\"}'",
+                        }
+                    ],
+                    "responses": _business_responses(
+                        success_description="Business run accepted",
+                        errors_by_status=submit_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
+            "/api/business/image-edit-chat/sessions": {
+                "post": {
+                    "operationId": "podi_business_image_edit_chat_create_session",
+                    "summary": "PODI · 对话改图 ChatBot · 创建会话",
+                    "description": "创建对话改图 ChatBot 会话。它是独立聊天入口，不是 /api/business/image-edit/runs 的别名；只有用户确认建议后才会提交底层 image_edit 业务任务。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": image_edit_chat_create_schema,
+                                "examples": {
+                                    "create_with_first_message": {
+                                        "summary": "创建会话并生成首个建议",
+                                        "value": {
+                                            "imageUrl": "https://example.com/product.png",
+                                            "message": "把主图调整成更干净的电商商品图，保留原始花纹主体。",
+                                            "quality": "preview",
+                                            "size": "auto",
+                                            "source": "partner-api",
+                                            "channel": "chatbot",
+                                            "requestId": "biz-image-edit-chat-001",
+                                        },
+                                    }
+                                },
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Image edit chat session created",
+                        errors_by_status=agent_errors,
+                        success_schema=image_edit_chat_plan_response_schema,
+                    ),
+                }
+            },
+            "/api/business/image-edit-chat/sessions/{sessionId}": {
+                "get": {
+                    "operationId": "podi_business_image_edit_chat_get_session",
+                    "summary": "PODI · 对话改图 ChatBot · 查询会话",
+                    "description": "查询对话改图会话、消息、建议方案和工具调用记录。",
+                    "security": business_api_key_security,
+                    "parameters": [
+                        {"name": "sessionId", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                    "responses": _business_responses(
+                        success_description="Image edit chat session",
+                        errors_by_status=agent_errors,
+                        success_schema=image_edit_chat_session_response_schema,
+                    ),
+                }
+            },
+            "/api/business/image-edit-chat/sessions/{sessionId}/messages": {
+                "post": {
+                    "operationId": "podi_business_image_edit_chat_send_message",
+                    "summary": "PODI · 对话改图 ChatBot · 发送消息",
+                    "description": "向已有会话追加用户消息，并生成新的最新建议。后端不会隐藏续聊，调用方必须显式传 sessionId。",
+                    "security": business_api_key_security,
+                    "parameters": [
+                        {"name": "sessionId", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": image_edit_chat_message_schema}}},
+                    "responses": _business_responses(
+                        success_description="Image edit chat plan prepared",
+                        errors_by_status=agent_errors,
+                        success_schema=image_edit_chat_plan_response_schema,
+                    ),
+                }
+            },
+            "/api/business/image-edit-chat/sessions/{sessionId}/confirm": {
+                "post": {
+                    "operationId": "podi_business_image_edit_chat_confirm_latest",
+                    "summary": "PODI · 对话改图 ChatBot · 执行最新建议",
+                    "description": "确认当前最新建议并提交底层 /api/business/image-edit/runs。会话还没有建议时返回 AGENT_PLAN_REQUIRED。",
+                    "security": business_api_key_security,
+                    "parameters": [
+                        {"name": "sessionId", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                    "requestBody": {"required": False, "content": {"application/json": {"schema": image_edit_chat_confirm_schema}}},
+                    "responses": _business_responses(
+                        success_description="Image edit chat plan confirmed",
+                        errors_by_status=agent_errors,
+                        success_schema=image_edit_chat_confirm_response_schema,
+                    ),
+                }
+            },
+            "/api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm": {
+                "post": {
+                    "operationId": "podi_business_image_edit_chat_confirm_plan",
+                    "summary": "PODI · 对话改图 ChatBot · 执行指定建议",
+                    "description": "确认指定方案版本并提交底层 /api/business/image-edit/runs。指定的方案不是最新方案时返回 AGENT_PLAN_STALE。",
+                    "security": business_api_key_security,
+                    "parameters": [
+                        {"name": "sessionId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "planId", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                    "requestBody": {"required": False, "content": {"application/json": {"schema": image_edit_chat_confirm_schema}}},
+                    "responses": _business_responses(
+                        success_description="Image edit chat plan confirmed",
+                        errors_by_status=agent_errors,
+                        success_schema=image_edit_chat_confirm_response_schema,
                     ),
                 }
             },
@@ -2174,6 +3013,24 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "description": "不提交真实任务，只预览当前 tenantId/clientId/grayKey 会命中哪个业务版本，用于灰度验证。",
                     "security": business_api_key_security,
                     "requestBody": {"required": True, "content": {"application/json": {"schema": outpaint_route_preview_schema}}},
+                    "responses": _route_preview_responses(errors_by_status=submit_errors),
+                }
+            },
+            "/api/business/product-design/route-preview": {
+                "post": {
+                    "operationId": "podi_business_product_design_route_preview",
+                    "summary": "PODI · 产品设计路由预览",
+                    "description": "不提交真实任务，只预览当前 tenantId/clientId/grayKey 会命中哪个产品设计版本。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": product_design_route_preview_schema,
+                                "examples": product_design_examples,
+                            }
+                        },
+                    },
                     "responses": _route_preview_responses(errors_by_status=submit_errors),
                 }
             },
@@ -3823,6 +4680,44 @@ def admin_list_business_operation_logs(
             limit=limit,
         )
     )
+
+
+@admin_router.get("/projects", response_model=schemas.BusinessProjectListResponse, response_model_by_alias=False)
+def admin_list_business_projects(
+    scenario: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    total, items = get_business_project_service().list_projects(
+        user=user,
+        scenario=scenario,
+        status=status,
+        tenant_id=tenant_id,
+        client_id=client_id,
+        limit=limit,
+        offset=offset,
+    )
+    return schemas.BusinessProjectListResponse(total=total, items=items)
+
+
+@admin_router.get(
+    "/projects/{project_id}",
+    response_model=schemas.BusinessProjectDetailResponse,
+    response_model_by_alias=False,
+)
+def admin_get_business_project(
+    project_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessProjectDetailResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_project_service().get_project_detail(project_id, user=user)
 
 
 @admin_router.get("/usage-summary", response_model=schemas.BusinessUsageSummaryResponse, response_model_by_alias=False)

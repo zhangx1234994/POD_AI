@@ -1,6 +1,6 @@
 import type { BusinessCapability } from '../../../types/admin';
 
-export const coreBusinessKeys = ['pattern_extract', 'fission', 'image_edit', 'outpaint', 'text_fission'] as const;
+export const coreBusinessKeys = ['pattern_extract', 'fission', 'product_design', 'image_edit', 'outpaint', 'text_fission'] as const;
 
 export const canonicalBusinessKey = (key?: string | null) => {
   const normalized = String(key || '').trim();
@@ -13,6 +13,7 @@ export const businessKeyLabel = (key?: string | null) => {
   const normalized = canonicalBusinessKey(key);
   if (normalized === 'pattern_extract') return '花纹提取';
   if (normalized === 'fission') return '图裂变';
+  if (normalized === 'product_design') return '产品设计';
   if (normalized === 'image_edit') return '图编辑';
   if (normalized === 'fission_evaluate') return '裂变评分';
   if (normalized === 'outpaint') return '扩图';
