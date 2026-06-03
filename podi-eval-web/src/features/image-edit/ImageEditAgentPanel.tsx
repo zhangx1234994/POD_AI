@@ -93,6 +93,9 @@ const normalizeOutputUrls = (result: BusinessRunPollResult | null): string[] => 
 
 const normalizeRunId = (run: Record<string, unknown> | null): string => String(run?.runId || run?.id || '').trim();
 
+const normalizeRunResultId = (result: BusinessRunPollResult | Record<string, unknown> | null): string =>
+  String(result?.runId || result?.id || '').trim();
+
 const createAgentRequestId = () => `eval-image-edit-chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const shortAgentId = (value?: string | null) => {
@@ -191,6 +194,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
   const [status, setStatus] = useState<AgentStatus>('idle');
   const [run, setRun] = useState<Record<string, unknown> | null>(null);
   const [runResult, setRunResult] = useState<BusinessRunPollResult | null>(null);
+  const [runResultsById, setRunResultsById] = useState<Record<string, BusinessRunPollResult>>({});
   const [uploading, setUploading] = useState(false);
   const [threads, setThreads] = useState<AgentThreadSnapshot[]>(() => loadThreadSnapshots());
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -200,19 +204,53 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const sessionRequestIdRef = useRef(createAgentRequestId());
+  const fetchedRunIdsRef = useRef<Set<string>>(new Set());
   const previousMainImageRef = useRef(String(imageUrl || '').trim());
 
   const busy = status !== 'idle';
   const runId = normalizeRunId(run);
-  const outputUrls = useMemo(() => normalizeOutputUrls(runResult), [runResult]);
+  const currentRunResult = runId ? runResultsById[runId] || runResult : null;
   const planPayload = (plan?.toolPayload || {}) as Record<string, unknown>;
-  const currentImageUrl = String(imageUrl || session?.imageUrl || '').trim();
-  const runStatus = String(runResult?.status || run?.status || '').toLowerCase();
+  const sourceImageUrl = String(imageUrl || '').trim();
+  const currentImageUrl = String(session?.imageUrl || sourceImageUrl || '').trim();
+  const runStatus = String(currentRunResult?.status || run?.status || '').toLowerCase();
   const chatMessages = useMemo(() => {
     const items = (session?.messages || []).filter((item) => item.role === 'user' || item.role === 'assistant' || item.role === 'tool');
     return items.length > 0 ? items : [EMPTY_CHAT_MESSAGE];
   }, [session?.messages]);
-  const latestOutputUrl = outputUrls[0] || '';
+  const toolRunIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const item of session?.messages || []) {
+      const id = String(item.runId || '').trim();
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+    if (runId && !ids.includes(runId)) ids.push(runId);
+    return ids;
+  }, [runId, session?.messages]);
+  const latestSuccessfulRun = useMemo(() => {
+    for (let index = toolRunIds.length - 1; index >= 0; index -= 1) {
+      const id = toolRunIds[index];
+      const result = runResultsById[id] || (id === runId ? currentRunResult : null);
+      const urls = normalizeOutputUrls(result || null);
+      if (String(result?.status || '').toLowerCase() === 'succeeded' && urls.length > 0) return { id, urls };
+    }
+    return null;
+  }, [currentRunResult, runId, runResultsById, toolRunIds]);
+  const latestOutputUrls = latestSuccessfulRun?.urls || [];
+  const latestOutputRunId = latestSuccessfulRun?.id || '';
+  const latestOutputUrl = latestOutputUrls[0] || '';
+  const activeImageUrl = latestOutputUrl || currentImageUrl;
+  const activeImageIsGenerated = Boolean(latestOutputUrl);
+  const currentPlanRunId = useMemo(() => {
+    if (!plan?.id) return '';
+    const toolCall = (session?.toolCalls || []).find((item) => item.planId === plan.id && item.runId);
+    if (toolCall?.runId) return String(toolCall.runId);
+    const toolMessage = (session?.messages || []).find((item) => item.planId === plan.id && item.runId);
+    return String(toolMessage?.runId || '').trim();
+  }, [plan?.id, session?.messages, session?.toolCalls]);
+  const currentPlanRunResult = currentPlanRunId ? runResultsById[currentPlanRunId] || (currentPlanRunId === runId ? currentRunResult : null) : null;
+  const currentPlanRunStatus = String(currentPlanRunResult?.status || '').toLowerCase();
+  const currentPlanNeedsConfirmation = Boolean(plan && !currentPlanRunId && plan.status !== 'executed');
   const statusLabel =
     status === 'planning'
       ? '正在理解图片'
@@ -224,9 +262,17 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
             ? '正在恢复任务'
             : runStatus
               ? statusText[runStatus] || runStatus
-              : plan
+              : currentPlanNeedsConfirmation
                 ? '等待确认'
                 : '待沟通';
+
+  const rememberRunResult = (id: string, result: BusinessRunPollResult | Record<string, unknown> | null, opts?: { asCurrent?: boolean }) => {
+    const normalizedId = String(id || normalizeRunResultId(result)).trim();
+    if (!normalizedId || !result) return;
+    const normalized = result as BusinessRunPollResult;
+    setRunResultsById((prev) => ({ ...prev, [normalizedId]: normalized }));
+    if (opts?.asCurrent) setRunResult(normalized);
+  };
 
   const rememberThread = (snapshot: AgentThreadSnapshot) => {
     setThreads((prev) => {
@@ -243,6 +289,8 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     setPlan(null);
     setRun(null);
     setRunResult(null);
+    setRunResultsById({});
+    fetchedRunIdsRef.current = new Set();
     setPollStartedAt(null);
     setPollElapsedSeconds(0);
     setAgentError('');
@@ -252,33 +300,53 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
   };
 
   useEffect(() => {
-    const next = String(imageUrl || '').trim();
+    const next = sourceImageUrl;
     const prev = previousMainImageRef.current;
     if (session?.id && next && prev && next !== prev) {
       resetAgentSession({ keepMessage: true });
       void MessagePlugin.info('主图已变化，已为这张图开启新的改图任务。');
     }
     previousMainImageRef.current = next;
-  }, [imageUrl, session?.id]);
+  }, [sourceImageUrl, session?.id]);
 
   useEffect(() => {
     if (!session?.id) return;
     rememberThread({
       sessionId: session.id,
       title: buildThreadTitle(session, message),
-      imageUrl: currentImageUrl || undefined,
+      imageUrl: activeImageUrl || undefined,
       latestPlanId: plan?.id || session.latestPlanId || null,
       latestRunId: runId || session.latestRunId || session.latestToolCall?.runId || null,
       latestRunStatus: runStatus || null,
-      outputUrls,
+      outputUrls: latestOutputUrls,
       updatedAt: Date.now(),
       lastMessage: getLatestUserMessage(session) || message,
     });
-  }, [currentImageUrl, outputUrls.join('|'), plan?.id, runId, runStatus, session?.id, session?.latestPlanId, session?.latestRunId, session?.latestToolCall?.runId]);
+  }, [activeImageUrl, latestOutputUrls.join('|'), plan?.id, runId, runStatus, session?.id, session?.latestPlanId, session?.latestRunId, session?.latestToolCall?.runId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ block: 'end' });
-  }, [agentError, chatMessages.length, outputUrls.length, runStatus, status, plan?.id]);
+  }, [agentError, chatMessages.length, latestOutputUrls.length, runStatus, status, plan?.id]);
+
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(
+        (session?.messages || [])
+          .map((item) => String(item.runId || '').trim())
+          .filter(Boolean),
+      ),
+    ).slice(-8);
+    for (const id of ids) {
+      if (runResultsById[id] || fetchedRunIdsRef.current.has(id)) continue;
+      fetchedRunIdsRef.current.add(id);
+      void evalApi
+        .getBusinessRun(id)
+        .then((result) => rememberRunResult(id, result))
+        .catch(() => {
+          fetchedRunIdsRef.current.delete(id);
+        });
+    }
+  }, [runResultsById, session?.messages]);
 
   useEffect(() => {
     if (status !== 'polling' || !pollStartedAt) return undefined;
@@ -289,23 +357,29 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     return () => window.clearInterval(timer);
   }, [pollStartedAt, status]);
 
-  const refreshRun = async (id: string): Promise<BusinessRunPollResult | null> => {
+  const refreshRun = async (id: string, opts?: { asCurrent?: boolean }): Promise<BusinessRunPollResult | null> => {
     const result = await evalApi.getBusinessRun(id);
-    setRunResult(result);
+    rememberRunResult(id, result, { asCurrent: opts?.asCurrent ?? true });
     return result;
   };
 
   const pollRun = async (id: string) => {
     setStatus('polling');
     setPollStartedAt(Date.now());
+    let finalResult: BusinessRunPollResult | null = null;
     try {
       for (let index = 0; index < 120; index += 1) {
         const result = await refreshRun(id);
+        finalResult = result;
         const state = String(result?.status || '').toLowerCase();
         if (state === 'succeeded' || state === 'failed') break;
         await sleep(5000);
       }
     } finally {
+      const urls = normalizeOutputUrls(finalResult);
+      if (String(finalResult?.status || '').toLowerCase() === 'succeeded' && urls[0]) {
+        setSession((prev) => (prev ? { ...prev, imageUrl: urls[0] } : prev));
+      }
       setStatus('idle');
     }
   };
@@ -318,10 +392,14 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     }
     setAgentError('');
     setStatus('planning');
+    setPlan(null);
+    setRun(null);
+    setRunResult(null);
     try {
+      const baseImageUrl = activeImageUrl || undefined;
       const payload = {
         message: text,
-        imageUrl: currentImageUrl || undefined,
+        imageUrl: baseImageUrl,
         quality,
         size,
         outputFormat,
@@ -331,11 +409,13 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
         context: {
           entry: 'podi-eval-web',
           surface: 'image-edit-chatbot',
+          baseImageRole: activeImageIsGenerated ? 'previous_result' : 'source_image',
+          previousRunId: activeImageIsGenerated ? latestOutputRunId || undefined : undefined,
         },
       };
       if (!session?.id) {
         const created = await evalApi.createImageEditAgentSession({
-          imageUrl: currentImageUrl || undefined,
+          imageUrl: baseImageUrl,
           message: text,
           source: 'eval',
           channel: 'image-edit-chat',
@@ -347,7 +427,11 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           referenceImages: payload.referenceImages,
           selectionHints,
           context: payload.context,
-          metadata: { referenceCount: referenceImages.length, selectionHintCount: selectionHints.length },
+          metadata: {
+            referenceCount: referenceImages.length,
+            selectionHintCount: selectionHints.length,
+            baseImageRole: activeImageIsGenerated ? 'previous_result' : 'source_image',
+          },
         });
         setSession(created.session);
         const nextPlan = created.plan || created.session.latestPlan || null;
@@ -386,7 +470,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
       await MessagePlugin.error('请先生成建议。');
       return;
     }
-    if (!currentImageUrl) {
+    if (!activeImageUrl) {
       await MessagePlugin.error('请先上传或粘贴主图。');
       return;
     }
@@ -395,12 +479,13 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     try {
       const result = await evalApi.confirmImageEditAgentPlan(session.id, plan.id, {
         requestId: `iec:${shortAgentId(session.id)}:${shortAgentId(plan.id)}:${Date.now().toString(36)}`,
-        overrides: { imageUrl: currentImageUrl },
+        overrides: { imageUrl: activeImageUrl },
       });
       setSession(result.session);
       setPlan(result.plan);
       setRun(result.run);
       const id = normalizeRunId(result.run);
+      if (id) rememberRunResult(id, result.run, { asCurrent: true });
       if (id) void pollRun(id);
     } catch (err) {
       const errorText = formatAgentError(err, '确认执行失败');
@@ -425,11 +510,23 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
       setRun(restoredRunId ? { runId: restoredRunId, id: restoredRunId, status: item.latestRunStatus || 'submitted' } : null);
       setRunResult(null);
       setMessage('');
+      if (restoredRunId && item.outputUrls?.length) {
+        rememberRunResult(restoredRunId, {
+          runId: restoredRunId,
+          id: restoredRunId,
+          status: item.latestRunStatus || 'succeeded',
+          imageUrls: item.outputUrls,
+        });
+      }
       const restoredImageUrl = String(nextSession.imageUrl || item.imageUrl || '').trim();
       if (restoredImageUrl) onImageUrlChange?.(restoredImageUrl);
       if (restoredRunId) {
         const latest = await refreshRun(restoredRunId);
         const state = String(latest?.status || '').toLowerCase();
+        const urls = normalizeOutputUrls(latest);
+        if (state === 'succeeded' && urls[0]) {
+          setSession((prev) => (prev?.id === nextSession.id ? { ...prev, imageUrl: urls[0] } : prev));
+        }
         if (state && state !== 'succeeded' && state !== 'failed') void pollRun(restoredRunId);
       }
     } catch (err) {
@@ -459,8 +556,76 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     }
   };
 
+  const getRunResultForMessage = (id: string) => runResultsById[id] || (id === runId ? currentRunResult : null);
+
+  const renderImageStrip = (urls: string[], titlePrefix: string) => {
+    if (urls.length === 0) return null;
+    return (
+      <div className="podi-image-edit-agent__message-images">
+        {urls.map((url, index) => (
+          <button key={`${url}-${index}`} type="button" onClick={() => onPreviewImage?.(url, `${titlePrefix} ${index + 1}`)}>
+            <img src={url} alt={`${titlePrefix} ${index + 1}`} />
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const renderMessageAttachments = (item: BusinessAgentMessage) => {
+    const urls = (item.attachments || [])
+      .map((attachment) => String(attachment?.url || '').trim())
+      .filter(Boolean);
+    if (urls.length === 0) return null;
+    return renderImageStrip(urls.slice(0, 3), item.role === 'user' ? '本轮基准图' : '消息图片');
+  };
+
+  const renderToolMessageContent = (item: BusinessAgentMessage) => {
+    const id = String(item.runId || '').trim();
+    const result = id ? getRunResultForMessage(id) : null;
+    const state = String(result?.status || (id === runId ? runStatus : '') || '').toLowerCase();
+    const urls = normalizeOutputUrls(result || null);
+    const errorText = String(result?.error || result?.errorMessage || result?.error_message || '').trim();
+    const runningText =
+      id && id === runId && status === 'polling'
+        ? `正在出图，完成后结果会直接出现在这里。已等待 ${pollElapsedSeconds}s`
+        : '任务已提交，完成后结果会直接出现在这里。';
+    const content =
+      state === 'succeeded'
+        ? '已完成，结果如下。继续输入时会默认基于这张结果图修改。'
+        : state === 'failed'
+          ? `执行失败，请查看错误后重试。${errorText ? `\n${errorText}` : ''}`
+          : runningText;
+    return (
+      <>
+        <p>
+          {state !== 'succeeded' && state !== 'failed' ? <i aria-hidden="true" /> : null}
+          {content}
+        </p>
+        {renderImageStrip(urls, '对话改图输出')}
+      </>
+    );
+  };
+
+  const renderChatMessage = (item: BusinessAgentMessage) => {
+    const isTool = item.role === 'tool';
+    const roleClass = item.role === 'user' ? 'user' : isTool ? 'tool' : 'assistant';
+    return (
+      <div key={item.id} className={`podi-image-edit-agent__message is-${roleClass}`}>
+        <span>{item.role === 'user' ? '你' : isTool ? '执行结果' : '图片 Codex'}</span>
+        {isTool ? (
+          renderToolMessageContent(item)
+        ) : (
+          <>
+            <p>{item.content || (item.planId ? '我整理了一条可执行建议，你可以继续沟通或直接确认执行。' : '已收到。')}</p>
+            {renderMessageAttachments(item)}
+          </>
+        )}
+      </div>
+    );
+  };
+
   const renderWorkingMessage = () => {
-    if (status === 'idle' || status === 'restoring') return null;
+    if (status === 'idle' || status === 'restoring' || status === 'polling') return null;
     const text =
       status === 'planning'
         ? '正在理解图片和你的目标，整理可执行建议...'
@@ -490,7 +655,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
 
   const renderPlanMessage = () => {
     if (!plan) return null;
-    if (runId && runStatus !== 'failed') return null;
+    if ((currentPlanRunId || plan.status === 'executed') && currentPlanRunStatus !== 'failed') return null;
     return (
       <div className="podi-image-edit-agent__message is-plan">
         <span>图片 Codex 建议</span>
@@ -530,7 +695,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           <p>{String(planPayload.instruction || plan.summary || '')}</p>
         </div>
         <div className="podi-image-edit-agent__inline-actions">
-          <Button theme="primary" loading={status === 'confirming'} disabled={busy || !currentImageUrl} onClick={() => void confirmPlan()}>
+          <Button theme="primary" loading={status === 'confirming'} disabled={busy || !activeImageUrl} onClick={() => void confirmPlan()}>
             执行这版
           </Button>
           {showApplyToEditor && onApplyPlan ? (
@@ -593,44 +758,17 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           <div className="podi-image-edit-agent__chat-head">
             <div>
               <strong>{session ? buildThreadTitle(session, message) : '新改图任务'}</strong>
-              <span>{currentImageUrl ? '主图已就绪' : '先上传或粘贴主图'}</span>
+              <span>{activeImageUrl ? (activeImageIsGenerated ? '当前基准图：上一轮结果' : '当前基准图：主图') : '先上传或粘贴主图'}</span>
             </div>
             <Tag theme={status === 'idle' ? 'default' : 'primary'} variant="light">
               {statusLabel}
             </Tag>
           </div>
           <div className="podi-image-edit-agent__messages">
-            {chatMessages.map((item) => (
-              <div key={item.id} className={`podi-image-edit-agent__message is-${item.role === 'user' ? 'user' : item.role === 'tool' ? 'tool' : 'assistant'}`}>
-                <span>{item.role === 'user' ? '你' : item.role === 'tool' ? '执行结果' : '图片 Codex'}</span>
-                <p>{item.content || (item.planId ? '我整理了一条可执行建议，你可以继续沟通或直接确认执行。' : '已收到。')}</p>
-              </div>
-            ))}
+            {chatMessages.map((item) => renderChatMessage(item))}
             {renderWorkingMessage()}
             {renderErrorMessage()}
             {renderPlanMessage()}
-            {runId ? (
-              <div className="podi-image-edit-agent__message is-tool">
-                <span>执行结果</span>
-                <p>
-                  {runStatus === 'succeeded'
-                    ? '已完成，结果如下。'
-                    : runStatus === 'failed'
-                      ? '执行失败，请查看错误后重试。'
-                      : '任务已提交，完成后结果会出现在这里。'}
-                  {runResult?.error || runResult?.errorMessage || runResult?.error_message ? `\n${runResult.error || runResult.errorMessage || runResult.error_message}` : ''}
-                </p>
-                {outputUrls.length > 0 ? (
-                  <div className="podi-image-edit-agent__message-images">
-                    {outputUrls.map((url, index) => (
-                      <button key={`${url}-${index}`} type="button" onClick={() => onPreviewImage?.(url, `对话改图输出 ${index + 1}`)}>
-                        <img src={url} alt={`对话改图输出 ${index + 1}`} />
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
             <div ref={messagesEndRef} />
           </div>
           <div className="podi-image-edit-agent__composer">
@@ -676,10 +814,10 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
         </section>
 
         <aside className="podi-image-edit-agent__context" aria-label="当前图片和任务状态">
-          <div className={`podi-image-edit-agent__image${currentImageUrl ? '' : ' is-empty'}`}>
-            {currentImageUrl ? (
-              <button type="button" onClick={() => onPreviewImage?.(currentImageUrl, '对话改图主图')}>
-                <img src={currentImageUrl} alt="对话改图主图" />
+          <div className={`podi-image-edit-agent__image${activeImageUrl ? '' : ' is-empty'}`}>
+            {activeImageUrl ? (
+              <button type="button" onClick={() => onPreviewImage?.(activeImageUrl, activeImageIsGenerated ? '当前基准图：上一轮结果' : '当前基准图：主图')}>
+                <img src={activeImageUrl} alt={activeImageIsGenerated ? '当前基准图：上一轮结果' : '当前基准图：主图'} />
               </button>
             ) : (
               <button type="button" onClick={() => imageInputRef.current?.click()}>
@@ -688,11 +826,11 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
               </button>
             )}
           </div>
-          {latestOutputUrl ? (
+          {activeImageIsGenerated && sourceImageUrl && sourceImageUrl !== activeImageUrl ? (
             <div className="podi-image-edit-agent__context-result">
-              <span>最新结果</span>
-              <button type="button" onClick={() => onPreviewImage?.(latestOutputUrl, '对话改图最新结果')}>
-                <img src={latestOutputUrl} alt="对话改图最新结果" />
+              <span>原始主图</span>
+              <button type="button" onClick={() => onPreviewImage?.(sourceImageUrl, '对话改图原始主图')}>
+                <img src={sourceImageUrl} alt="对话改图原始主图" />
               </button>
             </div>
           ) : null}
@@ -700,10 +838,24 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
             <span>当前状态</span>
             <strong>{statusLabel}</strong>
             {status === 'polling' ? <small>已等待 {pollElapsedSeconds}s，页面会自动刷新结果。</small> : null}
+            {status !== 'polling' && activeImageIsGenerated ? <small>继续输入会基于上一轮成功结果图修改；新任务请点左侧“新建”。</small> : null}
           </div>
           <details className="podi-image-edit-agent__source" open={sourceOpen} onToggle={(event) => setSourceOpen(event.currentTarget.open)}>
-            <summary>图片来源</summary>
-            <Input value={currentImageUrl} placeholder="粘贴主图 URL" clearable onChange={(value) => onImageUrlChange?.(String(value || ''))} />
+            <summary>当前基准图 URL</summary>
+            <Input
+              value={activeImageUrl}
+              placeholder="粘贴主图 URL"
+              clearable
+              onChange={(value) => {
+                const url = String(value || '').trim();
+                onImageUrlChange?.(url);
+                setSession((prev) => (prev ? { ...prev, imageUrl: url } : prev));
+                setPlan(null);
+                setRun(null);
+                setRunResult(null);
+                setRunResultsById({});
+              }}
+            />
           </details>
           <details className="podi-image-edit-agent__debug">
             <summary>调试信息</summary>

@@ -1001,8 +1001,8 @@
 }
 
 .podi-image-edit-agent__message.is-tool {
-  align-self: center;
-  max-width: 92%;
+  align-self: flex-start;
+  max-width: min(92%, 560px);
   background: color-mix(in srgb, var(--td-success-color) 8%, var(--td-bg-color-container));
 }
 
@@ -1041,7 +1041,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .podi-image-edit-agent__suggestions {
@@ -1393,10 +1393,12 @@
   gap: 8px;
 }
 
-.podi-image-edit-agent__message.is-working i {
+.podi-image-edit-agent__message.is-working i,
+.podi-image-edit-agent__message.is-tool i {
   display: inline-block;
   width: 8px;
   height: 8px;
+  margin-right: 8px;
   border-radius: 50%;
   background: var(--td-brand-color);
   animation: podi-agent-pulse 1.2s ease-in-out infinite;
