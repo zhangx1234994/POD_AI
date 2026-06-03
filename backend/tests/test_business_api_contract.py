@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import select
@@ -13,7 +13,7 @@ from app.core.db import get_session
 from app.main import app
 from app.models.integration import AbilityTask, ApiKey, BusinessApiKeyUsageLog, BusinessRun, BusinessRunStep
 from app.models.user import User
-from app.routers.business import _business_delivery_contract_audit, _business_run_light_response
+from app.routers.business import _business_delivery_contract_audit, _business_run_light_response, _record_business_api_key_usage
 from app.schemas.business import BusinessRunCreateRequest
 from app.services import business_runs as business_runs_module
 from app.services.business_runs import BusinessRunService
@@ -2406,6 +2406,48 @@ def test_internal_business_api_call_records_usage_without_api_key(monkeypatch) -
     assert rows[0].trace_id == trace_id
     assert rows[0].tenant_id == "podi-internal-patrol"
     assert rows[0].client_id == "business-api-patrol"
+
+
+def test_business_api_usage_log_truncates_long_request_id() -> None:
+    path = "/api/business/test-long-request-id"
+    long_request_id = "image-edit-chat-confirm:" + "x" * 120
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": path,
+        "headers": [(b"user-agent", b"pytest")],
+        "client": ("127.0.0.1", 10000),
+        "server": ("testserver", 80),
+        "scheme": "http",
+        "query_string": b"",
+    }
+    request = Request(scope)
+    request.state.business_api_key_context = {
+        "apiKeyName": "内部请求",
+        "startedAt": 0,
+    }
+
+    with get_session() as session:
+        for row in session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.path == path)).scalars().all():
+            session.delete(row)
+        session.commit()
+
+    _record_business_api_key_usage(
+        request,
+        status_code=503,
+        business_key="image_edit_chat",
+        error_code="BACKGROUND_WORKERS_DISABLED",
+        request_payload={"requestId": long_request_id},
+    )
+
+    with get_session() as session:
+        row = session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.path == path)).scalar_one()
+
+    assert row.status_code == 503
+    assert row.business_key == "image_edit_chat"
+    assert row.error_code == "BACKGROUND_WORKERS_DISABLED"
+    assert row.request_id == long_request_id[:64]
+    assert len(row.request_id) == 64
 
 
 def test_coze_task_get_accepts_business_run_id_for_polling_compatibility(monkeypatch) -> None:

@@ -6,6 +6,7 @@ from copy import deepcopy
 import csv
 import io
 import json
+import logging
 import re
 import time
 from datetime import datetime, timedelta
@@ -53,6 +54,7 @@ from app.services.business_runs import get_business_run_service
 router = APIRouter(prefix="/api/business", tags=["business"])
 bearer_scheme = HTTPBearer(auto_error=False)
 BUSINESS_API_KEY_PROVIDERS = {"business_api", "podi_business_api"}
+logger = logging.getLogger(__name__)
 
 
 def _business_export_cell(value: Any) -> str:
@@ -580,6 +582,11 @@ def _resolve_business_api_key_user(request: Request, token: str | None) -> User 
         )
 
 
+def _usage_log_text(value: Any, *, max_length: int) -> str | None:
+    text = str(value or "").strip()
+    return text[:max_length] or None
+
+
 def _record_business_api_key_usage(
     request: Request,
     *,
@@ -595,64 +602,80 @@ def _record_business_api_key_usage(
         return
     payload = run if isinstance(run, dict) else {}
     request_payload = request_payload if isinstance(request_payload, dict) else {}
-    resolved_run_id = run_id or str(payload.get("id") or payload.get("runId") or "").strip() or None
-    request_id = str(
+    resolved_run_id = _usage_log_text(run_id or payload.get("id") or payload.get("runId"), max_length=64)
+    request_id = _usage_log_text(
         payload.get("request_id")
         or payload.get("requestId")
         or request_payload.get("request_id")
         or request_payload.get("requestId")
-        or ""
-    ).strip()
-    trace_id = str(
+        or "",
+        max_length=64,
+    )
+    trace_id = _usage_log_text(
         payload.get("trace_id")
         or payload.get("traceId")
         or request_payload.get("trace_id")
         or request_payload.get("traceId")
-        or ""
-    ).strip()
-    tenant_id = str(
+        or "",
+        max_length=64,
+    )
+    tenant_id = _usage_log_text(
         payload.get("tenant_id")
         or payload.get("tenantId")
         or request_payload.get("tenant_id")
         or request_payload.get("tenantId")
         or context.get("tenantId")
-        or ""
-    ).strip()
-    client_id = str(
+        or "",
+        max_length=64,
+    )
+    client_id = _usage_log_text(
         payload.get("client_id")
         or payload.get("clientId")
         or request_payload.get("client_id")
         or request_payload.get("clientId")
         or context.get("clientId")
-        or ""
-    ).strip()
+        or "",
+        max_length=64,
+    )
     duration_ms = None
     started_at = context.get("startedAt")
     if isinstance(started_at, (int, float)):
         duration_ms = max(0, int((time.perf_counter() - started_at) * 1000))
-    with get_session() as session:
-        session.add(
-            BusinessApiKeyUsageLog(
-                api_key_id=str(context.get("apiKeyId") or "") or None,
-                api_key_name=str(context.get("apiKeyName") or "") or None,
-                api_key_preview=str(context.get("apiKeyPreview") or "") or None,
-                method=request.method[:16],
-                path=request.url.path[:256],
-                status_code=status_code,
-                business_key=business_key or str(payload.get("business_key") or payload.get("businessKey") or "") or None,
-                run_id=resolved_run_id,
-                request_id=request_id or None,
-                trace_id=trace_id or None,
-                tenant_id=tenant_id or None,
-                client_id=client_id or None,
-                error_code=str(error_code or "") or None,
-                duration_ms=duration_ms,
-                ip_address=_client_ip(request),
-                user_agent=(request.headers.get("user-agent") or "")[:255] or None,
-                created_at=datetime.utcnow(),
+    try:
+        with get_session() as session:
+            session.add(
+                BusinessApiKeyUsageLog(
+                    api_key_id=_usage_log_text(context.get("apiKeyId"), max_length=64),
+                    api_key_name=_usage_log_text(context.get("apiKeyName"), max_length=128),
+                    api_key_preview=_usage_log_text(context.get("apiKeyPreview"), max_length=32),
+                    method=request.method[:16],
+                    path=request.url.path[:256],
+                    status_code=status_code,
+                    business_key=_usage_log_text(
+                        business_key or payload.get("business_key") or payload.get("businessKey"),
+                        max_length=64,
+                    ),
+                    run_id=resolved_run_id,
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    tenant_id=tenant_id,
+                    client_id=client_id,
+                    error_code=_usage_log_text(error_code, max_length=128),
+                    duration_ms=duration_ms,
+                    ip_address=_usage_log_text(_client_ip(request), max_length=64),
+                    user_agent=_usage_log_text(request.headers.get("user-agent"), max_length=255),
+                    created_at=datetime.utcnow(),
+                )
             )
+            session.commit()
+    except Exception as exc:  # pragma: no cover - diagnostic logging must not mask business responses
+        logger.warning(
+            "business api usage log skipped: %s path=%s status=%s request_id=%s",
+            exc,
+            request.url.path,
+            status_code,
+            request_id,
         )
-        session.commit()
 
 
 def _business_key_allowed_for_api_key(request: Request, business_key: str) -> None:

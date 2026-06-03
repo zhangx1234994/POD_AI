@@ -290,7 +290,7 @@ type RemoteLoadError = {
   rawBody?: string;
 };
 
-// Evaluation categories follow the business taxonomy, not vendor or workflow names.
+// Evaluation categories follow the ability taxonomy, not vendor or workflow names.
 const CATEGORY_ORDER = [
   '花纹提取',
   '图裂变',
@@ -308,7 +308,7 @@ const CATEGORY_ORDER = [
 ];
 const DEFAULT_CATEGORY = '图裂变';
 const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '产品设计', '图编辑', '扩图', '连续图']);
-const RECOMMENDED_BUSINESS_CATEGORIES = ['图裂变', '产品设计', '图编辑', '扩图', '花纹提取', '文本与提示词'];
+const PRIMARY_ABILITY_CATEGORIES = ['图裂变', '产品设计', '图编辑', '扩图', '花纹提取', '文本与提示词'];
 type EvalView = 'home' | 'tool' | 'tasks' | 'admin' | 'docs' | 'loraBatch';
 const EVAL_VIEW_SET = new Set<EvalView>(['home', 'tool', 'tasks', 'admin', 'docs', 'loraBatch']);
 
@@ -4417,6 +4417,14 @@ export function App() {
     const visible = CATEGORY_ORDER.filter((category) => PINNED_CATEGORY_SET.has(category) || (grouped[category] || []).length > 0);
     return visible.length > 0 ? visible : CATEGORY_ORDER.slice(0, 4);
   }, [grouped]);
+  const sidebarCategories = useMemo(() => {
+    const primary = PRIMARY_ABILITY_CATEGORIES.filter((category) => (grouped[category] || []).length > 0);
+    const fallback = primary.length > 0 ? primary : orderedCategories.slice(0, 5);
+    if (activeCategory && !fallback.includes(activeCategory) && (grouped[activeCategory] || []).length > 0) {
+      return [...fallback, activeCategory];
+    }
+    return fallback;
+  }, [activeCategory, grouped, orderedCategories]);
 
   const toolList = useMemo(() => {
     return sortWorkflowsForEvaluation(grouped[activeCategory] || []);
@@ -7195,8 +7203,8 @@ export function App() {
         theme={theme}
         showSidebar={showCategorySidebar}
         sidebarTitle="功能分类"
-        sidebarSubtitle="仅在“功能评测”模块使用，用于筛选能力卡片。"
-        navItems={orderedCategories.map((cat) => ({
+        sidebarSubtitle="只保留主能力入口；辅助能力在页面下方折叠。"
+        navItems={sidebarCategories.map((cat) => ({
           id: cat,
           label: cat,
           shortLabel: String(cat || "评测").slice(0, 2),
@@ -10903,15 +10911,8 @@ export function App() {
       label,
     };
   });
-  const recommendedBusinessEntries = (() => {
-    const byCategory = new Map(categorySummaries.map((item) => [item.category, item]));
-    const ordered = RECOMMENDED_BUSINESS_CATEGORIES.map((category) => byCategory.get(category)).filter(
-      (item): item is (typeof categorySummaries)[number] => Boolean(item && item.count > 0),
-    );
-    return ordered.length > 0 ? ordered : categorySummaries.filter((item) => item.count > 0).slice(0, 5);
-  })();
-  const recommendedBusinessSet = new Set(recommendedBusinessEntries.map((item) => item.category));
-  const auxiliaryCategorySummaries = categorySummaries.filter((item) => item.count > 0 && !recommendedBusinessSet.has(item.category));
+  const primaryAbilitySet = new Set(PRIMARY_ABILITY_CATEGORIES);
+  const auxiliaryCategorySummaries = categorySummaries.filter((item) => item.count > 0 && !primaryAbilitySet.has(item.category));
   const selectedCategorySummary = categorySummaries.find((item) => item.category === activeCategory) || categorySummaries[0] || null;
   const activeCategoryPrimaryTool = selectedCategorySummary?.primaryTool || toolList[0] || null;
   const activeCategoryFirstSample = selectedCategorySummary?.firstSample || null;
@@ -10941,110 +10942,13 @@ export function App() {
           onOpenTool={(wf) => openTool(wf)}
         />
       ) : null}
-      <section className="podi-eval-business-start" aria-label="推荐业务入口">
-        <div className="podi-eval-business-start__head">
-          <div>
-            <Typography.Text className="podi-eval-business-start__eyebrow">业务方验收入口</Typography.Text>
-            <Typography.Title level="h3" style={{ margin: '4px 0 6px' }}>
-              选业务，跑一次，看结果
-            </Typography.Title>
-            <Typography.Text theme="secondary">
-              首页只保留推荐业务；固定版本、底层工作流和辅助能力默认收起，排障时再展开。
-            </Typography.Text>
-          </div>
-          <Space align="center" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <Button variant="outline" onClick={() => void refreshMetrics()}>
-              刷新状态
-            </Button>
-            <Button variant="outline" onClick={() => setActiveView('tasks')}>
-              任务追踪
-            </Button>
-          </Space>
-        </div>
-        <div className="podi-eval-business-entry-grid">
-          {recommendedBusinessEntries.map((item) => {
-            const primaryTool = item.primaryTool;
-            const primaryMetric = primaryTool ? metrics[primaryTool.id] : undefined;
-            const runtimeHealth = getWorkflowRuntimeHealth(primaryMetric);
-            const entryAccent = item.visual.accent;
-            return (
-              <article
-                key={item.category}
-                className={`podi-eval-business-entry${item.category === activeCategory ? ' podi-eval-business-entry--active' : ''}`}
-                style={{ '--podi-business-accent': entryAccent } as CSSProperties}
-              >
-                <div className="podi-eval-business-entry__top">
-                  <span className="podi-eval-business-entry__icon">{item.visual.icon}</span>
-                  <Tag theme={item.theme} variant="light">
-                    {item.label}
-                  </Tag>
-                </div>
-                <div className="podi-eval-business-entry__body">
-                  <Typography.Title level="h4" style={{ margin: 0 }}>
-                    {getBusinessEntryLabel(item.category)}
-                  </Typography.Title>
-                  <Typography.Text theme="secondary">{item.visual.summary}</Typography.Text>
-                </div>
-                <div className="podi-eval-business-entry__facts">
-                  <div>
-                    <span>推荐入口</span>
-                    <strong>{primaryTool ? getWorkflowCardTitle(primaryTool) : '暂无可测版本'}</strong>
-                  </div>
-                  <div>
-                    <span>固定样例</span>
-                    <strong>{item.sampleCount > 0 ? `${item.sampleCount} 个` : '待沉淀'}</strong>
-                  </div>
-                  <div>
-                    <span>近 72 小时</span>
-                    <strong>成功 {item.recentSuccessCount} · 失败 {item.recentFailureCount}</strong>
-                  </div>
-                  <div>
-                    <span>当前状态</span>
-                    <strong>{runtimeHealth.label}</strong>
-                  </div>
-                </div>
-                <div className="podi-eval-business-entry__actions">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setActiveCategory(item.category);
-                      setSelectedTool(null);
-                    }}
-                  >
-                    查看版本
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={!primaryTool || !item.firstSample}
-                    onClick={() => {
-                      if (primaryTool && item.firstSample) openToolWithQualitySample(primaryTool, item.firstSample);
-                    }}
-                  >
-                    用样例开始
-                  </Button>
-                  <Button
-                    theme="primary"
-                    disabled={!primaryTool}
-                    onClick={() => {
-                      if (primaryTool) openTool(primaryTool);
-                    }}
-                  >
-                    开始试一次
-                  </Button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
       {selectedCategorySummary ? (
         <section
           className="podi-eval-active-business"
           style={{ '--podi-business-accent': selectedCategorySummary.visual.accent } as CSSProperties}
         >
           <div>
-            <Typography.Text theme="secondary">当前业务</Typography.Text>
+            <Typography.Text theme="secondary">当前能力分类</Typography.Text>
             <Typography.Title level="h4" style={{ margin: '2px 0 0' }}>
               {getBusinessEntryLabel(activeCategory)}
             </Typography.Title>
@@ -11056,6 +10960,12 @@ export function App() {
             <span>{selectedCategorySummary.label}</span>
           </div>
           <Space align="center" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <Button variant="outline" onClick={() => void refreshMetrics()}>
+              刷新状态
+            </Button>
+            <Button variant="outline" onClick={() => setActiveView('tasks')}>
+              任务追踪
+            </Button>
             <Button
               variant="outline"
               disabled={!activeCategoryPrimaryTool || !activeCategoryFirstSample}
@@ -11084,7 +10994,7 @@ export function App() {
         <Alert theme="info" message="该分类暂无功能。" />
       ) : null}
 
-      <details className="podi-eval-tool-list-collapse" open={activeCategory === '图编辑' || toolList.length <= 1}>
+      <details className="podi-eval-tool-list-collapse" open={toolList.length <= 1}>
         <summary>
           <span>{getBusinessEntryLabel(activeCategory)} · 版本列表</span>
           <small>需要固定版本、回归候选版本或排障时展开。</small>

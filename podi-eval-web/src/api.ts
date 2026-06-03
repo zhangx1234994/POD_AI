@@ -70,7 +70,10 @@ function resolveHttpError(status: number, statusText: string, bodyText: string):
     if (message === 'BATCH_FORBIDDEN') return '无权访问该批次';
     return message || '无权访问';
   }
-  if (status === 502 || status === 503 || status === 504) return GATEWAY_ERROR_MESSAGE;
+  if (status === 502 || status === 503 || status === 504) {
+    const message = extractErrorMessage(statusText, bodyText);
+    return message && message !== statusText ? message : GATEWAY_ERROR_MESSAGE;
+  }
   const message = extractErrorMessage(statusText, bodyText);
   if (status >= 500 && (!message || message === statusText)) {
     return '服务异常，请稍后再试';

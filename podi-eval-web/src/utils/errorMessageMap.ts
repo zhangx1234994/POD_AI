@@ -9,6 +9,7 @@ const ERROR_CODE_MESSAGE_MAP: Record<string, string> = {
   EXECUTOR_BUSY: '执行节点繁忙',
   EXECUTOR_NOT_FOUND: '执行节点不存在或已下线',
   INTERNAL_ONLY: '中台只允许内网或服务 Token 调用',
+  BACKGROUND_WORKERS_DISABLED: '当前环境未启动后台执行线程，不能提交真实任务',
   PROMPT_REQUIRED: '缺少提示词',
   COZE_SUBMIT_FAILED: '工作流提交失败',
   COZE_WORKFLOW_ERROR: '工作流内部执行失败',
