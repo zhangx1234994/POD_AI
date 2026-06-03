@@ -19,6 +19,7 @@
 - 下一阶段主线切换为 `v0.6 中台能力治理与客户端支撑底座版`。规划见 `docs/strategy/mid-platform-completeness-v0.6-plan.md`，能力优先口径见 `docs/strategy/ability-governance-operating-model-v0.6.md`。
 - v0.6 核心目标：把中台从单次业务 `runId` 扩展为可管理、可封装、可优化、可迭代、可控的业务能力体系；能力定义以 `docs/strategy/ability-definition-v0.6.md` 为准。
 - 2026-06-03 口径修正：中台只有能力、能力版本、路由、调用、结果、质量、成本和错误；测评端也只按能力验证。项目/工作单是客户端业务组装概念，客户端暂不进入中台开发主线，只输出方案和边界。
+- 2026-06-03 Agent 口径修正：对话改图 MVP 不能只按前端聊天框或一次性任务表单交付；它是 Agent Runtime 最小样板。MVP 可以先只调用 `business.image_edit`，但路由证据、上下文压缩、方法论预留、后端队列、幂等、成本/Key 治理和稳定性回归必须提前进入设计与测试。
 - 客户端从 v0.6 开始并行启动，但客户端不是 v0.6 主版本；客户端团队或新 agent 只按 `docs/strategy/client-parallel-preview-v0.6-handoff.md` 执行。
 - v0.5 方案 `docs/strategy/platform-polish-v0.5-decision-plan.md`、v0.4.1 方案 `docs/strategy/business-stability-observability-v0.4.1-plan.md` 和 v0.4 方案保留为已完成阶段记录，不再作为当前开发 TODO。
 - 上方 P0/P1/P2、2026-05-14 稳定化执行单、v0.2/v0.3/v0.4 执行单保留路线图和历史进展，不再逐条作为当前开发 TODO。
@@ -119,6 +120,13 @@
 - 进展（2026-06-02）：新增 `ability-api-gap-v0.6.md`，确认现有可复用能力为花纹提取、图裂变、文字裂变、裂变评分、扩图、图编辑；v0.6 缺口为 `product_design`、`product_image_set`、`model_shot`、`promo_video` 等业务包装，其中 `product_design` 建议 P0。
 - 进展（2026-06-03）：`product_design` 首版业务包装已补齐，包含业务能力 seed、`/api/business/product-design/runs`、route-preview、OpenAPI、错误码、测评端能力卡和管理端核心能力治理映射；下一步做线上实测、固定质量样例和效果复盘。
 - 验收：能形成 v0.6 MVP 的能力缺口清单、输入输出、样例图和验收标准；客户端流程顺序由客户端方案维护，不进入中台实现主线。
+
+10. `doing` 对话改图 Agent MVP 整改与路由稳定性
+- 目标：把对话改图从“能跑通的 ChatBot 功能”整改成 Agent Runtime 最小样板，支撑后续方法论流水线和多能力路由。
+- 范围：聊天瀑布流、新任务隔离、上一轮结果续改、当前基准图状态、结构化计划、路由证据、低置信追问、后端幂等、队列状态、错误契约、golden case 路由回归。
+- 原则：前端只负责体验和确认；后端负责会话、上下文压缩、方法论、能力路由、任务队列、成本、Key 池和审计。不得让前端直接决定底层工具或调用厂商接口。
+- 进展（2026-06-03）：已把长期边界补入 `ability-definition-v0.6.md` 与 `business-agent-runtime-v0.6.md`；下一步按 MVP 稳定性门禁整改代码和测试。
+- 验收：同一会话多轮改图默认基于最新成功输出；新任务不污染旧上下文；每次执行能看到 routeReason/confidence/baseImageRole/parentRunId；模糊意图会追问；并发、超时、队列满、供应商失败都有明确状态和错误；golden cases 多次运行路由稳定。
 
 ## 已完成/封版执行单（2026-05-26 v0.5 平台打磨版）
 
