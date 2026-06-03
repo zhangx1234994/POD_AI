@@ -490,6 +490,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
 
   const renderPlanMessage = () => {
     if (!plan) return null;
+    if (runId && runStatus !== 'failed') return null;
     return (
       <div className="podi-image-edit-agent__message is-plan">
         <span>图片 Codex 建议</span>
