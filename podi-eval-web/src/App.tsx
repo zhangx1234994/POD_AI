@@ -4418,12 +4418,11 @@ export function App() {
     return visible.length > 0 ? visible : CATEGORY_ORDER.slice(0, 4);
   }, [grouped]);
   const sidebarCategories = useMemo(() => {
-    const primary = PRIMARY_ABILITY_CATEGORIES.filter((category) => (grouped[category] || []).length > 0);
-    const fallback = primary.length > 0 ? primary : orderedCategories.slice(0, 5);
-    if (activeCategory && !fallback.includes(activeCategory) && (grouped[activeCategory] || []).length > 0) {
-      return [...fallback, activeCategory];
+    const visible = orderedCategories.filter((category) => PINNED_CATEGORY_SET.has(category) || (grouped[category] || []).length > 0);
+    if (activeCategory && !visible.includes(activeCategory) && (grouped[activeCategory] || []).length > 0) {
+      return [...visible, activeCategory];
     }
-    return fallback;
+    return visible;
   }, [activeCategory, grouped, orderedCategories]);
 
   const toolList = useMemo(() => {
@@ -7203,7 +7202,7 @@ export function App() {
         theme={theme}
         showSidebar={showCategorySidebar}
         sidebarTitle="功能分类"
-        sidebarSubtitle="只保留主能力入口；辅助能力在页面下方折叠。"
+        sidebarSubtitle="主能力优先；辅助工具也保留导航，便于快速切换。"
         navItems={sidebarCategories.map((cat) => ({
           id: cat,
           label: cat,
@@ -10994,10 +10993,10 @@ export function App() {
         <Alert theme="info" message="该分类暂无功能。" />
       ) : null}
 
-      <details className="podi-eval-tool-list-collapse" open={toolList.length <= 1}>
+      <details className="podi-eval-tool-list-collapse" open>
         <summary>
           <span>{getBusinessEntryLabel(activeCategory)} · 版本列表</span>
-          <small>需要固定版本、回归候选版本或排障时展开。</small>
+          <small>当前分类全部可测版本，推荐入口之外也可直接进入。</small>
         </summary>
         <ActionBar
           title={`可测版本 · ${toolList.length} 个`}
