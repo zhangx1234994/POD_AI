@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+import threading
+import time
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -42,6 +45,37 @@ def _install_executor_db(monkeypatch, *, include_tasks: bool = False):
 
     monkeypatch.setattr(integration_test_module, "get_session", fake_get_session)
     return testing_session
+
+
+def test_comfyui_queue_summary_cache_deduplicates_concurrent_refresh(monkeypatch) -> None:
+    monkeypatch.setattr(integration_test_module, "suppress_background_threads_for_tests", lambda: False)
+    IntegrationTestService._clear_comfyui_queue_summary_cache()
+
+    calls = 0
+    call_lock = threading.Lock()
+
+    def producer() -> dict[str, object]:
+        nonlocal calls
+        with call_lock:
+            calls += 1
+            value = calls
+        time.sleep(0.05)
+        return {"totalRunning": value, "servers": [{"value": value}]}
+
+    key = IntegrationTestService._comfyui_queue_summary_cache_key(())
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _: IntegrationTestService._comfyui_queue_summary_cached(key, producer), range(8)))
+
+    assert calls == 1
+    assert {item["totalRunning"] for item in results} == {1}
+
+    results[0]["servers"][0]["value"] = 99
+    assert IntegrationTestService._comfyui_queue_summary_cached(key, producer)["servers"][0]["value"] == 1
+
+    monkeypatch.setattr(integration_test_module, "suppress_background_threads_for_tests", lambda: True)
+    assert IntegrationTestService._comfyui_queue_summary_cached(key, producer)["totalRunning"] == 2
+
+    IntegrationTestService._clear_comfyui_queue_summary_cache()
 
 
 def test_comfyui_queue_summary_writes_executor_health(monkeypatch) -> None:

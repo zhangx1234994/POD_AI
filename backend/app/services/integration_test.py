@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import json
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Any
 from types import SimpleNamespace
@@ -26,7 +28,14 @@ from app.services.comfyui_graph import normalize_comfyui_prompt_graph
 from app.services.executors import ExecutionContext, registry
 from app.services.media_ingest import media_ingest_service
 from app.services.oss import oss_service
+from app.services.runtime_safety import suppress_background_threads_for_tests
 from app.workflows import load_comfy_workflow
+
+COMFYUI_QUEUE_SUMMARY_CACHE_TTL_SECONDS = 8
+COMFYUI_QUEUE_SUMMARY_CACHE_MAX_ITEMS = 32
+_COMFYUI_QUEUE_SUMMARY_CACHE_LOCK = threading.RLock()
+_COMFYUI_QUEUE_SUMMARY_CACHE: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
+_COMFYUI_QUEUE_SUMMARY_INFLIGHT: dict[tuple[Any, ...], threading.Event] = {}
 
 
 class IntegrationTestService:
@@ -1749,7 +1758,76 @@ class IntegrationTestService:
             "raw": payload,
         }
 
+    @staticmethod
+    def _comfyui_queue_summary_cache_enabled() -> bool:
+        return not suppress_background_threads_for_tests()
+
+    @staticmethod
+    def _normalize_comfyui_queue_summary_executor_ids(executor_ids: list[str] | None) -> tuple[str, ...]:
+        ids = sorted({str(item).strip() for item in executor_ids or [] if str(item).strip()})
+        return tuple(ids)
+
+    @staticmethod
+    def _comfyui_queue_summary_cache_key(executor_ids: tuple[str, ...]) -> tuple[Any, ...]:
+        return ("comfyui_queue_summary", executor_ids or "all")
+
+    @classmethod
+    def _clear_comfyui_queue_summary_cache(cls) -> None:
+        with _COMFYUI_QUEUE_SUMMARY_CACHE_LOCK:
+            _COMFYUI_QUEUE_SUMMARY_CACHE.clear()
+            _COMFYUI_QUEUE_SUMMARY_INFLIGHT.clear()
+
+    @classmethod
+    def _comfyui_queue_summary_cached(cls, key: tuple[Any, ...], producer) -> dict[str, Any]:
+        if not cls._comfyui_queue_summary_cache_enabled():
+            return producer()
+
+        while True:
+            now = time.monotonic()
+            with _COMFYUI_QUEUE_SUMMARY_CACHE_LOCK:
+                cached = _COMFYUI_QUEUE_SUMMARY_CACHE.get(key)
+                if cached and cached[0] > now:
+                    return deepcopy(cached[1])
+                inflight = _COMFYUI_QUEUE_SUMMARY_INFLIGHT.get(key)
+                if inflight is None:
+                    inflight = threading.Event()
+                    _COMFYUI_QUEUE_SUMMARY_INFLIGHT[key] = inflight
+                    break
+            inflight.wait(timeout=10)
+
+        try:
+            value = producer()
+        except Exception:
+            with _COMFYUI_QUEUE_SUMMARY_CACHE_LOCK:
+                inflight = _COMFYUI_QUEUE_SUMMARY_INFLIGHT.pop(key, None)
+                if inflight is not None:
+                    inflight.set()
+            raise
+
+        with _COMFYUI_QUEUE_SUMMARY_CACHE_LOCK:
+            if len(_COMFYUI_QUEUE_SUMMARY_CACHE) >= COMFYUI_QUEUE_SUMMARY_CACHE_MAX_ITEMS:
+                oldest_key = min(_COMFYUI_QUEUE_SUMMARY_CACHE.items(), key=lambda item: item[1][0])[0]
+                _COMFYUI_QUEUE_SUMMARY_CACHE.pop(oldest_key, None)
+            _COMFYUI_QUEUE_SUMMARY_CACHE[key] = (
+                time.monotonic() + COMFYUI_QUEUE_SUMMARY_CACHE_TTL_SECONDS,
+                deepcopy(value),
+            )
+            inflight = _COMFYUI_QUEUE_SUMMARY_INFLIGHT.pop(key, None)
+            if inflight is not None:
+                inflight.set()
+        return value
+
     def get_comfyui_queue_summary(self, *, executor_ids: list[str] | None = None) -> dict[str, Any]:
+        normalized_executor_ids = self._normalize_comfyui_queue_summary_executor_ids(executor_ids)
+        cache_key = self._comfyui_queue_summary_cache_key(normalized_executor_ids)
+        return self._comfyui_queue_summary_cached(
+            cache_key,
+            lambda: self._get_comfyui_queue_summary_uncached(
+                executor_ids=list(normalized_executor_ids) if normalized_executor_ids else None,
+            ),
+        )
+
+    def _get_comfyui_queue_summary_uncached(self, *, executor_ids: list[str] | None = None) -> dict[str, Any]:
         """Return queue counts for all active ComfyUI executors (optionally filtered)."""
         with get_session() as session:
             query = select(Executor).where(Executor.status == "active", Executor.type == "comfyui")

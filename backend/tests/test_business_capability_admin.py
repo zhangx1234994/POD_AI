@@ -52,6 +52,30 @@ def passed_acceptance_metadata(note: str = "测试环境业务验收通过") -> 
     return {"latestAcceptance": record, "acceptanceRecords": [record]}
 
 
+def test_business_dashboard_cache_is_short_lived_and_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(business_runs_module, "suppress_background_threads_for_tests", lambda: False)
+    BusinessRunService._clear_dashboard_cache()
+
+    calls = 0
+
+    def producer() -> dict[str, list[dict[str, int]]]:
+        nonlocal calls
+        calls += 1
+        return {"items": [{"value": calls}]}
+
+    first = BusinessRunService._dashboard_cached(("dashboard-cache-test",), producer)
+    first["items"][0]["value"] = 99
+    second = BusinessRunService._dashboard_cached(("dashboard-cache-test",), producer)
+
+    assert calls == 1
+    assert second == {"items": [{"value": 1}]}
+
+    monkeypatch.setattr(business_runs_module, "suppress_background_threads_for_tests", lambda: True)
+    assert BusinessRunService._dashboard_cached(("dashboard-cache-test",), producer)["items"][0]["value"] == 2
+
+    BusinessRunService._clear_dashboard_cache()
+
+
 def insert_quality_review(
     capability_id: str,
     *,

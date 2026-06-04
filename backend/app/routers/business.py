@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import re
+import threading
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -49,12 +50,46 @@ from app.services.business_agents import AGENT_BUSINESS_KEY, get_business_agent_
 from app.services.auth_service import auth_service
 from app.services.business_projects import get_business_project_service
 from app.services.business_runs import get_business_run_service
+from app.services.runtime_safety import suppress_background_threads_for_tests
 
 
 router = APIRouter(prefix="/api/business", tags=["business"])
 bearer_scheme = HTTPBearer(auto_error=False)
 BUSINESS_API_KEY_PROVIDERS = {"business_api", "podi_business_api"}
 logger = logging.getLogger(__name__)
+BUSINESS_ADMIN_READ_CACHE_TTL_SECONDS = 12
+BUSINESS_ADMIN_READ_CACHE_MAX_ITEMS = 96
+_BUSINESS_ADMIN_READ_CACHE_LOCK = threading.RLock()
+_BUSINESS_ADMIN_READ_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
+
+
+def _business_admin_read_cache_enabled() -> bool:
+    return not suppress_background_threads_for_tests()
+
+
+def _business_admin_read_cache_key(*parts: Any) -> tuple[Any, ...]:
+    return tuple("" if part is None else part for part in parts)
+
+
+def _business_admin_read_cached(key: tuple[Any, ...], producer) -> Any:
+    if not _business_admin_read_cache_enabled():
+        return producer()
+    now = time.monotonic()
+    with _BUSINESS_ADMIN_READ_CACHE_LOCK:
+        cached = _BUSINESS_ADMIN_READ_CACHE.get(key)
+        if cached and cached[0] > now:
+            return deepcopy(cached[1])
+
+    value = producer()
+    with _BUSINESS_ADMIN_READ_CACHE_LOCK:
+        if len(_BUSINESS_ADMIN_READ_CACHE) >= BUSINESS_ADMIN_READ_CACHE_MAX_ITEMS:
+            oldest_key = min(_BUSINESS_ADMIN_READ_CACHE.items(), key=lambda item: item[1][0])[0]
+            _BUSINESS_ADMIN_READ_CACHE.pop(oldest_key, None)
+        _BUSINESS_ADMIN_READ_CACHE[key] = (
+            time.monotonic() + BUSINESS_ADMIN_READ_CACHE_TTL_SECONDS,
+            deepcopy(value),
+        )
+    return value
 
 
 def _business_export_cell(value: Any) -> str:
@@ -3774,33 +3809,26 @@ def _build_business_api_key_usage_filters(
     }
 
 
-@admin_router.get(
-    "/api-key-usage",
-    response_model=schemas.BusinessApiKeyUsageLogListResponse,
-    response_model_by_alias=False,
-)
-def admin_list_business_api_key_usage(
-    api_key_id: str | None = Query(default=None),
-    business_key: str | None = Query(default=None),
-    tenant_id: str | None = Query(default=None),
-    client_id: str | None = Query(default=None),
-    method: str | None = Query(default=None),
-    path: str | None = Query(default=None),
-    endpoint_kind: str | None = Query(default=None, description="submit/poll/callback"),
-    status_code: int | None = Query(default=None),
-    status_group: str | None = Query(default=None, description="success/error"),
-    error_code: str | None = Query(default=None),
-    run_id: str | None = Query(default=None),
-    request_id: str | None = Query(default=None),
-    trace_id: str | None = Query(default=None),
-    window_hours: int = Query(default=24, ge=0, le=24 * 90),
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=50, ge=1, le=200),
-    group_limit: int = Query(default=30, ge=0, le=100),
-    user: User = Depends(_resolve_business_user),
+def _list_business_api_key_usage_uncached(
+    *,
+    api_key_id: str | None = None,
+    business_key: str | None = None,
+    tenant_id: str | None = None,
+    client_id: str | None = None,
+    method: str | None = None,
+    path: str | None = None,
+    endpoint_kind: str | None = None,
+    status_code: int | None = None,
+    status_group: str | None = None,
+    error_code: str | None = None,
+    run_id: str | None = None,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    window_hours: int = 24,
+    offset: int = 0,
+    limit: int = 50,
+    group_limit: int = 30,
 ) -> schemas.BusinessApiKeyUsageLogListResponse:
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     with get_session() as session:
         query_parts = _build_business_api_key_usage_filters(
             api_key_id=api_key_id,
@@ -3985,6 +4013,77 @@ def admin_list_business_api_key_usage(
             summary=summary,
             groups=groups,
         )
+
+
+@admin_router.get(
+    "/api-key-usage",
+    response_model=schemas.BusinessApiKeyUsageLogListResponse,
+    response_model_by_alias=False,
+)
+def admin_list_business_api_key_usage(
+    api_key_id: str | None = Query(default=None),
+    business_key: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    method: str | None = Query(default=None),
+    path: str | None = Query(default=None),
+    endpoint_kind: str | None = Query(default=None, description="submit/poll/callback"),
+    status_code: int | None = Query(default=None),
+    status_group: str | None = Query(default=None, description="success/error"),
+    error_code: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+    request_id: str | None = Query(default=None),
+    trace_id: str | None = Query(default=None),
+    window_hours: int = Query(default=24, ge=0, le=24 * 90),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    group_limit: int = Query(default=30, ge=0, le=100),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessApiKeyUsageLogListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    cache_key = _business_admin_read_cache_key(
+        "api_key_usage",
+        api_key_id,
+        business_key,
+        tenant_id,
+        client_id,
+        method,
+        path,
+        endpoint_kind,
+        status_code,
+        status_group,
+        error_code,
+        run_id,
+        request_id,
+        trace_id,
+        window_hours,
+        offset,
+        limit,
+        group_limit,
+    )
+    return _business_admin_read_cached(
+        cache_key,
+        lambda: _list_business_api_key_usage_uncached(
+            api_key_id=api_key_id,
+            business_key=business_key,
+            tenant_id=tenant_id,
+            client_id=client_id,
+            method=method,
+            path=path,
+            endpoint_kind=endpoint_kind,
+            status_code=status_code,
+            status_group=status_group,
+            error_code=error_code,
+            run_id=run_id,
+            request_id=request_id,
+            trace_id=trace_id,
+            window_hours=window_hours,
+            offset=offset,
+            limit=limit,
+            group_limit=group_limit,
+        ),
+    )
 
 
 @admin_router.get("/api-key-usage/export")

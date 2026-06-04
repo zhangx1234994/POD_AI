@@ -13,6 +13,7 @@ from app.core.db import get_session
 from app.main import app
 from app.models.integration import AbilityTask, ApiKey, BusinessApiKeyUsageLog, BusinessRun, BusinessRunStep
 from app.models.user import User
+from app.routers import business as business_router_module
 from app.routers.business import _business_delivery_contract_audit, _business_run_light_response, _record_business_api_key_usage
 from app.schemas.business import BusinessRunCreateRequest
 from app.services import business_runs as business_runs_module
@@ -1770,6 +1771,32 @@ def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> N
     assert "submit" in export_text
     assert "poll" in export_text
     assert "BUSINESS_RUN_ID_REQUIRED" in export_text
+
+
+def test_business_admin_read_cache_is_short_lived_and_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(business_router_module, "suppress_background_threads_for_tests", lambda: False)
+    with business_router_module._BUSINESS_ADMIN_READ_CACHE_LOCK:
+        business_router_module._BUSINESS_ADMIN_READ_CACHE.clear()
+
+    calls = 0
+
+    def producer() -> dict[str, list[dict[str, int]]]:
+        nonlocal calls
+        calls += 1
+        return {"items": [{"value": calls}]}
+
+    first = business_router_module._business_admin_read_cached(("api-usage-cache-test",), producer)
+    first["items"][0]["value"] = 99
+    second = business_router_module._business_admin_read_cached(("api-usage-cache-test",), producer)
+
+    assert calls == 1
+    assert second == {"items": [{"value": 1}]}
+
+    monkeypatch.setattr(business_router_module, "suppress_background_threads_for_tests", lambda: True)
+    assert business_router_module._business_admin_read_cached(("api-usage-cache-test",), producer)["items"][0]["value"] == 2
+
+    with business_router_module._BUSINESS_ADMIN_READ_CACHE_LOCK:
+        business_router_module._BUSINESS_ADMIN_READ_CACHE.clear()
 
 
 def test_business_run_detail_embeds_api_usage_evidence() -> None:

@@ -1,5 +1,52 @@
 # PODI 版本记录
 
+## v0.6.3 - 2026-06-04
+
+基线 commit：
+
+- 发布提交：以发布脚本写入的 `/srv/pod/DEPLOYED_COMMIT` 为准。
+- 上一封版基线：`c638c269`
+
+发布范围：
+
+- 114 控制面 backend。
+- `docs/` 与发布/基准脚本。
+- 管理端、测评端静态站点随标准控制面发布包重新构建部署，但本次无前端功能改动。
+
+主要变更：
+
+- 新增 v0.6.3 中台能力控制面硬化方案，明确本版验收标准：响应速度、20 并发、真实业务回归、错误路径、文档门禁和回滚线。
+- 接口调用中心 `/api/admin/business/api-key-usage` 加 12 秒管理端短 TTL 缓存；导出接口仍保持实时查询。
+- `BusinessRunService` 原有 dashboard cache 与接口调用中心新缓存均收窄锁范围，缓存未命中时不再持全局锁执行数据库查询。
+- ComfyUI 队列摘要 `get_comfyui_queue_summary` 加 8 秒短 TTL 与同 key 在途请求合并，避免管理端、Coze 插件、测评端高频刷新时同时打所有 ComfyUI 节点。
+- 新增 `backend/scripts/control_plane_read_benchmark.py`，固定覆盖 `/health`、业务能力列表、usage summary、api usage 和 ComfyUI queue summary 的顺序/并发 p95。
+- 文档入口切换到 v0.6.3 主线，继续强调中台主语是能力，客户端业务组装不进入本仓库实现。
+
+本地验证结果：
+
+- Python 语法检查通过：`py_compile` 覆盖本次变更后端文件和基准脚本。
+- 后端组合回归通过：`152 passed`。
+- `git diff --check` 通过。
+- `scripts/check_doc_entry_references.py` 通过。
+
+线上验证计划：
+
+- 发布后确认 114 `/srv/pod/DEPLOYED_COMMIT` 与本节基线一致。
+- 运行标准发布脚本自带的远端迁移、种子刷新、服务重启、deploy preflight 和 release smoke。
+- 使用 `backend/scripts/control_plane_read_benchmark.py` 在 114 本机 loopback 与公网各跑 20 并发，对比 `queue-summary` 是否从当前线上基线回落。
+
+当前线上基线证据：
+
+- 公网 20 并发基线：`output/benchmarks/control-plane-114-20c-20260604203805.json`。
+- 重试证据：`output/benchmarks/control-plane-114-20c-retry-health-queue-20260604203853.json`。
+- 现象：请求成功率 100%，但当前线上 `c638c269` 的 `/health` p95 约 451ms、`comfyui_queue_summary` p95 约 5941ms；重试后仍超阈值，queue summary 是当前控制面瓶颈。
+
+已知保留风险：
+
+- 这次是短 TTL 与并发折叠的控制面保护，不等于完成后台预聚合；能力版本指标、质量样例统计和更完整的业务运行预聚合仍是后续 P0/P1 工作。
+- `/health` 公网 p95 超过 300ms，需要发布后同时用 114 本机 loopback 和公网基准区分网络 RTT 与服务端耗时。
+- Pydantic v2 / FastAPI deprecation warning 仍为历史技术债，当前不阻断发布。
+
 ## v0.6.2 - 2026-06-04
 
 基线 commit：

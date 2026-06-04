@@ -289,12 +289,14 @@ class BusinessRunService:
             cached = _BUSINESS_DASHBOARD_CACHE.get(key)
             if cached and cached[0] > now:
                 return deepcopy(cached[1])
-            value = producer()
+
+        value = producer()
+        with _BUSINESS_DASHBOARD_CACHE_LOCK:
             if len(_BUSINESS_DASHBOARD_CACHE) >= BUSINESS_DASHBOARD_CACHE_MAX_ITEMS:
                 oldest_key = min(_BUSINESS_DASHBOARD_CACHE.items(), key=lambda item: item[1][0])[0]
                 _BUSINESS_DASHBOARD_CACHE.pop(oldest_key, None)
             _BUSINESS_DASHBOARD_CACHE[key] = (time.monotonic() + BUSINESS_DASHBOARD_CACHE_TTL_SECONDS, deepcopy(value))
-            return value
+        return value
 
     def list_capabilities(self) -> list[BusinessCapability]:
         return self._dashboard_cached(
