@@ -3896,17 +3896,31 @@ def admin_list_business_api_key_usage(
                 .limit(group_limit)
             ).all()
             run_ids = [str(row[0]) for row in group_rows if row[0]]
-            run_map: dict[str, BusinessRun] = {}
+            run_map: dict[str, dict[str, Any]] = {}
             if run_ids:
                 run_map = {
-                    row.id: row
-                    for row in session.execute(select(BusinessRun).where(BusinessRun.id.in_(run_ids))).scalars().all()
+                    str(row["id"]): dict(row)
+                    for row in session.execute(
+                        select(
+                            BusinessRun.id,
+                            BusinessRun.status,
+                            BusinessRun.version,
+                            BusinessRun.business_version_id,
+                            BusinessRun.image_urls,
+                            BusinessRun.video_urls,
+                            BusinessRun.texts,
+                            BusinessRun.error_message,
+                            BusinessRun.finished_at,
+                        ).where(BusinessRun.id.in_(run_ids))
+                    )
+                    .mappings()
+                    .all()
                 }
             for row in group_rows:
                 linked_run = run_map.get(str(row[0] or ""))
-                image_count = len(linked_run.image_urls or []) if linked_run else 0
-                video_count = len(linked_run.video_urls or []) if linked_run else 0
-                text_count = len(linked_run.texts or []) if linked_run else 0
+                image_count = len(linked_run.get("image_urls") or []) if linked_run else 0
+                video_count = len(linked_run.get("video_urls") or []) if linked_run else 0
+                text_count = len(linked_run.get("texts") or []) if linked_run else 0
                 submit_count = int(row[9] or 0)
                 poll_count = int(row[10] or 0)
                 error_count = int(row[12] or 0)
@@ -3919,22 +3933,22 @@ def admin_list_business_api_key_usage(
                     needs_attention = True
                     issue_code = issue_code or "BUSINESS_RUN_NOT_FOUND"
                     issue_hint = "接口日志里有 runId，但业务任务表里没有对应记录；需要核对是否为旧数据或异常清理。"
-                elif linked_run and linked_run.status in {"failed", "cancelled", "timeout"} and not needs_attention:
+                elif linked_run and linked_run.get("status") in {"failed", "cancelled", "timeout"} and not needs_attention:
                     needs_attention = True
                     issue_code = "BUSINESS_RUN_FAILED"
-                    issue_hint = linked_run.error_message or "接口提交成功，但业务任务最终失败；请打开业务详情查看失败步骤。"
+                    issue_hint = linked_run.get("error_message") or "接口提交成功，但业务任务最终失败；请打开业务详情查看失败步骤。"
                 groups.append(
                     schemas.BusinessApiKeyUsageRunGroup(
                         run_id=row[0],
                         business_key=row[1],
-                        run_status=linked_run.status if linked_run else None,
-                        run_version=linked_run.version if linked_run else None,
-                        business_version_id=linked_run.business_version_id if linked_run else None,
+                        run_status=linked_run.get("status") if linked_run else None,
+                        run_version=linked_run.get("version") if linked_run else None,
+                        business_version_id=linked_run.get("business_version_id") if linked_run else None,
                         result_image_count=image_count,
                         result_video_count=video_count,
                         result_text_count=text_count,
-                        run_error=linked_run.error_message if linked_run else None,
-                        run_finished_at=linked_run.finished_at if linked_run else None,
+                        run_error=linked_run.get("error_message") if linked_run else None,
+                        run_finished_at=linked_run.get("finished_at") if linked_run else None,
                         api_key_name=row[2],
                         api_key_preview=row[3],
                         request_id=row[4],

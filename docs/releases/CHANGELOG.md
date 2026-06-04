@@ -20,6 +20,7 @@
 - `scripts/release_114_control_plane.sh` 增加远端 SSH、上传、远端部署、远端预检、release smoke 和 live patrol 的有限重试，降低网络/SSH 握手偶发波动对发布判断的影响。
 - AI 改图助手多轮续改已改为以上一轮成功输出作为基准图，并保留 `parentRunId/baseImageRole=previous_result` 证据。
 - 管理端业务能力指标查询修复 MySQL `Out of sort memory` 500；进一步补充看板读接口短 TTL 缓存、防并发打穿和流程证据样本上限，避免页面轮询或多人同时打开打穿数据库。
+- 接口调用中心分组视图改为轻量读取业务任务摘要字段，避免为了展示 runId 聚合而加载完整业务任务大 JSON 载荷。
 - 发布 SOP 新增“版本启动前验收标准”和“封版文档维护”门禁，默认覆盖响应速度、并发能力、真实业务全链路、错误路径和文档清理。
 
 本地验证结果：
@@ -31,6 +32,7 @@
 - `git diff --check` 通过。
 - 主线代码、文档和脚本内已无旧产品名残留。
 - 看板性能修复后，业务能力管理相关测试通过：`test_business_capability_admin.py` 71 passed；`test_business_usage_summary_includes_flow_evidence` 和 release smoke 业务摘要校验用例通过。
+- 接口调用中心分组视图性能修复后，`test_business_admin_api_usage_supports_filters_summary_and_run_groups` 通过。
 
 线上验证结果：
 
@@ -41,6 +43,7 @@
 - AI 改图助手真实多轮通过：session `ags_47f3e35232144ad2bd3004f8c1987ed1`，一轮 run `9bb4f5176c214acbaddc776cf8311f3e` 成功，二轮 run `0af058656520420bb0a88bc4665d380b` 成功，二轮证据为 `baseImageRole=previous_result`。
 - 直接图编辑 8 个模式全部成功；报告 `/srv/pod/reports/live-image-edit-3ea9fc73/20260604_072451/summary.json`。
 - `d384966f` 发布后复核：`/api/admin/business/capabilities` 200；`/api/admin/business/usage-summary?window_hours=24` 返回 `failed=0/running=0/queued=0/unresolvedIssues=[]`；发布后 backend 关键错误日志为空。
+- `2a17b2ef` 发布后复核：`/api/admin/business/usage-summary?window_hours=24` 20 并发 20/20 成功，p95 134ms；同轮发现 `/api/admin/business/api-key-usage` p95 约 3.9s，已补轻量读取修复并进入后续发布复测。
 
 已知保留风险：
 
