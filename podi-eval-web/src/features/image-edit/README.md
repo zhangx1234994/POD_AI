@@ -29,7 +29,7 @@
 
 测评端的任务检查、请求预览、排障信息和业务接入文档必须在组件外层渲染，不允许塞进 `ImageEditWorkbench`。组件源码交付给业务方时，只保留图编辑操作本体。
 
-如果业务方要做聊天式改图，不要把 ChatBot 逻辑塞进编辑器组件；应使用独立会话入口：
+如果业务方要做聊天式改图，不要把 AI 改图助手逻辑塞进编辑器组件；应使用独立会话入口：
 
 - `POST /api/business/image-edit-chat/sessions`
 - `POST /api/business/image-edit-chat/sessions/{sessionId}/messages`

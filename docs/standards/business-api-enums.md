@@ -253,13 +253,13 @@
 - `referenceImages` 仅作为版型、材质或风格参考，不应替代主图素材。
 - 新增错误码：`PRODUCT_DESIGN_BRIEF_REQUIRED`、`PRODUCT_DESIGN_PRODUCT_TYPE_INVALID`、`PRODUCT_DESIGN_SCENE_INVALID`。
 
-## 5.4 对话改图 ChatBot
+## 5.4 AI 改图助手
 
-对话改图 ChatBot 的业务治理 key 为 `image_edit_chat`，底层 Agent key 固定为 `agent.image_edit_assistant`。它不是旧的 `/api/agent/*` ComfyUI 节点协议，也不是直接图编辑接口的别名；它是面向用户聊天心智的独立入口：先通过多轮对话整理成可确认建议，再调用中台白名单工具 `business.image_edit`，最终仍落到 `image_edit` 业务 run。旧白名单 key `agent_image_edit` 仅保留兼容。
+AI 改图助手的业务治理 key 为 `image_edit_chat`，底层 Agent key 固定为 `agent.image_edit_assistant`。它不是旧的 `/api/agent/*` ComfyUI 节点协议，也不是直接图编辑接口的别名；它是面向用户聊天心智的独立 Agent 入口：先通过多轮对话整理成可确认建议，再调用中台白名单工具 `business.image_edit`，最终仍落到 `image_edit` 业务 run。旧白名单 key `agent_image_edit` 仅保留兼容。
 
 调用方式：
 
-1. `POST /api/business/image-edit-chat/sessions` 创建会话；可带首轮 `message` 直接生成 ChatBot 回复和最新建议。
+1. `POST /api/business/image-edit-chat/sessions` 创建会话；可带首轮 `message` 直接生成 AI 改图助手回复和最新建议。
 2. `POST /api/business/image-edit-chat/sessions/{sessionId}/messages` 追加用户消息并生成新的最新建议。
 3. `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` 确认当前最新建议后才提交 `/api/business/image-edit/runs`。
 4. `POST /api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm` 保留给需要严格指定方案版本的调用方。

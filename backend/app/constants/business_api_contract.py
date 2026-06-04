@@ -172,7 +172,7 @@ BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "status / taskStatus", "value": "failed", "meaning": "任务失败或无法继续。", "action": "读取 errorCode / errorMessage，并按错误码处理。"},
     {"field": "businessKey", "value": "text_fission", "meaning": "文字强化裂变，两步式：先生成可编辑提示词，再提交文生图。", "action": "业务方先调 prompts，再把确认后的 editable_prompt 传给 runs。"},
     {"field": "businessKey", "value": "image_edit", "meaning": "图编辑业务，前端组件收集主图、标注、参考图和编辑指令，中台编译后调用 GPT Image 2。", "action": "提交 /api/business/image-edit/runs，拿 runId 轮询 /api/business/runs/get。"},
-    {"field": "businessKey", "value": "image_edit_chat", "meaning": "对话改图 ChatBot，先通过会话整理方案，确认后再调用 image_edit 业务 run。", "action": "使用 /api/business/image-edit-chat/sessions 系列接口。"},
+    {"field": "businessKey", "value": "image_edit_chat", "meaning": "AI 改图助手，先通过会话整理方案，确认后再调用 image_edit 业务 run。", "action": "使用 /api/business/image-edit-chat/sessions 系列接口。"},
     {"field": "businessKey", "value": "product_design", "meaning": "产品设计能力，把参考图或花纹素材转成指定品类的产品设计图。", "action": "提交 /api/business/product-design/runs，拿 runId 轮询 /api/business/runs/get。"},
     {"field": "editSkill", "value": "local_modify", "meaning": "局部修改：对主图中指定对象或区域做小范围改动。", "action": "必须提供编辑指令；建议同时提供点选、框选或蒙版。"},
     {"field": "editSkill", "value": "reference_element_transfer", "meaning": "参考图替换：用参考图的对象、材质或风格替换主图指定区域。", "action": "必须提供 referenceImages。"},

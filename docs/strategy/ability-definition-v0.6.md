@@ -58,7 +58,7 @@
 - `fission` 图裂变。
 - `outpaint` 扩图。
 - `image_edit` 直接图编辑。
-- `image_edit_chat` 对话改图 ChatBot。
+- `image_edit_chat` AI 改图助手。
 - `product_design` 产品设计图，2026-06-03 已补首版业务包装。
 - 待补：`product_image_set` 组图 / 多角度。
 - 待补：`model_shot` 模特图。
@@ -74,7 +74,7 @@ Agent 能力是一种特殊业务能力。它以会话、消息、方案和确�
 
 当前 v0.6 只承认一个 Agent 能力：
 
-- `image_edit_chat`：对话改图 ChatBot，底层只允许调用 `business.image_edit`。
+- `image_edit_chat`：AI 改图助手，底层只允许调用 `business.image_edit`。
 
 产品边界必须保持清楚：可视化改图面向“看图、标注、精确提交”，属于 `image_edit` 工作台方向；对话改图面向“自然语言沟通、多轮追改、调用多种技能”，属于 Agent 方向。两者可以共享底层图编辑能力和结果资产，但不能在交互、接口和能力定义上混成一个功能。
 

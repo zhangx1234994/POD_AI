@@ -1,11 +1,11 @@
-# v0.6 对话改图 ChatBot Runtime 方案
+# v0.6 AI 改图助手 Agent Runtime 方案
 
 日期：2026-06-02
 最后更新：2026-06-03
 
 ## 结论
 
-对话改图作为独立 ChatBot 产品入口接入，不改造中台主架构，不绕开现有业务能力 API。P0 底层仍复用 `agent.image_edit_assistant` Runtime：多轮对话理解、生成可确认建议、用户确认、调用 `image_edit` 业务 run。
+对话改图作为独立 AI 改图助手产品入口接入，不改造中台主架构，不绕开现有业务能力 API。P0 底层仍复用 `agent.image_edit_assistant` Runtime：多轮对话理解、生成可确认建议、用户确认、调用 `image_edit` 业务 run。
 
 命名和归类口径：当前测评端可以把它暂时放在“图编辑”分类下，帮助用户从改图场景进入；但它不是可视化图编辑器的子模式。可视化图编辑器解决“看图、圈选、参考图、精确提交”，对话改图解决“像聊天一样表达目标、多轮追改、由 Agent 调用能力”。长期看，对话改图归入 Agent 体系，并会逐步扩展到更多白名单业务能力。
 
@@ -21,9 +21,9 @@ MVP 交付口径：v0.6 可以先只做单图多轮对话改图，但必须按 A
 
 ## 边界
 
-- ChatBot 可以调用中台白名单工具，当前只有 `business.image_edit`。
-- ChatBot 不直接调用 OpenAI 图像接口、ComfyUI、KIE、火山或百度。
-- ChatBot 与可视化图编辑工作台是两个产品方向；可以互相跳转、共享资产和 runId 证据，但不能共用同一个交互模型或把会话续改做成一次性任务表单。
+- AI 改图助手可以调用中台白名单工具，当前只有 `business.image_edit`。
+- AI 改图助手不直接调用 OpenAI 图像接口、ComfyUI、KIE、火山或百度。
+- AI 改图助手与可视化图编辑工作台是两个产品方向；可以互相跳转、共享资产和 runId 证据，但不能共用同一个交互模型或把会话续改做成一次性任务表单。
 - GPT-5.5 / Responses API 只作为 planner 可选实现；未配置 Key 或调用失败时使用规则 planner 兜底。
 - 高成本执行必须先进入 `awaiting_confirmation`，确认后才创建业务 run。
 - 会话必须显式创建和显式续聊；`requestId` 只做同一租户/客户端下的创建幂等，不做跨会话自动合并。
@@ -35,16 +35,16 @@ MVP 交付口径：v0.6 可以先只做单图多轮对话改图，但必须按 A
 
 | 表 | 用途 |
 | --- | --- |
-| `business_agent_sessions` | 一次 ChatBot 会话，保存底层 Agent key、状态、主图、租户/客户端、trace。 |
+| `business_agent_sessions` | 一次 AI 改图助手会话，保存底层 Agent key、状态、主图、租户/客户端、trace。 |
 | `business_agent_messages` | 用户、助手、工具消息。 |
 | `business_agent_plans` | 结构化方案卡片，保存意图、步骤、工具 payload、成本和风险。 |
-| `business_agent_tool_calls` | ChatBot 调用中台能力的证据，关联 `runId`。 |
+| `business_agent_tool_calls` | AI 改图助手调用中台能力的证据，关联 `runId`。 |
 
 ## API
 
 | 接口 | 说明 |
 | --- | --- |
-| `POST /api/business/image-edit-chat/sessions` | 创建会话；可带首条 `message` 直接生成 ChatBot 回复和最新建议。 |
+| `POST /api/business/image-edit-chat/sessions` | 创建会话；可带首条 `message` 直接生成 AI 改图助手回复和最新建议。 |
 | `GET /api/business/image-edit-chat/sessions/{sessionId}` | 查询会话、消息、方案和工具调用。 |
 | `POST /api/business/image-edit-chat/sessions/{sessionId}/messages` | 追加消息并生成新建议。 |
 | `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` | 确认当前最新建议并提交 `image_edit` 业务 run。 |
@@ -107,10 +107,10 @@ Agent 的稳定性不能靠“模型更聪明”兜底，而要靠中台把模�
 入口与图编辑工作台拆分展示，但可互相协作：
 
 1. 用户上传或粘贴主图。
-2. 用户在 ChatBot 消息框里自然表达改图诉求。
-3. ChatBot 以消息形式回复，并附带可执行建议卡，展示步骤、执行指令、成本、风险和 warnings。
+2. 用户在 AI 改图助手消息框里自然表达改图诉求。
+3. AI 改图助手以消息形式回复，并附带可执行建议卡，展示步骤、执行指令、成本、风险和 warnings。
 4. 用户可继续追问，也可一键把建议应用到精确图编辑器，继续手动标注或补参考图。
-5. 用户确认执行后，ChatBot 显示 `runId`、轮询状态和输出缩略图。
+5. 用户确认执行后，AI 改图助手显示 `runId`、轮询状态和输出缩略图。
 
 ## MVP 稳定性门禁
 

@@ -1998,7 +1998,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     }
     image_edit_chat_create_schema = {
         "type": "object",
-        "description": "创建对话改图 ChatBot 会话；可带首轮 message 直接生成可确认建议。",
+        "description": "创建 AI 改图助手会话；可带首轮 message 直接生成可确认建议。",
         "properties": {
             "agentKey": {
                 "type": "string",
@@ -2651,7 +2651,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "info": {
             "title": "PODI Business APIs",
             "version": "0.1.0",
-            "description": "业务层稳定入口：花纹提取、图裂变、产品设计、直接图编辑、对话改图 ChatBot、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
+            "description": "业务层稳定入口：花纹提取、图裂变、产品设计、直接图编辑、AI 改图助手、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
         "components": {
@@ -2770,8 +2770,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions": {
                 "post": {
                     "operationId": "podi_business_image_edit_chat_create_session",
-                    "summary": "PODI · 对话改图 ChatBot · 创建会话",
-                    "description": "创建对话改图 ChatBot 会话。它是独立聊天入口，不是 /api/business/image-edit/runs 的别名；只有用户确认建议后才会提交底层 image_edit 业务任务。",
+                    "summary": "PODI · AI 改图助手 · 创建会话",
+                    "description": "创建 AI 改图助手会话。它是独立 Agent 入口，不是 /api/business/image-edit/runs 的别名；只有用户确认建议后才会提交底层 image_edit 业务任务。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
@@ -2787,7 +2787,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                                             "quality": "preview",
                                             "size": "auto",
                                             "source": "partner-api",
-                                            "channel": "chatbot",
+                                            "channel": "image-edit-agent",
                                             "requestId": "biz-image-edit-chat-001",
                                         },
                                     }
@@ -2805,7 +2805,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions/{sessionId}": {
                 "get": {
                     "operationId": "podi_business_image_edit_chat_get_session",
-                    "summary": "PODI · 对话改图 ChatBot · 查询会话",
+                    "summary": "PODI · AI 改图助手 · 查询会话",
                     "description": "查询对话改图会话、消息、建议方案和工具调用记录。",
                     "security": business_api_key_security,
                     "parameters": [
@@ -2821,7 +2821,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions/{sessionId}/messages": {
                 "post": {
                     "operationId": "podi_business_image_edit_chat_send_message",
-                    "summary": "PODI · 对话改图 ChatBot · 发送消息",
+                    "summary": "PODI · AI 改图助手 · 发送消息",
                     "description": "向已有会话追加用户消息，并生成新的最新建议。后端不会隐藏续聊，调用方必须显式传 sessionId。",
                     "security": business_api_key_security,
                     "parameters": [
@@ -2838,7 +2838,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions/{sessionId}/confirm": {
                 "post": {
                     "operationId": "podi_business_image_edit_chat_confirm_latest",
-                    "summary": "PODI · 对话改图 ChatBot · 执行最新建议",
+                    "summary": "PODI · AI 改图助手 · 执行最新建议",
                     "description": "确认当前最新建议并提交底层 /api/business/image-edit/runs。会话还没有建议时返回 AGENT_PLAN_REQUIRED。",
                     "security": business_api_key_security,
                     "parameters": [
@@ -2855,7 +2855,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm": {
                 "post": {
                     "operationId": "podi_business_image_edit_chat_confirm_plan",
-                    "summary": "PODI · 对话改图 ChatBot · 执行指定建议",
+                    "summary": "PODI · AI 改图助手 · 执行指定建议",
                     "description": "确认指定方案版本并提交底层 /api/business/image-edit/runs。指定的方案不是最新方案时返回 AGENT_PLAN_STALE。",
                     "security": business_api_key_security,
                     "parameters": [

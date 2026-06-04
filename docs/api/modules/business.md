@@ -47,7 +47,7 @@
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
-| 对话改图 ChatBot | `POST /api/business/image-edit-chat/sessions` + `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` | 会话可先传 `message`；执行前必须有 `imageUrl` | `editSkill`、`quality`、`size`、`referenceImages`、`selectionHints` | `messages` + `plan` + `run.runId` | 独立于直接图编辑 API 的聊天入口；ChatBot 通过白名单工具调用中台 `image_edit` 业务 run。 |
+| AI 改图助手 | `POST /api/business/image-edit-chat/sessions` + `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` | 会话可先传 `message`；执行前必须有 `imageUrl` | `editSkill`、`quality`、`size`、`referenceImages`、`selectionHints` | `messages` + `plan` + `run.runId` | 独立于直接图编辑 API 的 Agent 入口；助手通过白名单工具调用中台 `image_edit` 业务 run。 |
 
 调用上下文兼容接口：
 
@@ -106,9 +106,9 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 
 管理端“API 开放”页也可以直接生成、创建、停用业务 Key，并查看每个 Key 的调用记录。
 
-### 0.2) 对话改图 ChatBot
+### 0.2) AI 改图助手
 
-对话改图 ChatBot 是独立业务入口，治理 key 为 `image_edit_chat`；直接图编辑仍是 `image_edit`，接口仍为 `/api/business/image-edit/runs`。两者共享底层图编辑能力和 runId 证据，但调用方式、产品入口和用户心智必须拆开：ChatBot 负责像聊天一样收集诉求、追问或给出可执行建议；真正执行只允许调用中台白名单工具 `business.image_edit`，最终仍产生标准 `image_edit` 业务 `runId`。
+AI 改图助手是独立业务入口，治理 key 为 `image_edit_chat`；直接图编辑仍是 `image_edit`，接口仍为 `/api/business/image-edit/runs`。两者共享底层图编辑能力和 runId 证据，但调用方式、产品入口和用户心智必须拆开：助手负责像聊天一样收集诉求、追问或给出可执行建议；真正执行只允许调用中台白名单工具 `business.image_edit`，最终仍产生标准 `image_edit` 业务 `runId`。
 
 会话边界和幂等规则：
 
@@ -119,7 +119,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 - 确认方案只允许确认当前会话的最新 `awaiting_confirmation` 方案；确认中会进入 `confirming`，成功后为 `executed` 并返回业务 `runId`。
 - 已执行方案重复确认会返回原来的 `runId`，不会重复创建图编辑业务任务。
 
-创建会话并生成首条 ChatBot 回复：
+创建会话并生成首条 AI 改图助手回复：
 
 ```bash
 curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions" \
@@ -214,7 +214,7 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/confir
 - `source`：调用来源，例如 `coze`、`client`、`partner-api`。
 - `channel`：具体入口，例如 `coze-workflow`、`open-api`、`eval`。
 - `traceId`：跨系统排查 ID，建议业务方生成并传入。
-- `requestId`：业务方请求 ID。ChatBot 创建会话时同一 `agentKey + requestId + tenantId + clientId` 会复用原会话；确认建议时用于传递到底层 `image_edit` run，建议每次确认传稳定值。
+- `requestId`：业务方请求 ID。AI 改图助手创建会话时同一 `agentKey + requestId + tenantId + clientId` 会复用原会话；确认建议时用于传递到底层 `image_edit` run，建议每次确认传稳定值。
 - `tenantId/clientId`：租户和客户端标识，用于灰度、配额、统计和隔离。业务方通常不需要传，优先由业务 API Key 绑定；显式传入时必须与 Key 或登录账号范围一致。
 - `userId`：业务方自己的用户标识，只作为外部上下文和排查字段保留；不会直接写入平台用户外键，也不会替代平台登录用户。
 - `callbackUrl`：可选 Webhook。配置后任务终态会通知业务方；即使 Webhook 失败，业务方仍可用 `runId` 轮询查询结果。常规业务链路是“提交后拿 `runId` 轮询”，不要把这个和 Webhook 回调混为一谈。
@@ -1956,7 +1956,7 @@ Coze 旧工具箱兼容查询：
 - `steps` 只在 `detail=full` 或 `includeDebug=true` 时返回，是业务配方步骤状态。当前版本至少记录主执行能力；启用 VL 辅助后会额外提交并记录 VL 步骤。
 - `flowSummary` 只在完整模式返回，是给管理端和排障使用的链路证据：包含业务版本、原子能力、实际执行节点、输出回填和回调状态。业务方正常轮询只需要关注 `status/taskStatus/imageUrls/videoUrls/texts/error`。
 - `flowSummary.output` 会按 `imageCount/videoCount/textCount/structuredCount/resourceCount` 分开展示，管理端不得继续把所有结果都当图片处理。
-- `agentTrace` 只在该 run 由对话改图 ChatBot 创建时返回，用于从普通业务 `runId` 反查聊天会话、建议卡片、工具调用、确认时间和实际下发参数；非 ChatBot 入口该字段为 `null` 或不存在。
+- `agentTrace` 只在该 run 由 AI 改图助手创建时返回，用于从普通业务 `runId` 反查聊天会话、建议卡片、工具调用、确认时间和实际下发参数；非 Agent 入口该字段为 `null` 或不存在。
 - `steps[].executorId/executorName/executionEvidence` 来自能力调用日志，用于确认任务是否真的打到预期机器，以及结果是否已经落 OSS。
 - 默认情况下最终出图仍以主执行能力为准，VL 伴随步骤用于链路观测和结果积累。
 - 阻塞式 VL 串联开启后，主能力会等 VL 成功后再提交；查询时可能先看到 VL 运行中、主能力仍是 `planned`。

@@ -33,10 +33,23 @@ ARCHIVE_DIR="$ROOT_DIR/.release"
 CONTROL_ARCHIVE="$ARCHIVE_DIR/podi-control-plane-$COMMIT.tgz"
 WEB_ARCHIVE="$ARCHIVE_DIR/podi-web-dist-$COMMIT.tgz"
 REMOTE_ARCHIVE_DIR="$TARGET_ROOT/.deploy_tmp/$COMMIT"
+TEMP_FILES=()
+
+cleanup_temp_files() {
+  local file
+  for file in "${TEMP_FILES[@]}"; do
+    if [[ -n "$file" ]]; then
+      rm -f "$file"
+    fi
+  done
+}
+trap cleanup_temp_files EXIT
 
 SSH_CONNECT_TIMEOUT_SECONDS="${SSH_CONNECT_TIMEOUT_SECONDS:-15}"
 SSH_SERVER_ALIVE_INTERVAL_SECONDS="${SSH_SERVER_ALIVE_INTERVAL_SECONDS:-10}"
 SSH_SERVER_ALIVE_COUNT_MAX="${SSH_SERVER_ALIVE_COUNT_MAX:-3}"
+REMOTE_OP_RETRIES="${REMOTE_OP_RETRIES:-3}"
+REMOTE_OP_RETRY_SLEEP_SECONDS="${REMOTE_OP_RETRY_SLEEP_SECONDS:-5}"
 
 SSH_BASE=(
   ssh
@@ -73,6 +86,62 @@ upload() {
   "${SCP_BASE[@]}" "$1" "$TARGET_USER@$TARGET_HOST:$2"
 }
 
+with_retry() {
+  local label="$1"
+  shift
+  local attempt=1
+  local status=0
+
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+    status=$?
+    if (( attempt >= REMOTE_OP_RETRIES )); then
+      echo "[release-114] ERROR: ${label} failed after ${attempt} attempt(s), exit=${status}." >&2
+      return "$status"
+    fi
+    echo "[release-114] WARN: ${label} failed on attempt ${attempt}/${REMOTE_OP_RETRIES}, retrying in ${REMOTE_OP_RETRY_SLEEP_SECONDS}s..." >&2
+    sleep "$REMOTE_OP_RETRY_SLEEP_SECONDS"
+    attempt=$((attempt + 1))
+  done
+}
+
+remote_retry() {
+  local label="$1"
+  shift
+  with_retry "$label" remote "$@"
+}
+
+upload_retry() {
+  local label="$1"
+  local source="$2"
+  local target="$3"
+  with_retry "$label" upload "$source" "$target"
+}
+
+remote_script_retry() {
+  local label="$1"
+  local remote_command="$2"
+  local script_file="$3"
+  local attempt=1
+  local status=0
+
+  while true; do
+    if remote "$remote_command" < "$script_file"; then
+      return 0
+    fi
+    status=$?
+    if (( attempt >= REMOTE_OP_RETRIES )); then
+      echo "[release-114] ERROR: ${label} failed after ${attempt} attempt(s), exit=${status}." >&2
+      return "$status"
+    fi
+    echo "[release-114] WARN: ${label} failed on attempt ${attempt}/${REMOTE_OP_RETRIES}, retrying in ${REMOTE_OP_RETRY_SLEEP_SECONDS}s..." >&2
+    sleep "$REMOTE_OP_RETRY_SLEEP_SECONDS"
+    attempt=$((attempt + 1))
+  done
+}
+
 section() {
   echo ""
   echo "== $1 =="
@@ -90,6 +159,7 @@ echo "run_smoke=$RUN_SMOKE"
 echo "run_live_patrol=$RUN_LIVE_PATROL"
 echo "install_deps=$INSTALL_DEPS"
 echo "service_ready_timeout_seconds=$SERVICE_READY_TIMEOUT_SECONDS"
+echo "remote_op_retries=$REMOTE_OP_RETRIES"
 
 section "Source gate"
 if [[ "$RUN_SOURCE_PREFLIGHT" == "1" ]]; then
@@ -138,12 +208,14 @@ python3 scripts/package_release_archive.py \
   podi-admin-web/dist podi-eval-web/dist
 
 section "Upload"
-remote "mkdir -p '$REMOTE_ARCHIVE_DIR'"
-upload "$CONTROL_ARCHIVE" "$REMOTE_ARCHIVE_DIR/"
-upload "$WEB_ARCHIVE" "$REMOTE_ARCHIVE_DIR/"
+remote_retry "create remote archive dir" "mkdir -p '$REMOTE_ARCHIVE_DIR'"
+upload_retry "upload control archive" "$CONTROL_ARCHIVE" "$REMOTE_ARCHIVE_DIR/"
+upload_retry "upload web archive" "$WEB_ARCHIVE" "$REMOTE_ARCHIVE_DIR/"
 
 section "Remote deploy"
-remote "TARGET_ROOT='$TARGET_ROOT' COMMIT='$COMMIT' INSTALL_DEPS='$INSTALL_DEPS' CONTROL_ARCHIVE='$REMOTE_ARCHIVE_DIR/$(basename "$CONTROL_ARCHIVE")' WEB_ARCHIVE='$REMOTE_ARCHIVE_DIR/$(basename "$WEB_ARCHIVE")' BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' ADMIN_URL_LOCAL='$ADMIN_URL_LOCAL' EVAL_URL_LOCAL='$EVAL_URL_LOCAL' SERVICE_READY_TIMEOUT_SECONDS='$SERVICE_READY_TIMEOUT_SECONDS' bash -s" <<'REMOTE'
+REMOTE_DEPLOY_SCRIPT="$(mktemp)"
+TEMP_FILES+=("$REMOTE_DEPLOY_SCRIPT")
+cat > "$REMOTE_DEPLOY_SCRIPT" <<'REMOTE'
 set -euo pipefail
 cd "$TARGET_ROOT"
 
@@ -214,16 +286,20 @@ wait_for_http "backend" "${BACKEND_URL_LOCAL:-http://127.0.0.1:8099}/health" "$S
 wait_for_http "admin" "${ADMIN_URL_LOCAL:-http://127.0.0.1:8199}/" "$SERVICE_READY_TIMEOUT_SECONDS"
 wait_for_http "eval" "${EVAL_URL_LOCAL:-http://127.0.0.1:8200}/" "$SERVICE_READY_TIMEOUT_SECONDS"
 REMOTE
+remote_script_retry "remote deploy" "TARGET_ROOT='$TARGET_ROOT' COMMIT='$COMMIT' INSTALL_DEPS='$INSTALL_DEPS' CONTROL_ARCHIVE='$REMOTE_ARCHIVE_DIR/$(basename "$CONTROL_ARCHIVE")' WEB_ARCHIVE='$REMOTE_ARCHIVE_DIR/$(basename "$WEB_ARCHIVE")' BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' ADMIN_URL_LOCAL='$ADMIN_URL_LOCAL' EVAL_URL_LOCAL='$EVAL_URL_LOCAL' SERVICE_READY_TIMEOUT_SECONDS='$SERVICE_READY_TIMEOUT_SECONDS' bash -s" "$REMOTE_DEPLOY_SCRIPT"
+rm -f "$REMOTE_DEPLOY_SCRIPT"
 
 section "Remote verification"
-remote "set -e; cd '$TARGET_ROOT'; echo release=\$(cat DEPLOYED_COMMIT); curl -fsS '$BACKEND_URL_LOCAL/health'; echo; BACKEND_URL='$BACKEND_URL_LOCAL' ADMIN_URL='$ADMIN_URL_LOCAL' EVAL_URL='$EVAL_URL_LOCAL' bash scripts/deploy_preflight.sh"
+remote_retry "remote verification" "set -e; cd '$TARGET_ROOT'; echo release=\$(cat DEPLOYED_COMMIT); curl -fsS '$BACKEND_URL_LOCAL/health'; echo; BACKEND_URL='$BACKEND_URL_LOCAL' ADMIN_URL='$ADMIN_URL_LOCAL' EVAL_URL='$EVAL_URL_LOCAL' bash scripts/deploy_preflight.sh"
 
 if [[ "$RUN_SMOKE" == "1" ]]; then
   smoke_extra_args="${SMOKE_EXTRA_ARGS:-}"
   if [[ "$SMOKE_ALLOW_COMFYUI_WARNINGS" == "1" ]]; then
     smoke_extra_args="$smoke_extra_args --allow-comfyui-compat-warnings"
   fi
-remote "cd '$TARGET_ROOT' && BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' SMOKE_EXTRA_ARGS='$smoke_extra_args' SMOKE_EXPECT_SERVER_URL='${SMOKE_EXPECT_SERVER_URL:-}' bash -s" <<'REMOTE'
+  REMOTE_SMOKE_SCRIPT="$(mktemp)"
+  TEMP_FILES+=("$REMOTE_SMOKE_SCRIPT")
+  cat > "$REMOTE_SMOKE_SCRIPT" <<'REMOTE'
 set -euo pipefail
 if [[ -f backend/.env ]]; then
   eval "$(backend/.venv/bin/python - <<'PY'
@@ -269,12 +345,14 @@ PY
 )"
 backend/.venv/bin/python backend/scripts/podi_release_smoke.py --base-url "$BACKEND_URL_LOCAL" "${expect_arg[@]}" $SMOKE_EXTRA_ARGS
 REMOTE
+  remote_script_retry "release smoke" "cd '$TARGET_ROOT' && BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' SMOKE_EXTRA_ARGS='$smoke_extra_args' SMOKE_EXPECT_SERVER_URL='${SMOKE_EXPECT_SERVER_URL:-}' bash -s" "$REMOTE_SMOKE_SCRIPT"
+  rm -f "$REMOTE_SMOKE_SCRIPT"
 else
   echo "[release-114] WARN: release smoke skipped."
 fi
 
 if [[ "$RUN_LIVE_PATROL" == "1" ]]; then
-  remote "cd '$TARGET_ROOT' && backend/.venv/bin/python backend/scripts/patrol_business_api.py --base-url '$BACKEND_URL_LOCAL' --mode live --business pattern_extract,fission,outpaint --image-url '$PATROL_IMAGE_URL' --timeout 1200 --interval 10 --require-executor-evidence"
+  remote_retry "live patrol" "cd '$TARGET_ROOT' && backend/.venv/bin/python backend/scripts/patrol_business_api.py --base-url '$BACKEND_URL_LOCAL' --mode live --business pattern_extract,fission,outpaint --image-url '$PATROL_IMAGE_URL' --timeout 1200 --interval 10 --require-executor-evidence"
 fi
 
 section "Done"

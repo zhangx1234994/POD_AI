@@ -2311,7 +2311,7 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string, params
       requestId: 'biz-image-edit-chat-session-001',
     };
     return [
-      '【第 1 步：创建 ChatBot 会话】',
+      '【第 1 步：创建 AI 改图助手会话】',
       'curl -X POST "$PODI_BASE_URL/api/business/image-edit-chat/sessions" \\',
       '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
       '  -H "Content-Type: application/json" \\',
@@ -2335,7 +2335,7 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string, params
       '  -H "Content-Type: application/json" \\',
       `  -d '${JSON.stringify({ runId: '<确认接口返回的 run.runId>' }, null, 2)}'`,
       '',
-      '说明：对话改图 ChatBot 是独立入口，不是 /api/business/image-edit/runs 的别名。ChatBot 负责会话、建议和确认；确认后才由后端调用直接图编辑业务能力。',
+      '说明：AI 改图助手是独立对话式改图入口，不是 /api/business/image-edit/runs 的别名。助手负责会话、建议和确认；确认后才由后端调用直接图编辑业务能力。',
     ].join('\n');
   }
 
@@ -3599,9 +3599,9 @@ function ImageEditEntryGuide({
             <span />
           </div>
           <div>
-            <Tag theme="primary" variant="light">ChatBot</Tag>
+            <Tag theme="primary" variant="light">Agent</Tag>
             <Typography.Title level="h5" style={{ margin: '8px 0 4px' }}>
-              对话改图
+              AI 改图助手
             </Typography.Title>
             <Typography.Text theme="secondary">用户只知道大概方向时，先用自然语言讨论方案，再确认执行。</Typography.Text>
           </div>
@@ -3610,7 +3610,7 @@ function ImageEditEntryGuide({
             <li>适合：非技术用户、需求不清晰、多轮确认。</li>
           </ul>
           <Button theme="primary" disabled={!chatTool} onClick={() => chatTool && onOpenTool(chatTool)}>
-            打开 ChatBot
+            打开助手
           </Button>
         </article>
         <article className="podi-image-edit-entry-guide__path is-direct">
@@ -8798,7 +8798,7 @@ export function App() {
     const selectedToolRoleTheme = getWorkflowGovernanceTheme(selectedToolGovernance?.role);
     const selectedToolRoutingTheme = getWorkflowRoutingGovernanceTheme(selectedToolRouting?.governanceStatus);
     const selectedToolExecutionLabel = isImageEditChatBusinessWorkflow
-      ? 'ChatBot 会话 · 图编辑工具'
+      ? 'Agent 会话 · 图编辑工具'
       : isImageEditBusinessWorkflow
         ? '中台业务编排 · GPT Image 2'
         : String(selectedToolRouting?.executionLabel || '执行面待确认').trim();
@@ -8946,8 +8946,8 @@ export function App() {
       if (isImageEditChatBusinessWorkflow) {
         return {
           theme: formUrl.trim() ? ('primary' as const) : ('warning' as const),
-          label: formUrl.trim() ? '在 ChatBot 中确认方案' : '先提供主图',
-          detail: formUrl.trim() ? '发送改图诉求，确认建议后由 ChatBot 提交中台图编辑 run。' : '可以先讨论目标，但真实执行前必须上传或粘贴主图 URL。',
+          label: formUrl.trim() ? '在助手中确认方案' : '先提供主图',
+          detail: formUrl.trim() ? '发送改图诉求，确认建议后由 AI 改图助手提交中台图编辑 run。' : '可以先讨论目标，但真实执行前必须上传或粘贴主图 URL。',
           businessAction: '像聊天一样描述要怎么改，重点检查建议是否说清目标、约束和风险。',
           platformAction: '观察会话、方案、确认动作、runId 和结果图是否可追溯。',
         };
@@ -9013,7 +9013,7 @@ export function App() {
       };
     })();
     const testTheme = isImageEditChatBusinessWorkflow ? 'primary' : runBlockingReason ? 'warning' : isRunning ? 'primary' : 'success';
-    const testLabel = isImageEditChatBusinessWorkflow ? 'ChatBot' : runBlockingReason ? '待输入' : isRunning ? '提交中' : '可提交';
+    const testLabel = isImageEditChatBusinessWorkflow ? '助手' : runBlockingReason ? '待输入' : isRunning ? '提交中' : '可提交';
     const resultTheme =
       visibleLatestStatusForRail === 'failed'
         ? 'danger'
@@ -9204,7 +9204,7 @@ export function App() {
                   theme="primary"
                   onClick={() => document.getElementById('eval-step-test')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                 >
-                  打开 ChatBot
+                  打开助手
                 </Button>
               ) : (
                 <>
@@ -9301,7 +9301,7 @@ export function App() {
               title={
                 <div className="podi-panel-title">
                   <strong>
-                    {isImageEditChatBusinessWorkflow ? '对话改图 ChatBot' : isImageEditBusinessWorkflow ? '图编辑工作台' : '一次测试'}
+                    {isImageEditChatBusinessWorkflow ? 'AI 改图助手' : isImageEditBusinessWorkflow ? '图编辑工作台' : '一次测试'}
                   </strong>
                   <span>
                     {isImageEditChatBusinessWorkflow
@@ -9344,8 +9344,8 @@ export function App() {
                   />
                   <IntegrationDocBlock
                     doc={doc}
-                    title="业务接入文档（对话改图 ChatBot）"
-                    description="对话改图是独立 ChatBot 入口：先建会话和方案，确认后才创建图编辑 run。"
+                    title="业务接入文档（AI 改图助手）"
+                    description="对话式改图是独立 Agent 入口：先建会话和方案，确认后才创建图编辑 run。"
                     expanded={showIntegrationDoc}
                     onToggle={() => setShowIntegrationDoc((prev) => !prev)}
                     onCopy={copyIntegrationDoc}

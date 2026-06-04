@@ -1914,14 +1914,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             },
         },
     },
-    # 图编辑 / 对话改图：ChatBot 独立入口
+    # 图编辑 / AI 改图助手：Agent 独立入口
     {
         "category": "图编辑",
-        "name": "对话改图 ChatBot",
+        "name": "AI 改图助手",
         "version": "image-edit-chat-v1",
         "workflow_id": "business_image_edit_chat_gpt_image2_assistant_v1",
         "status": "active",
-        "notes": "独立 ChatBot 改图入口。用户通过多轮对话整理改图方案，确认后由后端调用 /api/business/image-edit/runs，最终仍产生标准 image_edit 业务 runId。",
+        "notes": "独立对话式改图入口。用户通过多轮对话整理改图方案，确认后由后端调用 /api/business/image-edit/runs，最终仍产生标准 image_edit 业务 runId。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "主图 URL", "type": "image", "required": True, "description": "执行前必须提供的主图；可上传本地图片自动落 OSS。"},
@@ -1932,7 +1932,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "type": "select",
                     "required": False,
                     "defaultValue": "local_modify",
-                    "description": "ChatBot 可按上下文整理方案；这里仅作为默认执行倾向。",
+                    "description": "AI 改图助手可按上下文整理方案；这里仅作为默认执行倾向。",
                     "options": [
                         {"label": "局部修改", "value": "local_modify"},
                         {"label": "参考图替换", "value": "reference_element_transfer"},
@@ -1980,7 +1980,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {
             "fields": [
-                {"name": "sessionId", "type": "text", "description": "ChatBot 会话 ID"},
+                {"name": "sessionId", "type": "text", "description": "AI 改图助手会话 ID"},
                 {"name": "planId", "type": "text", "description": "确认执行的方案 ID"},
                 {"name": "runId", "type": "text", "description": "确认后创建的 image_edit 业务运行 ID"},
                 {"name": "imageUrls", "type": "array", "description": "最终 OSS 结果图"},
@@ -1992,8 +1992,8 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "presentation": {
                 "category_label": "图编辑",
                 "operation_label": "对话改图",
-                "variant_label": "对话改图 ChatBot",
-                "badges": ["新版", "ChatBot", "独立入口"],
+                "variant_label": "AI 改图助手",
+                "badges": ["新版", "Agent", "独立入口"],
                 "release_time": "2026-06-03",
                 "update_time": "2026-06-03",
                 "supports_batch": False,
@@ -2004,7 +2004,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "governance": {
                 "role": "candidate",
                 "role_label": "灰度验证版本",
-                "role_reason": "2026-06-03 拆成独立 ChatBot 能力入口，避免和直接图编辑工作台混用。",
+                "role_reason": "2026-06-03 拆成独立 Agent 能力入口，避免和直接图编辑工作台混用。",
             },
             "eval_execution": {
                 "mode": "business_agent",
