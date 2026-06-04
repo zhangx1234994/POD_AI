@@ -170,11 +170,14 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/messag
   -H "X-PODI-API-Key: $PODI_BUSINESS_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
+    "requestId": "image-edit-chat-message-002",
     "message": "再偏复古一点，但不要改变构图。",
     "quality": "preview",
     "size": "auto"
   }'
 ```
+
+`messages` 的 `requestId` 是消息级幂等键：同一 `sessionId + requestId` 只生成一张方案卡。网络重试应复用同一个 `requestId`；新的改图诉求必须换新的 `requestId`。
 
 确认最新建议并提交业务 run：
 
@@ -198,6 +201,7 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/confir
 | --- | --- | --- |
 | `AGENT_CAPABILITY_NOT_FOUND` | 404 | 检查 Agent key，当前只支持 `agent.image_edit_assistant`。 |
 | `AGENT_MESSAGE_REQUIRED` | 400 | 补充用户改图诉求。 |
+| `AGENT_MESSAGE_DUPLICATE_IN_PROGRESS` | 409 | 同一消息 `requestId` 正在处理中，稍后查询会话或重试同一请求。 |
 | `AGENT_IMAGE_URL_INVALID` | 400 | 图片必须是 HTTP(S) URL。 |
 | `AGENT_IMAGE_URL_REQUIRED` | 400 | 确认执行前上传或传入主图。 |
 | `AGENT_SESSION_NOT_FOUND` | 404 | 检查 `sessionId`。 |

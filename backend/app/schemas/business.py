@@ -736,6 +736,7 @@ class BusinessAgentMessageRequest(BaseModel):
     selectionHints: list[dict[str, Any]] | None = Field(default=None, alias="selection_hints")
     context: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
+    requestId: str | None = Field(default=None, alias="request_id")
 
 
 class BusinessAgentConfirmRequest(BaseModel):
@@ -758,6 +759,7 @@ class BusinessAgentMessageRead(BaseModel):
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     planId: str | None = Field(default=None, alias="plan_id")
     runId: str | None = Field(default=None, alias="run_id")
+    requestId: str | None = Field(default=None, alias="request_id")
     metadata: dict[str, Any] | None = None
     createdAt: datetime = Field(alias="created_at")
 

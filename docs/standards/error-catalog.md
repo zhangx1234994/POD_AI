@@ -173,6 +173,7 @@
 | AGENT_IMAGE_URL_INVALID | 业务 Agent 图片 URL 非 HTTP(S) 地址 | 400 |
 | AGENT_IMAGE_URL_REQUIRED | 业务 Agent 确认执行缺少主图 URL | 400 |
 | AGENT_MESSAGE_REQUIRED | 业务 Agent 消息为空 | 400 |
+| AGENT_MESSAGE_DUPLICATE_IN_PROGRESS | 业务 Agent 同一消息 requestId 正在处理且尚未生成可返回方案 | 409，稍后查询会话或使用同一 requestId 重试 |
 | AGENT_SESSION_NOT_FOUND | 业务 Agent 会话不存在 | 404 |
 | AGENT_SESSION_FORBIDDEN | 业务 Agent 会话不属于当前租户/客户端 | 403 |
 | AGENT_SESSION_CREATE_FAILED | 业务 Agent 会话创建失败 | 500 |

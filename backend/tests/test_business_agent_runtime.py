@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.services.business_agents as business_agents_module
 from app.core.db import Base
-from app.models.integration import BusinessAgentPlan, BusinessAgentSession, BusinessAgentToolCall, BusinessRun
+from app.models.integration import BusinessAgentMessage, BusinessAgentPlan, BusinessAgentSession, BusinessAgentToolCall, BusinessRun
 from app.models.user import User
 from app.schemas.business import (
     BusinessAgentConfirmRequest,
@@ -455,6 +455,138 @@ def test_image_edit_agent_rejects_stale_plan_confirmation(monkeypatch) -> None:
     with testing_session() as session:
         tool_calls = session.execute(select(BusinessAgentToolCall)).scalars().all()
     assert tool_calls == []
+
+
+def test_image_edit_agent_message_request_id_is_idempotent(monkeypatch) -> None:
+    testing_session = _install_agent_db(monkeypatch)
+    service = BusinessAgentService()
+    user = _client_user()
+    session_result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/source.png",
+        ),
+        user=user,
+    )
+    payload = BusinessAgentMessageRequest(
+        message="只提升花朵纹理质感，背景不要改。",
+        requestId="agent-message-request-1",
+    )
+
+    first = service.send_message(session_result["session"]["id"], payload, user=user)
+    second = service.send_message(session_result["session"]["id"], payload, user=user)
+
+    assert second["plan"]["id"] == first["plan"]["id"]
+    assert second["session"]["latestPlanId"] == first["plan"]["id"]
+    with testing_session() as session:
+        messages = session.execute(select(BusinessAgentMessage)).scalars().all()
+        plans = session.execute(select(BusinessAgentPlan)).scalars().all()
+
+    assert len(plans) == 1
+    assert [item.role for item in messages] == ["user", "assistant"]
+    assert messages[0].request_id == "agent-message-request-1"
+    assert messages[0].plan_id == first["plan"]["id"]
+
+
+def test_image_edit_agent_message_request_id_is_scoped_to_session(monkeypatch) -> None:
+    testing_session = _install_agent_db(monkeypatch)
+    service = BusinessAgentService()
+    user = _client_user()
+    first_session = service.create_session(
+        BusinessAgentSessionCreateRequest(imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/source-a.png"),
+        user=user,
+    )
+    second_session = service.create_session(
+        BusinessAgentSessionCreateRequest(imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/source-b.png"),
+        user=user,
+    )
+
+    first = service.send_message(
+        first_session["session"]["id"],
+        BusinessAgentMessageRequest(message="做轻量高级感优化。", requestId="shared-message-request"),
+        user=user,
+    )
+    second = service.send_message(
+        second_session["session"]["id"],
+        BusinessAgentMessageRequest(message="做轻量高级感优化。", requestId="shared-message-request"),
+        user=user,
+    )
+
+    assert second["session"]["id"] != first["session"]["id"]
+    assert second["plan"]["id"] != first["plan"]["id"]
+    assert second["plan"]["toolPayload"]["imageUrl"].endswith("/source-b.png")
+    with testing_session() as session:
+        messages = session.execute(select(BusinessAgentMessage)).scalars().all()
+        plans = session.execute(select(BusinessAgentPlan)).scalars().all()
+
+    assert len(plans) == 2
+    assert len([item for item in messages if item.role == "user" and item.request_id == "shared-message-request"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("message", "extra_payload", "expected_skill", "requires_clarification"),
+    [
+        (
+            "自然提升布料质感，适合服装面料，背景不要乱改。",
+            {},
+            "local_modify",
+            False,
+        ),
+        (
+            "把画面左右自然外扩，延续原来的花纹密度和光照。",
+            {},
+            "canvas_outpaint",
+            False,
+        ),
+        (
+            "去掉框选区域里的水印和杂点。",
+            {"selectionHints": [{"type": "rect", "x": 12, "y": 18, "width": 80, "height": 60}]},
+            "remove_inpaint",
+            False,
+        ),
+        (
+            "参考这张配色图，把花朵颜色调整得更柔和。",
+            {"referenceImages": [{"url": "https://podi.oss-cn-hangzhou.aliyuncs.com/reference.png"}]},
+            "color_reference_correction",
+            False,
+        ),
+        (
+            "改一下",
+            {},
+            "local_modify",
+            True,
+        ),
+    ],
+)
+def test_image_edit_agent_rule_planner_golden_cases_are_stable(
+    monkeypatch,
+    message: str,
+    extra_payload: dict[str, object],
+    expected_skill: str,
+    requires_clarification: bool,
+) -> None:
+    _install_agent_db(monkeypatch)
+    service = BusinessAgentService()
+    user = _client_user()
+
+    result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/source.png",
+            message=message,
+            requestId=f"golden-{expected_skill}-{str(requires_clarification).lower()}",
+            **extra_payload,
+        ),
+        user=user,
+    )
+
+    evidence = result["plan"]["routeEvidence"]
+    assert result["plan"]["toolPayload"]["editSkill"] == expected_skill
+    assert evidence["targetAbility"] == "business.image_edit"
+    assert evidence["baseImageRole"] == "source_image"
+    assert evidence["requiresClarification"] is requires_clarification
+    if requires_clarification:
+        assert "editGoal" in evidence["missingFields"]
+    else:
+        assert evidence["confidence"] >= evidence["threshold"]
 
 
 def test_image_edit_agent_second_turn_records_previous_result_context(monkeypatch) -> None:

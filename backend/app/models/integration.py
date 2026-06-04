@@ -598,6 +598,7 @@ class BusinessAgentMessage(Base):
     __table_args__ = (
         Index("ix_business_agent_messages_session_created", "session_id", "created_at"),
         Index("ix_business_agent_messages_role_created", "role", "created_at"),
+        Index("uq_business_agent_messages_session_request", "session_id", "request_id", unique=True),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -609,6 +610,7 @@ class BusinessAgentMessage(Base):
     attachments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     plan_id: Mapped[str | None] = mapped_column(String(64), index=True)
     run_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("business_runs.id", ondelete="SET NULL"))
+    request_id: Mapped[str | None] = mapped_column(String(128), index=True)
     extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 

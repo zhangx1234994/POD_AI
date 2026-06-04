@@ -269,6 +269,7 @@ AI 改图助手的业务治理 key 为 `image_edit_chat`，底层 Agent key 固�
 
 - 新建会话必须走 `sessions` 接口，追加消息必须显式带 `sessionId`；后端不做隐藏续聊。
 - `sessions` 接口的 `requestId` 是创建会话幂等键，同一 `agentKey + requestId + tenantId + clientId` 复用原会话。
+- `messages` 接口的 `requestId` 是消息级幂等键，同一 `sessionId + requestId` 只生成一张方案卡；网络重试应复用同一个 `requestId`，新诉求必须换新的 `requestId`。
 - 每次追加消息都会生成新的 `latestPlanId`；只能确认最新方案，旧方案返回 `AGENT_PLAN_STALE`。
 - 方案确认成功后重复确认同一个已执行方案，应返回原 `runId`，不能重复创建业务 run。
 
@@ -318,6 +319,7 @@ Agent 状态：
 | --- | --- |
 | `AGENT_CAPABILITY_NOT_FOUND` | 非法 Agent key 或能力未开放。 |
 | `AGENT_MESSAGE_REQUIRED` | 用户消息为空。 |
+| `AGENT_MESSAGE_DUPLICATE_IN_PROGRESS` | 同一消息 `requestId` 已在处理中，稍后查询会话或重试同一请求。 |
 | `AGENT_IMAGE_URL_REQUIRED` | 确认执行时没有主图。 |
 | `AGENT_PLAN_REQUIRED` | 会话还没有可确认建议。 |
 | `AGENT_PLAN_STALE` | 当前确认的方案不是会话最新方案。 |

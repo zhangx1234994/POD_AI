@@ -421,8 +421,10 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     setRunResult(null);
     try {
       const baseImageUrl = activeImageUrl || undefined;
+      const messageRequestId = createAgentRequestId();
       const payload = {
         message: text,
+        requestId: messageRequestId,
         imageUrl: baseImageUrl,
         quality,
         size,

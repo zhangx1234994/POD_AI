@@ -201,6 +201,7 @@ export type BusinessAgentMessage = {
   attachments?: Array<Record<string, unknown>>;
   planId?: string | null;
   runId?: string | null;
+  requestId?: string | null;
   createdAt?: string;
 };
 
@@ -724,6 +725,7 @@ export const evalApi = {
       selectionHints?: Array<Record<string, unknown>>;
       context?: Record<string, unknown>;
       metadata?: Record<string, unknown>;
+      requestId?: string;
     },
   ) =>
     request<{ session: BusinessAgentSession; plan: BusinessAgentPlan }>(

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import httpx
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 
 from app.constants.business_api_contract import (
@@ -816,8 +817,11 @@ class BusinessAgentService:
         if not message:
             raise HTTPException(status_code=400, detail="AGENT_MESSAGE_REQUIRED")
         image_url = _valid_http_url(payload.imageUrl) if payload.imageUrl else None
+        request_id = _safe_text(payload.requestId, max_length=128) or None
         with get_session() as db:
             session_obj = self._get_session_for_update(db, session_id=session_id, user=user)
+            if request_id and self._find_existing_message_by_request_id(db, session_id=session_obj.id, request_id=request_id):
+                return self._message_response_from_existing_request(db, session_id=session_obj.id, request_id=request_id)
             if image_url:
                 session_obj.image_url = image_url
             request_context = self._request_context_from_message(payload)
@@ -868,15 +872,6 @@ class BusinessAgentService:
             if route_evidence.get("requiresClarification") and not any("意图不够明确" in item for item in warnings):
                 warnings.append("当前意图不够明确，请先补充要改哪里、保留什么、希望变成什么效果。")
             now = _now()
-            user_message = BusinessAgentMessage(
-                id=_safe_id("agm"),
-                session_id=session_obj.id,
-                role="user",
-                content=message,
-                attachments=self._message_attachments(image_url=session_obj.image_url, request_context=request_context),
-                extra_metadata=payload.metadata or {},
-                created_at=now,
-            )
             plan = BusinessAgentPlan(
                 id=_safe_id("agp"),
                 session_id=session_obj.id,
@@ -897,6 +892,17 @@ class BusinessAgentService:
                 raw_response=plan_raw_response,
                 created_at=now,
                 updated_at=now,
+            )
+            user_message = BusinessAgentMessage(
+                id=_safe_id("agm"),
+                session_id=session_obj.id,
+                role="user",
+                content=message,
+                attachments=self._message_attachments(image_url=session_obj.image_url, request_context=request_context),
+                plan_id=plan.id,
+                request_id=request_id,
+                extra_metadata=payload.metadata or {},
+                created_at=now,
             )
             assistant_message = BusinessAgentMessage(
                 id=_safe_id("agm"),
@@ -921,7 +927,13 @@ class BusinessAgentService:
             db.add(plan)
             db.add(assistant_message)
             db.add(session_obj)
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                if request_id:
+                    return self._message_response_from_existing_request(db, session_id=session_obj.id, request_id=request_id)
+                raise
             return {"session": self._read_session(db, session_id=session_obj.id), "plan": self._plan_to_dict(plan)}
 
     def confirm_plan(
@@ -1136,6 +1148,7 @@ class BusinessAgentService:
             selectionHints=payload.selectionHints,
             context=payload.context,
             metadata=payload.metadata,
+            requestId=payload.requestId,
         )
 
     @staticmethod
@@ -1149,6 +1162,45 @@ class BusinessAgentService:
             .scalars()
             .first()
         )
+
+    @staticmethod
+    def _find_existing_message_by_request_id(
+        db: Any,
+        *,
+        session_id: str,
+        request_id: str,
+    ) -> BusinessAgentMessage | None:
+        return (
+            db.execute(
+                select(BusinessAgentMessage)
+                .where(
+                    BusinessAgentMessage.session_id == session_id,
+                    BusinessAgentMessage.request_id == request_id,
+                    BusinessAgentMessage.role == "user",
+                )
+                .order_by(BusinessAgentMessage.created_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+
+    def _message_response_from_existing_request(
+        self,
+        db: Any,
+        *,
+        session_id: str,
+        request_id: str,
+    ) -> dict[str, Any]:
+        existing_message = self._find_existing_message_by_request_id(db, session_id=session_id, request_id=request_id)
+        session_payload = self._read_session(db, session_id=session_id)
+        if existing_message and existing_message.plan_id:
+            plan = db.get(BusinessAgentPlan, existing_message.plan_id)
+            if plan:
+                return {"session": session_payload, "plan": self._plan_to_dict(plan)}
+        latest_plan = session_payload.get("latestPlan")
+        if latest_plan:
+            return {"session": session_payload, "plan": latest_plan}
+        raise HTTPException(status_code=409, detail="AGENT_MESSAGE_DUPLICATE_IN_PROGRESS")
 
     def _confirm_response_from_existing_tool_call(
         self,
@@ -1694,6 +1746,7 @@ class BusinessAgentService:
             "attachments": item.attachments or [],
             "planId": item.plan_id,
             "runId": item.run_id,
+            "requestId": item.request_id,
             "metadata": item.extra_metadata,
             "createdAt": item.created_at,
         }
