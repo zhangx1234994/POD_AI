@@ -107,7 +107,7 @@ FINALIZE_INTERVAL_SECONDS = 6
 FINALIZE_BATCH_SIZE = 30
 BUSINESS_DASHBOARD_CACHE_TTL_SECONDS = 12
 BUSINESS_DASHBOARD_CACHE_MAX_ITEMS = 64
-BUSINESS_USAGE_FLOW_EVIDENCE_RUN_LIMIT = 300
+BUSINESS_USAGE_FLOW_EVIDENCE_RUN_LIMIT = 20
 _BUSINESS_DASHBOARD_CACHE_LOCK = threading.RLock()
 _BUSINESS_DASHBOARD_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 VENDOR_KEY_CHECK_STALE_DAYS = 7
@@ -1509,6 +1509,59 @@ class BusinessRunService:
         by_id = {row.id: row for row in rows}
         return [by_id[run_id] for run_id in run_ids if run_id in by_id]
 
+    def _load_usage_run_summaries_by_ids(self, session, run_ids: list[str]) -> list[BusinessRun]:
+        if not run_ids:
+            return []
+        rows = (
+            session.execute(
+                select(BusinessRun)
+                .options(
+                    load_only(
+                        BusinessRun.id,
+                        BusinessRun.business_key,
+                        BusinessRun.business_version_id,
+                        BusinessRun.version,
+                        BusinessRun.status,
+                        BusinessRun.source,
+                        BusinessRun.channel,
+                        BusinessRun.trace_id,
+                        BusinessRun.request_id,
+                        BusinessRun.tenant_id,
+                        BusinessRun.client_id,
+                        BusinessRun.user_id,
+                        BusinessRun.user_name,
+                        BusinessRun.ability_id,
+                        BusinessRun.ability_task_id,
+                        BusinessRun.ability_log_id,
+                        BusinessRun.image_urls,
+                        BusinessRun.video_urls,
+                        BusinessRun.texts,
+                        BusinessRun.error_message,
+                        BusinessRun.duration_ms,
+                        BusinessRun.billing_unit,
+                        BusinessRun.unit_price,
+                        BusinessRun.currency,
+                        BusinessRun.cost_amount,
+                        BusinessRun.quota_units,
+                        BusinessRun.callback_url,
+                        BusinessRun.callback_status,
+                        BusinessRun.callback_http_status,
+                        BusinessRun.callback_error,
+                        BusinessRun.debug_url,
+                        BusinessRun.created_at,
+                        BusinessRun.updated_at,
+                        BusinessRun.started_at,
+                        BusinessRun.finished_at,
+                    )
+                )
+                .where(BusinessRun.id.in_(run_ids))
+            )
+            .scalars()
+            .all()
+        )
+        by_id = {row.id: row for row in rows}
+        return [by_id[run_id] for run_id in run_ids if run_id in by_id]
+
     def _load_usage_steps_by_run(self, session, run_ids: list[str]) -> dict[str, list[BusinessRunStep]]:
         if not run_ids:
             return {}
@@ -1636,9 +1689,9 @@ class BusinessRunService:
                 .scalars()
                 .all()
             )
-            rows = self._load_run_summaries_by_ids(session, run_ids)
+            rows = self._load_usage_run_summaries_by_ids(session, run_ids)
             issue_summaries = {
-                row.id: self._build_run_issue_summary(row, steps=[])
+                row.id: self._build_usage_run_issue_summary(row)
                 for row in rows
             }
             if normalized_issue_category:
@@ -1662,11 +1715,18 @@ class BusinessRunService:
                 issue_summaries,
                 session=session,
             )
-            flow_rows = rows[:BUSINESS_USAGE_FLOW_EVIDENCE_RUN_LIMIT]
-            steps_by_run = self._load_usage_steps_by_run(session, [row.id for row in flow_rows])
+            flow_run_ids = [row.id for row in rows[:BUSINESS_USAGE_FLOW_EVIDENCE_RUN_LIMIT]]
+            flow_rows = self._load_run_summaries_by_ids(session, flow_run_ids)
+            steps_by_run = self._load_usage_steps_by_run(session, flow_run_ids)
             flow_evidence = self._usage_flow_evidence(flow_rows, steps_by_run)
 
-        summary = self._summarize_usage_bucket("all", "全部业务", rows)
+        usage_billing_status = self._business_billing_status_for_usage_summary
+        summary = self._summarize_usage_bucket(
+            "all",
+            "全部业务",
+            rows,
+            billing_status_func=usage_billing_status,
+        )
         recent_failures = [
             {
                 "id": row.id,
@@ -1697,16 +1757,37 @@ class BusinessRunService:
                 "trace_id": trace_id,
             },
             **{key: value for key, value in summary.items() if key not in {"key", "label", "latest_at"}},
-            "by_business": self._usage_buckets(rows, lambda row: row.business_key or "unknown"),
-            "by_source": self._usage_buckets(rows, lambda row: row.source or "business-api"),
-            "by_tenant": self._usage_buckets(rows, lambda row: row.tenant_id or "未标记业务方"),
-            "by_client": self._usage_buckets(rows, lambda row: row.client_id or "未标记客户端"),
+            "by_business": self._usage_buckets(
+                rows,
+                lambda row: row.business_key or "unknown",
+                billing_status_func=usage_billing_status,
+            ),
+            "by_source": self._usage_buckets(
+                rows,
+                lambda row: row.source or "business-api",
+                billing_status_func=usage_billing_status,
+            ),
+            "by_tenant": self._usage_buckets(
+                rows,
+                lambda row: row.tenant_id or "未标记业务方",
+                billing_status_func=usage_billing_status,
+            ),
+            "by_client": self._usage_buckets(
+                rows,
+                lambda row: row.client_id or "未标记客户端",
+                billing_status_func=usage_billing_status,
+            ),
             "by_version": self._usage_buckets(
                 rows,
                 lambda row: f"{row.business_key or 'unknown'}:{row.version or '未标记版本'}",
                 label_func=lambda key: key.replace(":", " · ", 1),
+                billing_status_func=usage_billing_status,
             ),
-            "by_issue": self._usage_issue_buckets(rows, issue_summaries),
+            "by_issue": self._usage_issue_buckets(
+                rows,
+                issue_summaries,
+                billing_status_func=usage_billing_status,
+            ),
             "unresolved_issues": unresolved_issues,
             "unresolved_by_business": unresolved_by_business,
             "recent_unresolved_issues": recent_unresolved_issues,
@@ -1714,7 +1795,13 @@ class BusinessRunService:
             "flow_evidence": flow_evidence,
         }
 
-    def _usage_buckets(self, rows: list[BusinessRun], key_func, label_func=None) -> list[dict[str, Any]]:
+    def _usage_buckets(
+        self,
+        rows: list[BusinessRun],
+        key_func,
+        label_func=None,
+        billing_status_func=None,
+    ) -> list[dict[str, Any]]:
         groups: dict[str, list[BusinessRun]] = {}
         for row in rows:
             key = str(key_func(row) or "unknown").strip() or "unknown"
@@ -1724,6 +1811,7 @@ class BusinessRunService:
                 key,
                 str(label_func(key) if label_func else key),
                 group,
+                billing_status_func=billing_status_func,
             )
             for key, group in groups.items()
         ]
@@ -1737,6 +1825,8 @@ class BusinessRunService:
         self,
         rows: list[BusinessRun],
         issue_summaries: dict[str, dict[str, Any]],
+        *,
+        billing_status_func=None,
     ) -> list[dict[str, Any]]:
         groups: dict[str, list[BusinessRun]] = {}
         for row in rows:
@@ -1746,7 +1836,12 @@ class BusinessRunService:
         buckets: list[dict[str, Any]] = []
         for key, group in groups.items():
             issue = self._issue_category_meta(key)
-            bucket = self._summarize_usage_bucket(key, issue["label"], group)
+            bucket = self._summarize_usage_bucket(
+                key,
+                issue["label"],
+                group,
+                billing_status_func=billing_status_func,
+            )
             bucket.update(
                 {
                     "severity": issue["severity"],
@@ -2372,7 +2467,14 @@ class BusinessRunService:
         )
         return any((item.image_urls or []) or (item.video_urls or []) or (item.texts or []) for item in candidates)
 
-    def _summarize_usage_bucket(self, key: str, label: str, rows: list[BusinessRun]) -> dict[str, Any]:
+    def _summarize_usage_bucket(
+        self,
+        key: str,
+        label: str,
+        rows: list[BusinessRun],
+        *,
+        billing_status_func=None,
+    ) -> dict[str, Any]:
         statuses = {
             "succeeded": 0,
             "failed": 0,
@@ -2414,7 +2516,7 @@ class BusinessRunService:
                 currency = str(row.currency or "UNKNOWN").strip() or "UNKNOWN"
                 actual_cost_by_currency[currency] = round(actual_cost_by_currency.get(currency, 0.0) + cost_amount, 4)
             actual_quota_units += int(row.quota_units or 0)
-            billing_status = self._business_billing_status(row)
+            billing_status = (billing_status_func or self._business_billing_status)(row)
             if billing_status == "billable":
                 billable += 1
                 if cost_amount is not None:
@@ -5615,6 +5717,30 @@ class BusinessRunService:
             return "no_charge"
         if status == "succeeded":
             if BusinessRunService._business_no_charge_policy_reason(row):
+                return "no_charge"
+            cost_amount = BusinessRunService._first_number(row.cost_amount)
+            quota_units = BusinessRunService._first_int(row.quota_units)
+            if (cost_amount is not None and cost_amount > 0) or (quota_units is not None and quota_units > 0):
+                return "billable"
+            return "unpriced"
+        return "billing_pending"
+
+    @staticmethod
+    def _business_billing_status_for_usage_summary(row: BusinessRun) -> str:
+        status = str(row.status or "").strip().lower()
+        if status in {"queued", "running", "pending", "planned"}:
+            return "billing_pending"
+        if status in {"failed", "cancelled", "timeout"}:
+            return "no_charge"
+        if status == "succeeded":
+            source = str(row.source or "").strip()
+            tenant_id = str(row.tenant_id or "").strip()
+            client_id = str(row.client_id or "").strip()
+            if (
+                source in INTERNAL_NO_CHARGE_SOURCES
+                or tenant_id in INTERNAL_NO_CHARGE_TENANTS
+                or client_id in INTERNAL_NO_CHARGE_CLIENTS
+            ):
                 return "no_charge"
             cost_amount = BusinessRunService._first_number(row.cost_amount)
             quota_units = BusinessRunService._first_int(row.quota_units)
@@ -12297,6 +12423,57 @@ class BusinessRunService:
         meta = self._issue_category_meta(category)
         evidence_step = failed_step or active_step or (steps[-1] if steps else None)
         evidence = billing_evidence if category == "billing" else row.error_message or (evidence_step or {}).get("error_message") or row.callback_error
+        return {
+            "category": category,
+            "label": meta["label"],
+            "severity": meta["severity"],
+            "action": meta["action"],
+            "evidence": str(evidence) if evidence else None,
+        }
+
+    def _build_usage_run_issue_summary(self, row: BusinessRun) -> dict[str, Any]:
+        status = str(row.status or "").strip().lower()
+        image_count = len(row.image_urls or [])
+        video_count = len(row.video_urls or [])
+        text_count = len(row.texts or [])
+        has_output = bool(image_count or video_count or text_count)
+        callback_failed = status == "succeeded" and (
+            str(row.callback_status or "").strip().lower() == "failed" or bool(row.callback_error)
+        )
+        billing_status = self._business_billing_status_for_usage_summary(row)
+        billing_issue = status == "succeeded" and billing_status == "unpriced"
+        route_missing = not row.business_version_id or not row.version
+        error_text = " ".join(str(item or "") for item in [row.error_message, row.callback_error]).lower()
+        parameter_markers = (
+            "missing",
+            "invalid",
+            "required",
+            "schema",
+            "validation",
+            "参数",
+            "缺少",
+            "必填",
+            "格式",
+            "无效",
+        )
+
+        if callback_failed:
+            category = "callback"
+        elif status == "succeeded" and not has_output:
+            category = "output"
+        elif billing_issue:
+            category = "billing"
+        elif route_missing:
+            category = "version"
+        elif status == "failed" and any(marker in error_text for marker in parameter_markers):
+            category = "parameter"
+        elif status in {"failed", "queued", "running"}:
+            category = "executor"
+        else:
+            category = "none"
+
+        meta = self._issue_category_meta(category)
+        evidence = "任务成功但缺少定价，待确认计费口径" if category == "billing" else row.error_message or row.callback_error
         return {
             "category": category,
             "label": meta["label"],
