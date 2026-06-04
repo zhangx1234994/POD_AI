@@ -4,8 +4,8 @@
 
 基线 commit：
 
-- 线上已封版基线：`d384966f`
-- 本次补充验收标准与看板性能修复后，以 114 `/srv/pod/DEPLOYED_COMMIT` 为最终准入记录。
+- 线上已封版基线：`55a40167`
+- 历史基线：`d384966f`
 
 发布范围：
 
@@ -43,7 +43,8 @@
 - AI 改图助手真实多轮通过：session `ags_47f3e35232144ad2bd3004f8c1987ed1`，一轮 run `9bb4f5176c214acbaddc776cf8311f3e` 成功，二轮 run `0af058656520420bb0a88bc4665d380b` 成功，二轮证据为 `baseImageRole=previous_result`。
 - 直接图编辑 8 个模式全部成功；报告 `/srv/pod/reports/live-image-edit-3ea9fc73/20260604_072451/summary.json`。
 - `d384966f` 发布后复核：`/api/admin/business/capabilities` 200；`/api/admin/business/usage-summary?window_hours=24` 返回 `failed=0/running=0/queued=0/unresolvedIssues=[]`；发布后 backend 关键错误日志为空。
-- `2a17b2ef` 发布后复核：`/api/admin/business/usage-summary?window_hours=24` 20 并发 20/20 成功，p95 134ms；同轮发现 `/api/admin/business/api-key-usage` p95 约 3.9s，已补轻量读取修复并进入后续发布复测。
+- `55a40167` 发布后复核：`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active，发布后 backend 关键错误日志为空。
+- 控制面性能复核：`/api/business/capabilities` 20 并发 20/20 成功，p95 363.3ms；`/api/admin/business/usage-summary?window_hours=24` 顺序 p95 278.5ms、20 并发 p95 77.6ms；`/api/admin/business/api-key-usage` 顺序 p95 72.8ms、20 并发 p95 509.6ms；`/api/admin/comfyui/queue-summary` 顺序 p95 784.7ms。
 
 已知保留风险：
 
