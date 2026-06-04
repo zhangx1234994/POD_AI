@@ -105,6 +105,11 @@ from app.services.wallet import wallet_service
 logger = logging.getLogger(__name__)
 FINALIZE_INTERVAL_SECONDS = 6
 FINALIZE_BATCH_SIZE = 30
+BUSINESS_DASHBOARD_CACHE_TTL_SECONDS = 12
+BUSINESS_DASHBOARD_CACHE_MAX_ITEMS = 64
+BUSINESS_USAGE_FLOW_EVIDENCE_RUN_LIMIT = 300
+_BUSINESS_DASHBOARD_CACHE_LOCK = threading.RLock()
+_BUSINESS_DASHBOARD_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 VENDOR_KEY_CHECK_STALE_DAYS = 7
 RECIPE_EXECUTABLE_STEP_TYPES = {"ability_task", "comfyui_workflow", "vendor_api", "vl_analyze", "vl_analyze_image"}
 RECIPE_PASSIVE_STEP_TYPES = {"input_mapping", "output_mapping", "prompt_template", "note"}
@@ -262,7 +267,42 @@ class BusinessRunService:
         if self._background_workers_enabled and not suppress_background_threads_for_tests():
             self._start_finalize_thread()
 
+    @staticmethod
+    def _dashboard_cache_enabled() -> bool:
+        return not suppress_background_threads_for_tests()
+
+    @staticmethod
+    def _dashboard_cache_key(*parts: Any) -> tuple[Any, ...]:
+        return tuple("" if part is None else part for part in parts)
+
+    @classmethod
+    def _clear_dashboard_cache(cls) -> None:
+        with _BUSINESS_DASHBOARD_CACHE_LOCK:
+            _BUSINESS_DASHBOARD_CACHE.clear()
+
+    @classmethod
+    def _dashboard_cached(cls, key: tuple[Any, ...], producer) -> Any:
+        if not cls._dashboard_cache_enabled():
+            return producer()
+        now = time.monotonic()
+        with _BUSINESS_DASHBOARD_CACHE_LOCK:
+            cached = _BUSINESS_DASHBOARD_CACHE.get(key)
+            if cached and cached[0] > now:
+                return deepcopy(cached[1])
+            value = producer()
+            if len(_BUSINESS_DASHBOARD_CACHE) >= BUSINESS_DASHBOARD_CACHE_MAX_ITEMS:
+                oldest_key = min(_BUSINESS_DASHBOARD_CACHE.items(), key=lambda item: item[1][0])[0]
+                _BUSINESS_DASHBOARD_CACHE.pop(oldest_key, None)
+            _BUSINESS_DASHBOARD_CACHE[key] = (time.monotonic() + BUSINESS_DASHBOARD_CACHE_TTL_SECONDS, deepcopy(value))
+            return value
+
     def list_capabilities(self) -> list[BusinessCapability]:
+        return self._dashboard_cached(
+            self._dashboard_cache_key("list_capabilities"),
+            self._list_capabilities_uncached,
+        )
+
+    def _list_capabilities_uncached(self) -> list[BusinessCapability]:
         with get_session() as session:
             ensure_default_abilities(session)
             ensure_default_business_capabilities(session)
@@ -1525,6 +1565,46 @@ class BusinessRunService:
         client_id: str | None = None,
         trace_id: str | None = None,
     ) -> dict[str, Any]:
+        key = self._dashboard_cache_key(
+            "usage_summary",
+            max(1, min(int(window_hours or 24), 24 * 90)),
+            business_key,
+            status,
+            issue_category,
+            version,
+            source,
+            tenant_id,
+            client_id,
+            trace_id,
+        )
+        return self._dashboard_cached(
+            key,
+            lambda: self._usage_summary_uncached(
+                window_hours=window_hours,
+                business_key=business_key,
+                status=status,
+                issue_category=issue_category,
+                version=version,
+                source=source,
+                tenant_id=tenant_id,
+                client_id=client_id,
+                trace_id=trace_id,
+            ),
+        )
+
+    def _usage_summary_uncached(
+        self,
+        *,
+        window_hours: int = 24,
+        business_key: str | None = None,
+        status: str | None = None,
+        issue_category: str | None = None,
+        version: str | None = None,
+        source: str | None = None,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        trace_id: str | None = None,
+    ) -> dict[str, Any]:
         normalized_window_hours = max(1, min(int(window_hours or 24), 24 * 90))
         since = datetime.utcnow() - timedelta(hours=normalized_window_hours)
         issue_summaries: dict[str, dict[str, Any]] = {}
@@ -1557,7 +1637,6 @@ class BusinessRunService:
                 .all()
             )
             rows = self._load_run_summaries_by_ids(session, run_ids)
-            steps_by_run = self._load_usage_steps_by_run(session, run_ids)
             issue_summaries = {
                 row.id: self._build_run_issue_summary(row, steps=[])
                 for row in rows
@@ -1568,7 +1647,6 @@ class BusinessRunService:
                     for row in rows
                     if issue_summaries.get(row.id, {}).get("category") == normalized_issue_category
                 ]
-                steps_by_run = {row.id: steps_by_run.get(row.id, []) for row in rows}
             unresolved_issues = self._usage_unresolved_issue_buckets(
                 rows,
                 issue_summaries,
@@ -1584,7 +1662,9 @@ class BusinessRunService:
                 issue_summaries,
                 session=session,
             )
-            flow_evidence = self._usage_flow_evidence(rows, steps_by_run)
+            flow_rows = rows[:BUSINESS_USAGE_FLOW_EVIDENCE_RUN_LIMIT]
+            steps_by_run = self._load_usage_steps_by_run(session, [row.id for row in flow_rows])
+            flow_evidence = self._usage_flow_evidence(flow_rows, steps_by_run)
 
         summary = self._summarize_usage_bucket("all", "全部业务", rows)
         recent_failures = [

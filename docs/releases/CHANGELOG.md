@@ -2,7 +2,10 @@
 
 ## v0.6.2 - 2026-06-04
 
-基线 commit：待 114 发布后以 `DEPLOYED_COMMIT` 为准。
+基线 commit：
+
+- 线上已封版基线：`d384966f`
+- 本次补充验收标准与看板性能修复后，以 114 `/srv/pod/DEPLOYED_COMMIT` 为最终准入记录。
 
 发布范围：
 
@@ -15,6 +18,9 @@
 - 用户可见入口统一为“AI 改图助手”，不再在测评端、OpenAPI、业务文档和能力种子里使用旧产品名；`image-edit-chat` 接口路径和 `image_edit_chat` 业务 key 保持兼容。
 - 进一步明确 AI 改图助手是 Agent Runtime 样板：对话式入口、后端会话和方案确认、白名单能力调用、结果仍回到标准 `image_edit` run。
 - `scripts/release_114_control_plane.sh` 增加远端 SSH、上传、远端部署、远端预检、release smoke 和 live patrol 的有限重试，降低网络/SSH 握手偶发波动对发布判断的影响。
+- AI 改图助手多轮续改已改为以上一轮成功输出作为基准图，并保留 `parentRunId/baseImageRole=previous_result` 证据。
+- 管理端业务能力指标查询修复 MySQL `Out of sort memory` 500；进一步补充看板读接口短 TTL 缓存、防并发打穿和流程证据样本上限，避免页面轮询或多人同时打开打穿数据库。
+- 发布 SOP 新增“版本启动前验收标准”和“封版文档维护”门禁，默认覆盖响应速度、并发能力、真实业务全链路、错误路径和文档清理。
 
 本地验证结果：
 
@@ -24,11 +30,22 @@
 - 发布脚本 `bash -n` 通过。
 - `git diff --check` 通过。
 - 主线代码、文档和脚本内已无旧产品名残留。
+- 看板性能修复后，业务能力管理相关测试通过：`test_business_capability_admin.py` 71 passed；`test_business_usage_summary_includes_flow_evidence` 和 release smoke 业务摘要校验用例通过。
 
-待线上验证：
+线上验证结果：
 
-- 114 发布源门禁、远端迁移、种子刷新、服务重启和 `/health`。
-- 远端 deploy preflight、release smoke、图编辑分类页浏览器检查和接口调用中心观察。
+- 114 `DEPLOYED_COMMIT=d384966f` 时，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active。
+- 远端发布源门禁、迁移、种子刷新、服务重启、deploy preflight 和 release smoke 通过。
+- 核心业务真实全链路通过：花纹提取 `c52b3083b2124ed5bf0506719e4ea2c8`、图裂变 `1965ed64d1e84709a283e4ecb39a83d4`、扩图 `798f3504b3c2487d9c4379c9c3ec0cb6` 均成功；报告 `/srv/pod/reports/live-core-business-3ea9fc73-20260604150724.json`。
+- 产品设计真实全链路通过：`75a394ceab324e029d93cf29026281fa` 成功；报告 `/srv/pod/reports/live-agent-product-3ea9fc73-20260604072132.json`。
+- AI 改图助手真实多轮通过：session `ags_47f3e35232144ad2bd3004f8c1987ed1`，一轮 run `9bb4f5176c214acbaddc776cf8311f3e` 成功，二轮 run `0af058656520420bb0a88bc4665d380b` 成功，二轮证据为 `baseImageRole=previous_result`。
+- 直接图编辑 8 个模式全部成功；报告 `/srv/pod/reports/live-image-edit-3ea9fc73/20260604_072451/summary.json`。
+- `d384966f` 发布后复核：`/api/admin/business/capabilities` 200；`/api/admin/business/usage-summary?window_hours=24` 返回 `failed=0/running=0/queued=0/unresolvedIssues=[]`；发布后 backend 关键错误日志为空。
+
+已知保留风险：
+
+- 看板读接口当前用短 TTL 缓存和样本边界保护线上；中期仍需要把业务运行摘要、能力版本近 24h 指标和接口调用中心做后台预聚合。
+- Pydantic v2 弃用 warning 仍为历史技术债，当前不阻断发布。
 
 ## v0.6.1 - 2026-06-03
 
