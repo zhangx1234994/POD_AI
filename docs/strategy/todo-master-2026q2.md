@@ -59,6 +59,7 @@
 - 进展（2026-06-04）：接口调用中心 `/api/admin/business/api-key-usage` 已抽出查询函数并加入 12 秒管理端短 TTL 缓存；导出接口仍保持实时查询。新增 `backend/scripts/control_plane_read_benchmark.py`，用于固定跑 `/health`、业务能力列表、usage summary、api usage 和 ComfyUI queue summary 的顺序/20 并发 p95。
 - 进展（2026-06-04）：`BusinessRunService` 原有 dashboard cache 与业务接口调用中心新缓存均已收窄锁范围，避免缓存未命中时在全局锁内执行查询。`get_comfyui_queue_summary` 已加入 8 秒短 TTL 与同 key 在途请求合并，避免管理端、Coze 插件、测评端高频刷新时同时打所有 ComfyUI 节点；健康回填仍由原始计算路径执行。
 - 证据（2026-06-04）：当前线上 `c638c269` 经公网 20 并发基线 `output/benchmarks/control-plane-114-20c-20260604203805.json` 显示请求成功率 100%，但 `/health` p95 451ms、`comfyui_queue_summary` p95 5941ms 超阈值；重试 `output/benchmarks/control-plane-114-20c-retry-health-queue-20260604203853.json` 仍为 `/health` p95 441ms、`comfyui_queue_summary` p95 5656ms。后续发布新代码后必须在 114 本机 loopback 与公网各跑一轮，区分网络 RTT 与服务端耗时。
+- 证据（2026-06-04）：`2654efb4` 发布后，114 本机 loopback 20 并发报告 `/srv/pod/reports/control-plane-2654efb4-loopback-20260604214139.json` 全部通过：`/health` p95 85.51ms，`business_capabilities` p95 272.25ms，`business_usage_summary` p95 75.68ms，`business_api_usage` p95 95.58ms，`comfyui_queue_summary` p95 70.49ms。公网 20 并发报告 `output/benchmarks/control-plane-114-20c-2654efb4-public-20260604214348.json` 显示 `comfyui_queue_summary` p95 459.63ms 已回落到阈值内；公网 `/health` p95 403.86ms 仍高于 300ms，但 loopback 正常，归因到公网 RTT/波动，不作为服务端阻断。
 - 验收：核心只读接口 20 并发成功率 100%，p95 <= 3000ms；高频只读接口 p95 <= 1500ms；列表接口默认不加载大字段和完整步骤明细。
 
 2. `todo` Agent Runtime MVP 整改

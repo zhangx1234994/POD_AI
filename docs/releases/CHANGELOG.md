@@ -4,7 +4,7 @@
 
 基线 commit：
 
-- 发布提交：以发布脚本写入的 `/srv/pod/DEPLOYED_COMMIT` 为准。
+- 发布提交：`2654efb4`
 - 上一封版基线：`c638c269`
 
 发布范围：
@@ -34,6 +34,15 @@
 - 发布后确认 114 `/srv/pod/DEPLOYED_COMMIT` 与本节基线一致。
 - 运行标准发布脚本自带的远端迁移、种子刷新、服务重启、deploy preflight 和 release smoke。
 - 使用 `backend/scripts/control_plane_read_benchmark.py` 在 114 本机 loopback 与公网各跑 20 并发，对比 `queue-summary` 是否从当前线上基线回落。
+
+线上验证结果：
+
+- 114 `DEPLOYED_COMMIT=2654efb4`，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active。
+- 标准发布脚本通过：源门禁、后端发布测试、管理端/测评端 lint 与 build、远端迁移、种子刷新、服务重启、deploy preflight 和 release smoke 全部通过。
+- release smoke 关键控制面通过：ComfyUI 队列 `servers=2/capacity=20/idle=20/feedGapServers=0`，业务 usage summary `total=31/failed=0/running=0/queued=0/unresolved=0`，工作流兼容 `total=17/ok=17/failed=0`。
+- 114 本机 loopback 20 并发基准通过，报告：`/srv/pod/reports/control-plane-2654efb4-loopback-20260604214139.json`；`/health` p95 85.51ms，`business_capabilities` p95 272.25ms，`business_usage_summary` p95 75.68ms，`business_api_usage` p95 95.58ms，`comfyui_queue_summary` p95 70.49ms。
+- 公网 20 并发基准报告：`output/benchmarks/control-plane-114-20c-2654efb4-public-20260604214348.json`；`comfyui_queue_summary` p95 459.63ms，已从发布前约 5.9 秒回落到阈值内；`/health` p95 403.86ms 仍高于公网 300ms 阈值，但 loopback p95 85.51ms，判断为公网链路 RTT/波动，不是服务端健康接口耗时。
+- 发布后复核：业务 usage summary 最近 24 小时 `failed=0/running=0/queued=0`；ComfyUI queue summary `totalCount=0/feedGapServers=0/backendBlockedServers=0/backendRunningSettlingServers=0`；backend 最近 10 分钟关键错误日志匹配数为 0。
 
 当前线上基线证据：
 
