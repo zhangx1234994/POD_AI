@@ -2254,6 +2254,44 @@ class BusinessRunService:
                 return True
         return False
 
+    def _has_later_successful_business_run_in_db(self, row: BusinessRun, *, session=None) -> bool:
+        """DB-backed version of the recovery check used by list metrics.
+
+        The capabilities list can be called often from admin pages. Avoid
+        loading every recent run just to find whether a failed sample later
+        recovered.
+        """
+        if session is None or not row.created_at:
+            return False
+        business_key = str(row.business_key or "").strip()
+        version = str(row.version or "").strip()
+        if not business_key or not version:
+            return False
+        candidates = (
+            session.execute(
+                select(BusinessRun)
+                .options(
+                    load_only(
+                        BusinessRun.id,
+                        BusinessRun.image_urls,
+                        BusinessRun.video_urls,
+                        BusinessRun.texts,
+                    )
+                )
+                .where(
+                    BusinessRun.id != row.id,
+                    BusinessRun.business_key == business_key,
+                    BusinessRun.version == version,
+                    BusinessRun.status == "succeeded",
+                    BusinessRun.created_at > row.created_at,
+                )
+                .limit(50)
+            )
+            .scalars()
+            .all()
+        )
+        return any((item.image_urls or []) or (item.video_urls or []) or (item.texts or []) for item in candidates)
+
     def _summarize_usage_bucket(self, key: str, label: str, rows: list[BusinessRun]) -> dict[str, Any]:
         statuses = {
             "succeeded": 0,
@@ -11095,23 +11133,32 @@ class BusinessRunService:
             if key in metrics:
                 metrics[key] = value
             metrics["total"] = int(metrics["total"] or 0) + value
-        recent_runs = (
+        failed_runs = (
             session.execute(
                 select(BusinessRun)
+                .options(
+                    load_only(
+                        BusinessRun.id,
+                        BusinessRun.business_key,
+                        BusinessRun.version,
+                        BusinessRun.status,
+                        BusinessRun.request_payload,
+                        BusinessRun.created_at,
+                    )
+                )
                 .where(
                     BusinessRun.business_version_id == row.id,
                     BusinessRun.created_at >= since,
+                    BusinessRun.status == "failed",
                 )
-                .order_by(BusinessRun.created_at.desc())
+                .limit(200)
             )
             .scalars()
             .all()
         )
         unresolved_failed = 0
-        for run in recent_runs:
-            if str(run.status or "").strip().lower() != "failed":
-                continue
-            if self._has_later_successful_business_run(run, recent_runs):
+        for run in failed_runs:
+            if self._has_later_successful_business_run_in_db(run, session=session):
                 continue
             if self._build_retest_summary(run, session=session).get("recovered"):
                 continue
