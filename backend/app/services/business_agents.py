@@ -25,6 +25,7 @@ from app.models.integration import (
     BusinessAgentPlan,
     BusinessAgentSession,
     BusinessAgentToolCall,
+    BusinessRun,
 )
 from app.models.user import User
 from app.schemas.business import (
@@ -820,6 +821,11 @@ class BusinessAgentService:
             if image_url:
                 session_obj.image_url = image_url
             request_context = self._request_context_from_message(payload)
+            request_context = self._apply_previous_result_base_image(
+                db,
+                session_obj=session_obj,
+                request_context=request_context,
+            )
             session_context = dict(session_obj.context or {})
             plan_payload = self.planner.generate_plan(
                 message=message,
@@ -1250,6 +1256,64 @@ class BusinessAgentService:
             if isinstance(item, dict) and item.get("url"):
                 attachments.append({"type": "image", "url": item["url"], "role": "reference"})
         return attachments
+
+    @staticmethod
+    def _first_business_run_image_url(run: BusinessRun | None) -> str | None:
+        if not run or str(run.status or "").lower() != "succeeded":
+            return None
+        for value in run.image_urls or []:
+            url = _valid_http_url(value)
+            if url:
+                return url
+        payload = run.result_payload if isinstance(run.result_payload, dict) else {}
+        for key in ("imageUrls", "image_urls", "resultUrls", "images", "assets"):
+            values = payload.get(key)
+            if not isinstance(values, list):
+                continue
+            for item in values:
+                if isinstance(item, str):
+                    url = _valid_http_url(item)
+                elif isinstance(item, dict):
+                    url = _valid_http_url(item.get("storedUrl") or item.get("url"))
+                else:
+                    url = None
+                if url:
+                    return url
+        return None
+
+    def _apply_previous_result_base_image(
+        self,
+        db: Any,
+        *,
+        session_obj: BusinessAgentSession,
+        request_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        explicit_image = _valid_http_url(request_context.get("imageUrl"))
+        if explicit_image:
+            return request_context
+        explicit_base_role = _first_text(request_context.get("baseImageRole"), request_context.get("base_image_role"))
+        normalized_base_role = _normalize_base_image_role(explicit_base_role)
+        if explicit_base_role and normalized_base_role != "previous_result":
+            return request_context
+        parent_run_id = _first_text(
+            request_context.get("parentRunId"),
+            request_context.get("parent_run_id"),
+            request_context.get("previousRunId"),
+            request_context.get("previous_run_id"),
+            session_obj.latest_run_id,
+        )
+        if not parent_run_id:
+            return request_context
+        latest_run = db.get(BusinessRun, parent_run_id)
+        result_url = self._first_business_run_image_url(latest_run)
+        if not result_url:
+            return request_context
+        next_context = dict(request_context)
+        next_context["imageUrl"] = result_url
+        next_context["baseImageRole"] = "previous_result"
+        next_context["parentRunId"] = parent_run_id
+        session_obj.image_url = result_url
+        return next_context
 
     def _normalize_route_evidence(
         self,

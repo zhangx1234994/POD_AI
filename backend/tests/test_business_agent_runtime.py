@@ -206,6 +206,67 @@ def test_image_edit_agent_confirm_submits_business_run(monkeypatch) -> None:
     assert fake_run_service.last_payload.metadata["agentMethodologyId"] == "image_edit_chat_mvp"
 
 
+def test_image_edit_agent_next_message_uses_previous_successful_output(monkeypatch) -> None:
+    testing_session = _install_agent_db(monkeypatch)
+
+    def fake_create_run(*, business_key, payload, user, source):  # noqa: ANN001, ARG001
+        return SimpleNamespace(
+            id="run_agent_first",
+            business_key="image_edit",
+            status="queued",
+            version="gpt-image2-editor-v1",
+            trace_id=payload.traceId,
+            request_id=payload.requestId,
+        )
+
+    monkeypatch.setattr(
+        business_agents_module,
+        "get_business_run_service",
+        lambda: SimpleNamespace(create_run=fake_create_run),
+    )
+    service = BusinessAgentService()
+    user = _client_user()
+    first = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/source.png",
+            message="把这张图改得更高级一些，适合连衣裙面料。",
+        ),
+        user=user,
+    )
+    service.confirm_plan(
+        first["session"]["id"],
+        first["plan"]["id"],
+        BusinessAgentConfirmRequest(),
+        user=user,
+    )
+    with testing_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_agent_first",
+                business_key="image_edit",
+                status="succeeded",
+                source="image-edit-chat",
+                image_urls=["https://podi.oss-cn-hangzhou.aliyuncs.com/generated.png"],
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        )
+        session.commit()
+
+    second = service.send_message(
+        first["session"]["id"],
+        BusinessAgentMessageRequest(message="继续基于刚才生成的结果，把颜色压低一点。"),
+        user=user,
+    )
+
+    assert second["plan"]["toolPayload"]["imageUrl"].endswith("/generated.png")
+    assert second["plan"]["routeEvidence"]["baseImageRole"] == "previous_result"
+    assert second["plan"]["routeEvidence"]["parentRunId"] == "run_agent_first"
+    assert second["plan"]["assetState"]["sourceImageUrl"].endswith("/source.png")
+    assert second["plan"]["assetState"]["currentBaseImageUrl"].endswith("/generated.png")
+    assert second["plan"]["workingMemory"]["baseImageRole"] == "previous_result"
+
+
 def test_image_edit_agent_confirm_is_idempotent_for_executed_plan(monkeypatch) -> None:
     testing_session = _install_agent_db(monkeypatch)
     fake_run_service = SimpleNamespace(call_count=0)
