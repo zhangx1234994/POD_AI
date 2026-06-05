@@ -96,6 +96,8 @@ const normalizeRunId = (run: Record<string, unknown> | null): string => String(r
 const normalizeRunResultId = (result: BusinessRunPollResult | Record<string, unknown> | null): string =>
   String(result?.runId || result?.id || '').trim();
 
+const normalizeRunStatus = (value: unknown): string => String(value || '').trim().toLowerCase();
+
 const createAgentRequestId = () => `eval-image-edit-chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const shortAgentId = (value?: string | null) => {
@@ -233,10 +235,10 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
   const planPayload = (plan?.toolPayload || {}) as Record<string, unknown>;
   const sourceImageUrl = String(imageUrl || '').trim();
   const currentImageUrl = String(session?.imageUrl || sourceImageUrl || '').trim();
-  const runStatus = String(currentRunResult?.status || run?.status || '').toLowerCase();
-  const chatMessages = useMemo(() => {
+  const runStatus = normalizeRunStatus(currentRunResult?.status || run?.status);
+  const persistedChatMessages = useMemo(() => {
     const items = (session?.messages || []).filter((item) => item.role === 'user' || item.role === 'assistant' || item.role === 'tool');
-    return items.length > 0 ? items : [EMPTY_CHAT_MESSAGE];
+    return items;
   }, [session?.messages]);
   const planRouteEvidence = useMemo(() => getRouteEvidence(plan), [plan]);
   const planNeedsClarification = Boolean(planRouteEvidence.requiresClarification);
@@ -271,7 +273,22 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     return String(toolMessage?.runId || '').trim();
   }, [plan?.id, session?.messages, session?.toolCalls]);
   const currentPlanRunResult = currentPlanRunId ? runResultsById[currentPlanRunId] || (currentPlanRunId === runId ? currentRunResult : null) : null;
-  const currentPlanRunStatus = String(currentPlanRunResult?.status || '').toLowerCase();
+  const currentPlanRunStatus = normalizeRunStatus(currentPlanRunResult?.status);
+  const chatMessages = useMemo(() => {
+    const items = [...persistedChatMessages];
+    const activeRunId = runId || currentPlanRunId || '';
+    if (activeRunId && !items.some((item) => item.role === 'tool' && String(item.runId || '').trim() === activeRunId)) {
+      items.push({
+        id: `local-tool-message-${activeRunId}`,
+        sessionId: session?.id || 'local',
+        role: 'tool',
+        content: '已提交图编辑任务，结果会在这里更新。',
+        planId: plan?.id || session?.latestPlanId || null,
+        runId: activeRunId,
+      });
+    }
+    return items.length > 0 ? items : [EMPTY_CHAT_MESSAGE];
+  }, [currentPlanRunId, persistedChatMessages, plan?.id, runId, session?.id, session?.latestPlanId]);
   const currentPlanNeedsConfirmation = Boolean(plan && !currentPlanRunId && plan.status !== 'executed');
   const hasTraceInfo = Boolean(session || plan || runId);
   const statusLabel =
@@ -388,7 +405,24 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     return result;
   };
 
-  const pollRun = async (id: string) => {
+  const refreshAgentSession = async (sessionId: string, opts?: { preferredImageUrl?: string }) => {
+    if (!sessionId) return;
+    try {
+      const refreshed = await evalApi.getImageEditAgentSession(sessionId);
+      setSession((prev) => {
+        if (!prev || prev.id !== sessionId) return prev;
+        return {
+          ...refreshed.session,
+          imageUrl: opts?.preferredImageUrl || refreshed.session.imageUrl || prev.imageUrl,
+        };
+      });
+    } catch {
+      // Session refresh is best-effort. The local run bubble still carries the execution result.
+    }
+  };
+
+  const pollRun = async (id: string, opts?: { sessionId?: string }) => {
+    const pollingSessionId = opts?.sessionId || session?.id || '';
     setStatus('polling');
     setPollStartedAt(Date.now());
     let finalResult: BusinessRunPollResult | null = null;
@@ -396,15 +430,16 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
       for (let index = 0; index < 120; index += 1) {
         const result = await refreshRun(id);
         finalResult = result;
-        const state = String(result?.status || '').toLowerCase();
+        const state = normalizeRunStatus(result?.status);
         if (state === 'succeeded' || state === 'failed') break;
         await sleep(5000);
       }
     } finally {
       const urls = normalizeOutputUrls(finalResult);
-      if (String(finalResult?.status || '').toLowerCase() === 'succeeded' && urls[0]) {
+      if (normalizeRunStatus(finalResult?.status) === 'succeeded' && urls[0]) {
         setSession((prev) => (prev ? { ...prev, imageUrl: urls[0] } : prev));
       }
+      if (pollingSessionId) void refreshAgentSession(pollingSessionId, { preferredImageUrl: urls[0] });
       setStatus('idle');
     }
   };
@@ -517,7 +552,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
       setRun(result.run);
       const id = normalizeRunId(result.run);
       if (id) rememberRunResult(id, result.run, { asCurrent: true });
-      if (id) void pollRun(id);
+      if (id) void pollRun(id, { sessionId: result.session.id });
     } catch (err) {
       const errorText = formatAgentError(err, '确认执行失败');
       setAgentError(errorText);
@@ -553,12 +588,12 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
       if (restoredImageUrl) onImageUrlChange?.(restoredImageUrl);
       if (restoredRunId) {
         const latest = await refreshRun(restoredRunId);
-        const state = String(latest?.status || '').toLowerCase();
+        const state = normalizeRunStatus(latest?.status);
         const urls = normalizeOutputUrls(latest);
         if (state === 'succeeded' && urls[0]) {
           setSession((prev) => (prev?.id === nextSession.id ? { ...prev, imageUrl: urls[0] } : prev));
         }
-        if (state && state !== 'succeeded' && state !== 'failed') void pollRun(restoredRunId);
+        if (state && state !== 'succeeded' && state !== 'failed') void pollRun(restoredRunId, { sessionId: nextSession.id });
       }
     } catch (err) {
       const errorText = formatAgentError(err, '恢复任务失败');
@@ -613,16 +648,16 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
   const renderToolMessageContent = (item: BusinessAgentMessage) => {
     const id = String(item.runId || '').trim();
     const result = id ? getRunResultForMessage(id) : null;
-    const state = String(result?.status || (id === runId ? runStatus : '') || '').toLowerCase();
+    const state = normalizeRunStatus(result?.status || (id === runId ? runStatus : ''));
     const urls = normalizeOutputUrls(result || null);
     const errorText = String(result?.error || result?.errorMessage || result?.error_message || '').trim();
     const runningText =
       id && id === runId && status === 'polling'
-        ? `正在出图，完成后结果会直接出现在这里。已等待 ${pollElapsedSeconds}s`
-        : '任务已提交，完成后结果会直接出现在这里。';
+        ? `正在出图，已等待 ${pollElapsedSeconds}s。`
+        : '正在出图，完成后结果会直接出现在这里。';
     const content =
       state === 'succeeded'
-        ? '已完成，结果如下。继续输入时会默认基于这张结果图修改。'
+        ? '已完成。继续输入时会默认基于这张结果图修改。'
         : state === 'failed'
           ? `执行失败，请查看错误后重试。${errorText ? `\n${errorText}` : ''}`
           : runningText;
