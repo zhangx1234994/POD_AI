@@ -26,6 +26,7 @@
 - v0.5 方案 `docs/strategy/platform-polish-v0.5-decision-plan.md`、v0.4.1 方案 `docs/strategy/business-stability-observability-v0.4.1-plan.md` 和 v0.4 方案保留为已完成阶段记录，不再作为当前开发 TODO。
 - 上方 P0/P1/P2、2026-05-14 稳定化执行单、v0.2/v0.3/v0.4 执行单保留路线图和历史进展，不再逐条作为当前开发 TODO。
 - 当前真正待办以本节下方“当前执行单（2026-06-04 v0.6.3 中台能力控制面硬化版）”为准。
+- 2026-06-05 补充口径：当前线上提交为 `88d48dce`，仍归入 `v0.6.3 中台能力控制面硬化版`。补充验收记录见 `docs/testing/2026-06-05-v0.6.3-88d48dce-agent-control-plane-validation.md`。
 - 文档降噪台账见 `docs/strategy/doc-cleanup-inventory-2026-05-18.md`；过期迁移方案、旧客户端资料和阶段过程文档不再作为当前执行入口。
 
 历史进展摘要（只用于追溯，不作为当前 TODO）：
@@ -48,9 +49,10 @@
 
 方案：`docs/strategy/v0.6.3-control-plane-hardening-plan.md`
 
-0. `todo` 开工验收标准落地
+0. `done` 开工验收标准落地
 - 目标：把响应速度、并发、真实业务回归、错误路径、文档维护和回滚线作为版本开工前门禁。
 - 范围：唯一 TODO、发布 SOP、测试报告模板、封版记录。
+- 进展（2026-06-05）：已把 `88d48dce` 的 Agent 五项验收、控制面 loopback/公网 20 并发、业务汇总、接口调用中心和保留风险写入 `docs/testing/2026-06-05-v0.6.3-88d48dce-agent-control-plane-validation.md` 与 `docs/releases/CHANGELOG.md`；后续每个补丁仍按同一门禁补证据。
 - 验收：本版所有开发项都能映射到明确验收标准；封版报告必须包含真实业务报告路径、p95、20 并发、线上观察和剩余风险。
 
 1. `doing` 控制面读接口预聚合与承压治理
@@ -60,13 +62,15 @@
 - 进展（2026-06-04）：`BusinessRunService` 原有 dashboard cache 与业务接口调用中心新缓存均已收窄锁范围，避免缓存未命中时在全局锁内执行查询。`get_comfyui_queue_summary` 已加入 8 秒短 TTL 与同 key 在途请求合并，避免管理端、Coze 插件、测评端高频刷新时同时打所有 ComfyUI 节点；健康回填仍由原始计算路径执行。
 - 证据（2026-06-04）：当前线上 `c638c269` 经公网 20 并发基线 `output/benchmarks/control-plane-114-20c-20260604203805.json` 显示请求成功率 100%，但 `/health` p95 451ms、`comfyui_queue_summary` p95 5941ms 超阈值；重试 `output/benchmarks/control-plane-114-20c-retry-health-queue-20260604203853.json` 仍为 `/health` p95 441ms、`comfyui_queue_summary` p95 5656ms。后续发布新代码后必须在 114 本机 loopback 与公网各跑一轮，区分网络 RTT 与服务端耗时。
 - 证据（2026-06-04）：`2654efb4` 发布后，114 本机 loopback 20 并发报告 `/srv/pod/reports/control-plane-2654efb4-loopback-20260604214139.json` 全部通过：`/health` p95 85.51ms，`business_capabilities` p95 272.25ms，`business_usage_summary` p95 75.68ms，`business_api_usage` p95 95.58ms，`comfyui_queue_summary` p95 70.49ms。公网 20 并发报告 `output/benchmarks/control-plane-114-20c-2654efb4-public-20260604214348.json` 显示 `comfyui_queue_summary` p95 459.63ms 已回落到阈值内；公网 `/health` p95 403.86ms 仍高于 300ms，但 loopback 正常，归因到公网 RTT/波动，不作为服务端阻断。
+- 证据（2026-06-05）：`88d48dce` 线上补充验收后，114 本机 loopback 20 并发报告 `/srv/pod/reports/control-plane-88d48dce-loopback-20260605.json` 全部通过：`/health` p95 57.47ms，`business_capabilities` p95 447.98ms，`business_usage_summary` p95 120.57ms，`business_api_usage` p95 101.55ms，`comfyui_queue_summary` p95 63.28ms。公网报告 `/srv/pod/reports/control-plane-88d48dce-public-20260605.json` 中业务读接口全部通过，公网 `/health` p95 392.00ms；重试 `/srv/pod/reports/control-plane-88d48dce-public-health-retry-20260605.json` p95 501.11ms，因 loopback 正常，继续归因为公网 RTT/波动，不作为服务端阻断。
 - 验收：核心只读接口 20 并发成功率 100%，p95 <= 3000ms；高频只读接口 p95 <= 1500ms；列表接口默认不加载大字段和完整步骤明细。
 
-2. `todo` Agent Runtime MVP 整改
+2. `doing` Agent Runtime MVP 整改
 - 目标：把 AI 改图助手从“聊天式任务提交”整改成 Agent Runtime 最小样板。
 - 范围：聊天瀑布流、结果图片进入消息流、上一轮结果续改、新任务隔离、结构化计划、路由证据、低置信追问、确认幂等、golden cases。
 - 进展（2026-06-04）：补齐消息级 `requestId` 幂等控制：`POST /api/business/image-edit-chat/sessions/{sessionId}/messages` 在同一 `sessionId + requestId` 下只返回原方案，不重复生成计划；并通过 `business_agent_messages(session_id, request_id)` 唯一索引兜底并发重试。测评端追加消息已开始传 `requestId`，接口文档和错误码已同步。
 - 进展（2026-06-05）：完成 AI 改图助手首轮体验降噪：空态去掉重复 Alert，右侧上下文栏只保留添加主图、当前状态和粘贴图片链接；工程化“调试信息”改为有会话后才出现的折叠“排障编号”。本地浏览器走查确认路由证据可见：基准=原始主图、路由=图编辑、置信度=84%，截图见 `output/playwright/20260605-image-edit-agent-empty-polished.png`、`output/playwright/20260605-image-edit-agent-plan-polished.png`。
+- 进展（2026-06-05）：`88d48dce` 已完成线上 5 组 Agent 验收，报告 `/srv/pod/reports/agent-v063-88d48dce-20260605.json`：首轮真实执行 succeeded、二轮续改基于上一轮输出 succeeded、新任务隔离 succeeded、模糊意图返回 `409 AGENT_PLAN_REQUIRES_CLARIFICATION` 且未创建下游 run、消息 `requestId` 幂等返回同一 plan。
 - 验收：5 组真实对话全链路通过；二轮续改默认基于最新成功输出；新任务不污染旧上下文；每次执行可见 `routeReason/confidence/baseImageRole/parentRunId`。
 
 3. `todo` 能力治理和测评端降噪
@@ -82,6 +86,7 @@
 5. `todo` 文档与规则清理
 - 目标：保持当前主线文档简洁、可恢复、无旧概念误导。
 - 范围：战略索引、唯一 TODO、能力方案、API 文档、错误码、发布 SOP、事故改进日志、旧客户端和旧项目主语清理。
+- 进展（2026-06-05）：新增 `docs/testing/2026-06-05-v0.6.3-88d48dce-agent-control-plane-validation.md`，并在 `docs/releases/CHANGELOG.md` 记录 `88d48dce` 当前线上验收、Agent 报告路径、控制面基准和受控失败归因；仍需继续清理历史文档中的过期 WIP 入口。
 - 验收：新 agent 或新同事只看 `docs/strategy/README.md` 和本 TODO 就能恢复主线；历史方案不会被误读为当前任务。
 
 ## v0.6 阶段执行单（2026-06-02 中台能力治理版，保留进展）

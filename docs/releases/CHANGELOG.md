@@ -5,7 +5,7 @@
 基线 commit：
 
 - 控制面代码提交：`2654efb4`
-- 最终线上提交：以发布脚本写入的 `/srv/pod/DEPLOYED_COMMIT` 为准。
+- 最终线上提交：`88d48dce`
 - 上一封版基线：`c638c269`
 
 发布范围：
@@ -38,6 +38,11 @@
 
 线上验证结果：
 
+- 2026-06-05 补充验收确认 114 `DEPLOYED_COMMIT=88d48dce`，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active，三项服务 `NRestarts=0`。
+- AI 改图助手 5 组 Agent 验收全部通过，报告 `/srv/pod/reports/agent-v063-88d48dce-20260605.json`：首轮改图 run `7ccd14fbb18e41a59074ba3ffac3bbc9` 成功，二轮续改 run `2a2d7485d77f4cc2a3dd59de3542edd4` 成功且 `baseImageRole=previous_result`，新任务隔离 run `1f19a38de09543c2a30b429f464f40d4` 成功，模糊意图按预期返回 `409 AGENT_PLAN_REQUIRES_CLARIFICATION`，消息 `requestId` 幂等返回同一 plan。
+- `88d48dce` 控制面 loopback 20 并发报告 `/srv/pod/reports/control-plane-88d48dce-loopback-20260605.json` 全部通过：`/health` p95 57.47ms，`business_capabilities` p95 447.98ms，`business_usage_summary` p95 120.57ms，`business_api_usage` p95 101.55ms，`comfyui_queue_summary` p95 63.28ms。
+- `88d48dce` 公网 20 并发报告 `/srv/pod/reports/control-plane-88d48dce-public-20260605.json` 中业务读接口全部通过：`business_capabilities` p95 1019.91ms，`business_usage_summary` p95 522.34ms，`business_api_usage` p95 605.03ms，`comfyui_queue_summary` p95 390.14ms；公网 `/health` p95 392.00ms 超 300ms，重试报告 `/srv/pod/reports/control-plane-88d48dce-public-health-retry-20260605.json` p95 501.11ms，因 loopback p95 57.47ms，归因为公网 RTT/链路波动，不作为服务端阻断。
+- 2026-06-05 业务 usage summary 最近 24 小时 `total=38/failed=1/running=0/queued=0/unresolvedIssues=[]`；唯一失败 run `e041ffe3617f4aa99544c4ffc80dea0b` 已归因为受控测试使用的 OSS 样例图 404。接口调用中心 `total=1003/successCount=1002/errorCount=1`，唯一 4xx 是模糊意图验收的预期 `409 AGENT_PLAN_REQUIRES_CLARIFICATION`。
 - 114 `DEPLOYED_COMMIT=2654efb4`，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active。
 - 标准发布脚本通过：源门禁、后端发布测试、管理端/测评端 lint 与 build、远端迁移、种子刷新、服务重启、deploy preflight 和 release smoke 全部通过。
 - release smoke 关键控制面通过：ComfyUI 队列 `servers=2/capacity=20/idle=20/feedGapServers=0`，业务 usage summary `total=31/failed=0/running=0/queued=0/unresolved=0`，工作流兼容 `total=17/ok=17/failed=0`。
@@ -54,8 +59,12 @@
 已知保留风险：
 
 - 这次是短 TTL 与并发折叠的控制面保护，不等于完成后台预聚合；能力版本指标、质量样例统计和更完整的业务运行预聚合仍是后续 P0/P1 工作。
-- `/health` 公网 p95 超过 300ms，需要发布后同时用 114 本机 loopback 和公网基准区分网络 RTT 与服务端耗时。
+- `/health` 公网 p95 超过 300ms，但 114 本机 loopback p95 正常；继续按公网 RTT/链路波动观察，不作为服务端封版阻断。
 - Pydantic v2 / FastAPI deprecation warning 仍为历史技术债，当前不阻断发布。
+
+证据记录：
+
+- `docs/testing/2026-06-05-v0.6.3-88d48dce-agent-control-plane-validation.md`
 
 ## v0.6.2 - 2026-06-04
 
