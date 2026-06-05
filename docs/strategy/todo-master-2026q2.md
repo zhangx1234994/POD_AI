@@ -66,6 +66,7 @@
 - 目标：把 AI 改图助手从“聊天式任务提交”整改成 Agent Runtime 最小样板。
 - 范围：聊天瀑布流、结果图片进入消息流、上一轮结果续改、新任务隔离、结构化计划、路由证据、低置信追问、确认幂等、golden cases。
 - 进展（2026-06-04）：补齐消息级 `requestId` 幂等控制：`POST /api/business/image-edit-chat/sessions/{sessionId}/messages` 在同一 `sessionId + requestId` 下只返回原方案，不重复生成计划；并通过 `business_agent_messages(session_id, request_id)` 唯一索引兜底并发重试。测评端追加消息已开始传 `requestId`，接口文档和错误码已同步。
+- 进展（2026-06-05）：完成 AI 改图助手首轮体验降噪：空态去掉重复 Alert，右侧上下文栏只保留添加主图、当前状态和粘贴图片链接；工程化“调试信息”改为有会话后才出现的折叠“排障编号”。本地浏览器走查确认路由证据可见：基准=原始主图、路由=图编辑、置信度=84%，截图见 `output/playwright/20260605-image-edit-agent-empty-polished.png`、`output/playwright/20260605-image-edit-agent-plan-polished.png`。
 - 验收：5 组真实对话全链路通过；二轮续改默认基于最新成功输出；新任务不污染旧上下文；每次执行可见 `routeReason/confidence/baseImageRole/parentRunId`。
 
 3. `todo` 能力治理和测评端降噪

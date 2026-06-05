@@ -55,7 +55,7 @@ const EMPTY_CHAT_MESSAGE: BusinessAgentMessage = {
   id: 'empty-chatbot-message',
   sessionId: 'local',
   role: 'assistant',
-  content: '上传或粘贴一张主图，然后像聊天一样告诉我想怎么改。我会先整理执行建议，确认后开始出图。',
+  content: '把图放进来，然后直接说想怎么改。我会先给一版建议，确认后再出图。',
 };
 
 const THREAD_STORAGE_KEY = 'podi:image-edit-agent:threads:v1';
@@ -273,6 +273,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
   const currentPlanRunResult = currentPlanRunId ? runResultsById[currentPlanRunId] || (currentPlanRunId === runId ? currentRunResult : null) : null;
   const currentPlanRunStatus = String(currentPlanRunResult?.status || '').toLowerCase();
   const currentPlanNeedsConfirmation = Boolean(plan && !currentPlanRunId && plan.status !== 'executed');
+  const hasTraceInfo = Boolean(session || plan || runId);
   const statusLabel =
     status === 'planning'
       ? '正在理解图片'
@@ -779,7 +780,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           <ChartBubbleIcon />
           <div>
             <strong>AI 改图助手</strong>
-            <span>一个改图任务一条线程：对话、执行、结果都在同一处。</span>
+            <span>一个改图任务一条线程：图片、对话、执行和结果都在同一处。</span>
           </div>
         </div>
       }
@@ -820,7 +821,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           <div className="podi-image-edit-agent__chat-head">
             <div>
               <strong>{session ? buildThreadTitle(session, message) : '新改图任务'}</strong>
-              <span>{activeImageUrl ? (activeImageIsGenerated ? '当前基准图：上一轮结果' : '当前基准图：主图') : '先上传或粘贴主图'}</span>
+              <span>{activeImageUrl ? (activeImageIsGenerated ? '当前基准图：上一轮结果' : '当前基准图：主图') : '先添加主图'}</span>
             </div>
             <Tag theme={status === 'idle' ? 'default' : 'primary'} variant="light">
               {statusLabel}
@@ -872,7 +873,6 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
               />
             </div>
           </div>
-          {!currentImageUrl ? <Alert theme="warning" message="执行前需要一张主图；新建改图只会开启新线程，不会删除左侧历史。" /> : null}
         </section>
 
         <aside className="podi-image-edit-agent__context" aria-label="当前图片和任务状态">
@@ -883,8 +883,8 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
               </button>
             ) : (
               <button type="button" onClick={() => imageInputRef.current?.click()}>
-                <strong>上传主图</strong>
-                <span>让 AI 改图助手先看到图片</span>
+                <strong>添加主图</strong>
+                <span>支持上传或粘贴图片链接</span>
               </button>
             )}
           </div>
@@ -903,10 +903,10 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
             {status !== 'polling' && activeImageIsGenerated ? <small>继续输入会基于上一轮成功结果图修改；新任务请点左侧“新建”。</small> : null}
           </div>
           <details className="podi-image-edit-agent__source" open={sourceOpen} onToggle={(event) => setSourceOpen(event.currentTarget.open)}>
-            <summary>当前基准图 URL</summary>
+            <summary>粘贴图片链接</summary>
             <Input
               value={activeImageUrl}
-              placeholder="粘贴主图 URL"
+              placeholder="https://..."
               clearable
               onChange={(value) => {
                 const url = String(value || '').trim();
@@ -919,12 +919,14 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
               }}
             />
           </details>
-          <details className="podi-image-edit-agent__debug">
-            <summary>调试信息</summary>
-            <p>会话：{session ? shortAgentId(session.id) : '未创建'}</p>
-            <p>建议：{plan ? shortAgentId(plan.id) : '无'}</p>
-            <p>任务：{runId ? shortAgentId(runId) : '无'}</p>
-          </details>
+          {hasTraceInfo ? (
+            <details className="podi-image-edit-agent__debug">
+              <summary>排障编号</summary>
+              <p>会话：{session ? shortAgentId(session.id) : '未创建'}</p>
+              <p>建议：{plan ? shortAgentId(plan.id) : '无'}</p>
+              <p>任务：{runId ? shortAgentId(runId) : '无'}</p>
+            </details>
+          ) : null}
         </aside>
       </div>
     </Card>
