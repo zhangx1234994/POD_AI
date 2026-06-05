@@ -1147,6 +1147,21 @@ const getBusinessKeyFromCategory = (category: string | null | undefined): string
   return BUSINESS_CATEGORY_KEY_MAP[normalized] || '';
 };
 
+const CATEGORY_QUICK_PROMPTS: Record<string, string[]> = {
+  花纹提取: ['提取主体花纹，保留边缘细节', '只要干净纹理，不要背景杂色'],
+  图裂变: ['生成 3 个风格接近的变体', '颜色稳定，主体不要漂移'],
+  产品设计: ['把图案自然贴到服装面料上', '保持材质和产品结构可信'],
+  图编辑: ['把这张图改得更高级', '基于上一版继续柔和一点'],
+  扩图: ['向四周自然扩展画面', '保持主体不变，边缘自然延伸'],
+  连续图: ['检查四方连续拼接是否自然', '保留图案周期和边缘连续'],
+  文本与提示词: ['把描述整理成出图提示词', '强化卖点但不要改变主体'],
+};
+
+const getCategoryQuickPrompts = (category: string | undefined | null): string[] => {
+  const normalized = normalizeCategory(category);
+  return CATEGORY_QUICK_PROMPTS[normalized] || ['先跑推荐版本看结果', '失败后查看任务追踪和错误码'];
+};
+
 const getBusinessKeyForWorkflow = (wf: EvalWorkflowVersion | null | undefined): string => {
   const execution = getWorkflowEvalExecution(wf);
   const explicit = String(execution?.business_key || '').trim();
@@ -3634,6 +3649,131 @@ function ImageEditEntryGuide({
             打开工作台
           </Button>
         </article>
+      </div>
+    </section>
+  );
+}
+
+function CategoryQuickStart({
+  category,
+  visual,
+  samples,
+  primaryTool,
+  onRunSample,
+  onOpenPrimary,
+}: {
+  category: string;
+  visual: { icon: ReactNode; accent: string; summary: string };
+  samples: EvalBusinessQualitySample[];
+  primaryTool: EvalWorkflowVersion | null;
+  onRunSample: (sample: EvalBusinessQualitySample) => void;
+  onOpenPrimary: () => void;
+}) {
+  const prompts = getCategoryQuickPrompts(category);
+  return (
+    <section
+      className="podi-eval-quickstart"
+      style={{ '--podi-quickstart-accent': visual.accent } as CSSProperties}
+      aria-label={`${getBusinessEntryLabel(category)} 样例起步`}
+    >
+      <div className="podi-eval-quickstart__head">
+        <span className="podi-eval-quickstart__icon">{visual.icon}</span>
+        <div>
+          <Typography.Text className="podi-eval-quickstart__eyebrow">样例起步</Typography.Text>
+          <Typography.Title level="h5" style={{ margin: '2px 0 0' }}>
+            先用样例跑通，再微调参数
+          </Typography.Title>
+        </div>
+      </div>
+      <div className="podi-eval-quickstart__body">
+        {samples.length > 0 ? (
+          <div className="podi-eval-quickstart__samples" aria-label="固定样例">
+            {samples.slice(0, 4).map((sample) => (
+              <button
+                key={sample.id || sample.sampleKey}
+                type="button"
+                className="podi-eval-quickstart__sample"
+                disabled={!primaryTool}
+                onClick={() => onRunSample(sample)}
+              >
+                <span className="podi-eval-quickstart__thumb">
+                  <img src={sample.imageUrl} alt={sample.label} loading="lazy" />
+                </span>
+                <span>
+                  <strong>{sample.label}</strong>
+                  <small>{sample.inputTags?.length ? sample.inputTags.slice(0, 2).join(' / ') : sample.sampleKey}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="podi-eval-quickstart__empty" aria-label="能力使用图例">
+            <span />
+            <span />
+            <span />
+          </div>
+        )}
+        <div className="podi-eval-quickstart__prompts">
+          {prompts.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={onOpenPrimary}
+              disabled={!primaryTool}
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AuxiliaryAbilityNav({
+  items,
+  activeCategory,
+  onSelect,
+}: {
+  items: Array<{
+    category: string;
+    count: number;
+    recentSuccessCount: number;
+    label: string;
+    theme: 'default' | 'success' | 'warning' | 'danger' | 'primary';
+    visual: { icon: ReactNode; accent: string; summary: string };
+  }>;
+  activeCategory: string;
+  onSelect: (category: string) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <section className="podi-eval-aux-nav" aria-label="辅助能力导航">
+      <div className="podi-eval-aux-nav__head">
+        <div>
+          <Typography.Text strong>辅助工具导航</Typography.Text>
+          <Typography.Text theme="secondary">用于排障、自检和补充验证，不抢主能力路径。</Typography.Text>
+        </div>
+      </div>
+      <div className="podi-eval-aux-nav__items">
+        {items.map((item) => (
+          <button
+            key={item.category}
+            type="button"
+            className={`podi-eval-aux-nav__item${item.category === activeCategory ? ' is-active' : ''}`}
+            style={{ '--podi-aux-accent': item.visual.accent } as CSSProperties}
+            onClick={() => onSelect(item.category)}
+          >
+            <span className="podi-eval-aux-nav__icon">{item.visual.icon}</span>
+            <span className="podi-eval-aux-nav__body">
+              <strong>{item.category}</strong>
+              <small>{item.count} 个工具 · 成功 {item.recentSuccessCount}</small>
+            </span>
+            <Tag size="small" theme={item.theme} variant="light">
+              {item.label}
+            </Tag>
+          </button>
+        ))}
       </div>
     </section>
   );
@@ -10989,15 +11129,32 @@ export function App() {
         </section>
       ) : null}
 
+      {selectedCategorySummary ? (
+        <CategoryQuickStart
+          category={activeCategory}
+          visual={selectedCategorySummary.visual}
+          samples={selectedCategorySummary.businessKey ? qualitySamplesByBusiness[selectedCategorySummary.businessKey] || [] : []}
+          primaryTool={activeCategoryPrimaryTool}
+          onRunSample={(sample) => {
+            if (activeCategoryPrimaryTool) openToolWithQualitySample(activeCategoryPrimaryTool, sample);
+          }}
+          onOpenPrimary={() => {
+            if (activeCategoryPrimaryTool) openTool(activeCategoryPrimaryTool);
+          }}
+        />
+      ) : null}
+
       {!bootstrapLoading && workflowListStatus === 'success' && toolList.length === 0 ? (
         <Alert theme="info" message="该分类暂无功能。" />
       ) : null}
 
-      <details className="podi-eval-tool-list-collapse" open>
-        <summary>
-          <span>{getBusinessEntryLabel(activeCategory)} · 版本列表</span>
-          <small>当前分类全部可测版本，推荐入口之外也可直接进入。</small>
-        </summary>
+      <section className="podi-eval-version-list" aria-label={`${getBusinessEntryLabel(activeCategory)} 版本列表`}>
+        <div className="podi-eval-version-list__head">
+          <div>
+            <Typography.Text strong>{getBusinessEntryLabel(activeCategory)} · 版本列表</Typography.Text>
+            <Typography.Text theme="secondary">当前分类全部可测版本，推荐入口之外也可直接进入。</Typography.Text>
+          </div>
+        </div>
         <ActionBar
           title={`可测版本 · ${toolList.length} 个`}
           description="默认先跑推荐版本；只有需要指定版本或查看底层链路时，再进入单个版本工作台。"
@@ -11024,39 +11181,13 @@ export function App() {
             />
           ))}
         </div>
-      </details>
+      </section>
 
-      {auxiliaryCategorySummaries.length > 0 ? (
-        <details className="podi-eval-more-business-collapse">
-          <summary>
-            <span>更多工具与辅助能力</span>
-            <small>不作为业务方首选入口，保留给能力工程师和排障场景。</small>
-          </summary>
-          <div className="podi-eval-category-board" aria-label="更多业务分类">
-            {auxiliaryCategorySummaries.map((item) => (
-              <button
-                key={item.category}
-                type="button"
-                className={`podi-eval-category-tile${item.category === activeCategory ? ' podi-eval-category-tile--active' : ''}`}
-                style={{ '--podi-category-accent': item.visual.accent } as CSSProperties}
-                onClick={() => setActiveCategory(item.category)}
-              >
-                <span className="podi-eval-category-tile__icon">{item.visual.icon}</span>
-                <span className="podi-eval-category-tile__body">
-                  <span className="podi-eval-category-tile__name">{item.category}</span>
-                  <span className="podi-eval-category-tile__summary">{item.visual.summary}</span>
-                  <span className="podi-eval-category-tile__meta">
-                    {item.count} 个功能 · 近 72 小时成功 {item.recentSuccessCount} 次
-                  </span>
-                </span>
-                <Tag theme={item.theme} variant="light">
-                  {item.label}
-                </Tag>
-              </button>
-            ))}
-          </div>
-        </details>
-      ) : null}
+      <AuxiliaryAbilityNav
+        items={auxiliaryCategorySummaries}
+        activeCategory={activeCategory}
+        onSelect={(category) => setActiveCategory(category)}
+      />
     </Space>
   );
 }
