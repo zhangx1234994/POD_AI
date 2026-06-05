@@ -19,7 +19,7 @@
 
 ## 2. 版本启动前验收标准与封版文档
 
-每个新版本开工前，先在版本计划或唯一 TODO 中写清验收标准；没有验收标准，不进入开发排期。验收标准至少包含：
+每个新版本开工前，先按 `docs/standards/version-acceptance-template.md` 在版本计划或唯一 TODO 中写清验收标准；没有验收标准，不进入开发排期。验收标准至少包含：
 
 - 范围边界：本版新增/修改/不改的业务入口、能力、页面、接口、路由、文档。
 - 用户路径：按运营、运维、业务方、内部测评四类视角列出必须走通的高频路径。
@@ -33,6 +33,7 @@
 每次封版必须维护文档；文档没有更新完整，不算封版完成：
 
 - 更新 `docs/releases/CHANGELOG.md`：最终 commit、发布时间、验证证据、真实业务报告路径、已知保留风险。
+- 按 `docs/standards/version-acceptance-template.md` 补齐封版验收记录；涉及 Agent 时同步执行 `docs/standards/agent-runtime-regression-matrix.md`。
 - 更新相关 API、错误码、接口一致性文档；任何参数/状态/错误码变更必须同步测评端文档和管理端文案。
 - 更新 `docs/standards/issue-improvement-log.md`：记录本版踩坑、根因、修复和后续预防动作。
 - 清理冗余和陈旧内容：旧产品名、旧入口、历史客户端主线、已废弃方案不能继续占据当前主线文档。

@@ -12,9 +12,11 @@
 6. `ability-api-gap-v0.6.md`
 7. `business-agent-runtime-v0.6.md`
 8. `client-parallel-preview-v0.6-handoff.md`
-9. `project-half-year-review-2026-05-26.md`
-10. `platform-polish-v0.5-decision-plan.md`
-11. `output-quality-review-v0.5.md`
+9. `../standards/version-acceptance-template.md`
+10. `../standards/agent-runtime-regression-matrix.md`
+11. `project-half-year-review-2026-05-26.md`
+12. `platform-polish-v0.5-decision-plan.md`
+13. `output-quality-review-v0.5.md`
 
 ## 当前阶段
 
@@ -57,6 +59,8 @@
 - `docs/strategy/client-parallel-preview-v0.6-handoff.md`
 - `docs/strategy/todo-master-2026q2.md`
 - `docs/standards/release-sop.md`
+- `docs/standards/version-acceptance-template.md`
+- `docs/standards/agent-runtime-regression-matrix.md`
 
 兼容调用上下文的历史实现记录可查 `docs/strategy/project-context-backend-design-v0.6.md` 和 `docs/strategy/end-to-end-business-object-api-v0.6.md`。这两份文档不再作为中台主视角入口，后续新方案统一以能力和调用上下文表述。
 
@@ -68,4 +72,4 @@
 4. 文档冲突时，按“当前回顾 -> 唯一 TODO -> 当前方案 -> 标准规范 -> 历史资料”的顺序判断。
 5. 每轮重要开发结束后，更新 `project-current-review-YYYY-MM-DD.md` 或当前回顾文档。
 
-最后更新：2026-06-04
+最后更新：2026-06-05

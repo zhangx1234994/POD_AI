@@ -53,6 +53,7 @@
 - 目标：把响应速度、并发、真实业务回归、错误路径、文档维护和回滚线作为版本开工前门禁。
 - 范围：唯一 TODO、发布 SOP、测试报告模板、封版记录。
 - 进展（2026-06-05）：已把 `88d48dce` 的 Agent 五项验收、控制面 loopback/公网 20 并发、业务汇总、接口调用中心和保留风险写入 `docs/testing/2026-06-05-v0.6.3-88d48dce-agent-control-plane-validation.md` 与 `docs/releases/CHANGELOG.md`；后续每个补丁仍按同一门禁补证据。
+- 进展（2026-06-05）：新增 `docs/standards/version-acceptance-template.md`，把开工验收、角色视角、响应速度、真实业务、错误路径、页面走查、线上观察和封版结论固化成每版可复制模板。
 - 验收：本版所有开发项都能映射到明确验收标准；封版报告必须包含真实业务报告路径、p95、20 并发、线上观察和剩余风险。
 
 1. `doing` 控制面读接口预聚合与承压治理
@@ -71,11 +72,13 @@
 - 进展（2026-06-04）：补齐消息级 `requestId` 幂等控制：`POST /api/business/image-edit-chat/sessions/{sessionId}/messages` 在同一 `sessionId + requestId` 下只返回原方案，不重复生成计划；并通过 `business_agent_messages(session_id, request_id)` 唯一索引兜底并发重试。测评端追加消息已开始传 `requestId`，接口文档和错误码已同步。
 - 进展（2026-06-05）：完成 AI 改图助手首轮体验降噪：空态去掉重复 Alert，右侧上下文栏只保留添加主图、当前状态和粘贴图片链接；工程化“调试信息”改为有会话后才出现的折叠“排障编号”。本地浏览器走查确认路由证据可见：基准=原始主图、路由=图编辑、置信度=84%，截图见 `output/playwright/20260605-image-edit-agent-empty-polished.png`、`output/playwright/20260605-image-edit-agent-plan-polished.png`。
 - 进展（2026-06-05）：`88d48dce` 已完成线上 5 组 Agent 验收，报告 `/srv/pod/reports/agent-v063-88d48dce-20260605.json`：首轮真实执行 succeeded、二轮续改基于上一轮输出 succeeded、新任务隔离 succeeded、模糊意图返回 `409 AGENT_PLAN_REQUIRES_CLARIFICATION` 且未创建下游 run、消息 `requestId` 幂等返回同一 plan。
+- 进展（2026-06-05）：新增 `docs/standards/agent-runtime-regression-matrix.md`，把 Agent MVP 的 5 组 golden cases、路由稳定性、并发幂等、失败路径和前端交互验收固化为后续每次改 Agent 必跑的矩阵。
 - 验收：5 组真实对话全链路通过；二轮续改默认基于最新成功输出；新任务不污染旧上下文；每次执行可见 `routeReason/confidence/baseImageRole/parentRunId`。
 
-3. `todo` 能力治理和测评端降噪
+3. `doing` 能力治理和测评端降噪
 - 目标：按能力组织测评端和治理页，让业务方、运营、运维、能力工程师都能先看到当前结论和下一步动作。
 - 范围：推荐版本区保持主注意力、版本列表展开、辅助工具导航独立、首次使用示例/图例、清理项目主语。
+- 进展（2026-06-05）：先补齐版本验收模板中的四类角色视角和页面交互标准，作为后续测评端/管理端降噪的验收基线：业务方看能力选择和结果，运营看样例与质量复盘，运维看路由/队列/节点/错误，能力工程师看版本/参数/回滚。
 - 验收：业务方第一次进入能判断用哪个能力、上传什么、看哪里；运维能看到路由/队列/节点/错误；运营能看到样例、质量标签和复盘入口。
 
 4. `todo` 首批能力缺口闭环
@@ -87,6 +90,7 @@
 - 目标：保持当前主线文档简洁、可恢复、无旧概念误导。
 - 范围：战略索引、唯一 TODO、能力方案、API 文档、错误码、发布 SOP、事故改进日志、旧客户端和旧项目主语清理。
 - 进展（2026-06-05）：新增 `docs/testing/2026-06-05-v0.6.3-88d48dce-agent-control-plane-validation.md`，并在 `docs/releases/CHANGELOG.md` 记录 `88d48dce` 当前线上验收、Agent 报告路径、控制面基准和受控失败归因；仍需继续清理历史文档中的过期 WIP 入口。
+- 进展（2026-06-05）：新增版本验收模板和 Agent Runtime 回归矩阵，并接入 `docs/README.md`、`docs/strategy/README.md`、`docs/standards/release-sop.md` 与当前 v0.6.3 方案，避免后续验收标准继续散落在会话里。
 - 验收：新 agent 或新同事只看 `docs/strategy/README.md` 和本 TODO 就能恢复主线；历史方案不会被误读为当前任务。
 
 ## v0.6 阶段执行单（2026-06-02 中台能力治理版，保留进展）

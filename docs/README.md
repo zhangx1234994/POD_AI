@@ -13,7 +13,9 @@
 7. `docs/strategy/business-agent-runtime-v0.6.md`
 8. `docs/strategy/client-parallel-preview-v0.6-handoff.md`
 9. `docs/standards/release-sop.md`
-10. `docs/api/INDEX.md`
+10. `docs/standards/version-acceptance-template.md`
+11. `docs/standards/agent-runtime-regression-matrix.md`
+12. `docs/api/INDEX.md`
 
 ## 当前真源
 
@@ -30,6 +32,8 @@
 | 兼容调用上下文 | `docs/strategy/project-context-backend-design-v0.6.md` | 历史命名的兼容实现记录；不作为中台主概念继续扩展 |
 | 当前回顾 | `docs/strategy/project-half-year-review-2026-05-26.md` | 半年度复盘、数据证据、阶段结论和下一阶段方向 |
 | 交付方法论 | `docs/standards/delivery-methodology.md` | 交付顺序、多视角批判、自我批判和六顶思考帽评审准则 |
+| 版本验收模板 | `docs/standards/version-acceptance-template.md` | 每个新版本开工前的验收标准和封版记录模板 |
+| Agent 回归矩阵 | `docs/standards/agent-runtime-regression-matrix.md` | Agent Runtime 的多轮、路由、幂等、错误和交互回归标准 |
 | 上阶段方案 | `docs/strategy/platform-polish-v0.5-decision-plan.md` | v0.5 平台打磨、业务流可视化、流程监控和效果复盘方案 |
 | 质量复盘 | `docs/strategy/output-quality-review-v0.5.md` | 固定样例池、质量档位、输入标签、问题标签和复盘节奏 |
 | 上轮回顾 | `docs/strategy/project-current-review-2026-05-22.md` | v0.4/v0.4.1 阶段背景和问题复盘 |
