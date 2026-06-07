@@ -53,6 +53,10 @@
   - 2026-05-15 对外业务接口契约硬化、交付包 v4、114 发布 smoke 和剩余风险记录
 - `20260515-business-api-live-chain-check.md`
   - 2026-05-15 新业务接口被业务方真实调用后的链路排查，覆盖业务 run、Key 调用、VL、ComfyUI、OSS 回填、轮询和执行节点隐患
+- `2026-06-07-v0.6-closure-eval-interaction-audit.md`
+  - 2026-06-07 v0.6 收口评测端交互走查，覆盖图编辑、AI 改图助手、直接图编辑、产品设计、花纹提取和执行/追踪口径修正。
+- `2026-06-07-v0.6-closure-114-deploy-validation.md`
+  - 2026-06-07 v0.6 收口候选包在 114 的部署验证记录，覆盖产品设计 5 个固定样例、测评端页面提交、接口调用中心、ComfyUI 节点和日志复核。
 - `COZE_WORKFLOW_TEST_PLAN.md`
 - `COMFYUI_TASK_STATE_REGRESSION_PLAN.md`
 - `AUTH_BILLING_TEST_PLAN.md`

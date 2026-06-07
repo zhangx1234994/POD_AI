@@ -16,6 +16,10 @@ from app.schemas.business import (
     BusinessQualitySampleImportRequest,
     BusinessQualitySampleUpdateRequest,
 )
+from app.services.business_quality_sample_seed import (
+    PRODUCT_DESIGN_QUALITY_SAMPLE_ITEMS,
+    ensure_default_product_design_quality_samples,
+)
 from app.services.business_runs import BusinessRunService
 
 
@@ -366,6 +370,38 @@ def test_business_quality_samples_import_upsert_and_history(monkeypatch: pytest.
     assert dry_run["dry_run"] is True
     assert dry_run["skipped"] == 1
     assert dry_run["items"][0]["action"] == "dry_run_create"
+
+
+def test_default_product_design_quality_samples_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(BusinessRunService, "_start_finalize_thread", lambda self: None)
+    service = BusinessRunService()
+    sample_count = len(PRODUCT_DESIGN_QUALITY_SAMPLE_ITEMS)
+
+    dry_run = ensure_default_product_design_quality_samples(service=service, dry_run=True)
+    assert dry_run["dry_run"] is True
+    assert dry_run["failed"] == 0
+    assert dry_run["skipped"] == sample_count
+
+    seeded = ensure_default_product_design_quality_samples(service=service)
+    assert seeded["failed"] == 0
+    assert seeded["created"] + seeded["updated"] == sample_count
+
+    seeded_again = ensure_default_product_design_quality_samples(service=service)
+    assert seeded_again["failed"] == 0
+    assert seeded_again["created"] == 0
+    assert seeded_again["updated"] == sample_count
+
+    listed = service.list_quality_samples(business_key="product_design", status="active", limit=50)
+    by_key = {item["sample_key"]: item for item in listed["items"]}
+    expected_keys = {item["sampleKey"] for item in PRODUCT_DESIGN_QUALITY_SAMPLE_ITEMS}
+    assert expected_keys.issubset(set(by_key))
+    for sample_key in expected_keys:
+        item = by_key[sample_key]
+        assert item["business_key"] == "product_design"
+        assert item["image_url"].startswith("https://")
+        assert item["prompt"]
+        assert item["default_params"]["designBrief"]
+        assert item["default_params"]["quality"] == "production"
 
 
 def test_business_quality_action_rules_crud(monkeypatch: pytest.MonkeyPatch) -> None:

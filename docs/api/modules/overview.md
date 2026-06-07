@@ -57,7 +57,7 @@
   - `docs/standards/error-catalog.md`
 - **接口一致性准则**（状态词/错误处理/预览回填统一口径）：
   - `docs/standards/interface-consistency.md`
-- 队列类错误遵循强约束格式：`ERR|<CODE>|<message>`（如 `Q1001`）。
+- 队列/执行器强约束错误遵循固定格式：`ERR|<CODE>|<message>`。常见示例：`Q1001` 表示 ComfyUI 队列满，`Q1002` 表示 ComfyUI 执行器不可用或无兼容可用节点。
 
 ## 5. 任务/回调 ID 约定
 

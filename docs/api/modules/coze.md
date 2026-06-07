@@ -45,6 +45,7 @@
 | 缺少必要参数 | `TASK_ID_REQUIRED`、`IMAGE_REQUIRED`、`COMFYUI_IMAGE_REQUIRED`、`COMFYUI_PROMPT_REQUIRED`、`PROMPT_REQUIRED`、`KIE_MODEL_KEY_REQUIRED` | 修正 Coze 工具参数，不建议自动重试。 | 工具箱描述必须写清必填字段和中文说明。 |
 | 能力或模型不存在 | `ABILITY_NOT_FOUND`、`ABILITY_INACTIVE`、`KIE_MODEL_NOT_FOUND` | 暂停使用该工具或切回旧工作流。 | 检查能力启停、模型目录、工作流绑定和工具箱导入版本。 |
 | 队列满或并发受限 | `Q1001`、`Q2001`、`COMFYUI_QUEUE_FULL` | 直接返回“稍后重试”，不要继续递归提交。 | 中台应给出明确错误码，不允许长期 `running`。 |
+| ComfyUI 执行器不可用 | `Q1002`、`COMFYUI_EXECUTOR_UNAVAILABLE` | 视为提交失败，不进入正常轮询；短时网络波动可重试一次。 | 检查能力绑定、路由候选、节点健康和最近队列读取异常。 |
 | 上游失败或超时 | `TASK_FAILED`、`TASK_TIMEOUT`、`COMFYUI_TIMEOUT`、`KIE_TIMEOUT`、`VENDOR_API_EXECUTION_FAILED` | 可按业务策略重试一次；连续失败时带 `taskId/requestId` 排查。 | 检查执行节点、队列、OSS 回填、厂商 Key 和出网。 |
 | 上游成功但无输出 | `COMFYUI_IMAGES_EMPTY`、`EVAL_SUCCEEDED_WITHOUT_OUTPUT` | 视为失败，不要把空结果回给业务方。 | 巡检和发版门禁必须阻断“成功无回填”。 |
 
@@ -189,6 +190,7 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 - `EXECUTOR_NOT_FOUND` / `EXECUTOR_TYPE_NOT_*`
 - `IMAGE_REQUIRED` / `COMFYUI_IMAGE_REQUIRED` / `COMFYUI_PROMPT_REQUIRED` / `PROMPT_REQUIRED`
 - `Q1001` / `Q2001`（队列满）
+- `Q1002` / `COMFYUI_EXECUTOR_UNAVAILABLE`（没有可用且兼容的 ComfyUI 执行节点）
 
 ---
 
@@ -226,13 +228,14 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 - 若任务仍在运行，`taskStatus=running` 且 `imageUrls` 为空。
 - KIE 长耗时任务会先返回 `running`，后续轮询直至有结果或 `KIE_TIMEOUT`。
 - `taskStatus` 对外统一为：`queued` / `running` / `succeeded` / `failed`。
-- 队列强约束错误统一返回：`taskId = ERR|Qxxxx|...` 且 `taskStatus = failed`。
+- 队列和执行器强约束错误统一返回：`taskId = ERR|Qxxxx|...` 且 `taskStatus = failed`。`Q1001` 是队列满，`Q1002` 是没有可用且兼容的 ComfyUI 执行节点；两者都不是提交成功。
 
 **错误**
 
 - `TASK_ID_REQUIRED` / `TASK_NOT_FOUND`
 - `TASK_FAILED` / `TASK_TIMEOUT` / `KIE_TIMEOUT`
 - `ERR|Q1001|...` / `ERR|Q2001|...`（队列与并发限制，写在 taskId）
+- `ERR|Q1002|COMFYUI_EXECUTOR_UNAVAILABLE...`（执行器不可用或无兼容节点，写在 taskId）
 
 ---
 

@@ -158,6 +158,16 @@ python3 backend/scripts/check_eval_operations_health.py
 
 测评端读取固定质量样例库。写入、停用、归档仍只允许管理端通过 `/api/admin/business/quality-samples` 操作；该接口只给内部测评页提供“用同一张图复跑”的样例入口。
 
+默认样例导入：
+
+```bash
+cd backend
+python3 scripts/seed_default_quality_samples.py --dry-run
+python3 scripts/seed_default_quality_samples.py
+```
+
+当前脚本会为 `product_design` 导入 5 类固定样例：服装/面料、家纺软装、箱包、包装、电商主图。脚本按 `businessKey + sampleKey` upsert，可重复执行；部署后需再通过本接口确认 `business_key=product_design` 的 active 样例数量。
+
 **请求**
 
 ```http

@@ -742,6 +742,34 @@ const isBusinessApiWorkflow = (wf: EvalWorkflowVersion | null | undefined): bool
   return routing?.entryMode === 'business_api' || execution?.mode === 'business_run' || execution?.mode === 'business_agent' || isImageEditWorkflow(wf);
 };
 
+const getWorkflowExecutionTrackingLabels = (wf: EvalWorkflowVersion | null | undefined) => {
+  const routing = getWorkflowRoutingGovernance(wf);
+  const execution = getWorkflowEvalExecution(wf);
+  const businessKey = String(execution?.business_key || '').trim().toLowerCase();
+  const text = `${wf?.workflow_id || ''} ${wf?.name || ''} ${wf?.version || ''} ${wf?.category || ''}`.toLowerCase();
+  if (isImageEditChatWorkflow(wf)) {
+    return {
+      executionLabel: 'Agent 会话 · 图编辑工具',
+      trackingLabel: 'sessionId / planId / runId 追踪',
+    };
+  }
+  if (isBusinessApiWorkflow(wf)) {
+    const usesGptImage =
+      businessKey === 'image_edit' ||
+      businessKey === 'product_design' ||
+      text.includes('gpt image') ||
+      text.includes('image2');
+    return {
+      executionLabel: usesGptImage ? '中台业务编排 · GPT Image 2' : '中台业务编排',
+      trackingLabel: '中台 runId 追踪',
+    };
+  }
+  return {
+    executionLabel: String(routing?.executionLabel || '执行面待确认').trim(),
+    trackingLabel: String(routing?.currentTrackingLabel || '追踪待确认').trim(),
+  };
+};
+
 const isTextFissionEditableWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
   const execution = getWorkflowEvalExecution(wf);
   const workflowId = String(wf?.workflow_id || '').trim();
@@ -3123,7 +3151,6 @@ function ToolCard({
   const recentOutputLabel = getWorkflowRecentOutputLabel(metric);
   const governance = getWorkflowGovernance(wf);
   const routingGovernance = getWorkflowRoutingGovernance(wf);
-  const imageEditWorkflow = isImageEditWorkflow(wf);
   const roleLabel = String(governance?.roleLabel || '可测版本').trim();
   const roleReason = String(governance?.roleReason || '').trim();
   const roleTheme = getWorkflowGovernanceTheme(governance?.role);
@@ -3131,8 +3158,7 @@ function ToolCard({
   const isAuxiliary = role === 'auxiliary';
   const isInternalTesting = isWorkflowInternalTesting(wf);
   const routingTheme = getWorkflowRoutingGovernanceTheme(routingGovernance?.governanceStatus);
-  const executionLabel = imageEditWorkflow ? '中台业务编排 · GPT Image 2' : String(routingGovernance?.executionLabel || '执行面待确认').trim();
-  const trackingLabel = imageEditWorkflow ? '中台 runId 追踪' : String(routingGovernance?.currentTrackingLabel || '追踪待确认').trim();
+  const { executionLabel, trackingLabel } = getWorkflowExecutionTrackingLabels(wf);
   const badges = getWorkflowBadges(wf);
   const cornerBadge = getWorkflowCornerBadge(wf);
   const panelStyle = {
@@ -3144,6 +3170,7 @@ function ToolCard({
   return (
     <div
       role="button"
+      aria-label={`进入${operationTitle} · ${title}工作台`}
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => {
@@ -8937,16 +8964,10 @@ export function App() {
     const selectedToolGovernance = getWorkflowGovernance(selectedTool);
     const selectedToolRoleTheme = getWorkflowGovernanceTheme(selectedToolGovernance?.role);
     const selectedToolRoutingTheme = getWorkflowRoutingGovernanceTheme(selectedToolRouting?.governanceStatus);
-    const selectedToolExecutionLabel = isImageEditChatBusinessWorkflow
-      ? 'Agent 会话 · 图编辑工具'
-      : isImageEditBusinessWorkflow
-        ? '中台业务编排 · GPT Image 2'
-        : String(selectedToolRouting?.executionLabel || '执行面待确认').trim();
-    const selectedToolTrackingLabel = isImageEditChatBusinessWorkflow
-      ? 'sessionId / planId / runId 追踪'
-      : isImageEditBusinessWorkflow
-        ? '中台 runId 追踪'
-        : String(selectedToolRouting?.currentTrackingLabel || '追踪待确认').trim();
+    const {
+      executionLabel: selectedToolExecutionLabel,
+      trackingLabel: selectedToolTrackingLabel,
+    } = getWorkflowExecutionTrackingLabels(selectedTool);
     const selectedToolRoleLabel = String(selectedToolGovernance?.roleLabel || '可测版本').trim();
     const selectedToolUsesBusinessApi = isBusinessApiWorkflow(selectedTool);
     const selectedToolBusinessKey = getBusinessKeyForWorkflow(selectedTool);

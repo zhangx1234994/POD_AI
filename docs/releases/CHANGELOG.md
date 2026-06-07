@@ -5,14 +5,15 @@
 基线 commit：
 
 - 控制面代码提交：`2654efb4`
-- 最终线上提交：`88d48dce`
+- Agent/控制面验收提交：`88d48dce`
+- 最终线上收口提交：`6ba720e3`
 - 上一封版基线：`c638c269`
 
 发布范围：
 
 - 114 控制面 backend。
 - `docs/` 与发布/基准脚本。
-- 管理端、测评端静态站点随标准控制面发布包重新构建部署，但本次无前端功能改动。
+- 管理端、测评端静态站点随标准控制面发布包重新构建部署；最终收口补丁包含测评端能力首页/版本列表/辅助导航交互调整。
 
 主要变更：
 
@@ -22,6 +23,7 @@
 - ComfyUI 队列摘要 `get_comfyui_queue_summary` 加 8 秒短 TTL 与同 key 在途请求合并，避免管理端、Coze 插件、测评端高频刷新时同时打所有 ComfyUI 节点。
 - 新增 `backend/scripts/control_plane_read_benchmark.py`，固定覆盖 `/health`、业务能力列表、usage summary、api usage 和 ComfyUI queue summary 的顺序/并发 p95。
 - 文档入口切换到 v0.6.3 主线，继续强调中台主语是能力，客户端业务组装不进入本仓库实现。
+- 最终收口补丁 `6ba720e3` 将测评端能力分类页继续降噪：推荐入口保持主注意力，版本列表常显，辅助工具独立导航，避免无关分类卡片占据业务方验收路径。
 
 本地验证结果：
 
@@ -38,6 +40,9 @@
 
 线上验证结果：
 
+- 2026-06-07 收口确认 114 `DEPLOYED_COMMIT=6ba720e3`，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active；发布脚本源门禁、后端测试、管理端/测评端 lint 与 build、远端 deploy preflight 和 release smoke 全部通过。
+- 2026-06-07 线上浏览器走查确认测评端图编辑与花纹提取分类页已加载新静态包：两个图编辑入口拆分、推荐版本区清晰、版本列表常显、辅助工具导航独立。截图见 `output/playwright/20260605-release-6ba720e3-eval-image-edit.png`、`output/playwright/20260605-release-6ba720e3-eval-pattern.png`。
+- 2026-06-07 线上运行状态复核：最近 24 小时核心业务无 failed/running/queued 残留，接口调用中心无新增集中 4xx/5xx，114 到 158/233 ComfyUI `/queue` 可达且队列为空，backend 近窗口无 `QueuePool`、`OperationalError`、死锁、锁等待超时或 traceback。
 - 2026-06-05 补充验收确认 114 `DEPLOYED_COMMIT=88d48dce`，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active，三项服务 `NRestarts=0`。
 - AI 改图助手 5 组 Agent 验收全部通过，报告 `/srv/pod/reports/agent-v063-88d48dce-20260605.json`：首轮改图 run `7ccd14fbb18e41a59074ba3ffac3bbc9` 成功，二轮续改 run `2a2d7485d77f4cc2a3dd59de3542edd4` 成功且 `baseImageRole=previous_result`，新任务隔离 run `1f19a38de09543c2a30b429f464f40d4` 成功，模糊意图按预期返回 `409 AGENT_PLAN_REQUIRES_CLARIFICATION`，消息 `requestId` 幂等返回同一 plan。
 - `88d48dce` 控制面 loopback 20 并发报告 `/srv/pod/reports/control-plane-88d48dce-loopback-20260605.json` 全部通过：`/health` p95 57.47ms，`business_capabilities` p95 447.98ms，`business_usage_summary` p95 120.57ms，`business_api_usage` p95 101.55ms，`comfyui_queue_summary` p95 63.28ms。
@@ -58,7 +63,9 @@
 
 已知保留风险：
 
-- 这次是短 TTL 与并发折叠的控制面保护，不等于完成后台预聚合；能力版本指标、质量样例统计和更完整的业务运行预聚合仍是后续 P0/P1 工作。
+- 这次是短 TTL 与并发折叠的控制面保护，不等于完成后台预聚合；能力版本指标、质量样例统计和更完整的业务运行预聚合进入 v0.6 收口版继续盘点和标准化。
+- `Q1002 / COMFYUI_EXECUTOR_UNAVAILABLE` 与 `Q1001 / COMFYUI_QUEUE_FULL` 的业务方判断口径仍需在 v0.6 收口版继续硬化，避免外部系统把 `ERR|...` 误判为提交成功。
+- Agent Runtime MVP 已满足 v0.6.3 验收，但多能力路由、方法论流水线和上下文压缩增强暂不作为当前开发扩张；先在 v0.6 收口版补齐边界、文档、交互和回归标准。
 - `/health` 公网 p95 超过 300ms，但 114 本机 loopback p95 正常；继续按公网 RTT/链路波动观察，不作为服务端封版阻断。
 - Pydantic v2 / FastAPI deprecation warning 仍为历史技术债，当前不阻断发布。
 

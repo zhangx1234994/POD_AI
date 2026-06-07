@@ -25,6 +25,7 @@
 | 场景 | 错误编号 | 说明 |
 | --- | --- | --- |
 | ComfyUI 队列已满 | `Q1001` | 单台 ComfyUI 队列 >= 10 |
+| ComfyUI 执行器不可用 | `Q1002` | 没有可用且兼容的 ComfyUI 节点，或已选节点不可连通且无可切换节点 |
 | 商业模型队列已满 | `Q2001` | 单台商业模型队列 >= 10 |
 
 ---
@@ -41,6 +42,7 @@ ERR|<错误编号>|<错误说明>
 ### 3.2 示例
 ```
 ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10, current=12)
+ERR|Q1002|COMFYUI_EXECUTOR_UNAVAILABLE: executor_x 当前不可连通，且没有其他兼容节点
 ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=10, current=11)
 ```
 
@@ -52,6 +54,8 @@ ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=10, current=11)
 - **taskStatus = failed**
 - **taskId 填写错误编号 + 说明**
 - text/texts 可同步输出错误说明（非强制）
+
+`Q1002` 不是队列满。调用方收到后应把任务视为提交失败，优先检查节点健康、能力绑定、路由候选和短时网络波动，不要进入正常轮询。
 
 ---
 

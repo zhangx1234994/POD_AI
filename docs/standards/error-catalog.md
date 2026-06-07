@@ -17,6 +17,7 @@
 | 编号 | 含义 | 备注 |
 | --- | --- | --- |
 | Q1001 | ComfyUI 队列已满（单机 >= 10） | 强约束，写入 `taskId` |
+| Q1002 | ComfyUI 执行器不可用或无兼容可用节点 | 强约束，写入 `taskId`；不是队列满，优先检查路由候选、节点健康和能力绑定 |
 | Q2001 | 商业模型队列已满（单机 >= 10） | 强约束，写入 `taskId` |
 
 ---
@@ -399,6 +400,7 @@
 | COMFYUI_QUEUE_STATUS_ERROR | /queue/status 异常 | |
 | COMFYUI_QUEUE_STATUS_INVALID | queue JSON 异常 | |
 | COMFYUI_QUEUE_FULL | ComfyUI 队列已满 | 业务 API、Coze 工具箱或能力调用应提示稍后重试，不允许静默丢任务 |
+| COMFYUI_EXECUTOR_UNAVAILABLE | ComfyUI 执行器不可用或无兼容可用节点 | Coze 工具箱和业务接入应按 `Q1002` 强约束失败处理，不允许误判为提交成功 |
 | COMFYUI_QUEUE_HEALTH_UNAVAILABLE | ComfyUI 队列健康检查整体失败 | 评测健康检查无法读取队列汇总 |
 | COMFYUI_EXECUTOR_UNREACHABLE | 部分 ComfyUI 执行节点不可用 | 评测健康检查发现 active 节点队列不可读 |
 | COMFYUI_NO_AVAILABLE_EXECUTOR | 没有可用 ComfyUI 执行节点 | 所有 active ComfyUI 节点队列不可读 |

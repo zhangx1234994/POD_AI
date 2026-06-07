@@ -49,6 +49,7 @@
 - 队列强约束错误（如并发满）：
   - `taskId = ERR|Qxxxx|...`
   - `taskStatus = failed`
+  - `Q1001` 表示 ComfyUI 队列满；`Q1002` 表示 ComfyUI 执行器不可用或没有兼容可用节点，两者都不是已提交任务。
 
 ### 1.3.1 业务任务查询（`/api/business/runs/*`）
 
@@ -104,6 +105,7 @@
 
 - 队列/并发类必须使用：`ERR|<CODE>|<message>`
 - 错误码总表维护于：`docs/standards/error-catalog.md`
+- `ERR|Q1002|COMFYUI_EXECUTOR_UNAVAILABLE...` 必须按提交失败处理。即使 HTTP 层为 200，也不能保存为正常业务任务或继续按成功提交轮询。
 
 ---
 

@@ -35,6 +35,10 @@
 3. Coze/内网工具箱兼容场景下，也可以把 `runId` 填到旧轮询接口 `/api/coze/podi/tasks/get` 的 `taskId` 字段。
 4. 终态优先看 `status/taskStatus/imageUrls/videoUrls/texts/error`。默认查询结果保持轻量，结构化评分会在无图片输出时返回轻量 `resultPayload`；需要 `routeInfo/steps/flowSummary` 等排障字段时，查询接口传 `detail=full`。
 
+提交成功判断必须同时满足：HTTP 2xx、响应体有真实 `runId`、`status/taskStatus` 为 `queued` 或 `running`、没有 `ERR|...`、没有 `errorCode`。如果响应里出现 `ERR|Q1001|...`、`ERR|Q1002|COMFYUI_EXECUTOR_UNAVAILABLE...`、`errorCode` 或 `status=failed`，都不能视为提交成功。
+
+`Q1001` 表示 ComfyUI 队列已满；`Q1002` 表示 ComfyUI 执行器不可用或没有兼容可用节点。`Q1002` 不等同于排队等待，业务方应提示“节点暂不可用，稍后重试或联系中台排查”，不要保存为正常待轮询任务。
+
 这条链路不要求业务方传 Coze 工作流 ID。Coze 可以继续作为接入入口，但业务 API 本身已经能完成“提交任务 -> 查询结果”的闭环；灰度或默认版本命中可先用 `route-preview` 验证。
 
 当前对外业务入口：

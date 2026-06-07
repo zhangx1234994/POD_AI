@@ -9,6 +9,7 @@ from app.services.task_status_contract import (
 
 def test_extract_error_code_from_err_format() -> None:
     assert extract_error_code("ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10)") == "Q1001"
+    assert extract_error_code("ERR|Q1002|COMFYUI_EXECUTOR_UNAVAILABLE: executor_x 当前不可连通") == "Q1002"
 
 
 def test_extract_error_code_from_fanout_summary() -> None:
