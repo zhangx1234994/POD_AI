@@ -6,7 +6,7 @@
 
 - 控制面代码提交：`2654efb4`
 - Agent/控制面验收提交：`88d48dce`
-- 最终线上收口提交：`6ba720e3`
+- 最终线上收口提交：`524a9bfa`
 - 上一封版基线：`c638c269`
 
 发布范围：
@@ -23,7 +23,7 @@
 - ComfyUI 队列摘要 `get_comfyui_queue_summary` 加 8 秒短 TTL 与同 key 在途请求合并，避免管理端、Coze 插件、测评端高频刷新时同时打所有 ComfyUI 节点。
 - 新增 `backend/scripts/control_plane_read_benchmark.py`，固定覆盖 `/health`、业务能力列表、usage summary、api usage 和 ComfyUI queue summary 的顺序/并发 p95。
 - 文档入口切换到 v0.6.3 主线，继续强调中台主语是能力，客户端业务组装不进入本仓库实现。
-- 最终收口补丁 `6ba720e3` 将测评端能力分类页继续降噪：推荐入口保持主注意力，版本列表常显，辅助工具独立导航，避免无关分类卡片占据业务方验收路径。
+- 最终收口补丁 `524a9bfa` 将测评端能力分类页继续降噪：推荐入口保持主注意力，版本列表常显，辅助工具导航保留，并补齐产品设计固定质量样例、能力交互状态模型、v0.6 收口清单和线上验证报告。
 
 本地验证结果：
 
@@ -40,7 +40,8 @@
 
 线上验证结果：
 
-- 2026-06-07 收口确认 114 `DEPLOYED_COMMIT=6ba720e3`，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active；发布脚本源门禁、后端测试、管理端/测评端 lint 与 build、远端 deploy preflight 和 release smoke 全部通过。
+- 2026-06-07 最终收口确认 114 `released_commit=524a9bfa`，`/health` 正常；发布脚本源门禁、后端测试、管理端/测评端 lint 与 build、远端 deploy preflight 和 release smoke 全部通过。额外公网点检确认 114 `/health` 返回 ok，测评端 active 工作流目录返回 30 条。
+- 2026-06-07 候选包验证确认 114 `DEPLOYED_COMMIT=6ba720e3`，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active；候选包随后已由 `524a9bfa` 正式干净提交覆盖发布。
 - 2026-06-07 线上浏览器走查确认测评端图编辑与花纹提取分类页已加载新静态包：两个图编辑入口拆分、推荐版本区清晰、版本列表常显、辅助工具导航独立。截图见 `output/playwright/20260605-release-6ba720e3-eval-image-edit.png`、`output/playwright/20260605-release-6ba720e3-eval-pattern.png`。
 - 2026-06-07 线上运行状态复核：最近 24 小时核心业务无 failed/running/queued 残留，接口调用中心无新增集中 4xx/5xx，114 到 158/233 ComfyUI `/queue` 可达且队列为空，backend 近窗口无 `QueuePool`、`OperationalError`、死锁、锁等待超时或 traceback。
 - 2026-06-05 补充验收确认 114 `DEPLOYED_COMMIT=88d48dce`，`/health` 正常，`podi-backend/podi-admin-web/podi-eval-web` 均为 active，三项服务 `NRestarts=0`。
