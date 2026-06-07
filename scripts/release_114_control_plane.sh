@@ -37,6 +37,9 @@ TEMP_FILES=()
 
 cleanup_temp_files() {
   local file
+  if ((${#TEMP_FILES[@]} == 0)); then
+    return 0
+  fi
   for file in "${TEMP_FILES[@]}"; do
     if [[ -n "$file" ]]; then
       rm -f "$file"
