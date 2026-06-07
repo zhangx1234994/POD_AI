@@ -98,8 +98,9 @@ with_retry() {
   while true; do
     if "$@"; then
       return 0
+    else
+      status=$?
     fi
-    status=$?
     if (( attempt >= REMOTE_OP_RETRIES )); then
       echo "[release-114] ERROR: ${label} failed after ${attempt} attempt(s), exit=${status}." >&2
       return "$status"
@@ -133,8 +134,9 @@ remote_script_retry() {
   while true; do
     if remote "$remote_command" < "$script_file"; then
       return 0
+    else
+      status=$?
     fi
-    status=$?
     if (( attempt >= REMOTE_OP_RETRIES )); then
       echo "[release-114] ERROR: ${label} failed after ${attempt} attempt(s), exit=${status}." >&2
       return "$status"
