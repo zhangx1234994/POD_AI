@@ -6,11 +6,11 @@
 - `/image-edit` 托管组件入口
 - 后续内部业务方源码集成
 
-对话改图是独立产品入口，测评端用户侧显示为“AI 改图助手”，不属于 `ImageEditWorkbench` 的内部模式。它应在组件外层通过 `/api/business/image-edit-chat/*` 管理会话、消息、建议确认，再由后端调用底层 `image_edit` 业务 run。
+对话式图片任务是独立 Agent 入口，测评端用户侧显示为“AI 图片助手”，不属于 `ImageEditWorkbench` 的内部模式。它可以暂时放在“图编辑”分类下帮助发现，但默认是 GPT-5.5 规划 + GPT Image 2 质量优先路径；只有用户明确要求批量、快速、低成本或专项 SOP 时，后端才会按白名单分流到 `business.pattern_extract` 等专项业务能力。
 
-对话改图的线程语义是“图片版 AI 助手”，不是单次任务表单：同一会话内继续输入时，默认基于最新一次成功输出继续改；只有新建会话、上传/粘贴新的基准图时才切换图片上下文。执行结果必须作为对应 tool/run 消息的一部分回填，不能用脱离聊天流的全局结果区替代。
+对话式图片任务的线程语义是“图片版 Codex”，不是单次任务表单：同一会话内继续输入时，默认基于最新一次成功输出继续处理；只有新建会话、上传/粘贴新的基准图时才切换图片上下文。执行结果必须作为对应 tool/run 消息的一部分回填，不能用脱离聊天流的全局结果区替代。
 
-前端不展示模型内部思考过程，只展示可复盘执行依据：`routeEvidence.baseImageRole`、`parentRunId`、`targetAbility`、`confidence` 和 `routeReason`。如果后端返回 `routeEvidence.requiresClarification=true`，前端必须禁用执行按钮，引导用户继续补充目标。后端会把低于阈值的路由置信度、缺少 `editGoal` 等非图片关键字段统一归一为追问态，前端不能自行放行。
+前端不展示模型内部思考过程，也不展示完整 planner JSON。后端可让 GPT-5.5 / Responses API 返回结构化 JSON，但前端只展示面向用户的 `title`、`summary`、关键步骤、执行状态和结果图；`routeEvidence`、`workingMemory`、`toolPayload` 只在排障/详情中保留。如果后端返回 `routeEvidence.requiresClarification=true`，前端必须引导用户继续补充目标，不能自行放行。
 
 ## 文件职责
 
@@ -29,11 +29,13 @@
 
 测评端的任务检查、请求预览、排障信息和业务接入文档必须在组件外层渲染，不允许塞进 `ImageEditWorkbench`。组件源码交付给业务方时，只保留图编辑操作本体。
 
-如果业务方要做聊天式改图，不要把 AI 改图助手逻辑塞进编辑器组件；应使用独立会话入口：
+如果业务方要做聊天式图片 Agent，不要把 Agent 逻辑塞进编辑器组件；应使用独立会话入口：
 
 - `POST /api/business/image-edit-chat/sessions`
 - `POST /api/business/image-edit-chat/sessions/{sessionId}/messages`
 - `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm`
+
+`confirm` 是历史接口名，本质是后端幂等执行边界；产品语言不要做成二次确认按钮。默认体验可以像聊天机器人一样在规划完成后自动提交；只有缺图、低置信、高风险或明确需要人工复核时才停下来追问。
 
 当前源码组件依赖 `tdesign-react` 和 `tdesign-icons-react`。如果业务方页面不使用 TDesign，先按托管组件接入；源码交付时再提供同等交互的轻量样式适配层，不允许业务方自行改协议字段。
 

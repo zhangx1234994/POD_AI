@@ -55,7 +55,7 @@ const EMPTY_CHAT_MESSAGE: BusinessAgentMessage = {
   id: 'empty-chatbot-message',
   sessionId: 'local',
   role: 'assistant',
-  content: '把图放进来，然后直接说想怎么改。我会先给一版建议，确认后再出图。',
+  content: '把图放进来，然后直接说目标。我会整理计划并调用合适的图片能力。',
 };
 
 const THREAD_STORAGE_KEY = 'podi:image-edit-agent:threads:v1';
@@ -110,23 +110,12 @@ const formatAgentError = (err: unknown, fallback: string): string => {
   return toDisplayErrorMessage(raw) || raw || fallback;
 };
 
-const baseImageRoleLabel: Record<string, string> = {
-  source_image: '原始主图',
-  previous_result: '上一轮结果',
-  selected_history_result: '历史结果',
-};
-
-const formatConfidence = (value: unknown) => {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return '待判定';
-  return `${Math.round(Math.max(0, Math.min(1, num)) * 100)}%`;
-};
-
 const getRouteEvidence = (nextPlan?: BusinessAgentPlan | null): BusinessAgentRouteEvidence => nextPlan?.routeEvidence || {};
 
 const routeAbilityLabel = (value: unknown) => {
   const text = String(value || '').trim();
   if (text === 'business.image_edit') return '图编辑';
+  if (text === 'business.pattern_extract') return '花纹提取';
   return text || '待判定';
 };
 
@@ -145,9 +134,9 @@ const getLatestUserMessage = (session?: BusinessAgentSession | null) => {
 
 const buildThreadTitle = (session: BusinessAgentSession, fallback = '') => {
   const title = String(session.title || '').trim();
-  if (title && title !== '对话改图') return truncateText(title, 24);
+  if (title && title !== '对话改图' && title !== 'AI 图片助手') return truncateText(title, 24);
   const latestMessage = getLatestUserMessage(session) || fallback;
-  return truncateText(latestMessage || '未命名改图任务', 24);
+  return truncateText(latestMessage || '未命名图片任务', 24);
 };
 
 const loadThreadSnapshots = (): AgentThreadSnapshot[] => {
@@ -160,7 +149,7 @@ const loadThreadSnapshots = (): AgentThreadSnapshot[] => {
       .slice(0, MAX_THREAD_SNAPSHOTS)
       .map((item) => ({
         sessionId: item.sessionId,
-        title: String(item.title || '未命名改图任务'),
+        title: String(item.title || '未命名图片任务'),
         imageUrl: item.imageUrl ? String(item.imageUrl) : undefined,
         latestPlanId: item.latestPlanId ? String(item.latestPlanId) : null,
         latestRunId: item.latestRunId ? String(item.latestRunId) : null,
@@ -282,7 +271,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
         id: `local-tool-message-${activeRunId}`,
         sessionId: session?.id || 'local',
         role: 'tool',
-        content: '已提交图编辑任务，结果会在这里更新。',
+        content: '已提交图片任务，结果会在这里更新。',
         planId: plan?.id || session?.latestPlanId || null,
         runId: activeRunId,
       });
@@ -305,7 +294,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
               : currentPlanNeedsConfirmation
                 ? planNeedsClarification
                   ? '需要补充'
-                  : '等待确认'
+                  : '已规划'
                 : '待沟通';
 
   const rememberRunResult = (id: string, result: BusinessRunPollResult | Record<string, unknown> | null, opts?: { asCurrent?: boolean }) => {
@@ -338,7 +327,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     setAgentError('');
     sessionRequestIdRef.current = createAgentRequestId();
     if (!opts?.keepMessage) setMessage('');
-    if (opts?.notify) void MessagePlugin.info('已开启新的改图任务，历史任务保留在左侧。');
+    if (opts?.notify) void MessagePlugin.info('已开启新的图片任务，历史任务保留在左侧。');
   };
 
   useEffect(() => {
@@ -346,7 +335,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     const prev = previousMainImageRef.current;
     if (session?.id && next && prev && next !== prev) {
       resetAgentSession({ keepMessage: true });
-      void MessagePlugin.info('主图已变化，已为这张图开启新的改图任务。');
+      void MessagePlugin.info('主图已变化，已为这张图开启新的图片任务。');
     }
     previousMainImageRef.current = next;
   }, [sourceImageUrl, session?.id]);
@@ -444,6 +433,8 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     }
   };
 
+  const planRequiresClarification = (nextPlan?: BusinessAgentPlan | null) => Boolean(getRouteEvidence(nextPlan).requiresClarification);
+
   const generatePlan = async () => {
     const text = message.trim();
     if (!text) {
@@ -455,6 +446,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     setPlan(null);
     setRun(null);
     setRunResult(null);
+    let startedExecution = false;
     try {
       const baseImageUrl = activeImageUrl || undefined;
       const messageRequestId = createAgentRequestId();
@@ -499,19 +491,27 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
         const nextPlan = created.plan || created.session.latestPlan || null;
         setPlan(nextPlan);
         if (nextPlan && showApplyToEditor) onApplyPlanFrom(nextPlan);
+        if (nextPlan && baseImageUrl && !planRequiresClarification(nextPlan)) {
+          startedExecution = true;
+          await confirmPlanWith(created.session, nextPlan, baseImageUrl);
+        }
       } else {
         const result = await evalApi.sendImageEditAgentMessage(session.id, payload);
         setSession(result.session);
         setPlan(result.plan);
         if (showApplyToEditor) onApplyPlanFrom(result.plan);
+        if (result.plan && baseImageUrl && !planRequiresClarification(result.plan)) {
+          startedExecution = true;
+          await confirmPlanWith(result.session, result.plan, baseImageUrl);
+        }
       }
       setMessage('');
     } catch (err) {
-      const errorText = formatAgentError(err, '对话改图回复失败');
+      const errorText = formatAgentError(err, '图片 Agent 回复失败');
       setAgentError(errorText);
       await MessagePlugin.error(errorText);
     } finally {
-      setStatus('idle');
+      if (!startedExecution) setStatus('idle');
     }
   };
 
@@ -527,25 +527,25 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     });
   };
 
-  const confirmPlan = async () => {
-    if (!session?.id || !plan?.id) {
-      await MessagePlugin.error('请先生成建议。');
+  const confirmPlanWith = async (targetSession: BusinessAgentSession, targetPlan: BusinessAgentPlan, targetImageUrl: string) => {
+    if (!targetSession?.id || !targetPlan?.id) {
+      await MessagePlugin.error('请先发送一条消息。');
       return;
     }
-    if (!activeImageUrl) {
+    if (!targetImageUrl) {
       await MessagePlugin.error('请先上传或粘贴主图。');
       return;
     }
-    if (planNeedsClarification) {
+    if (planRequiresClarification(targetPlan)) {
       await MessagePlugin.warning('当前目标还不够明确，请继续补充要改哪里、保留什么、希望变成什么效果。');
       return;
     }
     setAgentError('');
     setStatus('confirming');
     try {
-      const result = await evalApi.confirmImageEditAgentPlan(session.id, plan.id, {
-        requestId: `iec:${shortAgentId(session.id)}:${shortAgentId(plan.id)}:${Date.now().toString(36)}`,
-        overrides: { imageUrl: activeImageUrl },
+      const result = await evalApi.confirmImageEditAgentPlan(targetSession.id, targetPlan.id, {
+        requestId: `iec:${shortAgentId(targetSession.id)}:${shortAgentId(targetPlan.id)}:${Date.now().toString(36)}`,
+        overrides: { imageUrl: targetImageUrl },
       });
       setSession(result.session);
       setPlan(result.plan);
@@ -554,7 +554,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
       if (id) rememberRunResult(id, result.run, { asCurrent: true });
       if (id) void pollRun(id, { sessionId: result.session.id });
     } catch (err) {
-      const errorText = formatAgentError(err, '确认执行失败');
+      const errorText = formatAgentError(err, '执行提交失败');
       setAgentError(errorText);
       await MessagePlugin.error(errorText);
       setStatus('idle');
@@ -612,7 +612,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
       const nextSession = session ? { ...session, imageUrl: url } : null;
       setSession(nextSession);
       setSourceOpen(false);
-      await MessagePlugin.success('主图已上传，可继续对话改图。');
+      await MessagePlugin.success('主图已上传，可继续发送图片任务。');
     } catch (err) {
       const errorText = formatAgentError(err, '上传失败');
       setAgentError(errorText);
@@ -667,7 +667,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           {state !== 'succeeded' && state !== 'failed' ? <i aria-hidden="true" /> : null}
           {content}
         </p>
-        {renderImageStrip(urls, '对话改图输出')}
+        {renderImageStrip(urls, '图片任务输出')}
       </>
     );
   };
@@ -677,12 +677,12 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     const roleClass = item.role === 'user' ? 'user' : isTool ? 'tool' : 'assistant';
     return (
       <div key={item.id} className={`podi-image-edit-agent__message is-${roleClass}`}>
-        <span>{item.role === 'user' ? '你' : isTool ? '执行结果' : 'AI 改图助手'}</span>
+        <span>{item.role === 'user' ? '你' : isTool ? '执行结果' : 'AI 图片助手'}</span>
         {isTool ? (
           renderToolMessageContent(item)
         ) : (
           <>
-            <p>{item.content || (item.planId ? '我整理了一条可执行建议，你可以继续沟通或直接确认执行。' : '已收到。')}</p>
+            <p>{item.content || (item.planId ? '我整理了执行计划，并会在条件满足时提交图片能力。' : '已收到。')}</p>
             {renderMessageAttachments(item)}
           </>
         )}
@@ -694,13 +694,13 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     if (status === 'idle' || status === 'restoring' || status === 'polling') return null;
     const text =
       status === 'planning'
-        ? '正在理解图片和你的目标，整理可执行建议...'
+        ? '正在理解图片和你的目标，整理可执行计划...'
         : status === 'confirming'
-          ? '正在提交图编辑任务...'
+          ? '正在提交图片任务...'
           : `正在出图，完成后结果会直接出现在这里。已等待 ${pollElapsedSeconds}s`;
     return (
       <div className="podi-image-edit-agent__message is-working">
-        <span>AI 改图助手</span>
+        <span>AI 图片助手</span>
         <p>
           <i aria-hidden="true" />
           {text}
@@ -713,7 +713,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     if (!agentError) return null;
     return (
       <div className="podi-image-edit-agent__message is-error">
-        <span>AI 改图助手</span>
+        <span>AI 图片助手</span>
         <p>{agentError}</p>
       </div>
     );
@@ -723,21 +723,18 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
     if (!plan) return null;
     if ((currentPlanRunId || plan.status === 'executed') && currentPlanRunStatus !== 'failed') return null;
     const evidence = planRouteEvidence;
-    const baseRole = String(evidence.baseImageRole || plan.baseImageRole || '').trim();
-    const parentRunId = String(evidence.parentRunId || plan.parentRunId || '').trim();
     const missingFields = Array.isArray(evidence.missingFields) ? evidence.missingFields.filter(Boolean) : [];
-    const routeReason = String(evidence.routeReason || '').trim();
     return (
       <div className="podi-image-edit-agent__message is-plan">
-        <span>AI 改图助手建议</span>
+        <span>AI 图片助手</span>
         <div className="podi-image-edit-agent__plan-head">
           <div>
-            <strong>{plan.title || '可执行改图建议'}</strong>
-            <p>{plan.summary || '已生成一版可执行方案。你可以继续补充要求，也可以直接执行。'}</p>
+            <strong>{plan.title || '已理解你的需求'}</strong>
+            <p>{plan.summary || '我会按当前图片和你的描述处理，完成后结果会直接出现在对话里。'}</p>
           </div>
           <div className="podi-image-edit-agent__plan-tags">
             <Tag theme="primary" variant="light">
-              {skillLabel(planPayload.editSkill)}
+              {routeAbilityLabel(evidence.targetAbility) || skillLabel(planPayload.editSkill)}
             </Tag>
             <Tag theme="warning" variant="light">
               {costLabel[String(plan.estimatedCostLevel || '')] || '成本待估'}
@@ -747,31 +744,10 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
             </Tag>
           </div>
         </div>
-        <div className="podi-image-edit-agent__evidence" aria-label="执行依据">
-          <div>
-            <span>基准</span>
-            <strong>{baseImageRoleLabel[baseRole] || '当前主图'}</strong>
-          </div>
-          <div>
-            <span>路由</span>
-            <strong>{routeAbilityLabel(evidence.targetAbility)}</strong>
-          </div>
-          <div>
-            <span>置信度</span>
-            <strong>{formatConfidence(evidence.confidence)}</strong>
-          </div>
-          {parentRunId ? (
-            <div>
-              <span>父任务</span>
-              <strong>{shortAgentId(parentRunId)}</strong>
-            </div>
-          ) : null}
-        </div>
-        {routeReason ? <p className="podi-image-edit-agent__route-reason">{routeReason}</p> : null}
         {planNeedsClarification ? (
           <Alert
             theme="warning"
-            message={`还需要补充：${missingFields.length > 0 ? missingFields.join(' / ') : '改图目标'}。请继续对话说明要改哪里、保留什么、希望变成什么效果。`}
+            message={`还需要补充：${missingFields.length > 0 ? missingFields.join(' / ') : '处理目标'}。请继续对话说明要处理哪里、保留什么、希望变成什么效果。`}
           />
         ) : null}
         {(plan.editPlan || []).length > 0 ? (
@@ -789,13 +765,11 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
         ) : null}
         {plan.warnings && plan.warnings.length > 0 ? <Alert theme="info" message={plan.warnings.join('；')} /> : null}
         <div className="podi-image-edit-agent__instruction">
-          <span>将执行</span>
-          <p>{String(planPayload.instruction || plan.summary || '')}</p>
+          <span>执行摘要</span>
+          <p>{String(planPayload.prompt || planPayload.instruction || plan.summary || '')}</p>
         </div>
+        {!activeImageUrl ? <Alert theme="warning" message="请先上传或粘贴主图，再发送需求；我会在理解清楚后自动提交任务。" /> : null}
         <div className="podi-image-edit-agent__inline-actions">
-          <Button theme="primary" loading={status === 'confirming'} disabled={busy || !activeImageUrl || planNeedsClarification} onClick={() => void confirmPlan()}>
-            {planNeedsClarification ? '先补充说明' : '执行这版'}
-          </Button>
           {showApplyToEditor && onApplyPlan ? (
             <Button disabled={busy} onClick={() => onApplyPlanFrom(plan)}>
               同步到工作台
@@ -814,14 +788,14 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
         <div className="podi-image-edit-agent__title">
           <ChartBubbleIcon />
           <div>
-            <strong>AI 改图助手</strong>
-            <span>一个改图任务一条线程：图片、对话、执行和结果都在同一处。</span>
+            <strong>AI 图片助手</strong>
+            <span>一个图片任务一条线程：图片、对话、执行和结果都在同一处。</span>
           </div>
         </div>
       }
     >
       <div className="podi-image-edit-agent__workspace">
-        <aside className="podi-image-edit-agent__threads" aria-label="最近改图任务">
+        <aside className="podi-image-edit-agent__threads" aria-label="最近图片任务">
           <div className="podi-image-edit-agent__threads-head">
             <span>最近任务</span>
             <button type="button" disabled={busy} onClick={() => resetAgentSession({ keepMessage: false, notify: true })}>
@@ -840,7 +814,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
                 >
                   <strong>{item.title}</strong>
                   <span>
-                    {statusText[String(item.latestRunStatus || '').toLowerCase()] || (item.latestPlanId ? '有建议' : '会话')}
+                    {statusText[String(item.latestRunStatus || '').toLowerCase()] || (item.latestPlanId ? '已规划' : '会话')}
                     {' · '}
                     {formatThreadTime(item.updatedAt)}
                   </span>
@@ -852,10 +826,10 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           </div>
         </aside>
 
-        <section className="podi-image-edit-agent__chat" aria-label="图片改图对话">
+        <section className="podi-image-edit-agent__chat" aria-label="AI 图片助手对话">
           <div className="podi-image-edit-agent__chat-head">
             <div>
-              <strong>{session ? buildThreadTitle(session, message) : '新改图任务'}</strong>
+              <strong>{session ? buildThreadTitle(session, message) : '新图片任务'}</strong>
               <span>{activeImageUrl ? (activeImageIsGenerated ? '当前基准图：上一轮结果' : '当前基准图：主图') : '先添加主图'}</span>
             </div>
             <Tag theme={status === 'idle' ? 'default' : 'primary'} variant="light">
@@ -893,7 +867,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
                 {currentImageUrl ? '更换主图' : '上传主图'}
               </Button>
               <Button variant="text" disabled={busy} onClick={() => resetAgentSession({ keepMessage: false, notify: true })}>
-                新建改图
+                新建任务
               </Button>
               <input
                 ref={imageInputRef}
@@ -926,8 +900,8 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
           {activeImageIsGenerated && sourceImageUrl && sourceImageUrl !== activeImageUrl ? (
             <div className="podi-image-edit-agent__context-result">
               <span>原始主图</span>
-              <button type="button" onClick={() => onPreviewImage?.(sourceImageUrl, '对话改图原始主图')}>
-                <img src={sourceImageUrl} alt="对话改图原始主图" />
+              <button type="button" onClick={() => onPreviewImage?.(sourceImageUrl, '图片任务原始主图')}>
+                <img src={sourceImageUrl} alt="图片任务原始主图" />
               </button>
             </div>
           ) : null}
@@ -958,7 +932,7 @@ export function ImageEditAgentPanel(props: ImageEditAgentPanelProps) {
             <details className="podi-image-edit-agent__debug">
               <summary>排障编号</summary>
               <p>会话：{session ? shortAgentId(session.id) : '未创建'}</p>
-              <p>建议：{plan ? shortAgentId(plan.id) : '无'}</p>
+              <p>计划：{plan ? shortAgentId(plan.id) : '无'}</p>
               <p>任务：{runId ? shortAgentId(runId) : '无'}</p>
             </details>
           ) : null}

@@ -67,8 +67,8 @@
 3. `doing` 交互治理专项
 - 目标：解决“能跑但不好用、每页局部修、没有整体交互规划”的问题。
 - 范围：能力首页、能力工作台、Agent 对话页、任务追踪、质量复盘、管理端能力治理页、执行节点/队列页；统一首屏主任务、状态模型、结果区域、历史区域、排障区域和角色动线。
-- 进展（2026-06-07）：新增 `docs/standards/eval-ability-interaction-state-model.md`，把测评端分类首页、能力工作台、AI 改图助手、直接图编辑、花纹提取、产品设计的空态、上传、提交、排队、执行、成功、失败、历史和排障状态固化为统一标准；下一步按该模型做浏览器路径走查和页面整改。
-- 进展（2026-06-07）：完成首轮本地浏览器走查，记录见 `docs/testing/2026-06-07-v0.6-closure-eval-interaction-audit.md`。图编辑分类首页、AI 改图助手空态、直接图编辑工作台、产品设计、花纹提取均按能力组织；发现并修复产品设计工作台仍显示旧 `ComfyUI 执行面 / Coze 输出追踪` 的口径问题，统一为 `中台业务编排 · GPT Image 2 / 中台 runId 追踪`。
+- 进展（2026-06-07）：新增 `docs/standards/eval-ability-interaction-state-model.md`，把测评端分类首页、能力工作台、AI 图片助手、直接图编辑、花纹提取、产品设计的空态、上传、提交、排队、执行、成功、失败、历史和排障状态固化为统一标准；下一步按该模型做浏览器路径走查和页面整改。
+- 进展（2026-06-07）：完成首轮本地浏览器走查，记录见 `docs/testing/2026-06-07-v0.6-closure-eval-interaction-audit.md`。图编辑分类首页、AI 图片助手空态、直接图编辑工作台、产品设计、花纹提取均按能力组织；发现并修复产品设计工作台仍显示旧 `ComfyUI 执行面 / Coze 输出追踪` 的口径问题，统一为 `中台业务编排 · GPT Image 2 / 中台 runId 追踪`。
 - 验收：核心页面都有用户动线和状态模型；页面整改后必须用浏览器模拟用户操作；每次页面改动说明删掉、折叠、保留或上移了什么。
 
 4. `doing` 接口文档和错误契约补齐
@@ -133,14 +133,15 @@
 - 验收：核心只读接口 20 并发成功率 100%，p95 <= 3000ms；高频只读接口 p95 <= 1500ms；列表接口默认不加载大字段和完整步骤明细。
 
 2. `done` Agent Runtime MVP 整改
-- 目标：把 AI 改图助手从“聊天式任务提交”整改成 Agent Runtime 最小样板。
+- 目标：把 AI 图片助手从“聊天式任务提交”整改成 Agent Runtime 最小样板。
 - 范围：聊天瀑布流、结果图片进入消息流、上一轮结果续改、新任务隔离、结构化计划、路由证据、低置信追问、确认幂等、golden cases。
 - 进展（2026-06-04）：补齐消息级 `requestId` 幂等控制：`POST /api/business/image-edit-chat/sessions/{sessionId}/messages` 在同一 `sessionId + requestId` 下只返回原方案，不重复生成计划；并通过 `business_agent_messages(session_id, request_id)` 唯一索引兜底并发重试。测评端追加消息已开始传 `requestId`，接口文档和错误码已同步。
-- 进展（2026-06-05）：完成 AI 改图助手首轮体验降噪：空态去掉重复 Alert，右侧上下文栏只保留添加主图、当前状态和粘贴图片链接；工程化“调试信息”改为有会话后才出现的折叠“排障编号”。本地浏览器走查确认路由证据可见：基准=原始主图、路由=图编辑、置信度=84%，截图见 `output/playwright/20260605-image-edit-agent-empty-polished.png`、`output/playwright/20260605-image-edit-agent-plan-polished.png`。
+- 进展（2026-06-05）：完成 AI 图片助手首轮体验降噪：空态去掉重复 Alert，右侧上下文栏只保留添加主图、当前状态和粘贴图片链接；工程化“调试信息”改为有会话后才出现的折叠“排障编号”。本地浏览器走查确认路由证据可见：基准=原始主图、路由=图编辑、置信度=84%，截图见 `output/playwright/20260605-image-edit-agent-empty-polished.png`、`output/playwright/20260605-image-edit-agent-plan-polished.png`。
 - 进展（2026-06-05）：`88d48dce` 已完成线上 5 组 Agent 验收，报告 `/srv/pod/reports/agent-v063-88d48dce-20260605.json`：首轮真实执行 succeeded、二轮续改基于上一轮输出 succeeded、新任务隔离 succeeded、模糊意图返回 `409 AGENT_PLAN_REQUIRES_CLARIFICATION` 且未创建下游 run、消息 `requestId` 幂等返回同一 plan。
 - 进展（2026-06-05）：新增 `docs/standards/agent-runtime-regression-matrix.md`，把 Agent MVP 的 5 组 golden cases、路由稳定性、并发幂等、失败路径和前端交互验收固化为后续每次改 Agent 必跑的矩阵。
 - 进展（2026-06-07）：Agent Runtime MVP 已完成 v0.6.3 验收；多能力路由、方法论流水线和上下文压缩增强暂作后续路线储备，当前先在 v0.6 收口版补齐边界、文档、交互和回归标准。
-- 验收：5 组真实对话全链路通过；二轮续改默认基于最新成功输出；新任务不污染旧上下文；每次执行可见 `routeReason/confidence/baseImageRole/parentRunId`。
+- 进展（2026-06-08）：按质量优先策略再次纠偏 AI 图片助手：普通单张花纹提取类诉求默认走 `business.image_edit`，由 GPT-5.5 规划并交给 GPT Image 2 执行；只有用户明确要求批量、快速、低成本或专项能力时才分流到 `business.pattern_extract`。后端 planner JSON、新增 `routeType`、候选专项能力证据和文档回归矩阵已同步升级为 7 组 golden cases。
+- 验收：7 组真实对话全链路通过；二轮续改默认基于最新成功输出；新任务不污染旧上下文；普通单张花纹提取返回 `routeType=image2_quality_first` 并保留 `specializedAbilityCandidate`；明确批量/快速/低成本返回 `routeType=ability_accelerated`；每次执行可在排障详情看到 `routeReason/confidence/baseImageRole/parentRunId`。
 
 3. `done` 能力治理和测评端降噪
 - 目标：按能力组织测评端和治理页，让业务方、运营、运维、能力工程师都能先看到当前结论和下一步动作。
@@ -228,15 +229,16 @@
 - 进展（2026-06-02）：客户端任务包已从“项目主视角”纠偏为“能力工作台主视角”；`projectId` 只作为兼容上下文字段。当前不继续实现客户端，只保留方案边界。
 - 验收：客户端方案清楚写明页面、API、mock 范围、禁止项和联调标准；接口缺口进入中台能力 TODO，不由客户端绕路实现，也不把客户端做成项目管理系统。
 
-8. `done` AI 改图助手 P0
+8. `done` AI 图片助手 P0
 - 目标：把对话改图作为独立 Agent 入口接入，不改造中台、不绕开业务 API；底层可调用图编辑，但产品入口和直接图编辑拆开。
 - 范围：`image_edit_chat`、底层 `agent.image_edit_assistant`、会话/消息/方案/工具调用证据表、`/api/business/image-edit-chat/*`、测评端对话改图面板、错误码和 API 文档。
 - 进展（2026-06-02）：新增轻量 Agent Runtime，支持规则 planner 兜底；配置 GPT-5.5/Responses Key 后可切模型 planner；确认前只生成方案，确认后调用 `image_edit` 业务 run。
-- 进展（2026-06-02）：业务运行完整详情新增 `agentTrace`，管理端 run 详情可直接看到 Agent 会话、方案、工具调用、确认执行时间和下发参数，Agent 创建的普通业务 `runId` 已纳入同一条排障证据链。
-- 进展（2026-06-03）：产品边界修正为“AI 改图助手”和“直接图编辑”两个功能；新增推荐路径 `/api/business/image-edit-chat/*`，旧 `/agents/image-edit/*` 仅保留技术兼容。
-- 进展（2026-06-03）：测评端图编辑两个工具页完成操作优先降噪；首屏先展示 AI 改图助手/直接图编辑真实操作区，流程、版本、接口和验收焦点默认折叠到操作区之后。
+- 进展（2026-06-02）：业务运行完整详情新增 `agentTrace`，管理端 run 详情可直接看到 Agent 会话、方案、工具调用、执行边界时间和下发参数，Agent 创建的普通业务 `runId` 已纳入同一条排障证据链。
+- 进展（2026-06-03）：产品边界修正为“AI 图片助手”和“直接图编辑”两个功能；新增推荐路径 `/api/business/image-edit-chat/*`，旧 `/agents/image-edit/*` 仅保留技术兼容。
+- 进展（2026-06-03）：测评端图编辑两个工具页完成操作优先降噪；首屏先展示 AI 图片助手/直接图编辑真实操作区，流程、版本、接口和验收焦点默认折叠到操作区之后。
 - 进展（2026-06-03）：补充定义口径：对话改图可暂时放在图编辑分类下，但长期归宿是 Agent；可视化改图与对话改图是两条方向，前者面向标注和精确提交，后者面向自然语言、多轮追改和未来多能力编排。
-- 验收：测评端可完成“聊天输入改图诉求 -> AI 改图助手回复建议 -> 继续沟通或应用到编辑器 -> 确认执行 -> 查看 runId/结果”的闭环；Agent 工具调用可追溯且只允许 `business.image_edit`。
+- 进展（2026-06-07）：纠正 Agent 入口命名和执行心智：对用户是 AI 图片助手/图片版 Codex，不是改图表单；`confirm` 只作为后端幂等执行边界，普通单步图片能力可在计划满足条件后自动提交；花纹提取已纳入当前白名单而非后续储备。
+- 验收：测评端可完成“聊天输入图片任务诉求 -> AI 图片助手回复计划 -> 自动进入后端执行边界或继续追问 -> 查看 runId/结果”的闭环；Agent 工具调用可追溯且只允许当前白名单业务能力。
 
 9. `archived` 首批能力缺口决策
 - 目标：从中台视角审查客户端未来业务组装需要哪些业务能力包装，而不是由中台决定客户端流程。
@@ -251,7 +253,7 @@
 - 范围：聊天瀑布流、新任务隔离、上一轮结果续改、当前基准图状态、结构化计划、路由证据、低置信追问、后端幂等、队列状态、错误契约、golden case 路由回归。
 - 原则：前端只负责体验和确认；后端负责会话、上下文压缩、方法论、能力路由、任务队列、成本、Key 池和审计。不得让前端直接决定底层工具或调用厂商接口。
 - 进展（2026-06-03）：已把长期边界补入 `ability-definition-v0.6.md` 与 `business-agent-runtime-v0.6.md`；下一步按 MVP 稳定性门禁整改代码和测试。
-- 进展（2026-06-05）：测评端 AI 改图助手补齐聊天流结果回填：当前 run 会被合成为 tool 气泡，轮询成功后结果图直接出现在对话消息中，继续输入默认携带 `baseImageRole=previous_result` 与 `previousRunId`；新增 Playwright 回归固定“结果在聊天流、二轮续改基于上一轮输出、新建任务保留历史线程”。
+- 进展（2026-06-05）：测评端 AI 图片助手补齐聊天流结果回填：当前 run 会被合成为 tool 气泡，轮询成功后结果图直接出现在对话消息中，继续输入默认携带 `baseImageRole=previous_result` 与 `previousRunId`；新增 Playwright 回归固定“结果在聊天流、二轮续改基于上一轮输出、新建任务保留历史线程”。
 - 进展（2026-06-07）：v0.6 Agent MVP 已按 v0.6.3 验收收口；路由契约硬化进入当前 v0.6 收口执行单，多能力 Agent 演进暂作后续路线储备。
 - 验收：同一会话多轮改图默认基于最新成功输出；新任务不污染旧上下文；每次执行能看到 routeReason/confidence/baseImageRole/parentRunId；模糊意图会追问；并发、超时、队列满、供应商失败都有明确状态和错误；golden cases 多次运行路由稳定。
 

@@ -7,18 +7,18 @@ const FIRST_OUTPUT = 'https://static.podi.test/generated-first.png';
 const CHAT_WORKFLOW = {
   id: 'wf-image-edit-chat',
   category: '图编辑',
-  name: 'AI 改图助手',
+  name: 'AI 图片助手',
   version: 'image-edit-chat-v1',
   workflow_id: 'business_image_edit_chat_gpt_image2_assistant_v1',
   status: 'active',
-  notes: '对话式改图 Agent 入口。',
+  notes: '图片 Agent 入口。',
   metadata: { eval_execution: { mode: 'business_agent', business_key: 'image_edit_chat' } },
   created_at: NOW,
   updated_at: NOW,
   parameters_schema: {
     fields: [
       { name: 'imageUrl', label: '图片 URL', type: 'text', required: false },
-      { name: 'message', label: '改图诉求', type: 'textarea', required: true },
+      { name: 'message', label: '图片处理目标', type: 'textarea', required: true },
       { name: 'quality', label: '质量', type: 'select', defaultValue: 'auto', options: [{ label: '自动', value: 'auto' }] },
       { name: 'size', label: '尺寸', type: 'select', defaultValue: 'auto', options: [{ label: '自动', value: 'auto' }] },
       { name: 'output_format', label: '格式', type: 'select', defaultValue: 'png', options: [{ label: 'PNG', value: 'png' }] },
@@ -219,15 +219,13 @@ test('image edit agent keeps run results in the chat stream and continues from p
   await page.goto('/?view=tool&category=%E5%9B%BE%E7%BC%96%E8%BE%91&tool=wf-image-edit-chat');
 
   const agent = page.locator('.podi-image-edit-agent');
-  await expect(agent).toContainText('AI 改图助手');
+  await expect(agent).toContainText('AI 图片助手');
   await page.locator('.podi-image-edit-agent__source summary').click();
   await page.locator('.podi-image-edit-agent__source input').fill(SOURCE_IMAGE);
   await agent.locator('textarea').fill('把这张图改得更高级一些，适合服装面料。');
   await agent.getByRole('button', { name: '发送' }).click();
 
-  await expect(agent.locator('.podi-image-edit-agent__message.is-plan')).toContainText('原始主图');
-  await agent.getByRole('button', { name: '执行这版' }).click();
-
+  await expect(agent.getByRole('button', { name: '执行这版' })).toHaveCount(0);
   await expect(agent.locator('.podi-image-edit-agent__message.is-tool')).toContainText('已完成');
   await expect(agent.locator('.podi-image-edit-agent__message.is-tool img')).toHaveCount(1);
   await expect(agent.locator('.podi-image-edit-agent__chat-head')).toContainText('当前基准图：上一轮结果');
@@ -235,10 +233,10 @@ test('image edit agent keeps run results in the chat stream and continues from p
   await agent.locator('textarea').fill('继续基于这张结果，把颜色压低一点。');
   await agent.getByRole('button', { name: '发送' }).click();
 
-  await expect(agent.locator('.podi-image-edit-agent__message.is-plan').last()).toContainText('上一轮结果');
+  await expect.poll(() => messagePayloads.length).toBe(1);
   expect(messagePayloads.at(-1)?.context).toMatchObject({ baseImageRole: 'previous_result', previousRunId: 'run-first' });
 
-  await agent.getByRole('button', { name: '新建改图' }).click();
-  await expect(agent.locator('.podi-image-edit-agent__chat-head')).toContainText('新改图任务');
-  await expect(agent.locator('.podi-image-edit-agent__thread-list')).toContainText('有建议');
+  await agent.getByRole('button', { name: '新建任务' }).click();
+  await expect(agent.locator('.podi-image-edit-agent__chat-head')).toContainText('新图片任务');
+  await expect(agent.locator('.podi-image-edit-agent__thread-list')).toContainText('已完成');
 });

@@ -1914,33 +1914,18 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             },
         },
     },
-    # 图编辑 / AI 改图助手：Agent 独立入口
+    # 图编辑 / AI 图片助手：Agent 独立入口
     {
         "category": "图编辑",
-        "name": "AI 改图助手",
+        "name": "AI 图片助手",
         "version": "image-edit-chat-v1",
         "workflow_id": "business_image_edit_chat_gpt_image2_assistant_v1",
         "status": "active",
-        "notes": "独立对话式改图入口。用户通过多轮对话整理改图方案，确认后由后端调用 /api/business/image-edit/runs，最终仍产生标准 image_edit 业务 runId。",
+        "notes": "独立图片 Agent 入口。用户像聊天一样表达目标，后端生成结构化计划；普通单张图片任务默认走 GPT Image 2 质量优先路径，明确批量、快速、低成本或专项 SOP 时才按白名单分流到花纹提取等专项能力。前端只展示必要计划节点和任务结果。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "主图 URL", "type": "image", "required": True, "description": "执行前必须提供的主图；可上传本地图片自动落 OSS。"},
-                {"name": "message", "label": "对话诉求", "type": "textarea", "required": True, "defaultValue": "把这张图改得更高级一些，适合服装面料，保持主体结构和未提及区域不变。", "description": "用户用聊天方式描述这次想怎么改。"},
-                {
-                    "name": "editSkill",
-                    "label": "默认改图技能",
-                    "type": "select",
-                    "required": False,
-                    "defaultValue": "local_modify",
-                    "description": "AI 改图助手可按上下文整理方案；这里仅作为默认执行倾向。",
-                    "options": [
-                        {"label": "局部修改", "value": "local_modify"},
-                        {"label": "参考图替换", "value": "reference_element_transfer"},
-                        {"label": "删除修补", "value": "remove_inpaint"},
-                        {"label": "补色校正", "value": "color_reference_correction"},
-                        {"label": "扩展画布", "value": "canvas_outpaint"},
-                    ],
-                },
+                {"name": "message", "label": "对话诉求", "type": "textarea", "required": True, "defaultValue": "把这张图改得更高级一些，适合服装面料，保持主体结构和未提及区域不变。", "description": "用户用自然语言描述目标，后端负责规划和能力路由。"},
                 {
                     "name": "size",
                     "label": "输出尺寸",
@@ -1980,9 +1965,9 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {
             "fields": [
-                {"name": "sessionId", "type": "text", "description": "AI 改图助手会话 ID"},
-                {"name": "planId", "type": "text", "description": "确认执行的方案 ID"},
-                {"name": "runId", "type": "text", "description": "确认后创建的 image_edit 业务运行 ID"},
+                {"name": "sessionId", "type": "text", "description": "AI 图片助手会话 ID"},
+                {"name": "planId", "type": "text", "description": "当前执行计划 ID"},
+                {"name": "runId", "type": "text", "description": "提交后创建的业务运行 ID"},
                 {"name": "imageUrls", "type": "array", "description": "最终 OSS 结果图"},
             ]
         },
@@ -1991,14 +1976,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "badge": "新版",
             "presentation": {
                 "category_label": "图编辑",
-                "operation_label": "对话改图",
-                "variant_label": "AI 改图助手",
+                "operation_label": "AI 图片助手",
+                "variant_label": "图片 Agent",
                 "badges": ["新版", "Agent", "独立入口"],
                 "release_time": "2026-06-03",
                 "update_time": "2026-06-03",
                 "supports_batch": False,
                 "result_mode": "image",
-                "usage_hint": "用于验证聊天式改图：先多轮沟通生成建议，用户确认后再调用中台图编辑业务能力。",
+                "usage_hint": "用于验证图片 Agent：先用 GPT-5.5/规则 planner 生成结构化计划，再由后端白名单路由到合适图片能力并提交任务。",
                 "sort_order": 5,
             },
             "governance": {

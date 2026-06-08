@@ -1,5 +1,49 @@
 # PODI 版本记录
 
+## v0.6.4 - 2026-06-08
+
+基线 commit：
+
+- 本地候选提交：以本节所在提交为准。
+- 线上最终提交：以 114 `/srv/pod/DEPLOYED_COMMIT` 和发布脚本 `released_commit` 为准。
+- 上一封版基线：`524a9bfa`。
+
+发布范围：
+
+- 114 控制面 backend。
+- 测评端静态站点。
+- `docs/`、错误码、接口契约和 Agent Runtime 回归矩阵。
+
+主要变更：
+
+- AI 图片助手路由策略调整为“质量优先”：普通单张图片任务默认 `GPT-5.5 planner + GPT Image 2`，创建 `business.image_edit` run。
+- 明确批量、快速、低成本或固定 SOP 的花纹提取诉求才分流到 `business.pattern_extract`，避免普通用户自然语言任务误走专项小模型。
+- 后端 planner schema 增加 `routeType`、`targetAbility`、`targetBusinessKey`；控制面会覆盖模型误判，确保最终工具调用由后端白名单和规则兜底。
+- `routeEvidence` 增加 `primaryExecutionEngine` 与 `specializedAbilityCandidate`，用于解释“为什么普通花纹提取仍走 GPT Image 2 质量路径”。
+- 测评端 AI 图片助手继续按图片版 Codex 心智收口：无“执行这版”按钮，满足条件后自动进入后端执行边界，结果回到聊天消息流，二轮默认基于上一轮成功输出。
+- Agent Runtime 回归矩阵从 6 组升级为 7 组 golden cases，新增普通花纹提取质量优先路由与专项加速路由两条断言。
+
+本地验证结果：
+
+- 业务流程审查通过：用户消息、planner、后端归一化、confirm 执行边界、业务 run payload、结果消息流、接口文档逐段核对。
+- 后端 Agent/业务契约回归通过：`93 passed`。
+- 新增单测覆盖普通花纹提取确认后创建 `image_edit` run，并确认 payload 不混入 `prompt/batch` 专项字段。
+- `scripts/check_doc_entry_references.py`、`git diff --check`、Python 编译检查通过。
+- 测评端 `npm run lint`、`npm run build` 通过。
+- Playwright AI 图片助手回归通过：聊天流结果回填、二轮续改基于上一轮输出、新任务隔离。
+
+线上验证计划：
+
+- 运行标准 114 控制面发布脚本，完成源门禁、后端关键测试、管理端/测评端 lint/build、远端迁移、种子刷新、服务重启、deploy preflight 和 release smoke。
+- 发布后确认 114 `/health`、`DEPLOYED_COMMIT`、`podi-backend/podi-admin-web/podi-eval-web` 状态。
+- 真实全链路验收重点覆盖 AI 图片助手：普通单张花纹提取应返回 `routeType=image2_quality_first` 并创建 `image_edit` run；明确批量/快速/专项诉求应返回 `routeType=ability_accelerated` 并创建 `pattern_extract` run。
+
+已知保留风险：
+
+- GPT-5.5 / GPT Image 2 的真实效果和成本需要在线上真实任务中继续观察；本地回归只证明路由、契约和交互链路正确。
+- `confirm` 仍是历史接口名；产品和文档已解释为“后端幂等执行边界”，后续如做新 Agent Runtime API，可再提供更贴近语义的执行接口。
+- Pydantic v2 / FastAPI deprecation warning 仍为历史技术债，当前不阻断发布。
+
 ## v0.6.3 - 2026-06-04
 
 基线 commit：

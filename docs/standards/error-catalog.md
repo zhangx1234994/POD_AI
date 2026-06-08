@@ -172,20 +172,20 @@
 | PRODUCT_DESIGN_SCENE_INVALID | 产品设计展示场景非法 | 400，允许 `studio_product` / `flat_lay` / `ecommerce` / `lifestyle` / `print_mockup` / `generic` |
 | AGENT_CAPABILITY_NOT_FOUND | 业务 Agent 能力不存在或未开放 | 404，当前仅开放 `agent.image_edit_assistant` |
 | AGENT_IMAGE_URL_INVALID | 业务 Agent 图片 URL 非 HTTP(S) 地址 | 400 |
-| AGENT_IMAGE_URL_REQUIRED | 业务 Agent 确认执行缺少主图 URL | 400 |
+| AGENT_IMAGE_URL_REQUIRED | 业务 Agent 执行缺少主图 URL | 400 |
 | AGENT_MESSAGE_REQUIRED | 业务 Agent 消息为空 | 400 |
 | AGENT_MESSAGE_DUPLICATE_IN_PROGRESS | 业务 Agent 同一消息 requestId 正在处理且尚未生成可返回方案 | 409，稍后查询会话或使用同一 requestId 重试 |
 | AGENT_SESSION_NOT_FOUND | 业务 Agent 会话不存在 | 404 |
 | AGENT_SESSION_FORBIDDEN | 业务 Agent 会话不属于当前租户/客户端 | 403 |
 | AGENT_SESSION_CREATE_FAILED | 业务 Agent 会话创建失败 | 500 |
 | AGENT_MESSAGE_FAILED | 业务 Agent 消息处理或方案生成失败 | 500 |
-| AGENT_PLAN_REQUIRED | 对话改图会话没有可确认方案 | 400，先发送消息生成最新建议，再确认执行 |
+| AGENT_PLAN_REQUIRED | AI 图片助手会话没有可执行计划 | 400，先发送消息生成最新计划，再进入后端执行边界 |
 | AGENT_PLAN_NOT_FOUND | 业务 Agent 方案不存在 | 404 |
-| AGENT_PLAN_STALE | 业务 Agent 方案已不是当前会话最新方案 | 409，需重新确认最新方案，避免旧方案误执行 |
-| AGENT_PLAN_CONFIRM_IN_PROGRESS | 业务 Agent 方案正在确认执行中 | 409，调用方稍后查询会话或重试确认 |
-| AGENT_PLAN_REQUIRES_CLARIFICATION | 业务 Agent 路由置信度不足或意图过于模糊 | 409，先追加消息补充目标、保留项或改图范围，再确认执行 |
-| AGENT_PLAN_NOT_CONFIRMABLE | 业务 Agent 方案当前状态不能确认执行 | 409 |
-| AGENT_PLAN_CONFIRM_FAILED | 业务 Agent 确认方案失败 | 500 |
+| AGENT_PLAN_STALE | 业务 Agent 方案已不是当前会话最新方案 | 409，需重新提交最新方案，避免旧方案误执行 |
+| AGENT_PLAN_CONFIRM_IN_PROGRESS | 业务 Agent 方案正在提交执行中 | 409，调用方稍后查询会话或重试同一请求 |
+| AGENT_PLAN_REQUIRES_CLARIFICATION | 业务 Agent 路由置信度不足或意图过于模糊 | 409，先追加消息补充目标、保留项或处理范围，再进入后端执行边界 |
+| AGENT_PLAN_NOT_CONFIRMABLE | 业务 Agent 方案当前状态不能提交执行 | 409 |
+| AGENT_PLAN_CONFIRM_FAILED | 业务 Agent 提交方案失败 | 500 |
 | AGENT_TOOL_CALL_FAILED | 业务 Agent 调用中台能力失败 | 502/500，通常由下游业务能力返回的错误透传 |
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
 | BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |

@@ -43,11 +43,23 @@ logger = logging.getLogger(__name__)
 IMAGE_EDIT_AGENT_KEY = "agent.image_edit_assistant"
 AGENT_BUSINESS_KEY = "image_edit_chat"
 IMAGE_EDIT_TOOL_NAME = "business.image_edit"
+PATTERN_EXTRACT_TOOL_NAME = "business.pattern_extract"
+ALLOWED_AGENT_TOOLS = {
+    IMAGE_EDIT_TOOL_NAME: "image_edit",
+    PATTERN_EXTRACT_TOOL_NAME: "pattern_extract",
+}
+ROUTE_TYPE_VALUES = ["image2_quality_first", "ability_accelerated", "clarification_required"]
 REFERENCE_REQUIRED_SKILLS = {"reference_element_transfer", "color_reference_correction"}
 ROUTE_CONFIDENCE_THRESHOLD = 0.65
 ALLOWED_AGENT_KEYS = {IMAGE_EDIT_AGENT_KEY}
 ALLOWED_TOOL_PAYLOAD_KEYS = {
     "imageUrl",
+    "prompt",
+    "negative_prompt",
+    "batch",
+    "width",
+    "height",
+    "lora",
     "instruction",
     "editSkill",
     "quality",
@@ -69,11 +81,17 @@ PLAN_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "intent": {"type": "string", "enum": ["image_edit"]},
+        "intent": {"type": "string", "enum": ["image_edit", "pattern_extract"]},
+        "routeType": {"type": "string", "enum": ROUTE_TYPE_VALUES},
+        "targetAbility": {"type": "string", "enum": list(ALLOWED_AGENT_TOOLS.keys())},
+        "targetBusinessKey": {"type": "string", "enum": list(ALLOWED_AGENT_TOOLS.values())},
         "title": {"type": "string"},
         "summary": {"type": "string"},
-        "editSkill": {"type": "string", "enum": IMAGE_EDIT_SKILL_VALUES},
-        "instruction": {"type": "string"},
+        "editSkill": {"type": ["string", "null"], "enum": [*IMAGE_EDIT_SKILL_VALUES, None]},
+        "instruction": {"type": ["string", "null"]},
+        "prompt": {"type": ["string", "null"]},
+        "negativePrompt": {"type": ["string", "null"]},
+        "batch": {"type": ["integer", "null"]},
         "size": {"type": "string"},
         "quality": {"type": "string", "enum": IMAGE_EDIT_QUALITY_VALUES},
         "outputFormat": {"type": "string", "enum": IMAGE_EDIT_OUTPUT_FORMAT_VALUES},
@@ -91,11 +109,11 @@ PLAN_JSON_SCHEMA: dict[str, Any] = {
         },
         "estimatedCostLevel": {"type": "string", "enum": ["low", "medium", "high"]},
         "riskLevel": {"type": "string", "enum": ["low", "medium", "high"]},
-        "confidence": {"type": "number"},
-        "missingFields": {"type": "array", "items": {"type": "string"}},
-        "routeReason": {"type": "string"},
+        "confidence": {"type": ["number", "null"]},
+        "missingFields": {"type": ["array", "null"], "items": {"type": "string"}},
+        "routeReason": {"type": ["string", "null"]},
         "rejectedAbilities": {
-            "type": "array",
+            "type": ["array", "null"],
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -106,34 +124,46 @@ PLAN_JSON_SCHEMA: dict[str, Any] = {
                 "required": ["ability", "reason"],
             },
         },
-        "warnings": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": ["array", "null"], "items": {"type": "string"}},
     },
     "required": [
         "intent",
+        "routeType",
+        "targetAbility",
+        "targetBusinessKey",
         "title",
         "summary",
         "editSkill",
         "instruction",
+        "prompt",
+        "negativePrompt",
+        "batch",
         "size",
         "quality",
         "outputFormat",
         "editPlan",
         "estimatedCostLevel",
         "riskLevel",
+        "confidence",
+        "missingFields",
+        "routeReason",
+        "rejectedAbilities",
         "warnings",
     ],
 }
 
 
-PLANNER_INSTRUCTIONS = """你是 PODI 中台的受控图编辑 Agent。你只负责把用户自然语言整理成可确认的图编辑方案。
+PLANNER_INSTRUCTIONS = """你是 PODI 中台的受控图片能力 Agent。你负责把用户自然语言整理成结构化 JSON 规划，再由后端白名单执行。
 必须遵守：
-1. 只能规划 image_edit，不直接调用外部模型，不承诺已执行。
-2. 输出必须是结构化 JSON，字段符合 schema。
-3. 优先选择低风险、可解释的 editSkill。
-4. 如果用户没有提供参考图，不要选择 reference_element_transfer 或 color_reference_correction。
-5. 如果用户要删除/修补但没有标注或蒙版，改用 local_modify，并在 warnings 说明需要标注后效果更稳定。
-6. instruction 要能直接交给图像编辑模型执行，包含保留未提及区域、保持主体结构和避免新增无关元素等约束。
-7. 必须给出 confidence、missingFields、routeReason、rejectedAbilities，供后端做路由稳定性校验。
+1. 只能在 business.image_edit 与 business.pattern_extract 两个白名单工具中选择，不直接调用外部模型，不承诺已执行。
+2. 当前阶段默认采用质量优先主路径：GPT-5.5 规划 + GPT Image 2 执行，对应 routeType=image2_quality_first、targetAbility=business.image_edit。
+3. business.pattern_extract 是专项能力，适合批量、快速、低成本、固定 SOP 或用户明确要求“走花纹提取能力/批量提取/快速提取”时使用，对应 routeType=ability_accelerated。
+4. 用户只说“提取花纹/图案/纹样/把桌布或衣服上的花纹取出来”但没有批量、速度、成本或专项能力要求时，仍选择 business.image_edit，让 GPT Image 2 做高质量单张处理；routeReason 中记录可选专项能力是 business.pattern_extract。
+5. 输出必须是结构化 JSON，字段符合 schema；与当前能力无关的字段返回 null 或空数组，不要硬填专项能力参数。
+6. 选择 business.image_edit 时，instruction 要面向 GPT Image 2，可覆盖开放式生成、改图、花纹提取、风格优化等单张高质量任务。
+7. 选择 business.pattern_extract 时，prompt 要能直接描述提取目标，默认强调保留花纹主体、还原纹理、减少背景干扰。
+8. instruction/prompt 是内部执行参数；面向用户只展示 title、summary、关键步骤和执行状态，不展示完整 JSON、routeReason 或模型内部推理。
+9. 必须给出 confidence、missingFields、routeReason、rejectedAbilities，供后端做路由稳定性校验。
 """
 
 
@@ -200,6 +230,104 @@ def _normalize_rejected_abilities(value: Any) -> list[dict[str, str]]:
     return items
 
 
+def _has_pattern_extract_intent(message: str) -> bool:
+    text = _safe_text(message, max_length=400).lower()
+    compact = "".join(text.split())
+    pattern_tokens = [
+        "花纹提取",
+        "提取花纹",
+        "提取图案",
+        "图案提取",
+        "花型提取",
+        "提取花型",
+        "纹样提取",
+        "提取纹样",
+        "抠出花纹",
+        "抠花",
+        "取出花纹",
+        "extractpattern",
+        "patternextract",
+    ]
+    if any(token in compact for token in pattern_tokens):
+        return True
+    if "提取" in compact and any(token in compact for token in ["花", "纹", "图案", "桌布", "面料", "印花"]):
+        return True
+    return False
+
+
+def _wants_specialized_agent_ability(message: str, request_context: dict[str, Any] | None = None) -> bool:
+    request_context = request_context or {}
+    preference = _safe_text(
+        _first_text(
+            request_context.get("routeType"),
+            request_context.get("routingPreference"),
+            request_context.get("routing_preference"),
+            request_context.get("executionPreference"),
+            request_context.get("execution_preference"),
+        ),
+        max_length=64,
+    )
+    if preference in {"ability_accelerated", "batch", "fast", "low_cost", "specialized", "workflow"}:
+        return True
+    text = _safe_text(message, max_length=400).lower()
+    compact = "".join(text.split())
+    specialized_tokens = [
+        "批量",
+        "跑一批",
+        "多张",
+        "快速",
+        "快一点",
+        "低成本",
+        "省成本",
+        "便宜",
+        "固定流程",
+        "固定能力",
+        "专项能力",
+        "走花纹提取",
+        "用花纹提取",
+        "调用花纹提取",
+        "花纹提取能力",
+        "pattern_extract",
+        "ability_accelerated",
+    ]
+    return any(token in compact for token in specialized_tokens)
+
+
+def _infer_agent_business_key(message: str, *, request_context: dict[str, Any] | None = None) -> str:
+    if _has_pattern_extract_intent(message) and _wants_specialized_agent_ability(message, request_context):
+        return "pattern_extract"
+    return "image_edit"
+
+
+def _tool_name_for_business_key(business_key: str) -> str:
+    for tool_name, item_business_key in ALLOWED_AGENT_TOOLS.items():
+        if item_business_key == business_key:
+            return tool_name
+    return IMAGE_EDIT_TOOL_NAME
+
+
+def _normalize_agent_tool_name(value: Any, *, fallback_business_key: str = "image_edit") -> str:
+    text = _safe_text(value, max_length=96)
+    if text in ALLOWED_AGENT_TOOLS and ALLOWED_AGENT_TOOLS[text] == fallback_business_key:
+        return text
+    return _tool_name_for_business_key(fallback_business_key)
+
+
+def _normalize_agent_business_key(
+    value: Any,
+    *,
+    message: str = "",
+    request_context: dict[str, Any] | None = None,
+) -> str:
+    text = _safe_text(value, max_length=64)
+    inferred = _infer_agent_business_key(message, request_context=request_context)
+    if text == "pattern_extract" and inferred != "pattern_extract":
+        return "image_edit"
+    if text in set(ALLOWED_AGENT_TOOLS.values()):
+        return text
+    return inferred
+
+
 def _is_vague_edit_message(message: str) -> bool:
     text = _safe_text(message, max_length=120).lower()
     compact = "".join(text.split())
@@ -220,7 +348,7 @@ def _is_vague_edit_message(message: str) -> bool:
     }
     if compact in vague_tokens:
         return True
-    return len(compact) <= 4 and not any(token in compact for token in ["扩", "删", "去", "色", "花", "背景", "质感"])
+    return len(compact) <= 4 and not any(token in compact for token in ["扩", "删", "去", "色", "花", "提取", "背景", "质感"])
 
 
 def _valid_http_url(value: Any) -> str | None:
@@ -359,6 +487,18 @@ class BusinessAgentPlanner:
             "hasImage": bool(image_url),
             "requestContext": request_context,
             "sessionContext": session_context,
+            "availableTools": [
+                {
+                    "targetAbility": IMAGE_EDIT_TOOL_NAME,
+                    "targetBusinessKey": "image_edit",
+                    "description": "修改已有图片、局部修补、换色、参考图迁移、扩图。",
+                },
+                {
+                    "targetAbility": PATTERN_EXTRACT_TOOL_NAME,
+                    "targetBusinessKey": "pattern_extract",
+                    "description": "从图片中提取花纹、图案、印花或纹样，输出可继续用于裂变/设计的图案图。",
+                },
+            ],
             "availableSkills": IMAGE_EDIT_SKILL_VALUES,
             "qualityValues": IMAGE_EDIT_QUALITY_VALUES,
             "sizeValues": IMAGE_EDIT_SIZE_VALUES,
@@ -434,6 +574,47 @@ class BusinessAgentPlanner:
         image_url: str | None,
         message: str,
     ) -> dict[str, Any]:
+        target_business_key = _normalize_agent_business_key(
+            parsed.get("targetBusinessKey") or parsed.get("intent"),
+            message=message,
+            request_context=request_context,
+        )
+        target_ability = _normalize_agent_tool_name(parsed.get("targetAbility"), fallback_business_key=target_business_key)
+        if target_business_key == "pattern_extract":
+            prompt = _safe_text(parsed.get("prompt") or parsed.get("instruction") or message, max_length=3000)
+            edit_plan = (
+                self._normalize_edit_plan(parsed.get("editPlan"))
+                if isinstance(parsed.get("editPlan"), list)
+                else self._build_pattern_extract_plan()
+            )
+            tool_payload = {
+                "prompt": prompt,
+                "batch": int(parsed.get("batch") or request_context.get("batch") or 1),
+                "quality": _normalize_quality(parsed.get("quality") or request_context.get("quality")),
+                "size": _normalize_size(parsed.get("size") or request_context.get("size")),
+                "output_format": _normalize_output_format(parsed.get("outputFormat") or request_context.get("outputFormat")),
+                **({"negative_prompt": _safe_text(parsed.get("negativePrompt"), max_length=1000)} if parsed.get("negativePrompt") else {}),
+            }
+            route_evidence = self._build_route_evidence(
+                message=message,
+                image_url=image_url,
+                request_context=request_context,
+                session_context=session_context,
+                tool_payload=tool_payload,
+                parsed={**parsed, "targetAbility": target_ability, "targetBusinessKey": target_business_key},
+            )
+            warnings = [str(item) for item in parsed.get("warnings") or [] if str(item).strip()]
+            return {
+                "intent": "pattern_extract",
+                "title": _safe_text(parsed.get("title") or "花纹提取", max_length=128),
+                "summary": _safe_text(parsed.get("summary") or "已识别为花纹提取任务，将从当前图片中提取图案主体。", max_length=1000),
+                "editPlan": edit_plan,
+                "toolPayload": tool_payload,
+                "estimatedCostLevel": self._normalize_cost_level(parsed.get("estimatedCostLevel"), tool_payload),
+                "riskLevel": self._normalize_risk_level(parsed.get("riskLevel"), tool_payload),
+                "routeEvidence": route_evidence,
+                "warnings": warnings,
+            }
         refs = _normalize_reference_images(request_context.get("referenceImages"))
         selection_hints = _normalize_selection_hints(request_context.get("selectionHints"))
         has_target_hint = bool(selection_hints or request_context.get("maskUrl"))
@@ -463,11 +644,20 @@ class BusinessAgentPlanner:
         )
         if route_evidence.get("requiresClarification"):
             warnings.append("当前意图不够明确，请先补充要改哪里、保留什么、希望变成什么效果。")
+        edit_plan = (
+            self._normalize_edit_plan(parsed.get("editPlan"))
+            if isinstance(parsed.get("editPlan"), list)
+            else (
+                self._build_image2_pattern_extract_plan()
+                if _has_pattern_extract_intent(message)
+                else self._normalize_edit_plan(parsed.get("editPlan"))
+            )
+        )
         return {
             "intent": "image_edit",
-            "title": _safe_text(parsed.get("title") or "对话改图建议", max_length=128),
+            "title": _safe_text(parsed.get("title") or "图片处理计划", max_length=128),
             "summary": _safe_text(parsed.get("summary") or "已整理为可确认的图编辑任务。", max_length=1000),
-            "editPlan": self._normalize_edit_plan(parsed.get("editPlan")),
+            "editPlan": edit_plan,
             "toolPayload": tool_payload,
             "estimatedCostLevel": self._normalize_cost_level(parsed.get("estimatedCostLevel"), tool_payload),
             "riskLevel": self._normalize_risk_level(parsed.get("riskLevel"), tool_payload),
@@ -483,6 +673,50 @@ class BusinessAgentPlanner:
         request_context: dict[str, Any],
         session_context: dict[str, Any],
     ) -> dict[str, Any]:
+        target_business_key = _infer_agent_business_key(message, request_context=request_context)
+        if target_business_key == "pattern_extract":
+            warnings: list[str] = []
+            if not image_url:
+                warnings.append("当前会话还没有主图，执行前需要先上传或粘贴图片 URL。")
+            prompt = self._build_pattern_extract_prompt(message)
+            tool_payload: dict[str, Any] = {
+                "prompt": prompt,
+                "batch": int(request_context.get("batch") or 1),
+                "quality": _normalize_quality(request_context.get("quality")),
+                "size": _normalize_size(request_context.get("size")),
+                "output_format": _normalize_output_format(request_context.get("outputFormat")),
+            }
+            route_evidence = self._build_route_evidence(
+                message=message,
+                image_url=image_url,
+                request_context=request_context,
+                session_context=session_context,
+                tool_payload=tool_payload,
+                parsed={
+                    "intent": "pattern_extract",
+                    "targetAbility": PATTERN_EXTRACT_TOOL_NAME,
+                    "targetBusinessKey": "pattern_extract",
+                    "routeReason": "用户明确要求批量、快速、低成本或专项花纹提取，后端白名单路由到 business.pattern_extract。",
+                    "rejectedAbilities": [
+                        {"ability": IMAGE_EDIT_TOOL_NAME, "reason": "本轮更强调专项能力加速或固定 SOP，而不是单张质量优先处理。"},
+                        {"ability": "business.fission", "reason": "当前还没有进入裂变生成，只先提取可复用花纹。"},
+                    ],
+                },
+            )
+            return {
+                "intent": "pattern_extract",
+                "title": self._infer_title(message, skill="pattern_extract"),
+                "summary": self._build_summary(message, skill="pattern_extract"),
+                "editPlan": self._build_pattern_extract_plan(),
+                "toolPayload": tool_payload,
+                "estimatedCostLevel": "medium",
+                "riskLevel": "low",
+                "routeEvidence": route_evidence,
+                "warnings": warnings,
+                "plannerMode": "rule",
+                "plannerModel": "rule-planner-v1",
+                "rawResponse": {"rulePlanner": True},
+            }
         refs = _normalize_reference_images(request_context.get("referenceImages"))
         selection_hints = _normalize_selection_hints(request_context.get("selectionHints"))
         has_target_hint = bool(selection_hints or request_context.get("maskUrl"))
@@ -493,7 +727,7 @@ class BusinessAgentPlanner:
         size = _normalize_size(request_context.get("size"))
         output_format = _normalize_output_format(request_context.get("outputFormat"))
         if not image_url:
-            warnings.append("当前会话还没有主图，确认执行前需要先上传或粘贴图片 URL。")
+            warnings.append("当前会话还没有主图，提交图片任务前需要先上传或粘贴图片 URL。")
         instruction = self._build_instruction(message=message, skill=skill, has_target_hint=has_target_hint)
         tool_payload: dict[str, Any] = {
             "instruction": instruction,
@@ -520,11 +754,16 @@ class BusinessAgentPlanner:
         )
         if route_evidence.get("requiresClarification"):
             warnings.append("当前意图不够明确，请先补充要改哪里、保留什么、希望变成什么效果。")
+        edit_plan = (
+            self._build_image2_pattern_extract_plan()
+            if _has_pattern_extract_intent(message) and target_business_key == "image_edit"
+            else self._build_edit_plan(skill=skill, has_reference=bool(refs), has_target_hint=has_target_hint)
+        )
         return {
             "intent": "image_edit",
             "title": self._infer_title(message, skill=skill),
             "summary": self._build_summary(message, skill=skill),
-            "editPlan": self._build_edit_plan(skill=skill, has_reference=bool(refs), has_target_hint=has_target_hint),
+            "editPlan": edit_plan,
             "toolPayload": tool_payload,
             "estimatedCostLevel": self._normalize_cost_level(None, tool_payload),
             "riskLevel": self._normalize_risk_level(None, tool_payload),
@@ -547,6 +786,13 @@ class BusinessAgentPlanner:
     ) -> dict[str, Any]:
         parsed = parsed or {}
         skill = _safe_text(tool_payload.get("editSkill")) or "local_modify"
+        target_business_key = _normalize_agent_business_key(
+            parsed.get("targetBusinessKey") or parsed.get("intent"),
+            message=message,
+            request_context=request_context,
+        )
+        target_ability = _normalize_agent_tool_name(parsed.get("targetAbility"), fallback_business_key=target_business_key)
+        pattern_candidate = _has_pattern_extract_intent(message)
         vague = _is_vague_edit_message(message)
         has_image = bool(image_url)
         missing_fields = _safe_string_list(parsed.get("missingFields"))
@@ -585,28 +831,64 @@ class BusinessAgentPlanner:
         )
         methodology_id = _first_text(request_context.get("methodologyId"), request_context.get("methodology_id"))
         methodology_version = _first_text(request_context.get("methodologyVersion"), request_context.get("methodology_version"))
+        parsed_business_key = _safe_text(parsed.get("targetBusinessKey") or parsed.get("intent"), max_length=64)
         route_reason = _safe_text(parsed.get("routeReason"), max_length=600)
+        if parsed_business_key and parsed_business_key != target_business_key:
+            route_reason = ""
         if not route_reason:
-            base_reason = "当前 Agent MVP 只开放 business.image_edit 白名单工具；本轮需求被整理为受控图编辑任务。"
+            if target_business_key == "pattern_extract":
+                base_reason = "用户明确要求批量、速度、低成本或专项花纹提取，后端白名单路由到 business.pattern_extract。"
+            elif pattern_candidate:
+                base_reason = "用户目标可由花纹提取专项能力覆盖，但当前 AI 图片助手采用 GPT-5.5 规划 + GPT Image 2 质量优先主路径；专项能力保留给批量、速度或成本优先场景。"
+            else:
+                base_reason = "当前 AI 图片助手采用 GPT-5.5 规划 + GPT Image 2 质量优先主路径，后端白名单路由到 business.image_edit。"
             if base_image_role == "previous_result":
                 base_reason += " 用户继续同一会话，因此默认基于上一轮成功输出继续修改。"
             elif not has_image:
-                base_reason += " 当前缺少主图，只能先整理建议，确认执行前必须补图。"
+                base_reason += " 当前缺少主图，只能先整理计划，开始执行前必须补图。"
             route_reason = base_reason
         rejected = _normalize_rejected_abilities(parsed.get("rejectedAbilities"))
         if not rejected:
-            rejected = [
-                {"ability": "business.product_design", "reason": "本轮是对既有图片进行修改，不是生成产品设计图。"},
-                {"ability": "business.pattern_extract", "reason": "用户没有要求提取花纹或还原边缘纹路。"},
-                {"ability": "business.promo_video", "reason": "本轮输出目标是图片，不是视频。"},
-            ]
+            if target_business_key == "pattern_extract":
+                rejected = [
+                    {"ability": IMAGE_EDIT_TOOL_NAME, "reason": "用户明确要求专项/批量/快速提取，本轮优先使用花纹提取能力。"},
+                    {"ability": "business.product_design", "reason": "本轮没有要求生成产品设计图。"},
+                    {"ability": "business.promo_video", "reason": "本轮输出目标是图片，不是视频。"},
+                ]
+            else:
+                rejected = [
+                    {"ability": "business.product_design", "reason": "本轮是对既有图片进行修改，不是生成产品设计图。"},
+                    {
+                        "ability": PATTERN_EXTRACT_TOOL_NAME,
+                        "reason": "作为批量/速度/成本优先的专项候选保留；当前单张任务先走 GPT Image 2 质量优先主路径。"
+                        if pattern_candidate
+                        else "用户没有要求提取花纹或还原边缘纹路。",
+                    },
+                    {"ability": "business.promo_video", "reason": "本轮输出目标是图片，不是视频。"},
+                ]
         clarification_reasons = []
         if vague:
             clarification_reasons.append("edit_goal_too_vague")
+        route_type = "ability_accelerated" if target_business_key == "pattern_extract" else "image2_quality_first"
+        if clarification_reasons:
+            route_type = "clarification_required"
+        specialized_candidate = (
+            {
+                "targetAbility": PATTERN_EXTRACT_TOOL_NAME,
+                "targetBusinessKey": "pattern_extract",
+                "reason": "该意图存在专项花纹提取能力，可在批量、速度或成本优先时分流。",
+            }
+            if pattern_candidate and target_business_key != "pattern_extract"
+            else None
+        )
         return {
-            "intent": "image_edit",
-            "targetAbility": IMAGE_EDIT_TOOL_NAME,
-            "targetBusinessKey": "image_edit",
+            "intent": target_business_key,
+            "routeType": route_type,
+            "targetAbility": target_ability,
+            "targetBusinessKey": target_business_key,
+            "primaryExecutionEngine": "podi-specialized-ability" if target_business_key == "pattern_extract" else "gpt-image-2",
+            "plannerModelFamily": "gpt-5.5",
+            "specializedAbilityCandidate": specialized_candidate,
             "confidence": confidence,
             "threshold": ROUTE_CONFIDENCE_THRESHOLD,
             "baseImageRole": base_image_role,
@@ -640,7 +922,14 @@ class BusinessAgentPlanner:
     def _build_instruction(*, message: str, skill: str, has_target_hint: bool) -> str:
         base = (_safe_text(message, max_length=2400) or "优化图片，使画面更自然、更适合商业使用。").rstrip("。.!！?？；; ")
         constraints = ["保持未提及区域不变", "保持主体结构和构图稳定", "不要新增无关文字、水印或多余元素"]
-        if skill == "canvas_outpaint":
+        if _has_pattern_extract_intent(message) and skill == "local_modify":
+            constraints = [
+                "使用 GPT Image 2 做单张质量优先处理",
+                "提取并还原主要花纹/图案主体",
+                "弱化桌布、衣物、阴影或拍摄背景干扰",
+                "保持纹理自然、边缘完整，适合后续裂变和产品设计使用",
+            ]
+        elif skill == "canvas_outpaint":
             constraints = ["只补全外扩区域", "原图已有内容尽量保持不变", "延续原图纹理、光照和图案密度"]
         elif skill == "remove_inpaint":
             constraints = ["删除或修补目标区域", "自然补齐背景", "不要改变其他区域"]
@@ -653,19 +942,21 @@ class BusinessAgentPlanner:
     @staticmethod
     def _infer_title(message: str, *, skill: str) -> str:
         labels = {
+            "pattern_extract": "花纹提取",
             "local_modify": "局部/整体轻量改图",
             "reference_element_transfer": "参考图风格/元素迁移",
             "remove_inpaint": "删除修补",
             "color_reference_correction": "补色校正",
             "canvas_outpaint": "扩展画布",
         }
-        title = labels.get(skill, "图编辑方案")
+        title = "高质量花纹提取" if _has_pattern_extract_intent(message) and skill == "local_modify" else labels.get(skill, "图编辑方案")
         text = _safe_text(message, max_length=28)
         return f"{title} · {text}" if text else title
 
     @staticmethod
     def _build_summary(message: str, *, skill: str) -> str:
         skill_label = {
+            "pattern_extract": "花纹提取",
             "local_modify": "局部修改",
             "reference_element_transfer": "参考图替换",
             "remove_inpaint": "删除修补",
@@ -673,7 +964,35 @@ class BusinessAgentPlanner:
             "canvas_outpaint": "扩展画布",
         }.get(skill, "图编辑")
         text = _safe_text(message, max_length=160) or "优化图片"
+        if skill == "pattern_extract":
+            return f"已将需求整理为「花纹提取」任务：{text}"
+        if _has_pattern_extract_intent(message) and skill == "local_modify":
+            return f"已按质量优先主路径整理为「GPT Image 2 花纹提取」任务：{text}"
         return f"已将需求整理为「{skill_label}」任务：{text}"
+
+    @staticmethod
+    def _build_pattern_extract_prompt(message: str) -> str:
+        base = _safe_text(message, max_length=2000) or "提取图片中的花纹图案"
+        return (
+            f"{base}。执行约束：提取并还原主要花纹/图案主体；弱化桌布、衣物或背景材质干扰；"
+            "保持纹理自然、边缘完整、适合后续裂变和产品设计使用。"
+        )
+
+    @staticmethod
+    def _build_pattern_extract_plan() -> list[dict[str, str]]:
+        return [
+            {"step": "识别提取目标", "reason": "确认用户要从当前图片中取出花纹/图案主体。"},
+            {"step": "分离背景干扰", "reason": "降低桌布、衣物、阴影或拍摄背景对图案的影响。"},
+            {"step": "输出可复用花纹", "reason": "生成适合后续裂变、设计和组图使用的图案结果。"},
+        ]
+
+    @staticmethod
+    def _build_image2_pattern_extract_plan() -> list[dict[str, str]]:
+        return [
+            {"step": "理解提取目标", "reason": "先由 GPT-5.5 将用户诉求整理成单张高质量图片处理计划。"},
+            {"step": "调用 Image 2 质量路径", "reason": "当前阶段优先追求结果上限，而不是使用速度更快但上限较低的专项小模型。"},
+            {"step": "输出可继续使用的图案", "reason": "结果需要适合后续裂变、产品设计和人工复盘。"},
+        ]
 
     @staticmethod
     def _build_edit_plan(*, skill: str, has_reference: bool, has_target_hint: bool) -> list[dict[str, str]]:
@@ -837,10 +1156,18 @@ class BusinessAgentService:
                 request_context=request_context,
                 session_context=session_context,
             )
+            target_business_key = _normalize_agent_business_key(
+                (plan_payload.get("routeEvidence") or {}).get("targetBusinessKey")
+                if isinstance(plan_payload.get("routeEvidence"), dict)
+                else plan_payload.get("targetBusinessKey") or plan_payload.get("intent"),
+                message=message,
+                request_context=request_context,
+            )
             tool_payload = self._build_tool_payload(
                 plan_payload.get("toolPayload") or {},
                 session_obj=session_obj,
                 request_context=request_context,
+                target_business_key=target_business_key,
             )
             route_evidence = self._normalize_route_evidence(
                 plan_payload.get("routeEvidence"),
@@ -877,11 +1204,11 @@ class BusinessAgentService:
                 session_id=session_obj.id,
                 agent_key=session_obj.agent_key,
                 status="awaiting_confirmation",
-                intent="image_edit",
-                title=_safe_text(plan_payload.get("title"), max_length=128) or "对话改图建议",
+                intent=target_business_key,
+                title=_safe_text(plan_payload.get("title"), max_length=128) or "图片处理计划",
                 summary=_safe_text(plan_payload.get("summary"), max_length=2000),
                 edit_plan=plan_payload.get("editPlan") or [],
-                tool_name=IMAGE_EDIT_TOOL_NAME,
+                tool_name=_tool_name_for_business_key(target_business_key),
                 tool_payload=tool_payload,
                 estimated_cost_level=_safe_text(plan_payload.get("estimatedCostLevel"), max_length=32) or "low",
                 risk_level=_safe_text(plan_payload.get("riskLevel"), max_length=32) or "low",
@@ -976,6 +1303,8 @@ class BusinessAgentService:
             if not image_url:
                 raise HTTPException(status_code=400, detail="AGENT_IMAGE_URL_REQUIRED")
             route_evidence = self._plan_route_evidence(plan)
+            target_business_key = self._target_business_key_from_plan(plan, route_evidence=route_evidence)
+            target_tool_name = _tool_name_for_business_key(target_business_key)
             if self._route_requires_clarification(route_evidence):
                 raise HTTPException(status_code=409, detail="AGENT_PLAN_REQUIRES_CLARIFICATION")
             tool_payload["imageUrl"] = image_url
@@ -992,8 +1321,8 @@ class BusinessAgentService:
                 id=_safe_id("agtc"),
                 session_id=session_obj.id,
                 plan_id=plan.id,
-                tool_name=IMAGE_EDIT_TOOL_NAME,
-                business_key="image_edit",
+                tool_name=target_tool_name,
+                business_key=target_business_key,
                 status="queued",
                 request_payload=run_payload.model_dump(exclude_none=True),
                 created_at=_now(),
@@ -1014,7 +1343,7 @@ class BusinessAgentService:
 
         try:
             run = get_business_run_service().create_run(
-                business_key="image_edit",
+                business_key=target_business_key,
                 payload=run_payload,
                 user=user,
                 source="image-edit-chat",
@@ -1064,7 +1393,7 @@ class BusinessAgentService:
                     id=_safe_id("agm"),
                     session_id=db_session.id,
                     role="tool",
-                    content=f"已提交图编辑任务，runId={run_id}",
+                    content=f"已提交{self._business_key_label(target_business_key)}任务，runId={run_id}",
                     plan_id=db_plan.id,
                     run_id=run_id,
                     extra_metadata={"messageType": "tool_result"},
@@ -1407,10 +1736,46 @@ class BusinessAgentService:
             clarification_reasons.append("low_route_confidence")
         if evidence.get("requiresClarification") and not clarification_reasons:
             clarification_reasons.append("route_requires_clarification")
+        target_business_key = _normalize_agent_business_key(
+            evidence.get("targetBusinessKey") or evidence.get("intent"),
+            message=message,
+            request_context=request_context,
+        )
+        target_ability = _normalize_agent_tool_name(evidence.get("targetAbility"), fallback_business_key=target_business_key)
+        pattern_candidate = _has_pattern_extract_intent(message)
+        incoming_business_key = _safe_text(evidence.get("targetBusinessKey") or evidence.get("intent"), max_length=64)
+        route_reason = _safe_text(evidence.get("routeReason"), max_length=800)
+        if incoming_business_key and incoming_business_key != target_business_key:
+            route_reason = ""
+        if not route_reason:
+            if target_business_key == "pattern_extract":
+                route_reason = "用户明确要求批量、速度、低成本或专项花纹提取，后端白名单路由到 business.pattern_extract。"
+            elif pattern_candidate:
+                route_reason = "用户目标可由花纹提取专项能力覆盖，但当前 AI 图片助手采用 GPT-5.5 规划 + GPT Image 2 质量优先主路径；专项能力保留给批量、速度或成本优先场景。"
+            else:
+                route_reason = "当前 AI 图片助手采用 GPT-5.5 规划 + GPT Image 2 质量优先主路径，后端白名单路由到 business.image_edit。"
+        route_type = _safe_text(evidence.get("routeType"), max_length=64)
+        if incoming_business_key and incoming_business_key != target_business_key:
+            route_type = ""
+        if route_type not in set(ROUTE_TYPE_VALUES):
+            route_type = "ability_accelerated" if target_business_key == "pattern_extract" else "image2_quality_first"
+        if clarification_reasons:
+            route_type = "clarification_required"
+        specialized_candidate = evidence.get("specializedAbilityCandidate") if isinstance(evidence.get("specializedAbilityCandidate"), dict) else None
+        if not specialized_candidate and pattern_candidate and target_business_key != "pattern_extract":
+            specialized_candidate = {
+                "targetAbility": PATTERN_EXTRACT_TOOL_NAME,
+                "targetBusinessKey": "pattern_extract",
+                "reason": "该意图存在专项花纹提取能力，可在批量、速度或成本优先时分流。",
+            }
         return {
-            "intent": _safe_text(evidence.get("intent"), max_length=64) or "image_edit",
-            "targetAbility": _safe_text(evidence.get("targetAbility"), max_length=96) or IMAGE_EDIT_TOOL_NAME,
-            "targetBusinessKey": _safe_text(evidence.get("targetBusinessKey"), max_length=64) or "image_edit",
+            "intent": target_business_key,
+            "routeType": route_type,
+            "targetAbility": target_ability,
+            "targetBusinessKey": target_business_key,
+            "primaryExecutionEngine": "podi-specialized-ability" if target_business_key == "pattern_extract" else "gpt-image-2",
+            "plannerModelFamily": _safe_text(evidence.get("plannerModelFamily"), max_length=64) or "gpt-5.5",
+            "specializedAbilityCandidate": specialized_candidate,
             "confidence": confidence,
             "threshold": threshold,
             "baseImageRole": base_role,
@@ -1418,8 +1783,7 @@ class BusinessAgentService:
             "methodologyId": _first_text(evidence.get("methodologyId")),
             "methodologyVersion": _first_text(evidence.get("methodologyVersion")),
             "missingFields": missing_fields,
-            "routeReason": _safe_text(evidence.get("routeReason"), max_length=800)
-            or "当前 Agent MVP 只开放 business.image_edit 白名单工具；本轮需求被整理为受控图编辑任务。",
+            "routeReason": route_reason,
             "rejectedAbilities": _normalize_rejected_abilities(evidence.get("rejectedAbilities")),
             "requiresClarification": bool(clarification_reasons),
             "clarificationReasons": clarification_reasons,
@@ -1439,10 +1803,12 @@ class BusinessAgentService:
         for item in ["保持主体结构和构图稳定", "保持未提及区域不变", "不要新增无关文字、水印或多余元素"]:
             if item not in preserve:
                 preserve.append(item)
+        target_business_key = _safe_text(route_evidence.get("targetBusinessKey"), max_length=64) or "image_edit"
         return {
             "latestUserGoal": _safe_text(message, max_length=500),
-            "activeSkill": _safe_text(tool_payload.get("editSkill"), max_length=64) or "local_modify",
-            "currentInstruction": _safe_text(tool_payload.get("instruction"), max_length=1000),
+            "activeSkill": _safe_text(tool_payload.get("editSkill"), max_length=64) or target_business_key,
+            "activeAbility": target_business_key,
+            "currentInstruction": _safe_text(tool_payload.get("instruction") or tool_payload.get("prompt"), max_length=1000),
             "preserveConstraints": preserve[:8],
             "baseImageRole": route_evidence.get("baseImageRole") or "source_image",
             "parentRunId": route_evidence.get("parentRunId"),
@@ -1474,6 +1840,7 @@ class BusinessAgentService:
 
     @staticmethod
     def _build_methodology_snapshot(*, request_context: dict[str, Any], route_evidence: dict[str, Any]) -> dict[str, Any]:
+        target_business_key = _safe_text(route_evidence.get("targetBusinessKey"), max_length=64) or "image_edit"
         methodology_id = _first_text(
             route_evidence.get("methodologyId"),
             request_context.get("methodologyId"),
@@ -1489,8 +1856,8 @@ class BusinessAgentService:
         return {
             "id": methodology_id,
             "version": methodology_version,
-            "phase": "single_image_edit",
-            "confirmationPoint": "before_business_run",
+            "phase": "single_pattern_extract" if target_business_key == "pattern_extract" else "single_image_edit",
+            "confirmationPoint": "backend_guarded_execution",
         }
 
     @staticmethod
@@ -1555,10 +1922,31 @@ class BusinessAgentService:
         *,
         session_obj: BusinessAgentSession,
         request_context: dict[str, Any],
+        target_business_key: str,
     ) -> dict[str, Any]:
         clean = {key: value for key, value in payload.items() if key in ALLOWED_TOOL_PAYLOAD_KEYS and value is not None}
         if session_obj.image_url:
             clean["imageUrl"] = session_obj.image_url
+        if target_business_key == "pattern_extract":
+            pattern_payload: dict[str, Any] = {
+                "imageUrl": clean.get("imageUrl"),
+                "prompt": (
+                _safe_text(clean.get("prompt") or clean.get("instruction") or request_context.get("prompt"), max_length=3000)
+                or "提取图片中的花纹图案。"
+                ),
+                "batch": int(clean.get("batch") or request_context.get("batch") or 1),
+                "quality": _normalize_quality(clean.get("quality")),
+                "size": _normalize_size(clean.get("size")),
+                "output_format": _normalize_output_format(clean.get("output_format") or clean.get("outputFormat")),
+            }
+            for optional_key in ("negative_prompt", "lora", "width", "height"):
+                if clean.get(optional_key):
+                    pattern_payload[optional_key] = clean[optional_key]
+            for key in ("projectId", "flowStepKey", "flowStepName", "flowTemplateId", "inputAssetIds"):
+                value = (session_obj.context or {}).get(key)
+                if value:
+                    pattern_payload[key] = value
+            return {key: value for key, value in pattern_payload.items() if value is not None}
         if request_context.get("maskUrl"):
             clean["maskUrl"] = request_context["maskUrl"]
         if request_context.get("referenceImages"):
@@ -1573,7 +1961,9 @@ class BusinessAgentService:
         clean["quality"] = _normalize_quality(clean.get("quality"))
         clean["size"] = _normalize_size(clean.get("size"))
         clean["output_format"] = _normalize_output_format(clean.get("output_format") or clean.get("outputFormat"))
-        clean["instruction"] = _safe_text(clean.get("instruction"), max_length=3000) or "优化图片，保持主体结构和未提及区域不变。"
+        clean["instruction"] = _safe_text(clean.get("instruction") or clean.get("prompt"), max_length=3000) or "优化图片，保持主体结构和未提及区域不变。"
+        for pattern_only_key in ("prompt", "negative_prompt", "batch", "lora", "width", "height"):
+            clean.pop(pattern_only_key, None)
         if skill_warnings:
             clean["metadata"] = {**(clean.get("metadata") if isinstance(clean.get("metadata"), dict) else {}), "plannerWarnings": skill_warnings}
         for key in ("projectId", "flowStepKey", "flowStepName", "flowTemplateId", "inputAssetIds"):
@@ -1581,6 +1971,23 @@ class BusinessAgentService:
             if value:
                 clean[key] = value
         return clean
+
+    @staticmethod
+    def _target_business_key_from_plan(plan: BusinessAgentPlan, *, route_evidence: dict[str, Any]) -> str:
+        business_key = _normalize_agent_business_key(
+            route_evidence.get("targetBusinessKey") or plan.intent,
+            message="",
+        )
+        if plan.tool_name in ALLOWED_AGENT_TOOLS:
+            business_key = ALLOWED_AGENT_TOOLS[plan.tool_name]
+        return business_key if business_key in set(ALLOWED_AGENT_TOOLS.values()) else "image_edit"
+
+    @staticmethod
+    def _business_key_label(business_key: str) -> str:
+        return {
+            "image_edit": "图编辑",
+            "pattern_extract": "花纹提取",
+        }.get(business_key, "图片能力")
 
     @staticmethod
     def _merge_confirm_overrides(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
@@ -1610,7 +2017,7 @@ class BusinessAgentService:
             "agentPlanId": plan.id,
             "agentPlannerMode": plan.planner_mode,
             "agentPlannerModel": plan.planner_model,
-            "agentToolName": IMAGE_EDIT_TOOL_NAME,
+            "agentToolName": plan.tool_name or _tool_name_for_business_key(route_evidence.get("targetBusinessKey") or "image_edit"),
             "agentRouteEvidence": route_evidence,
             "agentWorkingMemory": working_memory,
             "agentBaseImageRole": route_evidence.get("baseImageRole"),
@@ -1618,13 +2025,20 @@ class BusinessAgentService:
             "agentMethodologyId": methodology.get("id"),
             "agentMethodologyVersion": methodology.get("version"),
         }
+        target_business_key = BusinessAgentService._target_business_key_from_plan(plan, route_evidence=route_evidence)
+        flow_step_key = "pattern_extract_chat" if target_business_key == "pattern_extract" else "image_edit_chat"
+        flow_step_name = "对话花纹提取" if target_business_key == "pattern_extract" else "AI 图片助手图编辑"
         return BusinessRunCreateRequest(
             imageUrl=tool_payload.get("imageUrl") or session_obj.image_url,
+            prompt=tool_payload.get("prompt"),
             instruction=tool_payload.get("instruction"),
             editSkill=tool_payload.get("editSkill"),
             quality=tool_payload.get("quality"),
             size=tool_payload.get("size"),
             output_format=tool_payload.get("output_format"),
+            batch=tool_payload.get("batch"),
+            negative_prompt=tool_payload.get("negative_prompt"),
+            lora=tool_payload.get("lora"),
             maskUrl=tool_payload.get("maskUrl"),
             referenceImages=tool_payload.get("referenceImages"),
             selectionHints=tool_payload.get("selectionHints"),
@@ -1640,8 +2054,8 @@ class BusinessAgentService:
             callbackHeaders=callback_headers,
             metadata=metadata,
             projectId=tool_payload.get("projectId"),
-            flowStepKey=tool_payload.get("flowStepKey") or "image_edit_chat",
-            flowStepName=tool_payload.get("flowStepName") or "对话改图",
+            flowStepKey=tool_payload.get("flowStepKey") or flow_step_key,
+            flowStepName=tool_payload.get("flowStepName") or flow_step_name,
             flowTemplateId=tool_payload.get("flowTemplateId"),
             inputAssetIds=tool_payload.get("inputAssetIds"),
             clientRequestId=request_id,

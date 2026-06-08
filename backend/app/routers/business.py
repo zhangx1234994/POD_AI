@@ -2033,7 +2033,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     }
     image_edit_chat_create_schema = {
         "type": "object",
-        "description": "创建 AI 改图助手会话；可带首轮 message 直接生成可确认建议。",
+        "description": "创建 AI 图片助手会话；可带首轮 message 直接生成结构化计划。",
         "properties": {
             "agentKey": {
                 "type": "string",
@@ -2069,9 +2069,9 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     image_edit_chat_message_schema = {
         "type": "object",
         "required": ["message"],
-        "description": "向已有对话改图会话追加用户消息，并生成新的最新建议。",
+        "description": "向已有 AI 图片助手会话追加用户消息，并生成新的最新计划。",
         "properties": {
-            "message": {"type": "string", "description": "用户本轮自然语言改图要求。"},
+            "message": {"type": "string", "description": "用户本轮自然语言图片处理目标。"},
             "imageUrl": {"type": "string", "nullable": True, "description": "补充或覆盖会话主图 URL。"},
             "editSkill": {"type": "string", "nullable": True, "description": "可选改图技能。", "enum": IMAGE_EDIT_SKILL_VALUES},
             "quality": {"type": "string", "nullable": True, "description": "质量档位。", "enum": IMAGE_EDIT_QUALITY_VALUES},
@@ -2090,9 +2090,9 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     }
     image_edit_chat_confirm_schema = {
         "type": "object",
-        "description": "确认执行最新建议或指定 planId；确认后才会提交底层 /api/business/image-edit/runs。",
+        "description": "提交最新计划或指定 planId 进入后端幂等执行边界；接口名 confirm 为兼容历史协议。",
         "properties": {
-            "planId": {"type": "string", "nullable": True, "description": "可选方案 ID；不传则确认当前最新建议。"},
+            "planId": {"type": "string", "nullable": True, "description": "可选计划 ID；不传则提交当前最新计划。"},
             "overrides": {"type": "object", "nullable": True, "description": "执行前覆盖项，如 quality/size/callbackUrl。"},
             "callbackUrl": {"type": "string", "nullable": True, "description": "可选终态回调地址。"},
             "callbackHeaders": {"type": "object", "nullable": True, "description": "终态回调请求头。"},
@@ -2109,7 +2109,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "type": "object",
         "properties": {
             "session": {"type": "object", "description": "会话详情。"},
-            "plan": {"type": "object", "description": "最新可确认建议，包含 editPlan/toolPayload/warnings/routeEvidence/workingMemory/assetState/methodology。"},
+            "plan": {"type": "object", "description": "最新可执行计划，包含 editPlan/toolPayload/warnings/routeEvidence/workingMemory/assetState/methodology。"},
         },
     }
     image_edit_chat_confirm_response_schema = {
@@ -2686,7 +2686,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "info": {
             "title": "PODI Business APIs",
             "version": "0.1.0",
-            "description": "业务层稳定入口：花纹提取、图裂变、产品设计、直接图编辑、AI 改图助手、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
+            "description": "业务层稳定入口：花纹提取、图裂变、产品设计、直接图编辑、AI 图片助手、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
         "components": {
@@ -2805,8 +2805,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions": {
                 "post": {
                     "operationId": "podi_business_image_edit_chat_create_session",
-                    "summary": "PODI · AI 改图助手 · 创建会话",
-                    "description": "创建 AI 改图助手会话。它是独立 Agent 入口，不是 /api/business/image-edit/runs 的别名；只有用户确认建议后才会提交底层 image_edit 业务任务。",
+                    "summary": "PODI · AI 图片助手 · 创建会话",
+                    "description": "创建 AI 图片助手会话。它是独立 Agent 入口，不是 /api/business/image-edit/runs 的别名；后端会按白名单、schema、置信度、风险和成本校验后路由到图片业务能力。当前普通单张图片任务默认走 image_edit/GPT Image 2 质量优先路径，明确批量、快速、低成本或固定 SOP 时才分流到 pattern_extract 等专项能力。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
@@ -2840,8 +2840,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions/{sessionId}": {
                 "get": {
                     "operationId": "podi_business_image_edit_chat_get_session",
-                    "summary": "PODI · AI 改图助手 · 查询会话",
-                    "description": "查询对话改图会话、消息、建议方案和工具调用记录。",
+                    "summary": "PODI · AI 图片助手 · 查询会话",
+                    "description": "查询 AI 图片助手会话、消息、计划和工具调用记录。",
                     "security": business_api_key_security,
                     "parameters": [
                         {"name": "sessionId", "in": "path", "required": True, "schema": {"type": "string"}},
@@ -2856,8 +2856,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions/{sessionId}/messages": {
                 "post": {
                     "operationId": "podi_business_image_edit_chat_send_message",
-                    "summary": "PODI · AI 改图助手 · 发送消息",
-                    "description": "向已有会话追加用户消息，并生成新的最新建议。后端不会隐藏续聊，调用方必须显式传 sessionId。",
+                    "summary": "PODI · AI 图片助手 · 发送消息",
+                    "description": "向已有会话追加用户消息，并生成新的最新计划。后端不会隐藏续聊，调用方必须显式传 sessionId。",
                     "security": business_api_key_security,
                     "parameters": [
                         {"name": "sessionId", "in": "path", "required": True, "schema": {"type": "string"}},
@@ -2873,8 +2873,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions/{sessionId}/confirm": {
                 "post": {
                     "operationId": "podi_business_image_edit_chat_confirm_latest",
-                    "summary": "PODI · AI 改图助手 · 执行最新建议",
-                    "description": "确认当前最新建议并提交底层 /api/business/image-edit/runs。会话还没有建议时返回 AGENT_PLAN_REQUIRED。",
+                    "summary": "PODI · AI 图片助手 · 执行最新计划",
+                    "description": "提交当前最新计划进入后端幂等执行边界。会话还没有计划时返回 AGENT_PLAN_REQUIRED。",
                     "security": business_api_key_security,
                     "parameters": [
                         {"name": "sessionId", "in": "path", "required": True, "schema": {"type": "string"}},
@@ -2890,8 +2890,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm": {
                 "post": {
                     "operationId": "podi_business_image_edit_chat_confirm_plan",
-                    "summary": "PODI · AI 改图助手 · 执行指定建议",
-                    "description": "确认指定方案版本并提交底层 /api/business/image-edit/runs。指定的方案不是最新方案时返回 AGENT_PLAN_STALE。",
+                    "summary": "PODI · AI 图片助手 · 执行指定计划",
+                    "description": "提交指定计划版本进入后端幂等执行边界。指定的计划不是最新计划时返回 AGENT_PLAN_STALE。",
                     "security": business_api_key_security,
                     "parameters": [
                         {"name": "sessionId", "in": "path", "required": True, "schema": {"type": "string"}},

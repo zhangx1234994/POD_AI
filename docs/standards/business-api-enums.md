@@ -253,15 +253,22 @@
 - `referenceImages` 仅作为版型、材质或风格参考，不应替代主图素材。
 - 新增错误码：`PRODUCT_DESIGN_BRIEF_REQUIRED`、`PRODUCT_DESIGN_PRODUCT_TYPE_INVALID`、`PRODUCT_DESIGN_SCENE_INVALID`。
 
-## 5.4 AI 改图助手
+## 5.4 AI 图片助手
 
-AI 改图助手的业务治理 key 为 `image_edit_chat`，底层 Agent key 固定为 `agent.image_edit_assistant`。它不是旧的 `/api/agent/*` ComfyUI 节点协议，也不是直接图编辑接口的别名；它是面向用户聊天心智的独立 Agent 入口：先通过多轮对话整理成可确认建议，再调用中台白名单工具 `business.image_edit`，最终仍落到 `image_edit` 业务 run。旧白名单 key `agent_image_edit` 仅保留兼容。
+AI 图片助手的业务治理 key 为 `image_edit_chat`，底层 Agent key 固定为 `agent.image_edit_assistant`。它不是旧的 `/api/agent/*` ComfyUI 节点协议，也不是直接图编辑接口的别名；它是面向用户聊天心智的独立 Agent 入口：先通过多轮对话整理成结构化 JSON 计划，再由后端按白名单、schema、置信度、风险和成本校验后创建对应业务 run。旧白名单 key `agent_image_edit` 仅保留兼容。
+
+当前白名单工具：
+
+| 工具 | 业务 run | 适用意图 |
+| --- | --- | --- |
+| `business.image_edit` | `image_edit` | GPT Image 2 质量优先主路径：修改已有图片、局部修补、换色、参考图迁移、扩图式编辑，也覆盖普通单张高质量花纹提取。 |
+| `business.pattern_extract` | `pattern_extract` | 专项加速路径：用户明确要求批量、快速、低成本或固定花纹提取 SOP 时使用。 |
 
 调用方式：
 
-1. `POST /api/business/image-edit-chat/sessions` 创建会话；可带首轮 `message` 直接生成 AI 改图助手回复和最新建议。
-2. `POST /api/business/image-edit-chat/sessions/{sessionId}/messages` 追加用户消息并生成新的最新建议。
-3. `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` 确认当前最新建议后才提交 `/api/business/image-edit/runs`。
+1. `POST /api/business/image-edit-chat/sessions` 创建会话；可带首轮 `message` 直接生成 AI 图片助手回复和最新计划。
+2. `POST /api/business/image-edit-chat/sessions/{sessionId}/messages` 追加用户消息并生成新的最新计划。
+3. `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` 提交当前最新计划进入后端执行边界，并按路由结果创建业务 run。
 4. `POST /api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm` 保留给需要严格指定方案版本的调用方。
 5. 使用返回的 `run.runId` 继续调用 `POST /api/business/runs/get` 查询结果。
 
@@ -270,34 +277,37 @@ AI 改图助手的业务治理 key 为 `image_edit_chat`，底层 Agent key 固�
 - 新建会话必须走 `sessions` 接口，追加消息必须显式带 `sessionId`；后端不做隐藏续聊。
 - `sessions` 接口的 `requestId` 是创建会话幂等键，同一 `agentKey + requestId + tenantId + clientId` 复用原会话。
 - `messages` 接口的 `requestId` 是消息级幂等键，同一 `sessionId + requestId` 只生成一张方案卡；网络重试应复用同一个 `requestId`，新诉求必须换新的 `requestId`。
-- 每次追加消息都会生成新的 `latestPlanId`；只能确认最新方案，旧方案返回 `AGENT_PLAN_STALE`。
-- 方案确认成功后重复确认同一个已执行方案，应返回原 `runId`，不能重复创建业务 run。
+- 每次追加消息都会生成新的 `latestPlanId`；只能提交最新方案，旧方案返回 `AGENT_PLAN_STALE`。
+- 方案执行成功后重复提交同一个已执行方案，应返回原 `runId`，不能重复创建业务 run。
 
 Agent 状态：
 
 | 字段 | 允许值 | 含义 |
 | --- | --- | --- |
 | `status` | `collecting_context` | 等待图片或用户说明。 |
-| `status` | `awaiting_confirmation` | 已生成方案，等待用户确认。 |
-| `status` | `confirming` | 正在确认并提交中台业务 run。 |
-| `status` | `running` | 已提交中台图编辑 run。 |
-| `status` | `failed` | 方案确认或工具调用失败。 |
+| `status` | `awaiting_confirmation` | 已生成方案，等待前端触发后端执行边界或等待用户补充。 |
+| `status` | `confirming` | 正在提交中台业务 run。 |
+| `status` | `running` | 已提交中台业务 run。 |
+| `status` | `failed` | 方案提交或工具调用失败。 |
 
 方案状态：
 
 | 字段 | 允许值 | 含义 |
 | --- | --- | --- |
-| `plan.status` | `awaiting_confirmation` | 可确认执行。 |
-| `plan.status` | `confirming` | 正在确认并提交中台业务 run。 |
-| `plan.status` | `executed` | 已确认并提交业务 run。 |
-| `plan.status` | `failed` | 确认执行失败。 |
+| `plan.status` | `awaiting_confirmation` | 可进入后端执行边界。 |
+| `plan.status` | `confirming` | 正在提交中台业务 run。 |
+| `plan.status` | `executed` | 已提交业务 run。 |
+| `plan.status` | `failed` | 执行提交失败。 |
 
 路由证据：
 
 | 字段 | 含义 |
 | --- | --- |
-| `routeEvidence.intent` | 本轮识别出的用户意图，当前固定为 `image_edit`。 |
-| `routeEvidence.targetAbility` | 后端最终允许调用的白名单工具，当前固定为 `business.image_edit`。 |
+| `routeEvidence.intent` | 本轮识别出的用户意图，例如 `image_edit`、`pattern_extract`。 |
+| `routeEvidence.targetAbility` | 后端最终允许调用的白名单工具，例如 `business.image_edit`、`business.pattern_extract`。 |
+| `routeEvidence.routeType` | 路由类型：`image2_quality_first` 表示 GPT Image 2 质量优先主路径；`ability_accelerated` 表示专项能力加速路径；`clarification_required` 表示需要先追问。 |
+| `routeEvidence.primaryExecutionEngine` | 本轮主要执行引擎，例如 `gpt-image-2` 或 `podi-specialized-ability`。 |
+| `routeEvidence.specializedAbilityCandidate` | 当普通单张任务选择质量优先路径时，可记录候选专项能力，例如 `business.pattern_extract`，用于解释为什么没有直接走小模型。 |
 | `routeEvidence.confidence` | 路由置信度；低置信时必须先追问，不能直接执行。 |
 | `routeEvidence.baseImageRole` | 本轮基准图来源：`source_image` / `previous_result` / `selected_history_result`。 |
 | `routeEvidence.parentRunId` | 基于上一轮结果继续改图时的父 runId。 |
@@ -311,7 +321,8 @@ Agent 状态：
 
 | 工具 | 允许调用的业务能力 | 说明 |
 | --- | --- | --- |
-| `business.image_edit` | `image_edit` | 只通过中台业务 API 创建 run，不直连 OpenAI、ComfyUI 或 KIE。 |
+| `business.image_edit` | `image_edit` | 只通过中台业务 API 创建 run，不由前端直连 OpenAI；当前作为 GPT Image 2 质量优先主路径。 |
+| `business.pattern_extract` | `pattern_extract` | 只通过中台业务 API 创建 run，不直连 ComfyUI workflow；仅用于明确批量、快速、低成本或固定 SOP 的专项加速。 |
 
 错误码：
 
@@ -320,13 +331,13 @@ Agent 状态：
 | `AGENT_CAPABILITY_NOT_FOUND` | 非法 Agent key 或能力未开放。 |
 | `AGENT_MESSAGE_REQUIRED` | 用户消息为空。 |
 | `AGENT_MESSAGE_DUPLICATE_IN_PROGRESS` | 同一消息 `requestId` 已在处理中，稍后查询会话或重试同一请求。 |
-| `AGENT_IMAGE_URL_REQUIRED` | 确认执行时没有主图。 |
-| `AGENT_PLAN_REQUIRED` | 会话还没有可确认建议。 |
-| `AGENT_PLAN_STALE` | 当前确认的方案不是会话最新方案。 |
-| `AGENT_PLAN_CONFIRM_IN_PROGRESS` | 方案正在确认执行中。 |
+| `AGENT_IMAGE_URL_REQUIRED` | 执行时没有主图。 |
+| `AGENT_PLAN_REQUIRED` | 会话还没有可执行计划。 |
+| `AGENT_PLAN_STALE` | 当前提交的方案不是会话最新方案。 |
+| `AGENT_PLAN_CONFIRM_IN_PROGRESS` | 方案正在提交执行中。 |
 | `AGENT_PLAN_REQUIRES_CLARIFICATION` | 当前方案仍需补充说明，不能直接执行。 |
-| `AGENT_PLAN_NOT_CONFIRMABLE` | 方案已执行或当前状态不能确认。 |
-| `AGENT_TOOL_CALL_FAILED` | 调用 `image_edit` 业务能力失败。 |
+| `AGENT_PLAN_NOT_CONFIRMABLE` | 方案已执行或当前状态不能提交。 |
+| `AGENT_TOOL_CALL_FAILED` | 调用白名单业务能力失败。 |
 
 ## 6. 兼容调用上下文枚举
 

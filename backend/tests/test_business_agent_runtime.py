@@ -105,6 +105,212 @@ def test_image_edit_agent_generates_plan_without_running_tool(monkeypatch) -> No
     assert tool_calls == []
 
 
+def test_image_agent_uses_image2_quality_first_for_pattern_extract_by_default(monkeypatch) -> None:
+    _install_agent_db(monkeypatch)
+    service = BusinessAgentService()
+    user = _client_user()
+
+    result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/tablecloth.png",
+            message="把这个桌布的花纹提取出来",
+            source="eval",
+        ),
+        user=user,
+    )
+
+    plan = result["plan"]
+    evidence = plan["routeEvidence"]
+    assert plan["intent"] == "image_edit"
+    assert plan["toolName"] == "business.image_edit"
+    assert plan["toolPayload"]["imageUrl"].endswith("/tablecloth.png")
+    assert plan["toolPayload"]["instruction"]
+    assert plan["toolPayload"]["editSkill"] == "local_modify"
+    assert evidence["routeType"] == "image2_quality_first"
+    assert evidence["targetAbility"] == "business.image_edit"
+    assert evidence["targetBusinessKey"] == "image_edit"
+    assert evidence["primaryExecutionEngine"] == "gpt-image-2"
+    assert evidence["specializedAbilityCandidate"]["targetAbility"] == "business.pattern_extract"
+    assert evidence["requiresClarification"] is False
+
+
+def test_image_agent_routes_explicit_batch_pattern_extract_to_specialized_ability(monkeypatch) -> None:
+    _install_agent_db(monkeypatch)
+    service = BusinessAgentService()
+    user = _client_user()
+
+    result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/tablecloth.png",
+            message="批量快速把这个桌布的花纹提取出来，走花纹提取能力",
+            source="eval",
+        ),
+        user=user,
+    )
+
+    plan = result["plan"]
+    evidence = plan["routeEvidence"]
+    assert plan["intent"] == "pattern_extract"
+    assert plan["toolName"] == "business.pattern_extract"
+    assert plan["toolPayload"]["imageUrl"].endswith("/tablecloth.png")
+    assert plan["toolPayload"]["prompt"]
+    assert "editSkill" not in plan["toolPayload"]
+    assert evidence["routeType"] == "ability_accelerated"
+    assert evidence["targetAbility"] == "business.pattern_extract"
+    assert evidence["targetBusinessKey"] == "pattern_extract"
+    assert evidence["primaryExecutionEngine"] == "podi-specialized-ability"
+    assert evidence["requiresClarification"] is False
+
+
+def test_image_agent_backend_overrides_model_pattern_extract_to_image2_quality_default(monkeypatch) -> None:
+    _install_agent_db(monkeypatch)
+    service = BusinessAgentService()
+    user = _client_user()
+
+    def fake_generate_plan(*, message, image_url, request_context, session_context):  # noqa: ANN001, ARG001
+        return {
+            "intent": "pattern_extract",
+            "title": "模型误判测试",
+            "summary": "模型误判成专项花纹提取。",
+            "editPlan": [{"step": "错误路由", "reason": "测试后端覆盖。"}],
+            "toolPayload": {
+                "imageUrl": image_url,
+                "prompt": message,
+                "batch": 1,
+                "quality": "preview",
+                "size": "auto",
+                "output_format": "png",
+            },
+            "estimatedCostLevel": "low",
+            "riskLevel": "low",
+            "routeEvidence": {
+                "intent": "pattern_extract",
+                "routeType": "ability_accelerated",
+                "targetAbility": "business.pattern_extract",
+                "targetBusinessKey": "pattern_extract",
+                "confidence": 0.91,
+                "threshold": 0.65,
+                "missingFields": [],
+                "routeReason": "模型误判为专项花纹提取。",
+                "rejectedAbilities": [],
+                "requiresClarification": False,
+            },
+            "warnings": [],
+            "plannerMode": "test",
+            "plannerModel": "test-planner",
+            "rawResponse": {"test": True},
+        }
+
+    monkeypatch.setattr(service.planner, "generate_plan", fake_generate_plan)
+    result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/tablecloth.png",
+            message="把这个桌布的花纹提取出来",
+            source="eval",
+        ),
+        user=user,
+    )
+
+    plan = result["plan"]
+    assert plan["intent"] == "image_edit"
+    assert plan["toolName"] == "business.image_edit"
+    assert plan["toolPayload"]["instruction"] == "把这个桌布的花纹提取出来"
+    assert plan["toolPayload"]["editSkill"] == "local_modify"
+    assert plan["routeEvidence"]["routeType"] == "image2_quality_first"
+    assert plan["routeEvidence"]["targetAbility"] == "business.image_edit"
+    assert plan["routeEvidence"]["targetBusinessKey"] == "image_edit"
+    assert plan["routeEvidence"]["specializedAbilityCandidate"]["targetAbility"] == "business.pattern_extract"
+
+
+def test_image_agent_quality_first_pattern_confirm_submits_image_edit_run(monkeypatch) -> None:
+    _install_agent_db(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def fake_create_run(*, business_key, payload, user, source):  # noqa: ANN001, ARG001
+        captured["business_key"] = business_key
+        captured["payload"] = payload
+        captured["source"] = source
+        return SimpleNamespace(id="run_image2_pattern_agent", business_key=business_key, status="queued")
+
+    monkeypatch.setattr(
+        business_agents_module,
+        "get_business_run_service",
+        lambda: SimpleNamespace(create_run=fake_create_run),
+    )
+    service = BusinessAgentService()
+    user = _client_user()
+    result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/tablecloth.png",
+            message="把这个桌布的花纹提取出来",
+        ),
+        user=user,
+    )
+
+    confirmed = service.confirm_plan(
+        result["session"]["id"],
+        result["plan"]["id"],
+        BusinessAgentConfirmRequest(),
+        user=user,
+    )
+
+    assert captured["business_key"] == "image_edit"
+    assert captured["source"] == "image-edit-chat"
+    payload = captured["payload"]
+    assert payload.imageUrl.endswith("/tablecloth.png")
+    assert payload.instruction
+    assert payload.editSkill == "local_modify"
+    assert payload.prompt is None
+    assert payload.batch is None
+    assert payload.flowStepKey == "image_edit_chat"
+    assert payload.metadata["agentRouteEvidence"]["routeType"] == "image2_quality_first"
+    assert payload.metadata["agentRouteEvidence"]["specializedAbilityCandidate"]["targetAbility"] == "business.pattern_extract"
+    assert confirmed["tool_call"]["businessKey"] == "image_edit"
+    assert confirmed["run"]["businessKey"] == "image_edit"
+
+
+def test_image_agent_pattern_extract_confirm_submits_pattern_run(monkeypatch) -> None:
+    _install_agent_db(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def fake_create_run(*, business_key, payload, user, source):  # noqa: ANN001, ARG001
+        captured["business_key"] = business_key
+        captured["payload"] = payload
+        captured["source"] = source
+        return SimpleNamespace(id="run_pattern_agent", business_key=business_key, status="queued")
+
+    monkeypatch.setattr(
+        business_agents_module,
+        "get_business_run_service",
+        lambda: SimpleNamespace(create_run=fake_create_run),
+    )
+    service = BusinessAgentService()
+    user = _client_user()
+    result = service.create_session(
+        BusinessAgentSessionCreateRequest(
+            imageUrl="https://podi.oss-cn-hangzhou.aliyuncs.com/tablecloth.png",
+            message="批量快速把这个桌布的花纹提取出来，走花纹提取能力",
+        ),
+        user=user,
+    )
+
+    confirmed = service.confirm_plan(
+        result["session"]["id"],
+        result["plan"]["id"],
+        BusinessAgentConfirmRequest(),
+        user=user,
+    )
+
+    assert captured["business_key"] == "pattern_extract"
+    assert captured["source"] == "image-edit-chat"
+    payload = captured["payload"]
+    assert payload.imageUrl.endswith("/tablecloth.png")
+    assert payload.prompt
+    assert payload.flowStepKey == "pattern_extract_chat"
+    assert confirmed["tool_call"]["businessKey"] == "pattern_extract"
+    assert confirmed["run"]["businessKey"] == "pattern_extract"
+
+
 def test_image_edit_agent_create_session_reuses_request_id(monkeypatch) -> None:
     testing_session = _install_agent_db(monkeypatch)
     service = BusinessAgentService()

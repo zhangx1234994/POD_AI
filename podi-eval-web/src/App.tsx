@@ -1293,7 +1293,7 @@ const getWorkflowResultModeLabel = (mode: string): string => {
 };
 
 const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
-  if (isImageEditChatWorkflow(wf)) return '主图 + 对话诉求 + 确认建议';
+  if (isImageEditChatWorkflow(wf)) return '主图 + 对话诉求 + 结构化计划';
   if (isImageEditWorkflow(wf)) return '主图 + 圈选区域 + 参考图 + 改图目标';
   if (getWorkflowCategory(wf) === '产品设计') return '素材图 + 产品类型 + 设计要求 + 展示场景';
   const text = getSchemaFields(wf.parameters_schema)
@@ -1313,7 +1313,7 @@ const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
 };
 
 const getWorkflowOutputSummary = (wf: EvalWorkflowVersion): string => {
-  if (isImageEditChatWorkflow(wf)) return '会话建议 + 改图结果';
+  if (isImageEditChatWorkflow(wf)) return '会话计划 + 图片结果';
   if (isImageEditWorkflow(wf)) return '改图结果';
   const resultMode = String(getWorkflowPresentation(wf)?.resultMode || '').trim();
   const resultModeLabel = getWorkflowResultModeLabel(resultMode);
@@ -2345,7 +2345,6 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string, params
     const sessionPayload = {
       imageUrl: paramsExample.imageUrl,
       message: paramsExample.message || '把这张图改得更高级一些，适合服装面料，保持主体结构和未提及区域不变。',
-      editSkill: paramsExample.editSkill || 'local_modify',
       quality: paramsExample.quality || 'auto',
       size: paramsExample.size || 'auto',
       outputFormat: paramsExample.output_format || paramsExample.outputFormat || 'png',
@@ -2354,7 +2353,7 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string, params
       requestId: 'biz-image-edit-chat-session-001',
     };
     return [
-      '【第 1 步：创建 AI 改图助手会话】',
+      '【第 1 步：创建 AI 图片助手会话】',
       'curl -X POST "$PODI_BASE_URL/api/business/image-edit-chat/sessions" \\',
       '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
       '  -H "Content-Type: application/json" \\',
@@ -2366,19 +2365,19 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string, params
       '  -H "Content-Type: application/json" \\',
       `  -d '${JSON.stringify({ message: '请进一步保留主体花纹，只优化背景和整体质感。', imageUrl: '<可选，更新主图 URL>' }, null, 2)}'`,
       '',
-      '【第 3 步：确认执行最新建议】',
+      '【第 3 步：提交最新计划进入后端执行边界】',
       'curl -X POST "$PODI_BASE_URL/api/business/image-edit-chat/sessions/<sessionId>/confirm" \\',
       '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
       '  -H "Content-Type: application/json" \\',
       `  -d '${JSON.stringify({ planId: '<latestPlanId>', requestId: 'biz-image-edit-chat-confirm-001' }, null, 2)}'`,
       '',
-      '【第 4 步：查询图编辑 run 结果】',
+      '【第 4 步：查询业务 run 结果】',
       'curl -X POST "$PODI_BASE_URL/api/business/runs/get" \\',
       '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
       '  -H "Content-Type: application/json" \\',
-      `  -d '${JSON.stringify({ runId: '<确认接口返回的 run.runId>' }, null, 2)}'`,
+      `  -d '${JSON.stringify({ runId: '<执行边界返回的 run.runId>' }, null, 2)}'`,
       '',
-      '说明：AI 改图助手是独立对话式改图入口，不是 /api/business/image-edit/runs 的别名。助手负责会话、建议和确认；确认后才由后端调用直接图编辑业务能力。',
+      '说明：AI 图片助手是独立 Agent 入口，不是 /api/business/image-edit/runs 的别名。助手负责会话和结构化计划；普通单张图片任务默认走 image_edit/GPT Image 2 质量优先路径，明确批量、快速、低成本或专项 SOP 时才分流到 pattern_extract 等专项能力。',
     ].join('\n');
   }
 
@@ -3643,13 +3642,13 @@ function ImageEditEntryGuide({
           <div>
             <Tag theme="primary" variant="light">Agent</Tag>
             <Typography.Title level="h5" style={{ margin: '8px 0 4px' }}>
-              AI 改图助手
+              AI 图片助手
             </Typography.Title>
-            <Typography.Text theme="secondary">用户只知道大概方向时，先用自然语言讨论方案，再确认执行。</Typography.Text>
+            <Typography.Text theme="secondary">用户只知道大概方向时，先用自然语言表达目标，由后端规划并路由图片能力。</Typography.Text>
           </div>
           <ul>
             <li>示例：把这张图改得更高级，适合服装面料。</li>
-            <li>适合：非技术用户、需求不清晰、多轮确认。</li>
+            <li>适合：非技术用户、需求不清晰、多轮追改或花纹提取。</li>
           </ul>
           <Button theme="primary" disabled={!chatTool} onClick={() => chatTool && onOpenTool(chatTool)}>
             打开助手
@@ -9107,10 +9106,10 @@ export function App() {
       if (isImageEditChatBusinessWorkflow) {
         return {
           theme: formUrl.trim() ? ('primary' as const) : ('warning' as const),
-          label: formUrl.trim() ? '在助手中确认方案' : '先提供主图',
-          detail: formUrl.trim() ? '发送改图诉求，确认建议后由 AI 改图助手提交中台图编辑 run。' : '可以先讨论目标，但真实执行前必须上传或粘贴主图 URL。',
-          businessAction: '像聊天一样描述要怎么改，重点检查建议是否说清目标、约束和风险。',
-          platformAction: '观察会话、方案、确认动作、runId 和结果图是否可追溯。',
+          label: formUrl.trim() ? '在助手中发送目标' : '先提供主图',
+          detail: formUrl.trim() ? '发送图片任务诉求，AI 图片助手会规划并由后端白名单路由到对应业务 run。' : '可以先讨论目标，但真实执行前必须上传或粘贴主图 URL。',
+          businessAction: '像聊天一样描述目标，重点检查计划是否说清目标、约束和风险。',
+          platformAction: '观察会话、计划、执行边界、runId 和结果图是否可追溯。',
         };
       }
       if (runBlockingReason) {
@@ -9462,11 +9461,11 @@ export function App() {
               title={
                 <div className="podi-panel-title">
                   <strong>
-                    {isImageEditChatBusinessWorkflow ? 'AI 改图助手' : isImageEditBusinessWorkflow ? '图编辑工作台' : '一次测试'}
+                    {isImageEditChatBusinessWorkflow ? 'AI 图片助手' : isImageEditBusinessWorkflow ? '图编辑工作台' : '一次测试'}
                   </strong>
                   <span>
                     {isImageEditChatBusinessWorkflow
-                      ? '上传主图，用自然语言讨论方案，确认后再提交改图。'
+                      ? '上传主图，用自然语言表达目标，后端规划并路由图片能力。'
                       : isImageEditBusinessWorkflow
                         ? '上传主图、选择示例或直接标注，再提交一次真实链路。'
                         : '先补齐必填参数，再提交一次可复盘的测试。'}
@@ -9505,8 +9504,8 @@ export function App() {
                   />
                   <IntegrationDocBlock
                     doc={doc}
-                    title="业务接入文档（AI 改图助手）"
-                    description="对话式改图是独立 Agent 入口：先建会话和方案，确认后才创建图编辑 run。"
+                    title="业务接入文档（AI 图片助手）"
+                    description="AI 图片助手是独立 Agent 入口：先建会话和结构化计划，再由后端白名单路由创建业务 run。"
                     expanded={showIntegrationDoc}
                     onToggle={() => setShowIntegrationDoc((prev) => !prev)}
                     onCopy={copyIntegrationDoc}

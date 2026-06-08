@@ -96,7 +96,7 @@ OSS 回填：
 
 ## 6. Agent Runtime 回归
 
-如果版本触碰 Agent、对话改图、路由、planner、上下文、确认执行或工具调用，必须执行 `docs/standards/agent-runtime-regression-matrix.md`。
+如果版本触碰 Agent、AI 图片助手、路由、planner、上下文、执行边界或工具调用，必须执行 `docs/standards/agent-runtime-regression-matrix.md`。
 
 最低门槛：
 
@@ -104,7 +104,7 @@ OSS 回填：
 - 二轮续改默认基于上一轮成功输出。
 - 新任务隔离，不污染旧会话。
 - 模糊意图必须追问或阻断，不能乱执行。
-- 消息与确认执行幂等。
+- 消息与执行边界幂等。
 - 每次执行可见 `routeReason/confidence/baseImageRole/parentRunId`。
 - 预期 4xx 必须在封版报告中标注，不得误判为异常 4xx。
 

@@ -51,7 +51,7 @@
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
-| AI 改图助手 | `POST /api/business/image-edit-chat/sessions` + `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` | 会话可先传 `message`；执行前必须有 `imageUrl` | `editSkill`、`quality`、`size`、`referenceImages`、`selectionHints` | `messages` + `plan` + `run.runId` | 独立于直接图编辑 API 的 Agent 入口；助手通过白名单工具调用中台 `image_edit` 业务 run。 |
+| AI 图片助手 | `POST /api/business/image-edit-chat/sessions` + `POST /api/business/image-edit-chat/sessions/{sessionId}/confirm` | 会话可先传 `message`；执行前必须有 `imageUrl` | `quality`、`size`、`referenceImages`、`selectionHints`、`routingPreference` | `messages` + `plan` + `run.runId` | 独立于直接图编辑 API 的 Agent 入口；当前默认 GPT-5.5 规划 + GPT Image 2 执行，批量/快速/低成本时再分流专项能力。 |
 
 调用上下文兼容接口：
 
@@ -110,20 +110,29 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 
 管理端“API 开放”页也可以直接生成、创建、停用业务 Key，并查看每个 Key 的调用记录。
 
-### 0.2) AI 改图助手
+### 0.2) AI 图片助手
 
-AI 改图助手是独立业务入口，治理 key 为 `image_edit_chat`；直接图编辑仍是 `image_edit`，接口仍为 `/api/business/image-edit/runs`。两者共享底层图编辑能力和 runId 证据，但调用方式、产品入口和用户心智必须拆开：助手负责像聊天一样收集诉求、追问或给出可执行建议；真正执行只允许调用中台白名单工具 `business.image_edit`，最终仍产生标准 `image_edit` 业务 `runId`。
+AI 图片助手是独立 Agent 业务入口，治理 key 为 `image_edit_chat`；直接图编辑仍是 `image_edit`，接口仍为 `/api/business/image-edit/runs`。两者共享 runId、资产和排障证据，但调用方式、产品入口和用户心智必须拆开：助手负责像聊天一样收集诉求、调用 GPT-5.5 / Responses API 或规则 planner 生成结构化 JSON 计划，再由后端按白名单、schema、置信度、风险和成本校验后创建业务 run。当前阶段采用质量优先主路径：普通单张图片任务默认走 `business.image_edit`，即 GPT Image 2；专项能力主要用于批量、速度、低成本或固定 SOP。
+
+当前白名单工具：
+
+| 工具 | 业务 run | 适用意图 |
+| --- | --- | --- |
+| `business.image_edit` | `image_edit` | GPT Image 2 质量优先主路径：开放式单张生成/改图、局部修补、换色、参考图迁移、扩图式编辑、单张高质量花纹提取。 |
+| `business.pattern_extract` | `pattern_extract` | 专项加速路径：用户明确要求批量、快速、低成本或固定花纹提取 SOP 时使用。 |
+
+`confirm` 是历史接口名，本质是后端幂等执行边界；产品语言不要做成二次确认按钮。前端可以在计划满足执行条件后自动调用；低置信、缺图、高风险或后续高成本多阶段能力才需要停下来追问或人工复核。
 
 会话边界和幂等规则：
 
 - 新建会话必须调用 `POST /api/business/image-edit-chat/sessions`；不传 `sessionId` 时不会隐式续聊旧会话。
 - 创建会话建议传 `requestId`；同一 `agentKey + requestId + tenantId + clientId` 重复提交会复用原会话，避免网络重试创建多个方案。
 - 创建会话如果带首轮 `message`，也可以同时传 `editSkill`、`quality`、`size`、`outputFormat`、`maskUrl`、`referenceImages`、`selectionHints`；这些字段和追加消息接口的语义一致。
-- 追加消息必须显式带 `sessionId`，每次追加都会生成新的最新方案；旧方案不能再确认执行。
-- 确认方案只允许确认当前会话的最新 `awaiting_confirmation` 方案；确认中会进入 `confirming`，成功后为 `executed` 并返回业务 `runId`。
-- 已执行方案重复确认会返回原来的 `runId`，不会重复创建图编辑业务任务。
+- 追加消息必须显式带 `sessionId`，每次追加都会生成新的最新计划；旧计划不能再提交执行。
+- 执行边界只允许提交当前会话的最新 `awaiting_confirmation` 计划；提交中会进入 `confirming`，成功后为 `executed` 并返回业务 `runId`。
+- 已执行计划重复提交会返回原来的 `runId`，不会重复创建业务任务。
 
-创建会话并生成首条 AI 改图助手回复：
+创建会话并生成首条 AI 图片助手回复：
 
 ```bash
 curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions" \
@@ -167,6 +176,40 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions" \
 }
 ```
 
+普通单张花纹提取类诉求默认走 GPT Image 2 质量优先主路径，示例响应摘要：
+
+```json
+{
+  "plan": {
+    "id": "agp_xxx",
+    "intent": "image_edit",
+    "toolName": "business.image_edit",
+    "routeEvidence": {
+      "routeType": "image2_quality_first",
+      "targetAbility": "business.image_edit",
+      "targetBusinessKey": "image_edit",
+      "primaryExecutionEngine": "gpt-image-2",
+      "specializedAbilityCandidate": {
+        "targetAbility": "business.pattern_extract",
+        "targetBusinessKey": "pattern_extract"
+      },
+      "confidence": 0.84,
+      "routeReason": "用户目标可由花纹提取专项能力覆盖，但当前 AI 图片助手采用 GPT-5.5 规划 + GPT Image 2 质量优先主路径。"
+    },
+    "toolPayload": {
+      "imageUrl": "https://example.com/tablecloth.png",
+      "instruction": "把这个桌布的花纹提取出来。执行约束：使用 GPT Image 2 做单张质量优先处理...",
+      "editSkill": "local_modify",
+      "quality": "preview",
+      "size": "auto",
+      "output_format": "png"
+    }
+  }
+}
+```
+
+如果用户明确要求“批量快速提取”“低成本跑一批”“走花纹提取能力”，才会分流到 `business.pattern_extract`，`routeType=ability_accelerated`，payload 使用 `prompt/batch/size`，不会带 `editSkill`。
+
 追加消息生成新方案：
 
 ```bash
@@ -183,7 +226,7 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/messag
 
 `messages` 的 `requestId` 是消息级幂等键：同一 `sessionId + requestId` 只生成一张方案卡。网络重试应复用同一个 `requestId`；新的改图诉求必须换新的 `requestId`。
 
-确认最新建议并提交业务 run：
+提交最新计划并创建业务 run：
 
 ```bash
 curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/confirm" \
@@ -197,7 +240,7 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/confir
   }'
 ```
 
-确认响应会返回 `run.runId`，之后继续用 `/api/business/runs/get` 查询结果。需要严格确认某个方案版本时，也可调用兼容接口 `POST /api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm`；旧 `/api/business/agents/image-edit/*` 路径仅作为技术兼容入口，不作为新接入文档推荐。
+执行边界响应会返回 `run.runId`，之后继续用 `/api/business/runs/get` 查询结果。需要严格提交某个方案版本时，也可调用兼容接口 `POST /api/business/image-edit-chat/sessions/{sessionId}/plans/{planId}/confirm`；旧 `/api/business/agents/image-edit/*` 路径仅作为技术兼容入口，不作为新接入文档推荐。
 
 错误：
 
@@ -207,22 +250,23 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/confir
 | `AGENT_MESSAGE_REQUIRED` | 400 | 补充用户改图诉求。 |
 | `AGENT_MESSAGE_DUPLICATE_IN_PROGRESS` | 409 | 同一消息 `requestId` 正在处理中，稍后查询会话或重试同一请求。 |
 | `AGENT_IMAGE_URL_INVALID` | 400 | 图片必须是 HTTP(S) URL。 |
-| `AGENT_IMAGE_URL_REQUIRED` | 400 | 确认执行前上传或传入主图。 |
+| `AGENT_IMAGE_URL_REQUIRED` | 400 | 执行前上传或传入主图。 |
 | `AGENT_SESSION_NOT_FOUND` | 404 | 检查 `sessionId`。 |
 | `AGENT_SESSION_FORBIDDEN` | 403 | 检查业务 API Key 的租户/客户端范围。 |
-| `AGENT_PLAN_REQUIRED` | 400 | 当前会话还没有可确认建议，请先发送一条消息生成建议。 |
+| `AGENT_PLAN_REQUIRED` | 400 | 当前会话还没有可执行计划，请先发送一条消息生成计划。 |
 | `AGENT_PLAN_NOT_FOUND` | 404 | 检查 `planId` 是否属于当前会话。 |
-| `AGENT_PLAN_STALE` | 409 | 当前确认的方案不是会话最新方案，拉取会话后确认最新方案。 |
-| `AGENT_PLAN_CONFIRM_IN_PROGRESS` | 409 | 方案正在确认执行中，稍后查询会话或重试确认。 |
-| `AGENT_PLAN_NOT_CONFIRMABLE` | 409 | 方案已执行或状态不可确认，重新生成方案。 |
-| `AGENT_TOOL_CALL_FAILED` | 502/500 | 查看返回错误和对应 `image_edit` run/能力日志。 |
+| `AGENT_PLAN_STALE` | 409 | 当前提交的计划不是会话最新计划，拉取会话后提交最新计划。 |
+| `AGENT_PLAN_CONFIRM_IN_PROGRESS` | 409 | 计划正在提交执行中，稍后查询会话或重试同一请求。 |
+| `AGENT_PLAN_REQUIRES_CLARIFICATION` | 409 | 当前计划仍需补充目标、保留项或处理范围，前端继续对话，不创建下游 run。 |
+| `AGENT_PLAN_NOT_CONFIRMABLE` | 409 | 计划已执行或状态不可提交，重新生成计划。 |
+| `AGENT_TOOL_CALL_FAILED` | 502/500 | 查看返回错误和对应业务 run/能力日志。 |
 
 通用追踪字段：
 
 - `source`：调用来源，例如 `coze`、`client`、`partner-api`。
 - `channel`：具体入口，例如 `coze-workflow`、`open-api`、`eval`。
 - `traceId`：跨系统排查 ID，建议业务方生成并传入。
-- `requestId`：业务方请求 ID。AI 改图助手创建会话时同一 `agentKey + requestId + tenantId + clientId` 会复用原会话；确认建议时用于传递到底层 `image_edit` run，建议每次确认传稳定值。
+- `requestId`：业务方请求 ID。AI 图片助手创建会话时同一 `agentKey + requestId + tenantId + clientId` 会复用原会话；执行边界请求会把该值传递到底层业务 run，网络重试应复用稳定值。
 - `tenantId/clientId`：租户和客户端标识，用于灰度、配额、统计和隔离。业务方通常不需要传，优先由业务 API Key 绑定；显式传入时必须与 Key 或登录账号范围一致。
 - `userId`：业务方自己的用户标识，只作为外部上下文和排查字段保留；不会直接写入平台用户外键，也不会替代平台登录用户。
 - `callbackUrl`：可选 Webhook。配置后任务终态会通知业务方；即使 Webhook 失败，业务方仍可用 `runId` 轮询查询结果。常规业务链路是“提交后拿 `runId` 轮询”，不要把这个和 Webhook 回调混为一谈。
@@ -1865,7 +1909,7 @@ Coze 旧工具箱兼容查询：
 	    "planId": "agp_xxx",
 	    "planStatus": "executed",
 	    "planTitle": "保留花纹主体并增强产品展示质感",
-	    "planSummary": "用户确认后由 Agent 调用 business.image_edit 创建本次业务 run。",
+	    "planSummary": "Agent 已按白名单路由调用图片业务能力创建本次业务 run。",
 	    "plannerMode": "rule",
 	    "plannerModel": "rule-fallback",
 	    "toolCallId": "agtc_xxx",
@@ -1964,7 +2008,7 @@ Coze 旧工具箱兼容查询：
 - `steps` 只在 `detail=full` 或 `includeDebug=true` 时返回，是业务配方步骤状态。当前版本至少记录主执行能力；启用 VL 辅助后会额外提交并记录 VL 步骤。
 - `flowSummary` 只在完整模式返回，是给管理端和排障使用的链路证据：包含业务版本、原子能力、实际执行节点、输出回填和回调状态。业务方正常轮询只需要关注 `status/taskStatus/imageUrls/videoUrls/texts/error`。
 - `flowSummary.output` 会按 `imageCount/videoCount/textCount/structuredCount/resourceCount` 分开展示，管理端不得继续把所有结果都当图片处理。
-- `agentTrace` 只在该 run 由 AI 改图助手创建时返回，用于从普通业务 `runId` 反查聊天会话、建议卡片、工具调用、确认时间和实际下发参数；非 Agent 入口该字段为 `null` 或不存在。
+- `agentTrace` 只在该 run 由 AI 图片助手创建时返回，用于从普通业务 `runId` 反查聊天会话、计划卡片、工具调用、执行边界时间和实际下发参数；非 Agent 入口该字段为 `null` 或不存在。
 - `steps[].executorId/executorName/executionEvidence` 来自能力调用日志，用于确认任务是否真的打到预期机器，以及结果是否已经落 OSS。
 - 默认情况下最终出图仍以主执行能力为准，VL 伴随步骤用于链路观测和结果积累。
 - 阻塞式 VL 串联开启后，主能力会等 VL 成功后再提交；查询时可能先看到 VL 运行中、主能力仍是 `planned`。
@@ -2774,7 +2818,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `issueCategory/issueLabel/issueAction/issueEvidence`：链路问题分类。用于管理端快速区分执行节点、结果回填、业务回调、计费扣减、参数、版本/路由等问题。
 - `retestSourceRunId/retestAttempts/retestLatestRunId/retestLatestStatus/retestRecovered/retestSummary`：复测追踪字段。原问题任务会显示复测次数、最新复测任务和是否恢复；复测任务会显示来源任务，便于从“发现问题”追到“确认恢复”。
 - `traceSummary`：一次业务调用的父子链路视图，固定包含业务入口、处理步骤、结果回填、业务回调和成本记录节点；管理端排障优先按这个字段渲染，不再把 VL、ComfyUI/OpenAI、回调和计费平铺混看。
-- `agentTrace`：仅 Agent 创建的业务 run 返回，包含 `sessionId/planId/toolCallId`、方案摘要、工具状态和确认执行时间；管理端排障时可从 run 详情直接回到“用户说了什么、Agent 建议了什么、最终调用了什么”。
+- `agentTrace`：仅 Agent 创建的业务 run 返回，包含 `sessionId/planId/toolCallId`、方案摘要、工具状态和执行边界时间；管理端排障时可从 run 详情直接回到“用户说了什么、Agent 规划了什么、最终调用了什么”。
 
 `traceSummary` 示例：
 
