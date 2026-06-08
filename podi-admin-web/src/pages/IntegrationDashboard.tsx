@@ -6506,7 +6506,7 @@ const extractErrorMessage = (error: unknown): string => {
           </Space>
           <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
             <Tag variant="light" theme={coreBusinessOverviewItems.length >= coreBusinessKeys.length ? 'success' : 'warning'}>
-              主业务 {coreBusinessOverviewItems.length}/{coreBusinessKeys.length}
+              核心能力 {coreBusinessOverviewItems.length}/{coreBusinessKeys.length}
             </Tag>
             <Tag variant="light" theme={Number(abilityHealthSummary?.failed || 0) > 0 ? 'danger' : 'success'}>
               能力异常 {abilityHealthSummary?.failed || 0}
@@ -6651,6 +6651,7 @@ const extractErrorMessage = (error: unknown): string => {
                     summary={businessUsageSummary}
                     qualitySummary={businessOutputReviewSummary}
                     formatDateTime={formatDateTime}
+                    capabilitiesLoading={loading && businessCapabilities.length === 0}
                   />
                 ) : null}
                 {businessWorkspaceTab === 'runs' ? (
@@ -6763,12 +6764,14 @@ const extractErrorMessage = (error: unknown): string => {
                       pendingApprovals={businessDefaultApprovals}
                       summary={businessUsageSummary}
                       formatDateTime={formatDateTime}
+                      capabilitiesLoading={loading && businessCapabilities.length === 0}
                     />
                     <BusinessCoreClosurePanel
                       capabilities={businessCapabilities}
                       pendingApprovals={businessDefaultApprovals}
                       summary={businessUsageSummary}
                       formatDateTime={formatDateTime}
+                      capabilitiesLoading={loading && businessCapabilities.length === 0}
                     />
                     {!isBusinessReadOnly ? (
                       <BusinessReleaseGuardPanel

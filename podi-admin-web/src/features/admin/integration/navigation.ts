@@ -7,7 +7,7 @@ export const integrationNavItems = [
     shortLabel: '总',
     group: 'overview',
     groupLabel: '总览',
-    description: '平台状态、主业务状态、待处理事项',
+    description: '平台状态、核心能力状态、待处理事项',
   },
   {
     id: 'business',

@@ -223,6 +223,13 @@ function strategyIndicatorAlertTheme(status?: string): 'success' | 'warning' | '
   return 'info';
 }
 
+function normalizeAbilityGovernanceCopy(value?: string | null): string {
+  return String(value || '')
+    .replace(/三大主业务|三主业务|三条主业务/g, '核心能力')
+    .replace(/核心业务/g, '核心能力')
+    .replace(/主业务/g, '核心能力');
+}
+
 function businessAcceptanceLabel(status?: string | null): string {
   if (status === 'passed') return '验收通过';
   if (status === 'failed') return '验收失败';
@@ -450,6 +457,7 @@ export function OverviewPanel({
   });
   const coreBusinessReleaseBlockedRows = coreBusinessReleaseRows.filter((row) => row.theme === 'danger');
   const coreBusinessReleaseWarningRows = coreBusinessReleaseRows.filter((row) => row.theme === 'warning');
+  const coreBusinessReleaseReadyCount = coreBusinessReleaseRows.filter((row) => row.theme === 'success').length;
   const missingCoreBusinessLabels = coreBusinessKeys
     .filter((key) => !activeDefaultBusinessKeys.has(key))
     .map((key) => businessKeyLabel(key));
@@ -475,20 +483,20 @@ export function OverviewPanel({
   }> = [
     {
       step: '1',
-      title: '先定业务入口',
-      body: '确认花纹提取、图裂变、扩图都有 active 默认版本，业务方只认这里的稳定入口。',
+      title: '先看能力入口',
+      body: '确认核心能力有默认版本、真实成功输出、验收/质量证据和回滚安全垫。',
       status: businessPathLoading
         ? '加载中'
-          : missingCoreBusinessLabels.length > 0
-            ? `缺 ${missingCoreBusinessLabels.join('、')}`
-          : businessUnresolvedIssueCount > 0
-            ? `需复核 ${businessUnresolvedIssueCount}`
-            : '入口完整',
+        : coreBusinessReleaseBlockedRows.length > 0
+          ? `阻塞 ${coreBusinessReleaseBlockedRows.length}`
+          : coreBusinessReleaseWarningRows.length > 0
+            ? `待补证据 ${coreBusinessReleaseWarningRows.length}`
+            : '生产推荐',
       theme: businessPathLoading
         ? 'default'
-        : missingCoreBusinessLabels.length > 0
+        : coreBusinessReleaseBlockedRows.length > 0
           ? 'danger'
-          : businessUnresolvedIssueCount > 0
+          : coreBusinessReleaseWarningRows.length > 0
             ? 'warning'
             : 'success',
       action: '进入业务能力',
@@ -547,16 +555,16 @@ export function OverviewPanel({
     theme: 'success' | 'warning' | 'danger' | 'default';
   }> = [
     {
-      title: '主业务线上证据',
+      title: '核心能力发布证据',
       status: businessPathLoading
         ? '加载中'
         : coreBusinessReleaseBlockedRows.length > 0
           ? `阻塞 ${coreBusinessReleaseBlockedRows.length}`
           : coreBusinessReleaseWarningRows.length > 0
-            ? `需确认 ${coreBusinessReleaseWarningRows.length}`
+            ? `待补证据 ${coreBusinessReleaseWarningRows.length}`
             : '通过',
       detail: businessPathLoading
-        ? '正在加载三条主业务的默认版本、验收和最近样本。'
+        ? '正在加载核心能力的默认版本、验收和最近样本。'
         : coreBusinessReleaseBlockedRows.length > 0
           ? coreBusinessReleaseBlockedRows
               .slice(0, 3)
@@ -567,7 +575,7 @@ export function OverviewPanel({
                 .slice(0, 3)
                 .map((row) => `${businessKeyLabel(row.businessKey)}：${row.reason}`)
                 .join('；')
-            : '三条主业务默认版本均具备上线证据。',
+            : '核心能力默认版本均具备发布证据。',
       theme: businessPathLoading
         ? 'default'
         : coreBusinessReleaseBlockedRows.length > 0
@@ -589,11 +597,11 @@ export function OverviewPanel({
         ? '正在加载默认版本和最近调用。'
         : missingCoreBusinessLabels.length > 0
           ? `缺少 ${missingCoreBusinessLabels.join('、')} 的 active 默认版本。`
-          : businessUnresolvedIssueCount > 0
-            ? `近 ${businessUsageSummary?.windowHours || 24} 小时还有 ${businessUnresolvedIssueCount} 条失败未确认恢复。`
-            : callbackFailedCount > 0
-              ? `当前还有 ${callbackFailedCount} 次回调失败。`
-              : '三大主业务默认入口完整，最近无明显失败。',
+            : businessUnresolvedIssueCount > 0
+              ? `近 ${businessUsageSummary?.windowHours || 24} 小时还有 ${businessUnresolvedIssueCount} 条失败未确认恢复。`
+              : callbackFailedCount > 0
+                ? `当前还有 ${callbackFailedCount} 次回调失败。`
+                : '核心能力默认入口已具备运行证据，最近无明显失败。',
       theme: businessPathLoading
         ? 'default'
         : missingCoreBusinessLabels.length > 0 || businessUnresolvedIssueCount > 0 || callbackFailedCount > 0
@@ -668,8 +676,8 @@ export function OverviewPanel({
     : releaseReadinessBlockers.length > 0
       ? '发版需处理'
       : releaseReadinessWarnings.length > 0
-        ? '待补验收'
-        : '可以上线';
+        ? '待补发布证据'
+        : '可以发版';
   const baseReleaseReadinessTheme = releaseReadinessHasLoading
     ? 'default'
     : releaseReadinessBlockers.length > 0
@@ -843,19 +851,37 @@ export function OverviewPanel({
     },
     {
       key: 'business',
-      title: '业务',
-      status: missingCoreBusinessLabels.length > 0 ? `缺 ${missingCoreBusinessLabels.length} 个入口` : `主业务 ${activeDefaultBusinessKeys.size}/3`,
+      title: '核心能力',
+      status: businessPathLoading
+        ? '加载中'
+        : coreBusinessReleaseBlockedRows.length > 0
+          ? `阻塞 ${coreBusinessReleaseBlockedRows.length}`
+          : coreBusinessReleaseWarningRows.length > 0
+            ? `待补证据 ${coreBusinessReleaseWarningRows.length}`
+            : `生产推荐 ${coreBusinessReleaseReadyCount}/${coreBusinessReleaseRows.length}`,
       detail:
-        missingCoreBusinessLabels.length > 0
-          ? `先补齐 ${missingCoreBusinessLabels.join('、')} 的默认版本。`
-          : businessUnresolvedIssueCount > 0
-            ? `近 ${businessUsageSummary?.windowHours || 24} 小时仍有 ${businessUnresolvedIssueCount} 条失败未确认恢复。`
-            : businessTotal > 0
-              ? `近 ${strategySummary?.window_hours || businessUsageSummary?.windowHours || 24} 小时已有 ${businessTotal} 次业务调用。`
-              : '当前窗口暂无业务调用，发版前仍需跑真实巡检。',
+        businessPathLoading
+          ? '正在加载默认版本、验收、质量和回滚证据。'
+          : coreBusinessReleaseBlockedRows.length > 0
+            ? coreBusinessReleaseBlockedRows.slice(0, 2).map((row) => `${businessKeyLabel(row.businessKey)}：${row.reason}`).join('；')
+            : coreBusinessReleaseWarningRows.length > 0
+              ? coreBusinessReleaseWarningRows.slice(0, 2).map((row) => `${businessKeyLabel(row.businessKey)}：${row.reason}`).join('；')
+              : missingCoreBusinessLabels.length > 0
+                ? `先补齐 ${missingCoreBusinessLabels.join('、')} 的默认版本。`
+                : businessUnresolvedIssueCount > 0
+                  ? `近 ${businessUsageSummary?.windowHours || 24} 小时仍有 ${businessUnresolvedIssueCount} 条失败未确认恢复。`
+                  : businessTotal > 0
+                    ? `近 ${strategySummary?.window_hours || businessUsageSummary?.windowHours || 24} 小时已有 ${businessTotal} 次业务调用。`
+                    : '当前窗口暂无业务调用，发版前仍需跑真实巡检。',
       action: '看业务能力',
       target: 'business',
-      theme: missingCoreBusinessLabels.length > 0 || businessUnresolvedIssueCount > 0 ? 'danger' : businessTotal > 0 ? 'success' : 'warning',
+      theme: businessPathLoading
+        ? 'default'
+        : coreBusinessReleaseBlockedRows.length > 0
+          ? 'danger'
+          : coreBusinessReleaseWarningRows.length > 0 || businessTotal <= 0
+            ? 'warning'
+            : 'success',
     },
     {
       key: 'ability',
@@ -863,7 +889,7 @@ export function OverviewPanel({
       status: abilityRiskCount > 0 ? `需处理 ${abilityRiskCount}` : `能力 ${summary.abilities || 0}`,
       detail:
         abilityRiskCount > 0
-          ? '能力健康存在异常、降级或需要复测，先处理后再绑定到主业务。'
+          ? '能力健康存在异常、降级或需要复测，先处理后再绑定到默认入口。'
           : vendorGovernanceIssueCount > 0
             ? `模型弹药库还有 ${vendorGovernanceIssueCount} 个治理问题。`
             : '原子能力和模型治理当前没有明显阻塞。',
@@ -1046,7 +1072,7 @@ export function OverviewPanel({
   const featureLedgerStatus: Record<IntegrationNavId, { status: string; theme: 'success' | 'warning' | 'danger' | 'default' }> = {
     overview: { status: releaseReadinessTitle, theme: releaseReadinessTheme },
     business: {
-      status: missingCoreBusinessLabels.length > 0 ? `缺 ${missingCoreBusinessLabels.length}` : '主业务已露出',
+      status: missingCoreBusinessLabels.length > 0 ? `缺 ${missingCoreBusinessLabels.length}` : '核心能力已露出',
       theme: missingCoreBusinessLabels.length > 0 ? 'danger' : 'success',
     },
     'api-exposure': { status: '文档已对齐', theme: 'success' },
@@ -1184,9 +1210,9 @@ export function OverviewPanel({
   if (operatorFocusItems.length === 0) {
     operatorFocusItems.push({
       key: 'all-clear',
-      priority: '可继续推进',
+      priority: '继续观察',
       title: '当前没有明确阻塞',
-      detail: '继续保持发版前门禁、三条主业务真实巡检和 Coze 工具箱抽测，不要只看页面存活。',
+      detail: '继续保持发版前门禁、核心能力真实巡检和 Coze 工具箱抽测，不要只看页面存活。',
       action: '看发版结论',
       target: 'overview',
       theme: 'success',
@@ -1471,10 +1497,10 @@ export function OverviewPanel({
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
                 <div>
-                  <Typography.Text strong>三条主业务线上证据</Typography.Text>
+                  <Typography.Text strong>核心能力发布证据</Typography.Text>
                   <div>
                     <Typography.Text theme="secondary">
-                      默认版本、验收记录、最近真实样本和门禁原因集中在这里；不用再跳到业务页逐个拼判断。
+                      默认版本、验收记录、质量样本、最近真实输出和发布证据集中在这里；不用再跳到业务页逐个拼判断。
                     </Typography.Text>
                   </div>
                 </div>
@@ -1798,7 +1824,7 @@ export function OverviewPanel({
                 <Space direction="vertical" size="small" style={{ width: '100%' }}>
                   <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
                     <div>
-                      <Typography.Text strong>{strategyNorthStar?.title || '北极星：成功业务交付'}</Typography.Text>
+                      <Typography.Text strong>{normalizeAbilityGovernanceCopy(strategyNorthStar?.title) || '北极星：成功业务交付'}</Typography.Text>
                       <div>
                         <Typography.Text theme="secondary">
                           这个指标只看业务最终是否成功交付，不看底层任务是否“表面成功”。
@@ -1816,10 +1842,10 @@ export function OverviewPanel({
                   </Space>
                   <Alert
                     theme={strategyIndicatorAlertTheme(strategyNorthStar?.status)}
-                    message={strategyNorthStar?.detail || '尚未生成战略指标，请先保存一次快照。'}
+                    message={normalizeAbilityGovernanceCopy(strategyNorthStar?.detail) || '尚未生成战略指标，请先保存一次快照。'}
                   />
                   <Typography.Text theme="secondary">
-                    下一步：{strategyNorthStar?.action || '先跑三大主业务真实巡检，确认有成功样本。'}
+                    下一步：{normalizeAbilityGovernanceCopy(strategyNorthStar?.action) || '先跑核心能力真实巡检，确认有成功样本。'}
                   </Typography.Text>
                 </Space>
               </Card>
@@ -1861,7 +1887,7 @@ export function OverviewPanel({
                     <Card key={item.key} bordered size="small" className="podi-strategy-kpi-card">
                       <Space direction="vertical" size={4} style={{ width: '100%' }}>
                         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
-                          <Typography.Text strong>{item.title}</Typography.Text>
+                          <Typography.Text strong>{normalizeAbilityGovernanceCopy(item.title)}</Typography.Text>
                           <Tag theme={strategyIndicatorTheme(item.status)} variant="light">
                             {strategyIndicatorStatusLabel(item.status)}
                           </Tag>
@@ -1870,8 +1896,8 @@ export function OverviewPanel({
                           {item.value}
                         </Typography.Title>
                         <Typography.Text theme="secondary">目标：{item.target}</Typography.Text>
-                        <Typography.Text theme="secondary">{item.detail}</Typography.Text>
-                        <Typography.Text>下一步：{item.action}</Typography.Text>
+                        <Typography.Text theme="secondary">{normalizeAbilityGovernanceCopy(item.detail)}</Typography.Text>
+                        <Typography.Text>下一步：{normalizeAbilityGovernanceCopy(item.action)}</Typography.Text>
                       </Space>
                     </Card>
                   ))}
@@ -2421,9 +2447,9 @@ export function OverviewPanel({
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
             <div>
-              <Typography.Text strong>主业务状态</Typography.Text>
+              <Typography.Text strong>核心能力状态</Typography.Text>
               <div>
-                <Typography.Text theme="secondary">先看花纹提取、图裂变、扩图是否可用；辅助能力放到后续页面处理。</Typography.Text>
+                <Typography.Text theme="secondary">先看花纹提取、图裂变、扩图等核心能力是否可用；辅助能力放到后续页面处理。</Typography.Text>
               </div>
             </div>
             <Tag theme={businessUnresolvedIssueCount > 0 ? 'warning' : 'success'} variant="light">

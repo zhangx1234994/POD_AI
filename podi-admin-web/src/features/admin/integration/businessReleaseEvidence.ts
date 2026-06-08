@@ -19,6 +19,29 @@ export type BusinessLifecycleStatus = {
   recommendation: BusinessLifecycleBadge;
 };
 
+const releaseEvidenceOnlyBlockers = new Set([
+  'BUSINESS_RELEASE_ACCEPTANCE_REQUIRED',
+  'BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED',
+  'BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED',
+  'BUSINESS_RELEASE_QUALITY_REVIEW_RISKY',
+]);
+
+const businessReleaseGateBlockerCodes = (item?: BusinessCapability) =>
+  (item?.releaseGate?.blockers || []).map((code) => String(code || '')).filter(Boolean);
+
+const businessReleaseGateHasHardBlocker = (item?: BusinessCapability) => {
+  if (item?.releaseGate?.status !== 'blocked') return false;
+  const blockers = businessReleaseGateBlockerCodes(item);
+  if (blockers.length === 0) return true;
+  return blockers.some((code) => !releaseEvidenceOnlyBlockers.has(code));
+};
+
+const businessReleaseGateHasEvidenceBlocker = (item?: BusinessCapability) => {
+  if (item?.releaseGate?.status !== 'blocked') return false;
+  const blockers = businessReleaseGateBlockerCodes(item);
+  return blockers.length > 0 && blockers.every((code) => releaseEvidenceOnlyBlockers.has(code));
+};
+
 type BusinessLifecycleEvidence = {
   outputCount?: number;
   acceptancePassed?: boolean;
@@ -67,6 +90,9 @@ export const businessReleaseIssueLabel = (value?: string | null) => {
     BUSINESS_RELEASE_GOVERNANCE_BLOCKED: '底层治理未通过',
     BUSINESS_RELEASE_GOVERNANCE_WARNING: '底层治理需补齐',
     BUSINESS_RELEASE_ACCEPTANCE_REQUIRED: '缺少真实链路验收',
+    BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED: '缺少出图质量标注',
+    BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED: '缺少可用质量标注',
+    BUSINESS_RELEASE_QUALITY_REVIEW_RISKY: '质量样本存在风险',
     BUSINESS_RELEASE_LATEST_RUN_FAILED: '最近一次运行失败',
     BUSINESS_RELEASE_RECENT_FAILURES: '近期存在失败样本',
   };
@@ -96,7 +122,11 @@ export const businessCapabilityLifecycleStatus = (
   const latestRunSucceeded = businessLatestRunSucceeded(item);
   const hasSuccessfulOutput = latestRunSucceeded && outputCount > 0;
   const hasPrimaryAbility = Boolean(item?.primaryAbilityId || item?.primaryAbilityName);
-  const releaseGateBlocked = Boolean(evidence.releaseGateBlocked ?? item?.releaseGate?.status === 'blocked');
+  const rawReleaseGateBlocked = Boolean(evidence.releaseGateBlocked ?? item?.releaseGate?.status === 'blocked');
+  const hardReleaseGateBlocked =
+    evidence.releaseGateBlocked !== undefined ? rawReleaseGateBlocked && businessReleaseGateHasHardBlocker(item) : businessReleaseGateHasHardBlocker(item);
+  const evidenceReleaseGateBlocked =
+    evidence.releaseGateBlocked !== undefined ? rawReleaseGateBlocked && !hardReleaseGateBlocked : businessReleaseGateHasEvidenceBlocker(item);
   const governanceBlocked = Boolean(evidence.governanceBlocked ?? item?.governanceStatus === 'blocker');
   const runFailed = Boolean(evidence.runFailed ?? item?.latestRun?.error);
   const callbackRisk = Number(evidence.callbackRisk || 0);
@@ -107,7 +137,7 @@ export const businessCapabilityLifecycleStatus = (
   const status = String(item?.status || '').toLowerCase();
   const isInactive = ['inactive', 'disabled', 'deprecated', 'archived'].includes(status);
   const isDraft = status === 'draft';
-  const hasRisk = releaseGateBlocked || governanceBlocked || runFailed || callbackRisk > 0 || billingRisk > 0;
+  const hasRisk = rawReleaseGateBlocked || governanceBlocked || runFailed || callbackRisk > 0 || billingRisk > 0;
 
   let online: BusinessLifecycleBadge;
   if (!item) {
@@ -118,7 +148,7 @@ export const businessCapabilityLifecycleStatus = (
     online = { label: '候选验证', theme: 'default', detail: '草稿或候选版本只能试运行，不能作为线上默认入口。' };
   } else if (!hasPrimaryAbility) {
     online = { label: '配置缺失', theme: 'danger', detail: '缺少主执行能力，不能稳定调用。' };
-  } else if ((releaseGateBlocked || governanceBlocked) && !hasSuccessfulOutput) {
+  } else if ((hardReleaseGateBlocked || governanceBlocked) && !hasSuccessfulOutput) {
     online = { label: '不可用', theme: 'danger', detail: '存在阻塞项且没有可用成功样本。' };
   } else if (hasRisk && hasSuccessfulOutput) {
     online = { label: '受限可用', theme: 'warning', detail: '已有成功输出，但仍有验收、治理、回填、计费或失败风险需要复核。' };
@@ -137,12 +167,14 @@ export const businessCapabilityLifecycleStatus = (
     recommendation = { label: '历史版本', theme: 'default', detail: '仅用于追溯、对照或回滚说明。' };
   } else if (isDraft) {
     recommendation = { label: '候选验证', theme: 'default', detail: '先完成真实链路试运行和验收。' };
-  } else if (!hasPrimaryAbility || releaseGateBlocked || governanceBlocked || runFailed) {
-    recommendation = { label: '需复核', theme: releaseGateBlocked || governanceBlocked || !hasPrimaryAbility ? 'danger' : 'warning', detail: '存在影响推荐默认入口的风险。' };
+  } else if (!hasPrimaryAbility || hardReleaseGateBlocked || governanceBlocked || runFailed) {
+    recommendation = { label: '需复核', theme: hardReleaseGateBlocked || governanceBlocked || !hasPrimaryAbility ? 'danger' : 'warning', detail: '存在影响推荐默认入口的风险。' };
   } else if (hasPendingApproval) {
     recommendation = { label: '切换中', theme: 'warning', detail: '默认版本切换仍在审批，不能按新默认版本对外说明。' };
   } else if (hasSuccessfulOutput && acceptancePassed && callbackRisk === 0 && billingRisk === 0 && item.isDefault && rollbackReadyCount > 0) {
     recommendation = { label: '生产推荐', theme: 'success', detail: '默认入口、验收、真实输出、回填计费和回滚证据齐全。' };
+  } else if (hasSuccessfulOutput && evidenceReleaseGateBlocked) {
+    recommendation = { label: acceptancePassed ? '待补质量' : '待补验收', theme: 'warning', detail: '真实链路已跑通，但缺少验收或质量证据，不能作为生产推荐。' };
   } else if (hasSuccessfulOutput && acceptancePassed) {
     recommendation = {
       label: item.isDefault ? '灰度可用' : '备选可用',
@@ -182,7 +214,12 @@ export const businessCapabilityRollbackEvidenceLabel = (item: BusinessCapability
       : item.latestRun.error
         ? '最近失败'
         : '样本未通过';
-  const gate = item.releaseGate?.status === 'blocked' || item.governanceStatus === 'blocker' ? '门禁阻塞' : '门禁可用';
+  const gate =
+    item.governanceStatus === 'blocker' || businessReleaseGateHasHardBlocker(item)
+      ? '门禁阻塞'
+      : businessReleaseGateHasEvidenceBlocker(item)
+        ? '待补发布证据'
+        : '门禁可用';
   return `${item.version}：${acceptance} · ${latestRun} · ${gate}`;
 };
 
@@ -292,13 +329,13 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
     const outputCount = getBusinessRunOutputCount(defaultItem);
     const hasDefault = Boolean(defaultItem);
     const acceptancePassed = Boolean(defaultItem?.releaseGate?.acceptancePassed === true || defaultItem?.latestAcceptance?.status === 'passed');
-    const releaseGateBlockers = (defaultItem?.releaseGate?.blockers || []).map((item) => String(item));
+    const releaseGateBlockers = businessReleaseGateBlockerCodes(defaultItem);
     const latestRunSucceeded = String(defaultItem?.latestRun?.status || '').toLowerCase() === 'succeeded' && !defaultItem?.latestRun?.error;
     const acceptanceOnlyBlocked = Boolean(
       defaultItem?.releaseGate?.status === 'blocked' &&
       latestRunSucceeded &&
       releaseGateBlockers.length > 0 &&
-      releaseGateBlockers.every((item) => item === 'BUSINESS_RELEASE_ACCEPTANCE_REQUIRED'),
+      releaseGateBlockers.every((item) => releaseEvidenceOnlyBlockers.has(item)),
     );
     const gateBlocked =
       defaultItem?.governanceStatus === 'blocker' ||
@@ -337,8 +374,8 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
               : callbackRisk > 0 || billingRisk > 0
                 ? '需复核'
                 : missingRollback
-                  ? activeAlternatives.length > 0 ? '备选待补验收' : '缺回滚'
-                : '闭环正常';
+                  ? activeAlternatives.length > 0 ? '备选待补证据' : '安全垫不足'
+                : '生产推荐';
     const reason = firstBusinessReleaseReason({
       defaultItem,
       hasPendingApproval,
@@ -381,8 +418,8 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
         label: rollbackReadyAlternatives.length > 0
           ? `可回滚 ${rollbackReadyAlternatives.length}`
           : activeAlternatives.length > 0
-            ? `备选待补验收 ${activeAlternatives.length}`
-            : '缺回滚备选',
+            ? `备选待补证据 ${activeAlternatives.length}`
+            : '缺回滚安全垫',
         theme: rollbackReadyAlternatives.length > 0 ? 'success' : 'warning',
       },
     ] as BusinessReleaseEvidenceCheck[];

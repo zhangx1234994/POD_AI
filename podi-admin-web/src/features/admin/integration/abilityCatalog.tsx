@@ -530,7 +530,7 @@ export function AbilityCatalogPanel({
         <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
           {[
             ['可接业务', readiness.summary.readyCount, '健康、模板、表单、成本和模型状态都没有明显阻塞', 'success'],
-            ['暂不能接', readiness.summary.blockedCount, '能力未启用或最近测试失败，不能绑定到主业务默认版本', 'danger'],
+            ['暂不能接', readiness.summary.blockedCount, '能力未启用或最近测试失败，不能绑定到核心能力默认版本', 'danger'],
             ['需处理', readiness.summary.attentionCount, '复测、成本、模板、表单或模型状态仍需补齐', 'warning'],
             ['缺证据', readiness.summary.noEvidenceCount, '最近复测缺失或过期，发版前需要重新跑样例', 'warning'],
             ['契约缺口', readiness.summary.contractIssueCount, '表单、模板、成本不完整，会影响业务方或 Coze 使用', 'warning'],

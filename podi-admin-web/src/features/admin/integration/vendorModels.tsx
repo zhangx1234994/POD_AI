@@ -700,7 +700,7 @@ export function VendorModelsPanel({
     guidanceItems.push({
       key: 'vendor-ready',
       theme: 'success',
-      title: '模型治理当前可推进',
+      title: '模型可接入业务',
       detail: '密钥、模型上线判断、验收和计价没有明显阻塞，可继续接入新模型或做小流量测试。',
       action: '继续绑定业务能力并做测评',
     });
@@ -763,7 +763,7 @@ export function VendorModelsPanel({
       <OperationFlowCard
         title="模型接入闭环"
         description="商业模型先确认风险，再补模型信息、绑定能力，最后用小流量验证。"
-        summary="密钥、出网、计价或验收有缺口时，不要直接把模型绑定到主业务默认版本。"
+        summary="密钥、出网、计价或验收有缺口时，不要直接把模型绑定到核心能力默认版本。"
         summaryTheme={blockedModels.length || missingKeyModels.length || unacceptedModels.length ? 'warning' : 'success'}
         style={{ marginTop: 12 }}
         steps={[

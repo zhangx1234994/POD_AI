@@ -2781,9 +2781,16 @@ html.t-theme-dark {
     linear-gradient(135deg, color-mix(in srgb, var(--podi-accent-soft) 18%, var(--td-bg-color-container)), var(--td-bg-color-container));
 }
 
+.podi-api-exposure-hero__main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--podi-space-3);
+}
+
 .podi-api-exposure-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: var(--podi-space-2);
 }
 

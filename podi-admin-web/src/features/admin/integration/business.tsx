@@ -579,8 +579,21 @@ const normalizeBusinessReleaseGateLabel = (label?: string | null, status?: strin
   return text || businessReleaseGateLabel(status);
 };
 
+const businessReleaseGateDisplay = (releaseGate?: BusinessReleaseGate | null): { label: string; theme: 'success' | 'warning' | 'danger' | 'default' } => {
+  if (businessReleaseGateHasOnlyEvidenceBlockers(releaseGate)) {
+    return {
+      label: businessReleaseGateHasQualityBlocker(releaseGate) ? '待补质量' : '待补验收',
+      theme: 'warning',
+    };
+  }
+  return {
+    label: normalizeBusinessReleaseGateLabel(releaseGate?.label, releaseGate?.status),
+    theme: businessReleaseGateStatusTheme(releaseGate?.status),
+  };
+};
+
 type BusinessActionTheme = 'success' | 'warning' | 'danger' | 'default';
-type BusinessActionPriority = '必须先处理' | '上线前处理' | '建议处理' | '可继续推进';
+type BusinessActionPriority = '必须先处理' | '上线前处理' | '建议处理' | '继续观察';
 
 interface BusinessActionItem {
   theme: BusinessActionTheme;
@@ -629,7 +642,7 @@ const buildBusinessActionItems = ({
     items.push({
       theme: 'danger',
       priority: '必须先处理',
-      title: '主业务缺默认版本',
+      title: '核心能力缺默认版本',
       detail: `先补齐 ${missingDefaults.map((key) => businessKeyLabel(key)).join('、')} 的可用默认版本。`,
       action: '新增或启用业务版本，并设为默认入口。',
     });
@@ -733,7 +746,7 @@ const buildBusinessActionItems = ({
   if (items.length === 0 && !summary) {
     items.push({
       theme: 'default',
-      priority: '可继续推进',
+      priority: '继续观察',
       title: '正在读取业务统计',
       detail: '业务版本和编排信息已显示，近 24 小时调用统计仍在加载；不要把加载中误判为没有调用。',
       action: '统计返回后再判断是否需要跑真实链路巡检。',
@@ -751,10 +764,10 @@ const buildBusinessActionItems = ({
   if (items.length === 0) {
     items.push({
       theme: 'success',
-      priority: '可继续推进',
-      title: '主业务当前可继续推进',
-      detail: '默认版本、最近失败和回调没有明显阻塞，可继续做小流量测试或接入新版本。',
-      action: '进入测评端或小流量业务验证，保留回滚目标。',
+      priority: '继续观察',
+      title: '当前没有明显阻塞',
+      detail: '默认入口、最近失败和回调没有明显阻塞；继续保留真实样本和回滚目标。',
+      action: '进入测评端或小流量业务验证，补齐生产推荐证据。',
     });
   }
   return items.slice(0, 5);
@@ -810,7 +823,7 @@ export function BusinessMainlineContractPanel() {
       theme: 'primary' as const,
       detail: '同一个业务可能有多个版本。这里要看清当前用了哪个版本，能不能回到旧版本。',
       checks: ['默认版本可见', '新旧版本关系可见', '每一步处理过程可查看'],
-      action: '在主业务版本地图确认版本、灰度、回滚和步骤。',
+      action: '在能力版本地图确认版本、灰度、回滚和步骤。',
     },
     {
       key: 'children',
@@ -887,7 +900,7 @@ export function BusinessWorkPathPanel() {
     <OperationFlowCard
       title="业务能力怎么用"
       description="这页不是底层配置表。先按实际工作选择路径，再进入版本、运行记录或验收操作。"
-      summary="主业务要固定成线上可用、可灰度、可回滚、可排障的闭环，不再靠口头确认。"
+      summary="核心能力要固定成线上可用、可灰度、可回滚、可排障的闭环，不再靠口头确认。"
       summaryTheme="primary"
       steps={paths.map((path) => ({
         key: path.key,
@@ -907,12 +920,22 @@ export const BusinessCoreDecisionPanel = ({
   pendingApprovals,
   summary,
   formatDateTime,
+  capabilitiesLoading = false,
 }: {
   capabilities: BusinessCapability[];
   pendingApprovals: BusinessDefaultApproval[];
   summary?: BusinessUsageSummaryResponse | null;
   formatDateTime: (value?: string | null) => string;
+  capabilitiesLoading?: boolean;
 }) => {
+  if (capabilitiesLoading && capabilities.length === 0) {
+    return (
+      <Card bordered className="podi-business-decision-card" title="核心能力当前结论">
+        <Alert theme="info" message="业务版本数据还在加载中，加载完成后再判断默认入口、验收、回滚和发布风险。" />
+      </Card>
+    );
+  }
+
   const rows = buildCoreBusinessReleaseEvidenceRows({ capabilities, pendingApprovals, summary });
   const dangerCount = rows.filter((row) => row.theme === 'danger').length;
   const warningCount = rows.filter((row) => row.theme === 'warning').length;
@@ -922,8 +945,8 @@ export const BusinessCoreDecisionPanel = ({
     dangerCount > 0
       ? `先处理 ${dangerCount} 条阻塞，再谈上线或放量。`
       : warningCount > 0
-        ? `${warningCount} 条主业务还需要补证据或复核。`
-        : `${rows.length} 条核心业务当前都具备基础闭环，可继续小流量验证。`;
+        ? `${warningCount} 条核心能力还需要补证据或复核。`
+        : `${rows.length} 条核心能力当前都具备基础闭环，可继续小流量验证。`;
 
   return (
     <Card
@@ -932,15 +955,15 @@ export const BusinessCoreDecisionPanel = ({
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <div>
-            <Typography.Text strong>核心业务当前结论</Typography.Text>
+            <Typography.Text strong>核心能力当前结论</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                先看这里：每条主业务只保留状态、卡点、下一步和关键证据，详细配置再往下看。
+                先看这里：每条核心能力只保留状态、卡点、下一步和关键证据，详细配置再往下看。
               </Typography.Text>
             </div>
           </div>
           <Tag theme={summaryTheme} variant="light">
-            {successCount}/{rows.length} 可推进
+            {successCount}/{rows.length} 生产推荐
           </Tag>
         </Space>
       }
@@ -1134,7 +1157,7 @@ export const BusinessReleaseGuardPanel = ({
           columns={[
             {
               colKey: 'name',
-              title: '主业务',
+              title: '核心能力',
               width: 130,
               cell: ({ row }) => <Typography.Text strong>{row.name}</Typography.Text>,
             },
@@ -1161,9 +1184,14 @@ export const BusinessReleaseGuardPanel = ({
                   </Typography.Text>
                   {row.defaultVersion ? (
                     <Space size={6} breakLine>
-                      <Tag theme={businessReleaseGateStatusTheme(row.releaseGate?.status)} variant="light">
-                        {normalizeBusinessReleaseGateLabel(row.releaseGate?.label, row.releaseGate?.status)}
-                      </Tag>
+                      {(() => {
+                        const releaseGateDisplay = businessReleaseGateDisplay(row.releaseGate);
+                        return (
+                          <Tag theme={releaseGateDisplay.theme} variant="light">
+                            {releaseGateDisplay.label}
+                          </Tag>
+                        );
+                      })()}
                       <Tag theme={businessGovernanceStatusTheme(row.governanceStatus)} variant="light">
                         {businessGovernanceStatusLabel(row.governanceStatus)}
                       </Tag>
@@ -1190,8 +1218,8 @@ export const BusinessReleaseGuardPanel = ({
                     {row.rollbackReady
                       ? `${row.rollbackReadyVersions.length} 个可回滚`
                       : row.rollbackVersions.length > 0
-                        ? `${row.rollbackVersions.length} 个备选待补验收`
-                        : '缺备选'}
+                        ? `${row.rollbackVersions.length} 个备选待补证据`
+                        : '缺回滚安全垫'}
                   </Tag>
                   <Typography.Text theme="secondary">
                     {row.rollbackVersions.length > 0
@@ -3773,7 +3801,7 @@ function BusinessRunRetestControlPanel({
             message={
               retestableRuns.length > 0
                 ? '建议先生成排障清单留证，再批量复测。'
-                : '发版前仍需按主业务分别跑真实链路。'
+                : '发版前仍需按核心能力分别跑真实链路。'
             }
           />
         </Col>
@@ -7470,12 +7498,22 @@ export const BusinessCoreClosurePanel = ({
   pendingApprovals,
   summary,
   formatDateTime,
+  capabilitiesLoading = false,
 }: {
   capabilities: BusinessCapability[];
   pendingApprovals: BusinessDefaultApproval[];
   summary?: BusinessUsageSummaryResponse | null;
   formatDateTime: (value?: string | null) => string;
+  capabilitiesLoading?: boolean;
 }) => {
+  if (capabilitiesLoading && capabilities.length === 0) {
+    return (
+      <Card bordered className="podi-business-closure-card" title="核心能力决策总表">
+        <Alert theme="info" message="业务版本数据还在加载中，请等待接口返回后再查看线上可用、生产推荐和回滚安全垫。" />
+      </Card>
+    );
+  }
+
   const rows = buildCoreBusinessReleaseEvidenceRows({ capabilities, pendingApprovals, summary });
 
   return (
@@ -7485,15 +7523,15 @@ export const BusinessCoreClosurePanel = ({
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <div>
-            <Typography.Text strong>核心业务闭环总表</Typography.Text>
+            <Typography.Text strong>核心能力决策总表</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                一张表核对默认版本、验收、真实样本、回调、计费和回滚；先看这里，再进入版本卡片或运行记录。
+                一张表分清线上可用、生产推荐、待补证据和回滚安全垫；先看这里，再进入版本卡片或运行记录。
               </Typography.Text>
             </div>
           </div>
           <Tag theme={rows.every((row) => row.theme === 'success') ? 'success' : rows.some((row) => row.theme === 'danger') ? 'danger' : 'warning'} variant="light">
-            {rows.filter((row) => row.theme === 'success').length}/{rows.length} 可推进
+            {rows.filter((row) => row.theme === 'success').length}/{rows.length} 生产推荐
           </Tag>
         </Space>
       }
@@ -7959,6 +7997,22 @@ const businessReleaseGateIssueLabel = (value?: string | null) => {
   return labels[value || ''] || value || '';
 };
 
+const businessEvidenceOnlyReleaseBlockers = new Set([
+  'BUSINESS_RELEASE_ACCEPTANCE_REQUIRED',
+  'BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED',
+  'BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED',
+  'BUSINESS_RELEASE_QUALITY_REVIEW_RISKY',
+]);
+
+const businessReleaseGateBlockerCodes = (releaseGate?: BusinessReleaseGate | null) =>
+  (releaseGate?.blockers || []).map((code) => String(code || '')).filter(Boolean);
+
+const businessReleaseGateHasOnlyEvidenceBlockers = (releaseGate?: BusinessReleaseGate | null) => {
+  if (releaseGate?.status !== 'blocked') return false;
+  const blockers = businessReleaseGateBlockerCodes(releaseGate);
+  return blockers.length > 0 && blockers.every((code) => businessEvidenceOnlyReleaseBlockers.has(code));
+};
+
 const businessReleaseGateHasQualityBlocker = (releaseGate?: BusinessReleaseGate | null) =>
   (releaseGate?.blockers || []).some((code) => String(code || '').includes('QUALITY_REVIEW'));
 
@@ -8183,6 +8237,13 @@ const businessAbilityGovernanceStatus = ({
 }): BusinessAbilityGovernanceRow['status'] => {
   const unresolvedCount = Number(unresolvedBucket?.total || 0);
   const qualityRiskCount = Number(quality?.borderline || 0) + Number(quality?.bad || 0) + Number(quality?.blocked || 0);
+  const latestRunSucceeded = String(defaultItem?.latestRun?.status || '').toLowerCase() === 'succeeded' && !defaultItem?.latestRun?.error;
+  const hasOutput =
+    Number(defaultItem?.latestRun?.imageCount || defaultItem?.latestRun?.image_count || 0) +
+      Number(defaultItem?.latestRun?.videoCount || defaultItem?.latestRun?.video_count || 0) +
+      Number(defaultItem?.latestRun?.textCount || defaultItem?.latestRun?.text_count || 0) >
+    0;
+  const evidenceOnlyBlocked = Boolean(latestRunSucceeded && hasOutput && businessReleaseGateHasOnlyEvidenceBlockers(defaultItem?.releaseGate));
   if (!defaultItem) {
     return {
       theme: 'danger',
@@ -8205,6 +8266,16 @@ const businessAbilityGovernanceStatus = ({
       label: '缺执行能力',
       detail: '业务能力没有绑定底层原子能力。',
       action: '先补主执行能力和配方，再跑验收。',
+    };
+  }
+  if (defaultItem.releaseGate?.status === 'blocked' && evidenceOnlyBlocked) {
+    const blockers = businessReleaseGateBlockerCodes(defaultItem.releaseGate);
+    const qualityOnly = blockers.length > 0 && blockers.every((code) => code.includes('QUALITY_REVIEW'));
+    return {
+      theme: 'warning',
+      label: qualityOnly ? '待补质量' : '待补验收',
+      detail: qualityOnly ? '线上已跑通，但缺少质量标注证据。' : '线上已跑通，但还缺验收通过记录。',
+      action: qualityOnly ? '补一张可用质量标注，再作为生产推荐。' : '记录真实链路验收通过，再作为封版证据。',
     };
   }
   if (defaultItem.governanceStatus === 'blocker' || defaultItem.releaseGate?.status === 'blocked') {
@@ -8258,15 +8329,15 @@ const businessAbilityGovernanceStatus = ({
   if (candidateCount === 0 || rollbackReadyCount === 0 || activeCount < 2) {
     return {
       theme: 'warning',
-      label: '缺备选',
-      detail: '默认版本可用，但缺少可灰度或可回滚版本。',
-      action: '保留一个候选版本或回滚版本。',
+      label: '安全垫不足',
+      detail: '默认版本可用，但缺少通过验收的灰度或回滚备选。',
+      action: '不阻塞当前调用；放量或封版前补一个可回滚版本。',
     };
   }
   return {
     theme: 'success',
-    label: '可迭代',
-    detail: '默认、调用、质量和备选版本均有基本证据。',
+    label: '生产推荐',
+    detail: '线上默认、调用、质量和回滚安全垫均有基本证据。',
     action: '继续按样例和真实调用小步优化。',
   };
 };
@@ -8356,17 +8427,27 @@ export const BusinessAbilityGovernancePanel = ({
   summary,
   qualitySummary,
   formatDateTime,
+  capabilitiesLoading = false,
 }: {
   capabilities: BusinessCapability[];
   pendingApprovals: BusinessDefaultApproval[];
   summary?: BusinessUsageSummaryResponse | null;
   qualitySummary?: BusinessOutputReviewSummaryResponse | null;
   formatDateTime: (value?: string | null) => string;
+  capabilitiesLoading?: boolean;
 }) => {
   const rows = useMemo(
     () => buildBusinessAbilityGovernanceRows({ capabilities, pendingApprovals, summary, qualitySummary }),
     [capabilities, pendingApprovals, summary, qualitySummary],
   );
+  if (capabilitiesLoading && capabilities.length === 0) {
+    return (
+      <Card bordered title="能力治理总览">
+        <Alert theme="info" message="业务能力数据还在加载中，暂不展示默认版本结论，避免把加载中误判成缺默认入口。" />
+      </Card>
+    );
+  }
+
   const blockedCount = rows.filter((row) => row.status.theme === 'danger').length;
   const warningCount = rows.filter((row) => row.status.theme === 'warning').length;
   const readyCount = rows.filter((row) => row.status.theme === 'success').length;
@@ -8388,12 +8469,12 @@ export const BusinessAbilityGovernancePanel = ({
               <Typography.Text strong>能力治理总览</Typography.Text>
               <div>
                 <Typography.Text theme="secondary">
-                  先按能力判断版本、路由、质量、成本、回滚和下一步动作；项目证据只作为下钻。
+                  先按能力判断版本、路由、质量、成本、回滚和下一步动作；运行证据只作为下钻。
                 </Typography.Text>
               </div>
             </div>
             <Tag theme={blockedCount > 0 ? 'danger' : warningCount > 0 ? 'warning' : 'success'} variant="light">
-              {readyCount}/{rows.length} 可迭代
+              {readyCount}/{rows.length} 生产推荐
             </Tag>
           </Space>
         }
@@ -8510,26 +8591,29 @@ export const BusinessAbilityGovernancePanel = ({
               colKey: 'evidence',
               title: '门禁证据',
               minWidth: 230,
-              cell: ({ row }) => (
-                <Space direction="vertical" size={2}>
-                  <Space size={6} breakLine>
-                    <Tag theme={businessReleaseGateStatusTheme(row.defaultItem?.releaseGate?.status)} variant="light" size="small">
-                      {normalizeBusinessReleaseGateLabel(row.defaultItem?.releaseGate?.label, row.defaultItem?.releaseGate?.status)}
-                    </Tag>
+              cell: ({ row }) => {
+                const releaseGateDisplay = businessReleaseGateDisplay(row.defaultItem?.releaseGate);
+                return (
+                  <Space direction="vertical" size={2}>
+                    <Space size={6} breakLine>
+                      <Tag theme={releaseGateDisplay.theme} variant="light" size="small">
+                        {releaseGateDisplay.label}
+                      </Tag>
                     <Tag theme={businessAcceptanceStatusTheme(row.defaultItem?.latestAcceptance?.status)} variant="light" size="small">
                       {businessAcceptanceStatusLabel(row.defaultItem?.latestAcceptance?.status)}
                     </Tag>
+                    </Space>
+                    <Typography.Text theme={row.defaultItem?.latestRun?.error ? 'error' : 'secondary'}>
+                      {row.defaultItem ? businessCapabilityLatestRunLabel(row.defaultItem) : '暂无真实样本'}
+                    </Typography.Text>
+                    <Typography.Text theme="secondary">
+                      {row.defaultItem?.latestRun
+                        ? formatDateTime(row.defaultItem.latestRun.finishedAt || row.defaultItem.latestRun.createdAt)
+                        : '还没有运行证据'}
+                    </Typography.Text>
                   </Space>
-                  <Typography.Text theme={row.defaultItem?.latestRun?.error ? 'error' : 'secondary'}>
-                    {row.defaultItem ? businessCapabilityLatestRunLabel(row.defaultItem) : '暂无真实样本'}
-                  </Typography.Text>
-                  <Typography.Text theme="secondary">
-                    {row.defaultItem?.latestRun
-                      ? formatDateTime(row.defaultItem.latestRun.finishedAt || row.defaultItem.latestRun.createdAt)
-                      : '还没有运行证据'}
-                  </Typography.Text>
-                </Space>
-              ),
+                );
+              },
             },
             {
               colKey: 'next',
@@ -8651,7 +8735,7 @@ const businessFixedSamplePresets = (businessKey?: string | null): BusinessFixedS
 const businessQualitySampleToPreset = (sample: BusinessQualitySample): BusinessFixedSamplePreset => ({
   key: sample.sampleKey || sample.id,
   label: sample.label,
-  hint: sample.description || (sample.inputTags || []).join('、') || '样例库保存样例',
+  hint: sample.description || (sample.inputTags || []).join('、') || '固定样例库保存样例',
   prompt: sample.prompt || '',
   imageUrl: sample.imageUrl,
   generatedImageUrl: sample.generatedImageUrl || '',
@@ -8839,8 +8923,8 @@ const businessCandidateFocus = ({
   if (libraryCount <= 0) {
     return {
       theme: 'warning',
-      title: '先补样例库',
-      detail: presetsCount > 0 ? '当前只有内置样例，建议沉淀可复用样例库。' : '还没有固定样例，无法做标准批量对照。',
+      title: '先建固定样例库',
+      detail: presetsCount > 0 ? '当前只有系统建议覆盖类型，建议沉淀真实可复用的固定样例。' : '还没有固定样例，无法做标准批量对照。',
       action: '导入样例',
     };
   }
@@ -9492,16 +9576,16 @@ export const BusinessQualityCandidatePanel = ({
         title={
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <div>
-              <Typography.Text strong>候选对照与固定样例复跑</Typography.Text>
+              <Typography.Text strong>候选对照与质量样例复跑</Typography.Text>
               <div>
                 <Typography.Text theme="secondary">
-                  默认版本和候选版本放在同一张表里看，先用固定样例跑同批对照，再决定分流、换 LoRA/workflow 或切默认。
+                  默认版本和候选版本放在同一张表里看；固定样例库用于标准复跑，内置建议只提示该覆盖哪些图。
                 </Typography.Text>
               </div>
             </div>
             <Tag variant="light">质量窗口 {qualitySummary?.windowHours || 168} 小时</Tag>
             <Tag theme={qualitySamplesError ? 'warning' : 'default'} variant="light">
-              样例库 {qualitySamplesLoading ? '加载中' : `${qualitySamples.length} 个`}
+              固定样例库 {qualitySamplesLoading ? '加载中' : `${qualitySamples.length} 个`}
             </Tag>
             <Tag theme={qualityActionRulesError ? 'warning' : 'default'} variant="light">
               治理台账 {qualityActionRulesLoading ? '加载中' : `${qualityActionRules.length} 条`}
@@ -9643,7 +9727,7 @@ export const BusinessQualityCandidatePanel = ({
                       版本 {items.length}
                     </Tag>
                     <Tag theme={libraryCount > 0 ? 'success' : 'warning'} variant="light" size="small">
-                      样例库 {libraryCount}/{presets.length}
+                      {libraryCount > 0 ? `固定样例 ${libraryCount}` : `未建固定样例 · 内置建议 ${presets.length}`}
                     </Tag>
                     <Tag theme={actionRules.length > 0 ? 'primary' : 'default'} variant="light" size="small">
                       治理 {actionRules.length}
@@ -9698,8 +9782,12 @@ export const BusinessQualityCandidatePanel = ({
                 </div>
                 <details className="podi-business-disclosure">
                   <summary>
-                    <span>固定样例</span>
-                    <small>{presets.length} 个 · 只在需要维护样例时展开</small>
+                    <span>{libraryCount > 0 ? '固定样例库' : '内置建议样例'}</span>
+                    <small>
+                      {libraryCount > 0
+                        ? `${libraryCount} 个固定样例 · 用于同批复跑和质量对照`
+                        : `${presets.length} 个建议覆盖类型 · 需要导入真实图片后才算固定样例`}
+                    </small>
                   </summary>
                   <div className="podi-business-disclosure-body">
                     <Space size={6} breakLine>

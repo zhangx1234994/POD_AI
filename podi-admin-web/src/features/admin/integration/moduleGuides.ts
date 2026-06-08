@@ -10,12 +10,12 @@ export type ModuleGuide = {
 export const moduleGuides: Record<IntegrationNavId, ModuleGuide> = {
   overview: {
     audience: '平台管理员',
-    firstLook: '先看主业务、发版结论和当前待处理事项。',
+    firstLook: '先看核心能力、发版结论和当前待处理事项。',
     nextAction: '有风险时直接跳到对应模块处理。',
   },
   business: {
     audience: '平台管理员 / 业务方只读',
-    firstLook: '先看花纹提取、图裂变、扩图的默认版本和最近失败。',
+    firstLook: '先看核心能力的默认版本、发布证据和最近失败。',
     nextAction: '测试通过后再申请默认版本切换；异常时先回滚。',
     riskHint: '默认版本会影响业务入口。',
   },

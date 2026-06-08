@@ -929,7 +929,7 @@ const BUSINESS_ONBOARDING_CHECKS: OnboardingCheck[] = [
     key: 'route-preview',
     title: '先跑路由预览',
     detail: 'route-preview 不下发真实任务，适合确认默认版本、灰度和回滚命中。',
-    action: '上线前先跑三主业务 route-preview，再跑一次真实样图巡检。',
+    action: '上线前先跑核心能力 route-preview，再跑一次真实样图巡检。',
     tag: '不消耗额度',
     theme: 'primary',
   },
@@ -1549,38 +1549,56 @@ export function ApiExposurePanel({
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Alert
         theme="info"
-        message="这里按“接口调用”视角组织：先看业务 API 和调用清单，再看 API Key；Coze 工具箱只是另一种接入方式，不再作为业务任务主线。"
+        message="这里按“接口调用”视角组织：先查 runId 和调用清单，再看业务 API、交付材料和 API Key；Coze 工具箱只是另一种接入方式，不作为业务任务主线。"
       />
 
       <div className="podi-api-exposure-hero">
-        <div>
-          <Typography.Text theme="secondary">中台对外能力入口</Typography.Text>
+        <div className="podi-api-exposure-hero__main">
+          <Typography.Text theme="secondary">接口调用排障入口</Typography.Text>
           <Typography.Title level="h3" style={{ margin: '6px 0 8px' }}>
-            业务 API、调用清单、Coze 工具箱分开管理
+            先查 runId，再判断提交、轮询和结果
           </Typography.Title>
           <Typography.Text theme="secondary">
-            业务方不需要理解模型、节点、Coze 或 ComfyUI；中台负责版本、路由、调度、回填、计费和排障。
+            业务异常时先确认请求是否进入中台、是否拿到 runId、是否按建议间隔轮询，再下钻到业务任务详情。
           </Typography.Text>
+          <div className="podi-business-api-trace-console__input">
+            <Input
+              value={businessApiQuickLookup}
+              placeholder="粘贴 runId / requestId / traceId"
+              onChange={(value) => setBusinessApiQuickLookup(String(value))}
+              onEnter={() => applyBusinessApiQuickLookup('runId')}
+            />
+            <Button theme="primary" onClick={() => applyBusinessApiQuickLookup('runId')}>
+              查 runId
+            </Button>
+            <Button variant="outline" onClick={() => applyBusinessApiQuickLookup('requestId')}>
+              查 requestId
+            </Button>
+            <Button variant="outline" onClick={() => applyBusinessApiQuickLookup('traceId')}>
+              查 traceId
+            </Button>
+          </div>
         </div>
         <div className="podi-api-exposure-stats">
           <div>
-            <span>开放能力</span>
-            <strong>{publicAbilities.length}</strong>
-            <small>active {activeAbilities.length}</small>
+            <span>提交任务</span>
+            <strong>{formatNumber(businessApiKeyUsageSummary.submitCount)}</strong>
+            <small>真正发起业务</small>
           </div>
           <div>
-            <span>Coze 绑定</span>
-            <strong>
-              {cozeAbilityStats.mapped}/{cozeAbilityStats.total}
-            </strong>
-            <small>流程 ID</small>
+            <span>轮询结果</span>
+            <strong>{formatNumber(businessApiKeyUsageSummary.pollCount)}</strong>
+            <small>查询 runId</small>
           </div>
           <div>
-            <span>能力类型</span>
-            <strong>
-              {imageAbilities.length}/{videoAbilities.length}/{textAbilities.length}
-            </strong>
-            <small>图 / 视频 / 文字</small>
+            <span>接口异常</span>
+            <strong>{formatNumber(failedBusinessApiUsageCount)}</strong>
+            <small>状态码或错误码</small>
+          </div>
+          <div>
+            <span>问题 runId</span>
+            <strong>{formatNumber(businessApiRunIssueCount)}</strong>
+            <small>聚合后需排查</small>
           </div>
         </div>
       </div>
