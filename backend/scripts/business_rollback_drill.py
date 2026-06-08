@@ -172,7 +172,7 @@ def _print_report(report: dict[str, Any]) -> None:
     print(f"- 目标来源：{report.get('selectedBy')}")
     print(f"- 版本数量：{len(report.get('versions') or [])}")
     if not report.get("ok"):
-        print("- 结论：没有找到可回滚目标；上线前需要至少保留一个 active 非默认版本，或先做一次默认版本切换记录。")
+        print("- 结论：没有找到可回滚目标；发版前需要至少保留一个 active 非默认版本，或先做一次默认版本切换记录。")
 
 
 def main() -> int:

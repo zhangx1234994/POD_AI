@@ -48,7 +48,7 @@ const resolveAbilityHealthAction = (row: AbilityHealthSummaryItem): { theme: 'su
   }
   return {
     theme: 'default',
-    text: '待确认',
+    text: '先补样本',
     detail: '缺少足够样本，先跑能力测试确认输出回填。',
   };
 };

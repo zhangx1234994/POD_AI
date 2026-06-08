@@ -10,7 +10,7 @@ export type ModuleGuide = {
 export const moduleGuides: Record<IntegrationNavId, ModuleGuide> = {
   overview: {
     audience: '平台管理员',
-    firstLook: '先看主业务、上线结论和当前待处理事项。',
+    firstLook: '先看主业务、发版结论和当前待处理事项。',
     nextAction: '有风险时直接跳到对应模块处理。',
   },
   business: {
@@ -34,7 +34,7 @@ export const moduleGuides: Record<IntegrationNavId, ModuleGuide> = {
     audience: '开发接入方',
     firstLook: '先看密钥、配额、出网和最近失败样本。',
     nextAction: '新模型先完成最小验收，再绑定到原子能力。',
-    riskHint: '不要让业务直接依赖未验收模型。',
+    riskHint: '不要让业务直接依赖缺少验收证据的模型。',
   },
   apikeys: {
     audience: '开发接入方',

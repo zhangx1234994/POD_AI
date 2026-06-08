@@ -290,7 +290,7 @@
 | BILLING_INVOICE_REQUEST_NOT_FOUND | 发票申请不存在 | 404 |
 | BILLING_INVOICE_STATUS_INVALID | 发票申请状态非法 | 400，仅支持 requested/issued/cancelled |
 | BILLING_NOTIFICATION_CONFIG_INVALID | 账单通知配置格式非法 | 400 |
-| RELEASE_DECISION_STATUS_INVALID | 上线结论登记状态非法 | 400，仅允许 approved/deferred/blocked |
+| RELEASE_DECISION_STATUS_INVALID | 发版结论登记状态非法 | 400，仅允许 approved/deferred/blocked |
 
 ---
 

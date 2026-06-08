@@ -430,32 +430,26 @@ html.t-theme-dark {
 
 .podi-eval-quickstart__empty {
   min-height: 74px;
-  display: grid;
-  grid-template-columns: 1fr 0.76fr 0.48fr;
-  gap: 8px;
-  align-items: end;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
   border: 1px solid var(--td-border-level-1-color);
   border-radius: 10px;
-  background: var(--td-bg-color-container);
+  background: color-mix(in srgb, var(--podi-quickstart-accent, var(--td-brand-color)) 5%, var(--td-bg-color-container));
   padding: 12px;
 }
 
-.podi-eval-quickstart__empty span {
-  display: block;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--podi-quickstart-accent, var(--td-brand-color)) 14%, var(--td-bg-color-secondarycontainer));
+.podi-eval-quickstart__empty strong {
+  color: var(--td-text-color-primary);
+  font-size: 13px;
+  line-height: 20px;
 }
 
-.podi-eval-quickstart__empty span:nth-child(1) {
-  height: 50px;
-}
-
-.podi-eval-quickstart__empty span:nth-child(2) {
-  height: 38px;
-}
-
-.podi-eval-quickstart__empty span:nth-child(3) {
-  height: 26px;
+.podi-eval-quickstart__empty small {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .podi-eval-quickstart__prompts {

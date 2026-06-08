@@ -3343,7 +3343,7 @@ export function IntegrationDashboard({
         setReleaseDecisionRecords(releaseDecisionRes.items || []);
         setReleaseDecisionError(null);
       } else if (releaseDecisionRes?.__error) {
-        setReleaseDecisionError(releaseDecisionRes.__error?.message || '上线结论登记加载失败');
+        setReleaseDecisionError(releaseDecisionRes.__error?.message || '发版结论登记加载失败');
       }
       if (healthWatchRes && !healthWatchRes.__error) {
         setHealthWatchStatus(healthWatchRes as HealthWatchStatusResponse);
@@ -3522,7 +3522,7 @@ export function IntegrationDashboard({
       setReleaseDecisionRecords(response.items || []);
       setReleaseDecisionError(null);
     } catch (error) {
-      setReleaseDecisionError(error instanceof Error ? error.message : '上线结论登记加载失败');
+      setReleaseDecisionError(error instanceof Error ? error.message : '发版结论登记加载失败');
     } finally {
       setReleaseDecisionLoading(false);
     }
@@ -3547,7 +3547,7 @@ export function IntegrationDashboard({
       setReleaseDecisionRecords((prev) => [response, ...prev.filter((item) => item.id !== response.id)].slice(0, 5));
       setReleaseDecisionError(null);
     } catch (error) {
-      setReleaseDecisionError(error instanceof Error ? error.message : '上线结论登记失败');
+      setReleaseDecisionError(error instanceof Error ? error.message : '发版结论登记失败');
     } finally {
       setReleaseDecisionLoading(false);
     }

@@ -949,7 +949,12 @@
 }
 
 .podi-image-edit-agent__image.is-empty button {
+  display: flex;
   min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   cursor: pointer;
   color: var(--td-text-color-secondary);
 }

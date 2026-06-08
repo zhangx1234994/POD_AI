@@ -542,7 +542,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
             <ImageEditIcon />
           </span>
           <div>
-            <Typography.Text strong>AI 图编辑工作台</Typography.Text>
+            <Typography.Text strong>图编辑工作台</Typography.Text>
             <Typography.Text theme="secondary">把主图、标注/蒙版、参考图和改图目标说清楚，中台会统一编译成可追踪任务。</Typography.Text>
           </div>
         </div>
@@ -765,7 +765,7 @@ export function ImageEditWorkbench(props: ImageEditWorkbenchProps) {
                 ) : (
                   <div className="podi-image-edit-workbench__empty">
                     <Typography.Text strong>先提供一张主图</Typography.Text>
-                    <Typography.Text theme="secondary">组件会围绕这张图完成选择区域、参考图和改图指令。</Typography.Text>
+                    <Typography.Text theme="secondary">系统会围绕这张图完成选择区域、参考图和改图指令。</Typography.Text>
                     <Button variant="outline" onClick={() => imageInputRef.current?.click()}>
                       上传主图
                     </Button>

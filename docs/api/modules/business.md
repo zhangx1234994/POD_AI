@@ -2556,7 +2556,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 | --- | --- |
 | `BUSINESS_CAPABILITY_NOT_FOUND` | 草稿不存在。 |
 | `BUSINESS_DRAFT_ONLY_EDITABLE` | 目标不是草稿。 |
-| `BUSINESS_RELEASE_GATE_BLOCKED` | 草稿仍有发布阻断项，例如未真实测试或未验收。 |
+| `BUSINESS_RELEASE_GATE_BLOCKED` | 草稿仍有发布阻断项，例如未真实测试或缺验收证据。 |
 | `BUSINESS_ACCEPTANCE_REQUIRED` | 发布过程中发现验收记录缺失。 |
 
 ### GET /api/admin/business/capabilities

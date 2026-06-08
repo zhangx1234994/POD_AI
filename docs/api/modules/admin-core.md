@@ -471,7 +471,7 @@ GET /api/admin/vendor-api/governance/summary?windowHours=24
       ],
       "releaseGate": {
         "status": "ready",
-        "label": "可上线",
+        "label": "生产可用",
         "canRelease": true,
         "acceptancePassed": true,
         "runtimeKeyConfigured": true,
@@ -482,7 +482,7 @@ GET /api/admin/vendor-api/governance/summary?windowHours=24
           "基础门禁通过，可进入业务绑定和小流量验证。"
         ],
         "primaryIssue": null,
-        "primaryActionLabel": "可上线",
+        "primaryActionLabel": "生产可用",
         "primaryAction": "基础门禁通过，可进入业务绑定和小流量验证。",
         "primarySeverity": "success"
       }
@@ -1077,19 +1077,19 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 
 ### POST /api/admin/dashboard/release-decisions/records
 
-用途：登记本次上线结论。该接口不执行部署，只把“可上线 / 暂缓 / 阻塞”的人工判断和当时的门禁、巡检摘要落成记录，便于复盘。
+用途：登记本次发版结论。该接口不执行部署，只把“可发版 / 暂缓 / 阻塞”的人工判断和当时的门禁、巡检摘要落成记录，便于复盘。
 
 请求：
 
 ```json
 {
   "status": "approved",
-  "title": "确认可上线：可以上线",
+  "title": "确认可发版：可以发版",
   "preflightId": "preflight_xxx",
   "patrolId": "patrol_xxx",
   "note": "轻量门禁、完整巡检和能力状态均已确认",
   "summary": {
-    "readinessTitle": "可以上线",
+    "readinessTitle": "可以发版",
     "blockers": [],
     "warnings": []
   }
@@ -1098,7 +1098,7 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 
 字段说明：
 
-- `status`：`approved/deferred/blocked`，分别表示确认可上线、暂缓上线、阻塞上线。
+- `status`：`approved/deferred/blocked`，分别表示确认可发版、暂缓发版、阻塞发版。
 - `preflightId`：最近轻量门禁记录 ID，可为空。
 - `patrolId`：最近完整巡检记录 ID，可为空。
 - `summary`：记录当时页面展示的阻塞项、提醒项和结论摘要。
@@ -1106,7 +1106,7 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 ### GET /api/admin/dashboard/release-decisions/records
 
 - 参数：`limit`，默认 5。
-- 返回最近上线结论登记。
+- 返回最近发版结论登记。
 
 **错误（常见）**
 

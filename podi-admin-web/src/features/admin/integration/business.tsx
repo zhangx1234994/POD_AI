@@ -71,6 +71,7 @@ import {
 import {
   buildCoreBusinessReleaseEvidenceRows,
   businessCapabilityHasRollbackEvidence,
+  businessCapabilityLifecycleStatus,
   businessCapabilityRollbackEvidenceLabel,
 } from './businessReleaseEvidence';
 import { createBusinessCapabilityFormState } from './businessDashboardState';
@@ -141,7 +142,7 @@ const businessGovernanceIssueLabel = (value?: string | null) => {
     BUSINESS_GOVERNANCE_RECIPE_PRIMARY_STEP_MISMATCH: '主步骤不一致',
     BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND: '模型目录不存在',
     BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE: '模型未启用',
-    BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED: '模型未验收',
+    BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED: '模型待补验收证据',
     BUSINESS_GOVERNANCE_VENDOR_MODEL_COST_MISSING: '模型成本未配置',
     BUSINESS_GOVERNANCE_VENDOR_KEY_MISSING: '第三方密钥不可用',
     BUSINESS_GOVERNANCE_VENDOR_EGRESS_NOT_VERIFIED: '出网未验证',
@@ -160,7 +161,7 @@ const businessVersionDecisionOptions = [
   { value: 'version_upgrade', label: '同一业务版本升级' },
   { value: 'new_feature', label: '新的业务功能' },
   { value: 'rollback', label: '回滚保底版本' },
-  { value: 'unknown', label: '待确认' },
+  { value: 'unknown', label: '归属待补' },
 ];
 
 const buildBusinessDraftRecipeText = (form: BusinessCapabilityFormState) => {
@@ -546,7 +547,7 @@ const businessAcceptanceStatusLabel = (value?: string | null) => {
   if (value === 'failed') return '验收失败';
   if (value === 'warning') return '有风险';
   if (value === 'waived') return '暂不验收';
-  return '未验收';
+  return '待补验收';
 };
 
 const businessAcceptanceStatusTheme = (value?: string | null): 'success' | 'warning' | 'danger' | 'default' => {
@@ -564,10 +565,18 @@ const businessReleaseGateStatusTheme = (value?: string | null): 'success' | 'war
 };
 
 const businessReleaseGateLabel = (value?: string | null) => {
-  if (value === 'ready') return '可上线';
+  if (value === 'ready') return '门禁通过';
   if (value === 'warning') return '需复核';
-  if (value === 'blocked') return '暂不能上线';
+  if (value === 'blocked') return '门禁阻塞';
   return '未判断';
+};
+
+const normalizeBusinessReleaseGateLabel = (label?: string | null, status?: string | null) => {
+  const text = String(label || '').trim();
+  if (text === '可上线') return '门禁通过';
+  if (text === '暂不能上线') return '门禁阻塞';
+  if (text === '待上线') return '待补验收';
+  return text || businessReleaseGateLabel(status);
 };
 
 type BusinessActionTheme = 'success' | 'warning' | 'danger' | 'default';
@@ -660,7 +669,7 @@ const buildBusinessActionItems = ({
     items.push({
       theme: 'danger',
       priority: '必须先处理',
-      title: '默认版本未验收',
+      title: '默认版本待补验收',
       detail: acceptanceMissingDefaults
         .map((item) => `${businessKeyLabel(item.businessKey)} ${item.version}`)
         .join('、'),
@@ -878,7 +887,7 @@ export function BusinessWorkPathPanel() {
     <OperationFlowCard
       title="业务能力怎么用"
       description="这页不是底层配置表。先按实际工作选择路径，再进入版本、运行记录或验收操作。"
-      summary="主业务要固定成可上线、可灰度、可回滚、可排障的闭环，不再靠口头确认。"
+      summary="主业务要固定成线上可用、可灰度、可回滚、可排障的闭环，不再靠口头确认。"
       summaryTheme="primary"
       steps={paths.map((path) => ({
         key: path.key,
@@ -955,9 +964,14 @@ export const BusinessCoreDecisionPanel = ({
                     <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
                   </div>
                 </div>
-                <Tag theme={row.theme} variant="light">
-                  {row.status}
-                </Tag>
+                <Space size={4}>
+                  <Tag theme={row.onlineStatus.theme} variant="light">
+                    {row.onlineStatus.label}
+                  </Tag>
+                  <Tag theme={row.recommendationStatus.theme} variant="light">
+                    {row.recommendationStatus.label}
+                  </Tag>
+                </Space>
               </div>
               <div className="podi-business-decision-main">
                 <Typography.Text theme="secondary">当前默认</Typography.Text>
@@ -977,7 +991,7 @@ export const BusinessCoreDecisionPanel = ({
               </div>
               <div className="podi-business-decision-evidence">
                 <Tag theme={row.acceptancePassed ? 'success' : 'warning'} variant="light" size="small">
-                  {row.acceptancePassed ? '验收通过' : '待验收'}
+                  {row.acceptancePassed ? '验收通过' : '待补验收'}
                 </Tag>
                 <Tag theme={row.outputCount > 0 ? 'success' : 'warning'} variant="light" size="small">
                   {row.outputCount > 0 ? `样本 ${row.outputCount}` : '缺样本'}
@@ -1024,6 +1038,9 @@ export const BusinessReleaseGuardPanel = ({
     const governanceBlocked = governanceStatus === 'blocker';
     const releaseGate = defaultVersion?.releaseGate || null;
     const acceptancePassed = defaultVersion ? releaseGate?.acceptancePassed === true : false;
+    const outputCount = Number(defaultVersion?.latestRun?.imageCount || defaultVersion?.latestRun?.image_count || 0) +
+      Number(defaultVersion?.latestRun?.videoCount || defaultVersion?.latestRun?.video_count || 0) +
+      Number(defaultVersion?.latestRun?.textCount || defaultVersion?.latestRun?.text_count || 0);
     const defaultReady = Boolean(
       defaultVersion &&
       defaultVersion.status === 'active' &&
@@ -1042,7 +1059,7 @@ export const BusinessReleaseGuardPanel = ({
             : governanceBlocked
               ? businessGovernanceIssueLabel(firstGovernanceIssue) || '底层配置阻塞'
               : !acceptancePassed
-                ? '默认版本未验收'
+                ? '默认版本待补验收'
                 : hasPendingApproval
                   ? '有切换审批待处理'
                   : failedCount > 0 || latestDefaultError
@@ -1058,6 +1075,16 @@ export const BusinessReleaseGuardPanel = ({
       failedCount,
       latestDefaultError,
       defaultReady,
+      lifecycle: businessCapabilityLifecycleStatus(defaultVersion, {
+        outputCount,
+        acceptancePassed,
+        releaseGateBlocked: releaseGate?.status === 'blocked',
+        governanceBlocked,
+        runFailed: Boolean(latestDefaultError || failedCount > 0),
+        hasPendingApproval,
+        rollbackReadyCount: rollbackReadyVersions.length,
+        activeAlternativeCount: rollbackVersions.length,
+      }),
       rollbackReady,
       blockedReason,
       governanceStatus,
@@ -1118,8 +1145,11 @@ export const BusinessReleaseGuardPanel = ({
               cell: ({ row }) => (
                 <Space direction="vertical" size={2}>
                   <Space size={6}>
-                    <Tag theme={row.defaultReady ? 'success' : 'danger'} variant="light">
-                      {row.defaultReady ? '可用' : '需处理'}
+                    <Tag theme={row.lifecycle.online.theme} variant="light">
+                      {row.lifecycle.online.label}
+                    </Tag>
+                    <Tag theme={row.lifecycle.recommendation.theme} variant="light">
+                      {row.lifecycle.recommendation.label}
                     </Tag>
                     <Typography.Text>{businessCapabilityVersionRoleLabel(row.defaultVersion)}</Typography.Text>
                   </Space>
@@ -1132,7 +1162,7 @@ export const BusinessReleaseGuardPanel = ({
                   {row.defaultVersion ? (
                     <Space size={6} breakLine>
                       <Tag theme={businessReleaseGateStatusTheme(row.releaseGate?.status)} variant="light">
-                        {row.releaseGate?.label || businessReleaseGateLabel(row.releaseGate?.status)}
+                        {normalizeBusinessReleaseGateLabel(row.releaseGate?.label, row.releaseGate?.status)}
                       </Tag>
                       <Tag theme={businessGovernanceStatusTheme(row.governanceStatus)} variant="light">
                         {businessGovernanceStatusLabel(row.governanceStatus)}
@@ -1160,7 +1190,7 @@ export const BusinessReleaseGuardPanel = ({
                     {row.rollbackReady
                       ? `${row.rollbackReadyVersions.length} 个可回滚`
                       : row.rollbackVersions.length > 0
-                        ? `${row.rollbackVersions.length} 个备选待验收`
+                        ? `${row.rollbackVersions.length} 个备选待补验收`
                         : '缺备选'}
                   </Tag>
                   <Typography.Text theme="secondary">
@@ -2480,7 +2510,7 @@ const businessBillingReasonLabel = (row?: BusinessRun | null) => {
   if (row.billingStatus === 'unpriced') return '成功但未配置价格';
   if (row.billingStatus === 'billing_pending') return '任务未结束，暂不计费';
   if (row.billingStatus === 'billable' && !getBusinessWalletSettlement(row) && row.userId) {
-    return '待确认套餐或钱包扣减';
+    return '待核对套餐或钱包扣减';
   }
   return '';
 };
@@ -3418,7 +3448,7 @@ function BusinessRunApiUsageEvidenceCard({
 
 const businessAgentStatusLabel = (value?: string | null) => {
   if (value === 'collecting_context') return '收集上下文';
-  if (value === 'awaiting_confirmation') return '等待确认';
+  if (value === 'awaiting_confirmation') return '等待用户补充';
   if (value === 'confirming') return '确认中';
   if (value === 'running') return '已提交执行';
   if (value === 'executed') return '已执行';
@@ -3743,7 +3773,7 @@ function BusinessRunRetestControlPanel({
             message={
               retestableRuns.length > 0
                 ? '建议先生成排障清单留证，再批量复测。'
-                : '上线前仍需按主业务分别跑真实链路。'
+                : '发版前仍需按主业务分别跑真实链路。'
             }
           />
         </Col>
@@ -4045,7 +4075,7 @@ function BusinessRunFlowMonitorBrief({
             <strong>
               {successCount}/{stages.length}
             </strong>
-            <small>风险 {dangerCount} · 待确认 {warningCount}</small>
+            <small>风险 {dangerCount} · 需复核 {warningCount}</small>
           </div>
         </div>
         <Space size={6} breakLine>
@@ -6313,7 +6343,7 @@ const businessGraphNodeActionAdvice = (
   if (status === 'succeeded' || status === 'success' || status === 'completed') {
     return '本节点已完成；继续核对输出是否进入下一步、是否落 OSS、是否计入本次业务 runId。';
   }
-  if (graph?.mode === 'recipe') return '这是版本配方视角；上线前需要用真实样本跑一次，确认字段、路由和输出都符合预期。';
+  if (graph?.mode === 'recipe') return '这是版本配方视角；发版前需要用真实样本跑一次，确认字段、路由和输出都符合预期。';
   return '按字段、路由、执行节点和输出四项核对；缺哪一项就先补哪一项。';
 };
 
@@ -7243,7 +7273,7 @@ const businessEntryCommandStatus = ({
   if (defaultItem.releaseGate?.status === 'blocked' && latestRunSucceeded && unresolvedCount === 0) {
     return {
       theme: 'warning',
-      label: '待验收',
+      label: '线上可用',
       detail: '接口已有成功样本，但还缺验收通过记录；补证据后再作为封版依据。',
     };
   }
@@ -7278,20 +7308,20 @@ const businessEntryCommandStatus = ({
   if (activeCount < 2) {
     return {
       theme: 'warning',
-      label: '缺备选',
+      label: '线上可用',
       detail: '入口可用，但建议保留一个可回滚版本。',
     };
   }
   if (Number(bucket?.failed || 0) > 0) {
     return {
       theme: 'success',
-      label: '可接入',
+      label: '线上可用',
       detail: '有历史失败，但后续同版本成功样本已覆盖；历史记录只保留追溯。',
     };
   }
   return {
     theme: 'success',
-    label: '可接入',
+    label: '线上可用',
     detail: '业务入口、默认版本和最近调用都可继续验证。',
   };
 };
@@ -7335,7 +7365,7 @@ export const BusinessEntryCommandPanel = ({
       }),
     };
   });
-  const readyCount = rows.filter((row) => row.status.theme === 'success').length;
+  const onlineCount = rows.filter((row) => row.status.theme !== 'danger').length;
 
   return (
     <Card
@@ -7351,8 +7381,8 @@ export const BusinessEntryCommandPanel = ({
               </Typography.Text>
             </div>
           </div>
-          <Tag theme={readyCount === rows.length ? 'success' : rows.some((row) => row.status.theme === 'danger') ? 'danger' : 'warning'} variant="light">
-            {readyCount}/{rows.length} 可接入
+          <Tag theme={onlineCount === rows.length ? 'success' : rows.some((row) => row.status.theme === 'danger') ? 'danger' : 'warning'} variant="light">
+            {onlineCount}/{rows.length} 有线上入口
           </Tag>
         </Space>
       }
@@ -7954,6 +7984,13 @@ function BusinessCapabilityReleaseEvidence({
     qualityStatus === 'ready' ? 'success' : qualityStatus === 'warning' ? 'warning' : qualityRequired ? 'danger' : 'default';
   const latestRun = item.latestRun;
   const outputCount = Number(latestRun?.imageCount || latestRun?.image_count || 0) + Number(latestRun?.videoCount || latestRun?.video_count || 0);
+  const lifecycle = businessCapabilityLifecycleStatus(item, {
+    outputCount,
+    acceptancePassed: releaseGate?.acceptancePassed === true || latestAcceptance?.status === 'passed',
+    releaseGateBlocked: releaseGate?.status === 'blocked',
+    governanceBlocked: item.governanceStatus === 'blocker',
+    runFailed: Boolean(latestRun?.error),
+  });
   const governanceTags = [
     {
       key: 'governance',
@@ -7984,9 +8021,14 @@ function BusinessCapabilityReleaseEvidence({
       <Space direction="vertical" size={6} style={{ width: '100%' }}>
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <Typography.Text strong>上线证据</Typography.Text>
-          <Tag theme={businessReleaseGateStatusTheme(releaseGate?.status)} variant="light">
-            {releaseGate?.label || businessReleaseGateLabel(releaseGate?.status)}
-          </Tag>
+          <Space size={4}>
+            <Tag theme={lifecycle.online.theme} variant="light">
+              {lifecycle.online.label}
+            </Tag>
+            <Tag theme={lifecycle.recommendation.theme} variant="light">
+              {lifecycle.recommendation.label}
+            </Tag>
+          </Space>
         </Space>
         <Space size={6} breakLine>
           <Tag theme={businessAcceptanceStatusTheme(latestAcceptance?.status)} variant="light">
@@ -8031,7 +8073,7 @@ function BusinessCapabilityReleaseEvidence({
             {[...blockers, ...warnings, ...suggestions].slice(0, 2).join('；')}
           </Typography.Text>
         ) : (
-          <Typography.Text theme="secondary">暂无门禁阻塞；上线前仍需保留一次真实链路验收记录。</Typography.Text>
+          <Typography.Text theme="secondary">暂无门禁阻塞；发版前仍需保留一次真实链路验收记录。</Typography.Text>
         )}
       </Space>
     </Card>
@@ -8472,7 +8514,7 @@ export const BusinessAbilityGovernancePanel = ({
                 <Space direction="vertical" size={2}>
                   <Space size={6} breakLine>
                     <Tag theme={businessReleaseGateStatusTheme(row.defaultItem?.releaseGate?.status)} variant="light" size="small">
-                      {row.defaultItem?.releaseGate?.label || businessReleaseGateLabel(row.defaultItem?.releaseGate?.status)}
+                      {normalizeBusinessReleaseGateLabel(row.defaultItem?.releaseGate?.label, row.defaultItem?.releaseGate?.status)}
                     </Tag>
                     <Tag theme={businessAcceptanceStatusTheme(row.defaultItem?.latestAcceptance?.status)} variant="light" size="small">
                       {businessAcceptanceStatusLabel(row.defaultItem?.latestAcceptance?.status)}
@@ -10406,6 +10448,7 @@ export const BusinessCapabilityGrid = ({
                         {lineItems.map((item) => {
                   const rollout = readCapabilityRollout(item.metadata);
                   const risk = businessCapabilityRiskTag(item);
+                  const lifecycle = businessCapabilityLifecycleStatus(item);
                   const versionLine = businessCapabilityVersionLine(item);
                   const lineage = businessCapabilityVersionLineage(item);
                   const relationLabel = businessCapabilityVersionRelationLabel(item, items);
@@ -10470,7 +10513,7 @@ export const BusinessCapabilityGrid = ({
                             </strong>
                             <span>归属判断</span>
                             <strong>
-                              {lineage.decisionLabel || businessVersionDecisionOptions.find((option) => option.value === lineage.decision)?.label || '待确认'}
+                              {lineage.decisionLabel || businessVersionDecisionOptions.find((option) => option.value === lineage.decision)?.label || '归属待补'}
                             </strong>
                             <span>更新说明</span>
                             <strong>{lineage.changeSummary || relationLabel}</strong>
@@ -10504,11 +10547,16 @@ export const BusinessCapabilityGrid = ({
                             </div>
                           </Col>
                           <Col span={6}>
-                            <Typography.Text theme="secondary">上线门禁</Typography.Text>
+                            <Typography.Text theme="secondary">可用状态</Typography.Text>
                             <div>
-                              <Tag theme={businessReleaseGateStatusTheme(item.releaseGate?.status)} variant="light" size="small">
-                                {item.releaseGate?.label || businessReleaseGateLabel(item.releaseGate?.status)}
-                              </Tag>
+                              <Space size={4}>
+                                <Tag theme={lifecycle.online.theme} variant="light" size="small">
+                                  {lifecycle.online.label}
+                                </Tag>
+                                <Tag theme={lifecycle.recommendation.theme} variant="light" size="small">
+                                  {lifecycle.recommendation.label}
+                                </Tag>
+                              </Space>
                             </div>
                           </Col>
                           <Col span={6}>

@@ -200,7 +200,7 @@ def test_release_preflight_and_patrol_records(monkeypatch, tmp_path) -> None:
         "/api/admin/dashboard/release-decisions/records",
         json={
             "status": "approved",
-            "title": "确认本轮可上线",
+            "title": "确认本轮可发版",
             "preflightId": preflight["id"],
             "patrolId": patrol["id"],
             "note": "轻量门禁和完整巡检已确认",

@@ -383,7 +383,7 @@ BUSINESS_COMPONENT_TYPES: tuple[dict[str, Any], ...] = (
             "description": "验收组件不调模型，只汇总真实样本、测试和人工确认。",
         },
         "editableFields": [
-            _field("status", "验收状态", "select", "记录通过、失败或待验收。", options=["pending", "passed", "failed"]),
+            _field("status", "验收状态", "select", "记录通过、失败或待补验收。", options=["pending", "passed", "failed"]),
             _field("notes", "验收说明", "textarea", "说明样本质量、风险和是否可切默认。"),
             _field("evidenceUrl", "证据链接", "url", "关联样本包、巡检报告或截图。"),
         ],

@@ -10929,7 +10929,7 @@ class BusinessRunService:
             suggestions.append("先补齐底层能力、模型、执行节点或第三方密钥。")
         elif governance_status == "warning":
             warnings.append("BUSINESS_RELEASE_GOVERNANCE_WARNING")
-            suggestions.append("上线前补齐成本、模型治理或其他非阻塞信息。")
+            suggestions.append("发版前补齐成本、模型治理或其他非阻塞信息。")
 
         acceptance_ok = self._acceptance_passed(acceptance)
         if not acceptance_ok:
@@ -10951,13 +10951,13 @@ class BusinessRunService:
                 suggestions.append(str(suggestion))
 
         status = "ready"
-        label = "可上线"
+        label = "门禁通过"
         if blockers:
             status = "blocked"
-            label = "暂不能上线"
+            label = "门禁阻塞"
         elif warnings:
             status = "warning"
-            label = "可小流量，需复核"
+            label = "小流量可用，需复核"
         return {
             "status": status,
             "label": label,

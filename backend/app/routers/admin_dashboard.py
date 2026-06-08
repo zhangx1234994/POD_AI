@@ -665,7 +665,7 @@ def _build_strategy_indicators(
             target="发版前风险为 0，或人工登记暂缓/豁免原因",
             status=risk_status,
             detail=f"风险由失败 {business_failed}、回调失败 {callback_failed}、待定价 {unpriced} 共同构成。",
-            action="风险不为 0 时，不要直接发版；先处理或登记上线结论。",
+            action="风险不为 0 时，不要直接发版；先处理或登记发版结论。",
         ),
     ]
     return north_star, indicators
@@ -1877,9 +1877,9 @@ def get_health_watch_status() -> schemas.HealthWatchStatusResponse:
 
 
 _RELEASE_DECISION_TITLES = {
-    "approved": "确认可上线",
-    "deferred": "暂缓上线",
-    "blocked": "阻塞上线",
+    "approved": "确认可发版",
+    "deferred": "暂缓发版",
+    "blocked": "阻塞发版",
 }
 
 

@@ -137,25 +137,33 @@ const releaseGateTheme = (status?: string): VendorModelProfileTheme => {
   return 'default';
 };
 
+const normalizeModelReleaseLabel = (value?: string | null, status?: string | null) => {
+  const text = String(value || '').trim();
+  if (text === '可上线') return '生产可用';
+  if (text === '暂不能上线') return '不可推荐';
+  if (text === '待上线') return '待补验收';
+  if (text) return text;
+  if (status === 'ready') return '生产可用';
+  if (status === 'warning') return '需复核';
+  if (status === 'blocked') return '不可推荐';
+  return '未检查';
+};
+
 const releaseGateText = (model: VendorModel): string => {
   const gate = model.releaseGate;
   if (!gate) return '未检查';
-  if (gate.label) return gate.label;
-  if (gate.status === 'ready') return '可上线';
-  if (gate.status === 'warning') return '需复核';
-  if (gate.status === 'blocked') return '暂不能上线';
-  return '未检查';
+  return normalizeModelReleaseLabel(gate.label, gate.status);
 };
 
 const getAcceptanceText = (model: VendorModel): string => {
   const latest = model.latestAcceptance;
-  if (!latest || typeof latest !== 'object' || Array.isArray(latest)) return '未验收';
+  if (!latest || typeof latest !== 'object' || Array.isArray(latest)) return '待补验收';
   const status = String((latest as Record<string, unknown>).status || '');
   if (status === 'passed') return '已验收';
   if (status === 'failed') return '验收失败';
   if (status === 'warning') return '带风险';
   if (status === 'waived') return '已豁免';
-  return status || '未验收';
+  return status || '待补验收';
 };
 
 type VendorModelProfileTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
@@ -336,7 +344,7 @@ const resolveModelPrimaryAction = (
           : fallbackTheme;
     return {
       theme,
-      label: String(gate.primaryActionLabel || releaseGateText(model) || '待检查'),
+      label: normalizeModelReleaseLabel(String(gate.primaryActionLabel || releaseGateText(model) || '待检查'), gate.status),
       action: String(gate.primaryAction || gate.suggestions?.[0] || '刷新弹药库后查看模型门禁结果。'),
       issue: gate.primaryIssue || undefined,
     };
@@ -408,7 +416,7 @@ const resolveModelPrimaryAction = (
     };
   }
   if (model.releaseGate?.status === 'ready') {
-    return { theme: 'success', label: '可上线', action: '基础门禁通过，可进入业务绑定和小流量验证。' };
+    return { theme: 'success', label: '生产可用', action: '基础门禁通过，可进入业务绑定和小流量验证。' };
   }
   return { theme: 'default', label: '待检查', action: '刷新弹药库后查看模型门禁结果。' };
 };
@@ -586,7 +594,7 @@ export function VendorModelsPanel({
     },
     {
       key: 'general',
-      title: '待确认',
+      title: '能力待补',
       count: modelProfiles.filter((item) => item.profile.label === '通用模型').length,
       detail: '能力范围还不够明确，接业务前需要补充模型能力说明。',
       action: '先补能力类型、输入输出和计价口径。',
@@ -653,7 +661,7 @@ export function VendorModelsPanel({
     guidanceItems.push({
       key: 'blocked-models',
       theme: 'danger',
-      title: '模型暂不能上线',
+      title: '模型不可推荐',
       detail: `${blockedModels.length} 个模型存在阻塞项，先不要绑定到业务默认版本。`,
       action: '查看阻塞模型',
       onClick: () => setModelGateFilter('blocked'),
@@ -665,7 +673,7 @@ export function VendorModelsPanel({
       theme: 'warning',
       title: '补模型验收记录',
       detail: `${unacceptedModels.length} 个模型还没有验收通过记录，发布门禁会拦住业务默认版本。`,
-      action: '查看未验收模型',
+      action: '查看待补验收模型',
       onClick: () => setModelGateFilter('unaccepted'),
     });
   }
@@ -735,10 +743,10 @@ export function VendorModelsPanel({
           <MetricCard label="特殊出网" value={egressProviderCount} sub="需要代理或海外通道" />
         </Col>
         <Col xs={12} lg={4}>
-          <MetricCard label="模型可上线" value={readyModels.length} sub={`阻塞 ${blockedModels.length} / 复核 ${warningModels.length}`} />
+          <MetricCard label="生产可用模型" value={readyModels.length} sub={`不可推荐 ${blockedModels.length} / 复核 ${warningModels.length}`} />
         </Col>
         <Col xs={12} lg={4}>
-          <MetricCard label="未验收模型" value={unacceptedModels.length} sub="业务默认版本会被门禁拦住" />
+          <MetricCard label="待补验收模型" value={unacceptedModels.length} sub="业务默认版本会被门禁拦住" />
         </Col>
         <Col xs={12} lg={4}>
           <MetricCard label="近24小时调用" value={usageTotal} sub={`窗口 ${usageWindowHours} 小时`} />
@@ -866,7 +874,7 @@ export function VendorModelsPanel({
             <Col xs={12} md={3}>
               <Alert
                 theme={blockedModels.length ? 'warning' : 'success'}
-                message={blockedModels.length ? `有 ${blockedModels.length} 个模型暂不能上线。` : '没有模型级阻塞。'}
+                message={blockedModels.length ? `有 ${blockedModels.length} 个模型不可作为生产推荐。` : '没有模型级阻塞。'}
               />
             </Col>
             <Col xs={12} md={3}>
@@ -1402,10 +1410,10 @@ export function VendorModelsPanel({
                 onChange={(value) => setModelGateFilter(String(value))}
                 options={[
                   { label: `待处理 ${models.length - readyModels.length}`, value: 'needs_action' },
-                  { label: `暂不能上线 ${blockedModels.length}`, value: 'blocked' },
+                  { label: `不可推荐 ${blockedModels.length}`, value: 'blocked' },
                   { label: `需复核 ${warningModels.length}`, value: 'warning' },
-                  { label: `未验收 ${unacceptedModels.length}`, value: 'unaccepted' },
-                  { label: `可上线 ${readyModels.length}`, value: 'ready' },
+                  { label: `待补验收 ${unacceptedModels.length}`, value: 'unaccepted' },
+                  { label: `生产可用 ${readyModels.length}`, value: 'ready' },
                   { label: `全部模型 ${models.length}`, value: 'all' },
                 ]}
               />

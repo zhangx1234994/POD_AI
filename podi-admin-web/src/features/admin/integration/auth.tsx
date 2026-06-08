@@ -69,7 +69,7 @@ export const AuthPanel = ({
           title: '看上线检查',
           detail: '先看管理员、业务方范围、邀请码和会话追踪是否通过，不先改账号明细。',
           action: '有阻塞时先处理“当前先处理什么”里的风险项。',
-          done: '可上线',
+          done: '门禁通过',
         },
         {
           key: 'client-scope',
@@ -220,7 +220,7 @@ export const AuthPanel = ({
           <Card bordered title="角色边界">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Typography.Text theme="secondary">
-                这里说明每类调用方能做什么、不能做什么。上线前需要确认全部“已生效”。
+                这里说明每类调用方能做什么、不能做什么。发版前需要确认全部“已生效”。
               </Typography.Text>
               <Table
                 size="small"

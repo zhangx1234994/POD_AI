@@ -137,7 +137,7 @@ const buildAbilityActionItems = ({
   if (unclearOutputCount > 0) {
     items.push({
       theme: 'warning',
-      title: '输出类型待确认',
+      title: '输出类型待补',
       detail: `${unclearOutputCount} 个能力还没有明确是图片、视频、文字还是图像理解，后续接入业务前要补齐。`,
     });
   }
@@ -461,7 +461,7 @@ export function AbilityCatalogPanel({
             ['视频能力', outputSummaryCounts.video || 0, '生视频或视频处理结果'],
             ['文字能力', outputSummaryCounts.text || 0, '文字增强、文案生成等'],
             ['图像理解', outputSummaryCounts.structured || 0, '看图分析、标签、结构化判断'],
-            ['资源能力', outputSummaryCounts.asset || 0, '文件、链接或待确认输出'],
+            ['资源能力', outputSummaryCounts.asset || 0, '文件、链接或未归类输出'],
           ].map(([label, value, detail]) => (
             <Col key={String(label)} xs={12} md={4} lg={2}>
               <div
@@ -532,7 +532,7 @@ export function AbilityCatalogPanel({
             ['可接业务', readiness.summary.readyCount, '健康、模板、表单、成本和模型状态都没有明显阻塞', 'success'],
             ['暂不能接', readiness.summary.blockedCount, '能力未启用或最近测试失败，不能绑定到主业务默认版本', 'danger'],
             ['需处理', readiness.summary.attentionCount, '复测、成本、模板、表单或模型状态仍需补齐', 'warning'],
-            ['缺证据', readiness.summary.noEvidenceCount, '最近复测缺失或过期，上线前需要重新跑样例', 'warning'],
+            ['缺证据', readiness.summary.noEvidenceCount, '最近复测缺失或过期，发版前需要重新跑样例', 'warning'],
             ['契约缺口', readiness.summary.contractIssueCount, '表单、模板、成本不完整，会影响业务方或 Coze 使用', 'warning'],
           ].map(([label, value, detail, theme]) => (
             <Col key={String(label)} xs={12} md={4} lg={2}>

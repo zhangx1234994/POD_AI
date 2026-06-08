@@ -765,8 +765,8 @@ const getWorkflowExecutionTrackingLabels = (wf: EvalWorkflowVersion | null | und
     };
   }
   return {
-    executionLabel: String(routing?.executionLabel || '执行面待确认').trim(),
-    trackingLabel: String(routing?.currentTrackingLabel || '追踪待确认').trim(),
+    executionLabel: String(routing?.executionLabel || '执行方式未配置').trim(),
+    trackingLabel: String(routing?.currentTrackingLabel || '追踪口径未配置').trim(),
   };
 };
 
@@ -3141,6 +3141,11 @@ function ToolCard({
   const title = getWorkflowCardTitle(wf);
   const operationTitle = getWorkflowOperationTitle(wf);
   const usageHint = getWorkflowCardSubtitle(wf);
+  const actionLabel = isImageEditChatWorkflow(wf)
+    ? '进入 AI 图片助手'
+    : isImageEditWorkflow(wf)
+      ? '进入图编辑工作台'
+      : `进入${operationTitle}工作台`;
   const inputSummary = getWorkflowInputSummary(wf);
   const outputSummary = getWorkflowOutputSummary(wf);
   const releaseDate = getWorkflowReleaseDate(wf);
@@ -3169,7 +3174,7 @@ function ToolCard({
   return (
     <div
       role="button"
-      aria-label={`进入${operationTitle} · ${title}工作台`}
+      aria-label={`${actionLabel} · ${title}`}
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => {
@@ -3270,7 +3275,7 @@ function ToolCard({
             <summary>查看底层链路</summary>
             <div>
               <span>工作流 {shortId}</span>
-              <span>{routingGovernance?.governanceLabel || '链路待确认'}</span>
+              <span>{routingGovernance?.governanceLabel || '治理标签未配置'}</span>
               <span>{executionLabel}</span>
               <span>{trackingLabel}</span>
               <Tag size="small" variant="light" theme={routingTheme}>
@@ -3279,7 +3284,7 @@ function ToolCard({
             </div>
           </details>
           <div className="podi-eval-tool-card__footer">
-            <Typography.Text>进入功能工作台</Typography.Text>
+            <Typography.Text>{actionLabel}</Typography.Text>
             <Typography.Text theme="secondary">→</Typography.Text>
           </div>
         </div>
@@ -3733,10 +3738,9 @@ function CategoryQuickStart({
             ))}
           </div>
         ) : (
-          <div className="podi-eval-quickstart__empty" aria-label="能力使用图例">
-            <span />
-            <span />
-            <span />
+          <div className="podi-eval-quickstart__empty" aria-label="无固定样例时的快速起步">
+            <strong>暂无固定样例</strong>
+            <small>先用下方示例进入推荐版本，跑通后再沉淀固定样例。</small>
           </div>
         )}
         <div className="podi-eval-quickstart__prompts">
@@ -3900,7 +3904,7 @@ function TaskTable({
     return {
       theme: 'default' as const,
       label: '暂无任务',
-      detail: '先从推荐业务运行一次，再回到这里看任务状态。',
+      detail: '先从推荐能力运行一次，再回到这里看任务状态。',
       action: '任务提交后会显示 runId、状态、输出和链路信息。',
     };
   })();
@@ -3950,7 +3954,7 @@ function TaskTable({
             <div className={unratedRuns.length > 0 ? 'is-warning' : ''}>
               <span>未评分</span>
               <strong>{unratedRuns.length}</strong>
-              <em>待沉淀</em>
+              <em>待评分</em>
             </div>
           </div>
 
@@ -9337,7 +9341,7 @@ export function App() {
         {isImageEditBusinessWorkflow ? <ImageEditDeliveryBrief /> : null}
         <div className={`podi-business-acceptance-focus podi-business-acceptance-focus--${acceptanceFocus.theme}`}>
           <div className="podi-business-acceptance-focus__main">
-            <Typography.Text className="podi-business-acceptance-focus__eyebrow">业务验收焦点</Typography.Text>
+            <Typography.Text className="podi-business-acceptance-focus__eyebrow">能力验收焦点</Typography.Text>
             <strong>{acceptanceFocus.label}</strong>
             <span>{acceptanceFocus.detail}</span>
             <div className="podi-business-acceptance-focus__actions">
@@ -9388,7 +9392,7 @@ export function App() {
               )}
             </div>
           </div>
-          <div className="podi-business-acceptance-focus__facts" aria-label="业务验收状态">
+          <div className="podi-business-acceptance-focus__facts" aria-label="能力验收状态">
             <div>
               <span>固定样例</span>
               <strong>{acceptanceSampleLabel}</strong>
@@ -9404,11 +9408,11 @@ export function App() {
           </div>
           <div className="podi-business-acceptance-focus__roles" aria-label="角色下一步">
             <div>
-              <span>业务方</span>
+              <span>使用方</span>
               <strong>{acceptanceFocus.businessAction}</strong>
             </div>
             <div>
-              <span>运营 / 中台</span>
+              <span>运营中台</span>
               <strong>{acceptanceFocus.platformAction}</strong>
             </div>
           </div>
@@ -9420,7 +9424,7 @@ export function App() {
         <summary>
           <div className="podi-eval-tool-context-collapse__summary">
             <span>版本与验收信息</span>
-            <strong>查看流程、接口说明和业务验收焦点</strong>
+            <strong>查看流程、接口说明和能力验收焦点</strong>
           </div>
           <Tag variant="light">{getWorkflowVersionLabel(selectedTool)}</Tag>
         </summary>
@@ -9442,7 +9446,7 @@ export function App() {
               setSelectedTool(null);
             }}
           >
-            返回推荐业务
+            返回能力列表
           </Button>
           <Typography.Text theme="secondary">
             {getWorkflowCategory(selectedTool)} · {getWorkflowVersionLabel(selectedTool)}
@@ -11134,7 +11138,7 @@ export function App() {
                 }
               }}
             >
-              跑固定样例
+              {activeCategoryFirstSample ? '跑固定样例' : '暂无固定样例'}
             </Button>
             <Button
               theme="primary"

@@ -8,6 +8,30 @@ import { businessKeyLabel, canonicalBusinessKey, coreBusinessKeys } from './busi
 
 export type BusinessEvidenceTheme = 'success' | 'warning' | 'danger' | 'default';
 
+export type BusinessLifecycleBadge = {
+  label: string;
+  theme: BusinessEvidenceTheme;
+  detail: string;
+};
+
+export type BusinessLifecycleStatus = {
+  online: BusinessLifecycleBadge;
+  recommendation: BusinessLifecycleBadge;
+};
+
+type BusinessLifecycleEvidence = {
+  outputCount?: number;
+  acceptancePassed?: boolean;
+  releaseGateBlocked?: boolean;
+  governanceBlocked?: boolean;
+  runFailed?: boolean;
+  hasPendingApproval?: boolean;
+  callbackRisk?: number;
+  billingRisk?: number;
+  rollbackReadyCount?: number;
+  activeAlternativeCount?: number;
+};
+
 export type BusinessReleaseEvidenceCheck = {
   key: string;
   label: string;
@@ -30,6 +54,8 @@ export type CoreBusinessReleaseEvidenceRow = {
   callbackRisk: number;
   billingRisk: number;
   acceptancePassed: boolean;
+  onlineStatus: BusinessLifecycleBadge;
+  recommendationStatus: BusinessLifecycleBadge;
   checks: BusinessReleaseEvidenceCheck[];
   suggestion: string;
 };
@@ -56,6 +82,82 @@ export const getBusinessRunOutputCount = (item?: BusinessCapability) => {
   );
 };
 
+const businessLatestRunSucceeded = (item?: BusinessCapability) =>
+  ['succeeded', 'success', 'completed'].includes(String(item?.latestRun?.status || '').toLowerCase()) && !item?.latestRun?.error;
+
+export const businessCapabilityLifecycleStatus = (
+  item?: BusinessCapability,
+  evidence: BusinessLifecycleEvidence = {},
+): BusinessLifecycleStatus => {
+  const outputCount = evidence.outputCount ?? getBusinessRunOutputCount(item);
+  const acceptancePassed = Boolean(
+    evidence.acceptancePassed ?? (item?.releaseGate?.acceptancePassed === true || item?.latestAcceptance?.status === 'passed'),
+  );
+  const latestRunSucceeded = businessLatestRunSucceeded(item);
+  const hasSuccessfulOutput = latestRunSucceeded && outputCount > 0;
+  const hasPrimaryAbility = Boolean(item?.primaryAbilityId || item?.primaryAbilityName);
+  const releaseGateBlocked = Boolean(evidence.releaseGateBlocked ?? item?.releaseGate?.status === 'blocked');
+  const governanceBlocked = Boolean(evidence.governanceBlocked ?? item?.governanceStatus === 'blocker');
+  const runFailed = Boolean(evidence.runFailed ?? item?.latestRun?.error);
+  const callbackRisk = Number(evidence.callbackRisk || 0);
+  const billingRisk = Number(evidence.billingRisk || 0);
+  const rollbackReadyCount = Number(evidence.rollbackReadyCount || 0);
+  const activeAlternativeCount = Number(evidence.activeAlternativeCount || 0);
+  const hasPendingApproval = Boolean(evidence.hasPendingApproval);
+  const status = String(item?.status || '').toLowerCase();
+  const isInactive = ['inactive', 'disabled', 'deprecated', 'archived'].includes(status);
+  const isDraft = status === 'draft';
+  const hasRisk = releaseGateBlocked || governanceBlocked || runFailed || callbackRisk > 0 || billingRisk > 0;
+
+  let online: BusinessLifecycleBadge;
+  if (!item) {
+    online = { label: '缺入口', theme: 'danger', detail: '没有默认版本，业务方没有稳定可调入口。' };
+  } else if (isInactive) {
+    online = { label: '已下线', theme: 'default', detail: '该版本不再承接线上业务，只保留追溯或回滚记录。' };
+  } else if (isDraft) {
+    online = { label: '候选验证', theme: 'default', detail: '草稿或候选版本只能试运行，不能作为线上默认入口。' };
+  } else if (!hasPrimaryAbility) {
+    online = { label: '配置缺失', theme: 'danger', detail: '缺少主执行能力，不能稳定调用。' };
+  } else if ((releaseGateBlocked || governanceBlocked) && !hasSuccessfulOutput) {
+    online = { label: '不可用', theme: 'danger', detail: '存在阻塞项且没有可用成功样本。' };
+  } else if (hasRisk && hasSuccessfulOutput) {
+    online = { label: '受限可用', theme: 'warning', detail: '已有成功输出，但仍有验收、治理、回填、计费或失败风险需要复核。' };
+  } else if (hasSuccessfulOutput) {
+    online = { label: '线上可用', theme: 'success', detail: '启用版本已有真实成功输出，可作为当前可用入口。' };
+  } else if (item.isDefault) {
+    online = { label: '线上待验证', theme: 'warning', detail: '默认版本已启用，但还缺最近成功输出证据。' };
+  } else {
+    online = { label: '候选验证', theme: 'default', detail: '非默认版本还需要试运行和验收后再切入线上。' };
+  }
+
+  let recommendation: BusinessLifecycleBadge;
+  if (!item) {
+    recommendation = { label: '缺默认', theme: 'danger', detail: '先补默认版本。' };
+  } else if (isInactive) {
+    recommendation = { label: '历史版本', theme: 'default', detail: '仅用于追溯、对照或回滚说明。' };
+  } else if (isDraft) {
+    recommendation = { label: '候选验证', theme: 'default', detail: '先完成真实链路试运行和验收。' };
+  } else if (!hasPrimaryAbility || releaseGateBlocked || governanceBlocked || runFailed) {
+    recommendation = { label: '需复核', theme: releaseGateBlocked || governanceBlocked || !hasPrimaryAbility ? 'danger' : 'warning', detail: '存在影响推荐默认入口的风险。' };
+  } else if (hasPendingApproval) {
+    recommendation = { label: '切换中', theme: 'warning', detail: '默认版本切换仍在审批，不能按新默认版本对外说明。' };
+  } else if (hasSuccessfulOutput && acceptancePassed && callbackRisk === 0 && billingRisk === 0 && item.isDefault && rollbackReadyCount > 0) {
+    recommendation = { label: '生产推荐', theme: 'success', detail: '默认入口、验收、真实输出、回填计费和回滚证据齐全。' };
+  } else if (hasSuccessfulOutput && acceptancePassed) {
+    recommendation = {
+      label: item.isDefault ? '灰度可用' : '备选可用',
+      theme: 'warning',
+      detail: activeAlternativeCount > 0 || rollbackReadyCount > 0 ? '已有验收和成功样本，可小流量使用或作为备选。' : '已有验收和成功样本，但生产推荐前还要补回滚或风险证据。',
+    };
+  } else if (hasSuccessfulOutput) {
+    recommendation = { label: '待补验收', theme: 'warning', detail: '已有真实成功样本，但还缺验收通过记录。' };
+  } else {
+    recommendation = { label: '候选验证', theme: 'default', detail: '还缺真实成功输出，先跑固定样例。' };
+  }
+
+  return { online, recommendation };
+};
+
 export const businessCapabilityHasRollbackEvidence = (item?: BusinessCapability) => {
   if (!item || item.status !== 'active' || item.isDefault) return false;
   const latestRunStatus = String(item.latestRun?.status || '').toLowerCase();
@@ -70,7 +172,7 @@ export const businessCapabilityHasRollbackEvidence = (item?: BusinessCapability)
 };
 
 export const businessCapabilityRollbackEvidenceLabel = (item: BusinessCapability) => {
-  const acceptance = item.latestAcceptance?.status === 'passed' ? '验收通过' : '未验收';
+  const acceptance = item.latestAcceptance?.status === 'passed' ? '验收通过' : '待补验收';
   const outputCount = getBusinessRunOutputCount(item);
   const latestRunStatus = String(item.latestRun?.status || '').toLowerCase();
   const latestRun = !item.latestRun
@@ -205,6 +307,18 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
     const callbackRisk = Number(bucket?.callbackFailed || 0) + Number(bucket?.callbackMissing || 0);
     const billingRisk = Number(bucket?.unpriced || 0) + Number(bucket?.billingPending || 0);
     const missingRollback = hasDefault && rollbackReadyAlternatives.length === 0;
+    const lifecycle = businessCapabilityLifecycleStatus(defaultItem, {
+      outputCount,
+      acceptancePassed,
+      releaseGateBlocked: gateBlocked,
+      governanceBlocked: defaultItem?.governanceStatus === 'blocker',
+      runFailed,
+      hasPendingApproval,
+      callbackRisk,
+      billingRisk,
+      rollbackReadyCount: rollbackReadyAlternatives.length,
+      activeAlternativeCount: activeAlternatives.length,
+    });
     const theme: BusinessEvidenceTheme = !hasDefault || gateBlocked || runFailed
       ? 'danger'
       : !acceptancePassed || outputCount === 0 || callbackRisk > 0 || billingRisk > 0 || missingRollback || hasPendingApproval
@@ -217,13 +331,13 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
         : runFailed
           ? '有失败'
           : !acceptancePassed
-            ? '待验收'
+            ? outputCount > 0 ? '待补验收' : '候选验证'
             : outputCount === 0
               ? '待样本'
               : callbackRisk > 0 || billingRisk > 0
                 ? '需复核'
                 : missingRollback
-                  ? activeAlternatives.length > 0 ? '备选待验收' : '缺回滚'
+                  ? activeAlternatives.length > 0 ? '备选待补验收' : '缺回滚'
                 : '闭环正常';
     const reason = firstBusinessReleaseReason({
       defaultItem,
@@ -244,7 +358,7 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
       },
       {
         key: 'acceptance',
-        label: acceptancePassed ? '验收通过' : '未验收',
+        label: acceptancePassed ? '验收通过' : '待补验收',
         theme: acceptancePassed ? 'success' : 'warning',
       },
       {
@@ -267,7 +381,7 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
         label: rollbackReadyAlternatives.length > 0
           ? `可回滚 ${rollbackReadyAlternatives.length}`
           : activeAlternatives.length > 0
-            ? `备选待验收 ${activeAlternatives.length}`
+            ? `备选待补验收 ${activeAlternatives.length}`
             : '缺回滚备选',
         theme: rollbackReadyAlternatives.length > 0 ? 'success' : 'warning',
       },
@@ -288,6 +402,8 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
       callbackRisk,
       billingRisk,
       acceptancePassed,
+      onlineStatus: lifecycle.online,
+      recommendationStatus: lifecycle.recommendation,
       checks,
       suggestion: firstBusinessReleaseSuggestion({
         defaultItem,

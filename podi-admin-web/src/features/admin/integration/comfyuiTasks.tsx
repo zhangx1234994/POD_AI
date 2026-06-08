@@ -300,7 +300,7 @@ export function ComfyuiTasksPanel({
       key: 'compat-error',
       theme: 'warning',
       title: '能力对齐暂时读不到',
-      detail: '如果某台机器离线或依赖查询超时，先不要直接判断业务可上线。',
+      detail: '如果某台机器离线或依赖查询超时，先不要直接判断本次可发版。',
       action: '重新检查对齐',
       onClick: onRefreshWorkflowCompatibility,
       loading: workflowCompatibilityLoading,

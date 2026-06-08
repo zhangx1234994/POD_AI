@@ -182,9 +182,9 @@ function healthWatchStatusTheme(status: string): 'success' | 'warning' | 'danger
 }
 
 function releaseDecisionStatusLabel(status: string): string {
-  if (status === 'approved') return '确认可上线';
-  if (status === 'deferred') return '暂缓上线';
-  if (status === 'blocked') return '阻塞上线';
+  if (status === 'approved') return '确认可发版';
+  if (status === 'deferred') return '暂缓发版';
+  if (status === 'blocked') return '阻塞发版';
   return status || '未知';
 }
 
@@ -223,19 +223,12 @@ function strategyIndicatorAlertTheme(status?: string): 'success' | 'warning' | '
   return 'info';
 }
 
-function businessReleaseGateStatusLabel(status?: string | null): string {
-  if (status === 'ready') return '可上线';
-  if (status === 'warning') return '需复核';
-  if (status === 'blocked') return '暂不能上线';
-  return '未判断';
-}
-
 function businessAcceptanceLabel(status?: string | null): string {
   if (status === 'passed') return '验收通过';
   if (status === 'failed') return '验收失败';
   if (status === 'warning') return '有风险';
   if (status === 'waived') return '暂不验收';
-  return '未验收';
+  return '待补验收';
 }
 
 function businessAcceptanceTheme(status?: string | null): 'success' | 'warning' | 'danger' | 'default' {
@@ -489,7 +482,7 @@ export function OverviewPanel({
           : missingCoreBusinessLabels.length > 0
             ? `缺 ${missingCoreBusinessLabels.join('、')}`
           : businessUnresolvedIssueCount > 0
-            ? `待确认 ${businessUnresolvedIssueCount}`
+            ? `需复核 ${businessUnresolvedIssueCount}`
             : '入口完整',
       theme: businessPathLoading
         ? 'default'
@@ -554,7 +547,7 @@ export function OverviewPanel({
     theme: 'success' | 'warning' | 'danger' | 'default';
   }> = [
     {
-      title: '主业务上线证据',
+      title: '主业务线上证据',
       status: businessPathLoading
         ? '加载中'
         : coreBusinessReleaseBlockedRows.length > 0
@@ -611,7 +604,7 @@ export function OverviewPanel({
       title: '轻量门禁',
       status: !preflightLatest ? '待运行' : preflightBlocked > 0 ? '阻塞' : preflightWarnings > 0 ? '提醒' : '通过',
       detail: !preflightLatest
-        ? '上线前需要先运行轻量门禁。'
+        ? '发版前需要先运行轻量门禁。'
         : preflightBlocked > 0
           ? `${preflightBlocked} 个阻塞项需要处理。`
           : preflightWarnings > 0
@@ -631,14 +624,14 @@ export function OverviewPanel({
             ? '通过'
             : '待检查',
       detail: healthWatchUnsupported
-        ? '当前是本地或非 systemd 环境，不作为本地阻塞；上线前仍需在 114 服务器确认定时巡检。'
+        ? '当前是本地或非 systemd 环境，不作为本地阻塞；发版前仍需在 114 服务器确认定时巡检。'
         : healthWatchProblemItems.length > 0
         ? healthWatchProblemItems.slice(0, 2).map((item) => `${item.title}：${item.summary}`).join('；')
         : healthWatchRunningItems.length > 0
           ? `当前有 ${healthWatchRunningItems.length} 个自检任务正在执行，稍后刷新确认结果。`
           : healthWatchItems.length > 0
             ? '业务轻量自检、真实巡检和评测健康守护均已纳入页面检查。'
-            : '尚未读取到线上自检守护状态，上线前需要确认 114 定时巡检是否运行。',
+            : '尚未读取到线上自检守护状态，发版前需要确认 114 定时巡检是否运行。',
       theme: healthWatchUnsupported
         ? 'warning'
         : healthWatchProblemItems.length > 0
@@ -651,7 +644,7 @@ export function OverviewPanel({
       title: '完整巡检',
       status: !latestPatrolRecord ? '待登记' : latestPatrolRecord.status === 'passed' ? '通过' : '阻塞',
       detail: !latestPatrolRecord
-        ? '上线前需要跑一次真实工作流巡检，并登记结果。'
+        ? '发版前需要跑一次真实工作流巡检，并登记结果。'
         : latestPatrolRecord.status === 'passed'
           ? `最近完整巡检通过：${formatDateTime(latestPatrolRecord.generatedAt)}`
           : latestPatrolRecord.note || latestPatrolRecord.reportPath || '最近完整巡检失败，请先查看报告。',
@@ -675,7 +668,7 @@ export function OverviewPanel({
     : releaseReadinessBlockers.length > 0
       ? '发版需处理'
       : releaseReadinessWarnings.length > 0
-        ? '待验收确认'
+        ? '待补验收'
         : '可以上线';
   const baseReleaseReadinessTheme = releaseReadinessHasLoading
     ? 'default'
@@ -695,7 +688,7 @@ export function OverviewPanel({
     !releaseReadinessHasLoading &&
     releaseReadinessBlockers.length === 0 &&
     latestReleaseDecision?.status === 'approved';
-  const releaseReadinessTitle = latestReleaseDecisionApproved ? '已确认可上线' : baseReleaseReadinessTitle;
+  const releaseReadinessTitle = latestReleaseDecisionApproved ? '已确认可发版' : baseReleaseReadinessTitle;
   const releaseReadinessTheme = latestReleaseDecisionApproved
     ? releaseReadinessWarnings.length > 0
       ? 'warning'
@@ -703,10 +696,10 @@ export function OverviewPanel({
     : baseReleaseReadinessTheme;
   const releaseReadinessMessage = latestReleaseDecisionApproved
     ? releaseReadinessWarnings.length > 0
-      ? `已登记可上线，仍有 ${releaseReadinessWarnings.length} 个非阻断提醒：${releaseReadinessWarnings
+      ? `已登记可发版，仍有 ${releaseReadinessWarnings.length} 个非阻断提醒：${releaseReadinessWarnings
           .map((item) => item.title)
           .join('、')}。这些提醒进入后续治理，不阻塞本次发布。`
-      : '已登记可上线，业务入口、轻量门禁、完整巡检和能力状态都已满足上线前检查要求。'
+      : '已登记可发版，业务入口、轻量门禁、完整巡检和能力状态都已满足上线前检查要求。'
     : baseReleaseReadinessMessage;
   const releaseAttentionItems = releaseReadinessBlockers.length > 0 ? releaseReadinessBlockers : releaseReadinessWarnings;
   const businessTotal = Number(strategySummary?.business_total || businessUsageSummary?.total || 0);
@@ -841,10 +834,10 @@ export function OverviewPanel({
   }> = [
     {
       key: 'release',
-      title: '上线',
+      title: '发版',
       status: releaseReadinessTitle,
       detail: releaseReadinessMessage,
-      action: '查看上线结论',
+      action: '查看发版结论',
       target: 'ability-evals',
       theme: releaseReadinessTheme,
     },
@@ -1034,7 +1027,7 @@ export function OverviewPanel({
       title: '发版自检',
       group: '系统',
       status: releaseReadinessTitle,
-      detail: '轻量门禁、完整巡检、上线结论登记、周报和事故防复发守护。',
+      detail: '轻量门禁、完整巡检、发版结论登记、周报和事故防复发守护。',
       target: 'overview',
       theme: releaseReadinessTheme,
       stage: '核心入口',
@@ -1146,7 +1139,7 @@ export function OverviewPanel({
     releaseReadinessWarnings.slice(0, 5 - operatorFocusItems.length).forEach((item, index) => {
       operatorFocusItems.push({
         key: `release-warning-${index}`,
-        priority: '上线前确认',
+        priority: '发版前确认',
         title: item.title,
         detail: item.detail,
         action: '去确认',
@@ -1158,7 +1151,7 @@ export function OverviewPanel({
   if (operatorFocusItems.length < 5 && businessUnresolvedIssueCount > 0) {
     operatorFocusItems.push({
       key: 'business-failed',
-      priority: '上线前确认',
+      priority: '发版前确认',
       title: '业务失败样本',
       detail: `近 ${businessUsageSummary?.windowHours || strategySummary?.window_hours || 24} 小时仍有 ${businessUnresolvedIssueCount} 条失败未确认恢复，先看 runId 详情。`,
       action: '看业务运行',
@@ -1169,7 +1162,7 @@ export function OverviewPanel({
   if (operatorFocusItems.length < 5 && callbackRiskCount > 0) {
     operatorFocusItems.push({
       key: 'callback-risk',
-      priority: '上线前确认',
+      priority: '发版前确认',
       title: '回调失败',
       detail: `回调失败 ${callbackRiskCount} 次，业务方可能收不到结果，需要先重试或确认回调地址。`,
       action: '看接口任务',
@@ -1194,7 +1187,7 @@ export function OverviewPanel({
       priority: '可继续推进',
       title: '当前没有明确阻塞',
       detail: '继续保持发版前门禁、三条主业务真实巡检和 Coze 工具箱抽测，不要只看页面存活。',
-      action: '看上线结论',
+      action: '看发版结论',
       target: 'overview',
       theme: 'success',
     });
@@ -1211,7 +1204,7 @@ export function OverviewPanel({
     platformConclusionTheme === 'danger'
       ? '当前有阻塞'
       : platformConclusionTheme === 'warning'
-        ? '可用，待确认'
+        ? '线上可用，需复核'
         : '当前可用';
   const platformConclusionMessage =
     platformConclusionTheme === 'danger'
@@ -1231,10 +1224,10 @@ export function OverviewPanel({
     const note = releaseDecisionNote.trim();
     const title =
       status === 'approved'
-        ? `确认可上线：${releaseReadinessTitle}`
+        ? `确认可发版：${releaseReadinessTitle}`
         : status === 'blocked'
-          ? `阻塞上线：${releaseReadinessTitle}`
-          : `暂缓上线：${releaseReadinessTitle}`;
+          ? `阻塞发版：${releaseReadinessTitle}`
+          : `暂缓发版：${releaseReadinessTitle}`;
     onCreateReleaseDecisionRecord({
       status,
       title,
@@ -1453,10 +1446,10 @@ export function OverviewPanel({
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <div>
-              <Typography.Text strong>上线结论</Typography.Text>
+              <Typography.Text strong>发版结论</Typography.Text>
               <div>
                 <Typography.Text theme="secondary">
-                  这里汇总业务入口、轻量门禁、完整巡检、模型与能力状态，直接判断是否能进入线上闭环。
+                  这里汇总业务入口、轻量门禁、完整巡检、模型与能力状态，直接判断是否能进入本次发布闭环。
                 </Typography.Text>
               </div>
             </div>
@@ -1478,7 +1471,7 @@ export function OverviewPanel({
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
                 <div>
-                  <Typography.Text strong>三条主业务上线证据</Typography.Text>
+                  <Typography.Text strong>三条主业务线上证据</Typography.Text>
                   <div>
                     <Typography.Text theme="secondary">
                       默认版本、验收记录、最近真实样本和门禁原因集中在这里；不用再跳到业务页逐个拼判断。
@@ -1495,9 +1488,14 @@ export function OverviewPanel({
                     <Space direction="vertical" size={6} style={{ width: '100%' }}>
                       <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
                         <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
-                        <Tag theme={row.theme} variant="light">
-                          {row.defaultItem?.releaseGate?.label || row.status || businessReleaseGateStatusLabel(row.defaultItem?.releaseGate?.status)}
-                        </Tag>
+                        <Space size={4}>
+                          <Tag theme={row.onlineStatus.theme} variant="light">
+                            {row.onlineStatus.label}
+                          </Tag>
+                          <Tag theme={row.recommendationStatus.theme} variant="light">
+                            {row.recommendationStatus.label}
+                          </Tag>
+                        </Space>
                       </Space>
                       <Typography.Text>
                         {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
@@ -1565,7 +1563,7 @@ export function OverviewPanel({
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
                 <div>
-                  <Typography.Text strong>上线结论登记</Typography.Text>
+                  <Typography.Text strong>发版结论登记</Typography.Text>
                   <div>
                     <Typography.Text theme="secondary">
                       把本次判断落成记录，后续复盘能看到当时的门禁、巡检和人工说明。
@@ -1589,7 +1587,7 @@ export function OverviewPanel({
               <Input
                 value={releaseDecisionNote}
                 onChange={(value) => setReleaseDecisionNote(String(value))}
-                placeholder="可选：写清楚本次为什么可上线、为什么暂缓，或还差什么"
+                placeholder="可选：写清楚本次为什么可发版、为什么暂缓，或还差什么"
               />
               <Space size="small" style={{ flexWrap: 'wrap' }}>
                 <Button
@@ -1599,7 +1597,7 @@ export function OverviewPanel({
                   disabled={releaseReadinessHasLoading || releaseReadinessBlockers.length > 0}
                   onClick={() => submitReleaseDecision('approved')}
                 >
-                  登记可上线
+                  登记可发版
                 </Button>
                 <Button
                   size="small"
@@ -1708,7 +1706,7 @@ export function OverviewPanel({
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <div>
-              <Typography.Text strong>业务上线路径</Typography.Text>
+              <Typography.Text strong>业务闭环路径</Typography.Text>
               <div>
                 <Typography.Text theme="secondary">
                   按这个顺序检查：业务入口先稳定，模型和能力再绑定，最后用真实测评确认结果入库。
@@ -2429,7 +2427,7 @@ export function OverviewPanel({
               </div>
             </div>
             <Tag theme={businessUnresolvedIssueCount > 0 ? 'warning' : 'success'} variant="light">
-              {businessUnresolvedIssueCount > 0 ? `待确认 ${businessUnresolvedIssueCount}` : '没有未收口失败'}
+              {businessUnresolvedIssueCount > 0 ? `需复核 ${businessUnresolvedIssueCount}` : '没有未收口失败'}
             </Tag>
           </Space>
           <Row gutter={[12, 12]}>

@@ -29,7 +29,7 @@ export function BindingRoutesPanel({
     bindings.length === 0
       ? '当前没有路由策略；业务入口需要先绑定模板和运行线路，才能稳定调度。'
       : disabledCount > 0
-        ? `当前共有 ${bindings.length} 条策略，其中 ${disabledCount} 条已停用；上线前确认停用是否符合预期。`
+        ? `当前共有 ${bindings.length} 条策略，其中 ${disabledCount} 条已停用；发版前确认停用是否符合预期。`
         : `当前 ${enabledCount} 条路由策略均已启用，继续核对优先级和真实命中证据。`;
 
   return (
@@ -65,7 +65,7 @@ export function BindingRoutesPanel({
             key: 'priority',
             title: '核对优先级和启停',
             detail: '优先级越大越先尝试；停用策略不会参与分发。',
-            action: '上线前确认主线路、备用线路和停用策略都符合预期。',
+            action: '发版前确认主线路、备用线路和停用策略都符合预期。',
             done: '分发可控',
             theme: disabledCount > 0 ? 'warning' : 'primary',
           },

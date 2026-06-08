@@ -1158,7 +1158,7 @@ def _vendor_model_primary_action(blockers: list[str], warnings: list[str]) -> di
             }
     return {
         "primaryIssue": None,
-        "primaryActionLabel": "可上线",
+        "primaryActionLabel": "生产可用",
         "primaryAction": "基础门禁通过，可进入业务绑定和小流量验证。",
         "primarySeverity": "success",
     }
@@ -1199,7 +1199,7 @@ def _vendor_model_release_gate(
     if key_blockers:
         suggestions.append("最近 Key 验证失败，优先替换 Key 或检查上游账号状态。")
     if key_warnings:
-        suggestions.append("上线前重新做一次单条 Key 验证，避免过期验证误导判断。")
+        suggestions.append("发版前重新做一次单条 Key 验证，避免过期验证误导判断。")
     if not item.api_types:
         warnings.append("VENDOR_MODEL_API_TYPES_MISSING")
         suggestions.append("补齐模型能力类型，方便业务侧区分图片、视频、文字或图像理解。")
@@ -1211,16 +1211,16 @@ def _vendor_model_release_gate(
         suggestions.append("正式收费或对外开放前补齐成本口径。")
     if item.requires_global_egress and not egress_verified:
         warnings.append("VENDOR_MODEL_GLOBAL_EGRESS_REQUIRED")
-        suggestions.append("该模型需要国际出口，上线前先做一次带密钥出网验证。")
+        suggestions.append("该模型需要国际出口，发版前先做一次带密钥出网验证。")
 
     status_value = "ready"
-    label = "可上线"
+    label = "生产可用"
     if blockers:
         status_value = "blocked"
-        label = "暂不能上线"
+        label = "不可推荐"
     elif warnings:
         status_value = "warning"
-        label = "可小流量，需复核"
+        label = "灰度可用，需复核"
     primary_action = _vendor_model_primary_action(blockers, warnings)
     return {
         "status": status_value,

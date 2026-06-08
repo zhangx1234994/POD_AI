@@ -880,7 +880,7 @@ function buildDeliveryDecision({
 
   if (reviewFeatures.length > 0 || pollingTooFrequent || activeKeyCount === 0) {
     const warnings = [
-      reviewFeatures.length ? `${reviewFeatures.length} 个功能上线前仍需复核` : '',
+      reviewFeatures.length ? `${reviewFeatures.length} 个功能发版前仍需复核` : '',
       pollingTooFrequent ? '当前窗口轮询频率偏高' : '',
       activeKeyCount === 0 ? '还没有启用的业务 API Key' : '',
     ].filter(Boolean);
