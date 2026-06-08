@@ -484,7 +484,7 @@ run 调用上下文字段：
 
 | 字段 | 允许值 | 含义 |
 | --- | --- | --- |
-| `endpoint_kind` | `submit` | 提交业务任务，例如 `/api/business/fission/runs`。 |
+| `endpoint_kind` | `submit` | 提交业务任务，例如 `/api/business/fission/runs`；AI 图片助手的 `/api/business/image-edit-chat/sessions/{sessionId}/confirm` 也是提交/执行边界。 |
 | `endpoint_kind` | `poll` | 查询业务任务结果，例如 `/api/business/runs/get`。 |
 | `endpoint_kind` | `callback` | 业务回调相关接口。 |
 | `status_group` | `success` | HTTP 2xx/3xx 且无平台错误码。 |

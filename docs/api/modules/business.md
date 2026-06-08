@@ -2226,6 +2226,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `method`
 - `path`
 - `endpoint_kind`：`submit` / `poll` / `callback`
+- AI 图片助手的 `confirm` 是提交/执行边界，接口调用中心按 `submit` 统计；否则成功任务会被误判为“只有轮询没有提交”。
 - `status_code`
 - `status_group`：`success` / `error`
 - `error_code`

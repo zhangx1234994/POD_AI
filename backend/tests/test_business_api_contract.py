@@ -1773,6 +1773,34 @@ def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> N
     assert "BUSINESS_RUN_ID_REQUIRED" in export_text
 
 
+def test_business_api_usage_endpoint_kind_treats_agent_confirm_as_submit() -> None:
+    assert (
+        business_router_module._business_api_usage_endpoint_kind(
+            method="POST",
+            path="/api/business/image-edit-chat/sessions/ags_123/confirm",
+        )
+        == "submit"
+    )
+    assert (
+        business_router_module._business_api_usage_endpoint_kind(
+            method="POST",
+            path="/api/business/image-edit-chat/sessions/ags_123/plans/agp_123/confirm",
+        )
+        == "submit"
+    )
+    assert (
+        business_router_module._business_api_usage_endpoint_kind(
+            method="POST",
+            path="/api/business/agents/image-edit/sessions/ags_123/confirm",
+        )
+        == "submit"
+    )
+    assert (
+        business_router_module._business_api_usage_endpoint_kind(method="POST", path="/api/business/runs/get")
+        == "poll"
+    )
+
+
 def test_business_admin_read_cache_is_short_lived_and_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(business_router_module, "suppress_background_threads_for_tests", lambda: False)
     with business_router_module._BUSINESS_ADMIN_READ_CACHE_LOCK:

@@ -403,6 +403,15 @@ def _business_api_usage_endpoint_kind(*, method: str | None, path: str | None) -
         return "poll"
     if "callback" in normalized_path:
         return "callback"
+    if (
+        normalized_method == "POST"
+        and normalized_path.endswith("/confirm")
+        and (
+            normalized_path.startswith("/api/business/image-edit-chat/sessions/")
+            or normalized_path.startswith("/api/business/agents/image-edit/sessions/")
+        )
+    ):
+        return "submit"
     if normalized_method == "POST" and normalized_path.endswith("/runs"):
         return "submit"
     return "other"

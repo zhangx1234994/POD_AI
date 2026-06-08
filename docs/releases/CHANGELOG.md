@@ -21,6 +21,7 @@
 - 后端 planner schema 增加 `routeType`、`targetAbility`、`targetBusinessKey`；控制面会覆盖模型误判，确保最终工具调用由后端白名单和规则兜底。
 - `routeEvidence` 增加 `primaryExecutionEngine` 与 `specializedAbilityCandidate`，用于解释“为什么普通花纹提取仍走 GPT Image 2 质量路径”。
 - 测评端 AI 图片助手继续按图片版 Codex 心智收口：无“执行这版”按钮，满足条件后自动进入后端执行边界，结果回到聊天消息流，二轮默认基于上一轮成功输出。
+- 接口调用中心将 AI 图片助手 `confirm` 执行边界归类为 `submit`，避免真实成功 run 被误标记为 `POLL_WITHOUT_SUBMIT`。
 - Agent Runtime 回归矩阵从 6 组升级为 7 组 golden cases，新增普通花纹提取质量优先路由与专项加速路由两条断言。
 
 本地验证结果：
