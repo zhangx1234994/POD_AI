@@ -3783,10 +3783,21 @@ def _build_business_api_key_usage_filters(
 
     poll_filter = BusinessApiKeyUsageLog.path == "/api/business/runs/get"
     callback_filter = BusinessApiKeyUsageLog.path.contains("callback")
+    agent_confirm_filter = or_(
+        BusinessApiKeyUsageLog.path.like("/api/business/image-edit-chat/sessions/%/confirm"),
+        BusinessApiKeyUsageLog.path.like("/api/business/image-edit-chat/sessions/%/plans/%/confirm"),
+        BusinessApiKeyUsageLog.path.like("/api/business/agents/image-edit/sessions/%/confirm"),
+        BusinessApiKeyUsageLog.path.like("/api/business/agents/image-edit/sessions/%/plans/%/confirm"),
+    )
     submit_filter = and_(
         BusinessApiKeyUsageLog.method == "POST",
-        BusinessApiKeyUsageLog.path.like("%/runs"),
-        BusinessApiKeyUsageLog.path != "/api/business/runs/get",
+        or_(
+            and_(
+                BusinessApiKeyUsageLog.path.like("%/runs"),
+                BusinessApiKeyUsageLog.path != "/api/business/runs/get",
+            ),
+            agent_confirm_filter,
+        ),
     )
     endpoint_kind_value = str(endpoint_kind or "").strip().lower()
     if endpoint_kind_value == "submit":

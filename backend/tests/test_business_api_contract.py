@@ -1801,6 +1801,92 @@ def test_business_api_usage_endpoint_kind_treats_agent_confirm_as_submit() -> No
     )
 
 
+def test_business_api_usage_groups_agent_confirm_with_poll_as_normal_submit() -> None:
+    now = datetime.utcnow()
+    run_id = "run_agent_usage_submit_001"
+    with get_session() as session:
+        for row in session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.run_id == run_id)).scalars().all():
+            session.delete(row)
+        existing_run = session.get(BusinessRun, run_id)
+        if existing_run:
+            session.delete(existing_run)
+            session.flush()
+        session.add(
+            BusinessRun(
+                id=run_id,
+                business_key="image_edit",
+                version="gpt-image2-editor-v1",
+                status="succeeded",
+                source="image-edit-chat",
+                channel="image-edit-chat",
+                image_urls=["https://example.com/agent-result.png"],
+                video_urls=[],
+                texts=[],
+                created_at=now,
+                updated_at=now,
+                finished_at=now,
+            )
+        )
+        session.add_all(
+            [
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_agent_usage",
+                    api_key_name="服务令牌",
+                    api_key_preview="serv...oken",
+                    method="POST",
+                    path="/api/business/image-edit-chat/sessions/ags_123/confirm",
+                    status_code=200,
+                    business_key="image_edit_chat",
+                    run_id=run_id,
+                    request_id="req_agent_usage_submit",
+                    trace_id="trace_agent_usage_submit",
+                    duration_ms=120,
+                    created_at=now,
+                ),
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_agent_usage",
+                    api_key_name="服务令牌",
+                    api_key_preview="serv...oken",
+                    method="POST",
+                    path="/api/business/runs/get",
+                    status_code=200,
+                    business_key="image_edit",
+                    run_id=run_id,
+                    request_id="req_agent_usage_submit",
+                    trace_id="trace_agent_usage_submit",
+                    duration_ms=60,
+                    created_at=now,
+                ),
+            ]
+        )
+        session.commit()
+
+    resp = client.get(
+        "/api/admin/business/api-key-usage",
+        params={"run_id": run_id, "window_hours": 0, "limit": 10},
+        headers={"Authorization": "Bearer podi-test-service-token", "x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["summary"]["submitCount"] == 1
+    assert body["summary"]["pollCount"] == 1
+    assert body["summary"]["errorCount"] == 0
+    assert body["groups"][0]["runId"] == run_id
+    assert body["groups"][0]["submitCount"] == 1
+    assert body["groups"][0]["pollCount"] == 1
+    assert body["groups"][0]["needsAttention"] is False
+    assert body["groups"][0]["issueCode"] is None
+
+    submit_resp = client.get(
+        "/api/admin/business/api-key-usage",
+        params={"run_id": run_id, "endpoint_kind": "submit", "window_hours": 0, "limit": 10},
+        headers={"Authorization": "Bearer podi-test-service-token", "x-real-ip": "127.0.0.1"},
+    )
+    assert submit_resp.status_code == 200
+    assert submit_resp.json()["total"] == 1
+
+
 def test_business_admin_read_cache_is_short_lived_and_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(business_router_module, "suppress_background_threads_for_tests", lambda: False)
     with business_router_module._BUSINESS_ADMIN_READ_CACHE_LOCK:
