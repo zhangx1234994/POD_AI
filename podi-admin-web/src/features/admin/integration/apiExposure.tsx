@@ -13,6 +13,7 @@ import type {
   PublicAbility,
 } from '../../../types/admin';
 import { businessKeyLabel } from './businessLabels';
+import { businessReleaseIssueLabel } from './businessReleaseEvidence';
 
 type ApiEndpoint = {
   key: string;
@@ -140,6 +141,42 @@ type BusinessApiUsageFilters = {
   traceId: string;
   errorCode: string;
 };
+
+const BUSINESS_RELEASE_CODE_PATTERN = /BUSINESS_RELEASE_[A-Z0-9_]+/g;
+
+function normalizeReleaseChecklistText(value?: string | null): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  return raw
+    .replace(/业务版本门禁未通过：\[[^\]]+\]。?/g, (match) => {
+      const labels = Array.from(
+        new Set((match.match(BUSINESS_RELEASE_CODE_PATTERN) || []).map((code) => businessReleaseIssueLabel(code)).filter(Boolean)),
+      );
+      return labels.length ? `待补发布证据：${labels.join('、')}。` : '待补发布证据。';
+    })
+    .replace(BUSINESS_RELEASE_CODE_PATTERN, (code) => businessReleaseIssueLabel(code) || code);
+}
+
+function normalizeReleaseChecklistTexts(values?: string[] | null): string[] {
+  return (values || []).map((item) => normalizeReleaseChecklistText(item)).filter(Boolean);
+}
+
+function isEvidenceOnlyChecklistIssue(value: string): boolean {
+  return /待补发布证据|缺少真实链路验收|缺少出图质量标注|缺少可用质量标注|质量样本存在风险/.test(value);
+}
+
+function normalizeFeatureReleaseChecklistItem(row: FeatureReleaseChecklistItem): FeatureReleaseChecklistItem {
+  return {
+    ...row,
+    mustCheck: normalizeReleaseChecklistTexts(row.mustCheck),
+    releaseEvidence: normalizeReleaseChecklistText(row.releaseEvidence),
+    currentRisk: normalizeReleaseChecklistText(row.currentRisk),
+    summary: normalizeReleaseChecklistText(row.summary),
+    blockers: normalizeReleaseChecklistTexts(row.blockers),
+    warnings: normalizeReleaseChecklistTexts(row.warnings),
+  };
+}
 
 type ApiExposurePanelProps = {
   publicAbilities: PublicAbility[];
@@ -1531,10 +1568,11 @@ export function ApiExposurePanel({
     ...item,
     audit: deliveryAuditByKey.get(item.key) || null,
   }));
-  const featureReleaseChecklistRows =
+  const featureReleaseChecklistRows = (
     businessDeliveryAudit?.featureReleaseChecks && businessDeliveryAudit.featureReleaseChecks.length > 0
       ? businessDeliveryAudit.featureReleaseChecks
-      : FEATURE_RELEASE_CHECKLIST;
+      : FEATURE_RELEASE_CHECKLIST
+  ).map((item) => normalizeFeatureReleaseChecklistItem(item as FeatureReleaseChecklistItem));
   const businessDeliveryGapRows = businessDeliveryGapMessages(businessDeliveryContractRows);
   const deliveryDecision = buildDeliveryDecision({
     contractChecks: businessApiContractChecks,
@@ -2073,29 +2111,35 @@ export function ApiExposurePanel({
                 colKey: 'currentRisk',
                 title: '当前结论',
                 ellipsis: true,
-                cell: ({ row }) => (
-                  <Space direction="vertical" size={2}>
-                    <Typography.Text
-                      theme={row.status === 'done' ? 'success' : row.status === 'doing' ? 'warning' : 'error'}
-                    >
-                      {(row.blockers || []).length
-                        ? `存在 ${(row.blockers || []).length} 个阻断项`
-                        : (row.warnings || []).length
-                          ? `存在 ${(row.warnings || []).length} 个复核项`
-                          : row.summary || row.currentRisk}
-                    </Typography.Text>
-                    {(row.blockers || []).slice(0, 2).map((item) => (
-                      <Typography.Text key={item} theme="error">
-                        {item}
+                cell: ({ row }) => {
+                  const blockers = row.blockers || [];
+                  const warnings = row.warnings || [];
+                  const evidenceOnlyBlockers = blockers.length > 0 && blockers.every(isEvidenceOnlyChecklistIssue);
+                  return (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text theme={row.status === 'done' ? 'success' : row.status === 'doing' ? 'warning' : 'error'}>
+                        {blockers.length
+                          ? evidenceOnlyBlockers
+                            ? `待补 ${blockers.length} 个发布证据`
+                            : `存在 ${blockers.length} 个阻断项`
+                          : warnings.length
+                            ? `存在 ${warnings.length} 个复核项`
+                            : row.summary || row.currentRisk}
                       </Typography.Text>
-                    ))}
-                    {!(row.blockers || []).length && (row.warnings || []).slice(0, 2).map((item) => (
-                      <Typography.Text key={item} theme="warning">
-                        {item}
-                      </Typography.Text>
-                    ))}
-                  </Space>
-                ),
+                      {blockers.slice(0, 2).map((item) => (
+                        <Typography.Text key={item} theme={evidenceOnlyBlockers ? 'warning' : 'error'}>
+                          {item}
+                        </Typography.Text>
+                      ))}
+                      {!blockers.length &&
+                        warnings.slice(0, 2).map((item) => (
+                          <Typography.Text key={item} theme="warning">
+                            {item}
+                          </Typography.Text>
+                        ))}
+                    </Space>
+                  );
+                },
               },
             ]}
           />
