@@ -1267,7 +1267,8 @@ def test_image_edit_canvas_outpaint_postprocess_pastes_original_region(monkeypat
             return source.copy()
         return generated.copy()
 
-    def fake_upload(image: Image.Image, *, filename: str, trace_context=None):  # noqa: ANN001
+    def fake_upload(image: Image.Image, *, filename: str, trace_context=None, apply_output_dpi: bool = False):  # noqa: ANN001
+        assert apply_output_dpi is True
         uploaded.append(image.copy())
         return {"url": f"https://oss.example.com/{filename}", "objectKey": filename}
 

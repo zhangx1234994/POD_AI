@@ -299,6 +299,47 @@ export type BusinessRunPollResult = {
   result?: Record<string, unknown> | null;
 };
 
+export type ProductCommercializationRequest = {
+  productImageUrl?: string;
+  designImageUrl?: string;
+  productFields?: Record<string, unknown>;
+  extraPrompt?: string;
+  outputLanguage?: 'en-US' | 'zh-CN' | 'bilingual';
+  marketRegion?: 'US' | 'UK' | 'EU' | 'global';
+  copyScenarios?: string[];
+  visualSupportMode?: 'none' | 'recommendation' | 'generate';
+  videoScenario?: 'product_showcase_short' | 'social_ad_short' | 'detail_explainer';
+  durationSeconds?: number;
+  targetDurationSeconds?: number;
+  aspectRatio?: string;
+  strategyProfile?: string;
+  executorId?: string;
+  pollTimeout?: number;
+  requestId?: string;
+  traceId?: string;
+  source?: string;
+};
+
+export type ProductCommercializationResponse = {
+  requestId: string;
+  businessKey: string;
+  version: string;
+  status: string;
+  generatedAt?: string;
+  strategyProfile: string;
+  outputLanguage: string;
+  marketRegion: string;
+  copyScenarios: string[];
+  productCard: Record<string, unknown>;
+  copyPackage: Record<string, unknown>;
+  visualAssetPlan: Record<string, unknown>;
+  videoPlan: Record<string, unknown>;
+  review: Record<string, unknown>;
+  execution: Record<string, unknown>;
+  audit?: Record<string, unknown> | null;
+  videoResult?: Record<string, unknown> | null;
+};
+
 export const evalApi = {
   me: () => request<{ raterId: string }>('/api/evals/me'),
   listWorkflowVersions: () => request<EvalWorkflowVersion[]>('/api/evals/workflow-versions?status=active&includeAuxiliary=true'),
@@ -744,6 +785,24 @@ export const evalApi = {
       '/api/business/runs/get',
       { method: 'POST', body: JSON.stringify({ runId }) },
       30000,
+    ),
+  previewProductCommercialization: (payload: ProductCommercializationRequest) =>
+    request<ProductCommercializationResponse>(
+      '/api/business/product-commercialization/preview',
+      { method: 'POST', body: JSON.stringify(payload) },
+      90000,
+    ),
+  generateProductCommercializationVideo: (payload: ProductCommercializationRequest) =>
+    request<ProductCommercializationResponse>(
+      '/api/business/product-commercialization/video',
+      { method: 'POST', body: JSON.stringify(payload) },
+      240000,
+    ),
+  generateProductCommercializationComposedVideo: (payload: ProductCommercializationRequest) =>
+    request<ProductCommercializationResponse>(
+      '/api/business/product-commercialization/video-compose',
+      { method: 'POST', body: JSON.stringify(payload) },
+      900000,
     ),
   adminListWorkflowVersions: async (adminToken: string) =>
     request<EvalWorkflowVersion[]>(`/api/evals/admin/workflow-versions`, { headers: { 'X-Eval-Admin-Token': adminToken } }),

@@ -50,6 +50,7 @@ from app.services.business_agents import AGENT_BUSINESS_KEY, get_business_agent_
 from app.services.auth_service import auth_service
 from app.services.business_projects import get_business_project_service
 from app.services.business_runs import get_business_run_service
+from app.services.product_commercialization import product_commercialization_service
 from app.services.runtime_safety import suppress_background_threads_for_tests
 
 
@@ -967,6 +968,141 @@ def create_product_design_run(
     user: User = Depends(_resolve_business_user),
 ) -> dict[str, Any]:
     return _create_business_run_with_usage(request=request, business_key="product_design", payload=payload, user=user)
+
+
+@router.post(
+    "/product-commercialization/preview",
+    response_model=schemas.ProductCommercializationPreviewResponse,
+    response_model_by_alias=False,
+)
+def preview_product_commercialization(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+    business_key = "product_commercialization"
+    _business_key_allowed_for_api_key(request, business_key)
+    try:
+        result = product_commercialization_service.preview(
+            payload,
+            user_id=getattr(user, "id", None),
+        )
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=business_key,
+        request_payload=request_payload,
+    )
+    return result
+
+
+@router.post(
+    "/product-commercialization/video",
+    response_model=schemas.ProductCommercializationVideoResponse,
+    response_model_by_alias=False,
+)
+def generate_product_commercialization_video(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+    business_key = "product_commercialization"
+    _business_key_allowed_for_api_key(request, business_key)
+    try:
+        result = product_commercialization_service.generate_video(
+            payload,
+            user_id=getattr(user, "id", None),
+        )
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=business_key,
+        request_payload=request_payload,
+    )
+    return result
+
+
+@router.post(
+    "/product-commercialization/video-compose",
+    response_model=schemas.ProductCommercializationVideoResponse,
+    response_model_by_alias=False,
+)
+def generate_product_commercialization_composed_video(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+    business_key = "product_commercialization"
+    _business_key_allowed_for_api_key(request, business_key)
+    try:
+        result = product_commercialization_service.generate_composed_video(
+            payload,
+            user_id=getattr(user, "id", None),
+        )
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=business_key,
+        request_payload=request_payload,
+    )
+    return result
 
 
 @router.get("/image-edit/component-config", response_model=dict[str, Any], response_model_by_alias=False)
@@ -2040,6 +2176,110 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         },
         "x-podi-custom-size-constraints": IMAGE_EDIT_CUSTOM_SIZE_CONSTRAINTS,
     }
+    product_commercialization_submit_schema = {
+        "type": "object",
+        "required": [],
+        "properties": {
+            "productImageUrl": {
+                "type": "string",
+                "nullable": True,
+                "description": "产品设计完成后的商品图 URL。预览可为空，视频生成必填。",
+            },
+            "designImageUrl": {
+                "type": "string",
+                "nullable": True,
+                "description": "可选设计稿/印花图 URL，用于辅助理解商品来源。",
+            },
+            "productFields": {
+                "type": "object",
+                "description": "产品导出字段 JSON；有则使用，没有则推断并在 productCard.inferredFacts/missingFields 标记。",
+            },
+            "extraPrompt": {"type": "string", "nullable": True, "description": "业务方补充要求。"},
+            "outputLanguage": {
+                "type": "string",
+                "description": "输出语言。海外销售默认建议 en-US；bilingual 会返回中英双语结构。",
+                "enum": ["en-US", "zh-CN", "bilingual"],
+                "default": "en-US",
+            },
+            "marketRegion": {
+                "type": "string",
+                "description": "目标市场，会影响措辞和审核提示。",
+                "enum": ["US", "UK", "EU", "global"],
+                "default": "US",
+            },
+            "copyScenarios": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": ["listing_title", "bullet_points", "detail_description", "ad_short_copy", "keyword_pack"],
+                },
+                "description": "文案场景；为空默认返回标题、五点、详情、广告短文案和关键词包。",
+            },
+            "visualSupportMode": {
+                "type": "string",
+                "description": "配图模式。recommendation 只输出配图建议；generate 也不会在预览接口偷偷生成，必须显式调用后续执行接口。",
+                "enum": ["none", "recommendation", "generate"],
+                "default": "recommendation",
+            },
+            "videoScenario": {
+                "type": "string",
+                "description": "视频场景；MVP 先支持单段 Veo Fast，仍返回结构化分镜和素材需求。",
+                "enum": ["product_showcase_short", "social_ad_short", "detail_explainer"],
+                "default": "product_showcase_short",
+            },
+            "durationSeconds": {
+                "type": "integer",
+                "nullable": True,
+                "description": "单段 Veo 3.1 Fast 执行时长，当前固定 8 秒。",
+                "enum": [8],
+                "default": 8,
+            },
+            "targetDurationSeconds": {
+                "type": "integer",
+                "nullable": True,
+                "minimum": 8,
+                "maximum": 60,
+                "description": "用户目标成片时长。8 秒可调用 video 单段生成；超过 8 秒应调用 video-compose 多段生成并合成。",
+                "default": 8,
+            },
+            "aspectRatio": {"type": "string", "nullable": True, "description": "视频比例，默认 16:9。", "default": "16:9"},
+            "strategyProfile": {"type": "string", "nullable": True, "description": "审核/策略配置，默认 default_pod_profile。"},
+            "executorId": {"type": "string", "nullable": True, "description": "视频生成使用的 KIE executor；不传用默认 KIE 节点。"},
+            "pollTimeout": {"type": "number", "nullable": True, "description": "视频生成轮询超时秒数。"},
+            "source": {"type": "string", "nullable": True},
+            "traceId": {"type": "string", "nullable": True},
+            "requestId": {"type": "string", "nullable": True},
+        },
+    }
+    product_commercialization_response_schema = {
+        "type": "object",
+        "properties": {
+            "requestId": {"type": "string"},
+            "businessKey": {"type": "string", "enum": ["product_commercialization"]},
+            "version": {"type": "string"},
+            "status": {"type": "string"},
+            "strategyProfile": {"type": "string"},
+            "outputLanguage": {"type": "string"},
+            "marketRegion": {"type": "string"},
+            "copyScenarios": {"type": "array", "items": {"type": "string"}},
+            "productCard": {
+                "type": "object",
+                "description": "产品理解卡，区分 sourceFacts / inferredFacts / missingFields / confidence。",
+            },
+            "copyPackage": {"type": "object", "description": "结构化文案包。"},
+            "visualAssetPlan": {
+                "type": "object",
+                "description": "配图计划：哪些文案场景需要配图、是否建议生成、候选路由和生成策略。",
+            },
+            "videoPlan": {"type": "object", "description": "视频分镜、素材需求、Veo Fast prompt 和语言策略。"},
+            "review": {"type": "object", "description": "默认 POD 审核结果、风险和下一步动作。"},
+            "execution": {
+                "type": "object",
+                "description": "本次是否触发成本动作。preview 不生成图片/视频；video 接口会记录 kie.veo3_fast.video。",
+            },
+            "videoResult": {"type": "object", "nullable": True, "description": "仅视频生成接口返回。"},
+        },
+    }
     image_edit_chat_create_schema = {
         "type": "object",
         "description": "创建 AI 图片助手会话；可带首轮 message 直接生成结构化计划。",
@@ -2495,6 +2735,42 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             },
         },
     }
+    product_commercialization_examples = {
+        "pod_listing_copy_and_video_plan": {
+            "summary": "产品设计后生成英文文案包 + 配图建议 + 视频分镜",
+            "value": {
+                "productImageUrl": "https://example.com/product-export.png",
+                "productFields": {
+                    "模板名称": "女款长袜（3D打印）",
+                    "英文名称": "Women's knitted woolen socks",
+                    "产品材质": "包纱、涤纶、尼龙、橡筋",
+                    "生产工艺": "3D印花",
+                    "具体成分": "65%涤纶，15%氨纶，20%尼龙",
+                    "二级分类": "穿搭配件",
+                    "建议售价": "10",
+                },
+                "outputLanguage": "en-US",
+                "marketRegion": "US",
+                "visualSupportMode": "recommendation",
+                "videoScenario": "product_showcase_short",
+                "durationSeconds": 8,
+                "targetDurationSeconds": 8,
+                "aspectRatio": "16:9",
+                "requestId": "biz-product-commercialization-001",
+            },
+        },
+        "bilingual_ad_copy": {
+            "summary": "双语广告短文案 + 可选配图生成策略",
+            "value": {
+                "productImageUrl": "https://example.com/socks.png",
+                "productFields": {"productNameEn": "Women's knitted woolen socks", "material": "polyester, spandex, nylon"},
+                "outputLanguage": "bilingual",
+                "copyScenarios": ["ad_short_copy", "keyword_pack"],
+                "visualSupportMode": "generate",
+                "extraPrompt": "偏节日礼品场景，但不要写平台不允许的绝对化承诺。",
+            },
+        },
+    }
     fission_evaluate_examples = {
         "fission_generated_image_evaluate": {
             "summary": "生成图评估 · 裂变质量与逻辑评估",
@@ -2676,6 +2952,31 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "BUSINESS_CLIENT_DAILY_QUOTA_LIMITED",
         *submit_errors["429"],
     ]
+    product_commercialization_errors = {
+        **submit_errors,
+        "400": [
+            "PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID",
+            "PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID",
+            "PRODUCT_COMMERCIALIZATION_MARKET_INVALID",
+            "PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID",
+            "PRODUCT_COMMERCIALIZATION_VISUAL_MODE_INVALID",
+            "PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID",
+            "PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID",
+            "PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED",
+            "PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED",
+            "PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY",
+        ],
+        "500": [
+            "PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED",
+            "PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED",
+            "PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED",
+            "PRODUCT_COMMERCIALIZATION_COMPOSE_DOWNLOAD_FAILED",
+            "PRODUCT_COMMERCIALIZATION_FFMPEG_MISSING",
+            "PRODUCT_COMMERCIALIZATION_COMPOSE_TIMEOUT",
+            "PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED",
+            *submit_errors["500"],
+        ],
+    }
     agent_errors = {
         **submit_errors,
         "400": [
@@ -2695,7 +2996,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "info": {
             "title": "PODI Business APIs",
             "version": "0.1.0",
-            "description": "业务层稳定入口：花纹提取、图裂变、产品设计、直接图编辑、AI 图片助手、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
+            "description": "业务层稳定入口：花纹提取、图裂变、产品设计、产品商业化内容包、直接图编辑、AI 图片助手、文字强化裂变、裂变生成图评估、扩图、任务查询。Coze 和客户端只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
         "components": {
@@ -2808,6 +3109,79 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                         success_description="Business run accepted",
                         errors_by_status=submit_errors,
                         success_schema=submit_response_schema,
+                    ),
+                }
+            },
+            "/api/business/product-commercialization/preview": {
+                "post": {
+                    "operationId": "podi_business_product_commercialization_preview",
+                    "summary": "PODI · 产品商业化 · 文案与视频规划",
+                    "description": "产品设计完成后的商业化内容包预览。输入商品图、产品导出字段和目标市场，返回产品理解卡、文案包、配图建议、视频分镜和审核提示；不会隐式生成图片或视频。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": product_commercialization_submit_schema,
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "x-codeSamples": [
+                        {
+                            "lang": "curl",
+                            "label": "生成英文文案包和视频分镜",
+                            "source": "curl -X POST \"$PODI_BASE_URL/api/business/product-commercialization/preview\" \\\n  -H \"X-PODI-API-Key: $PODI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"productImageUrl\":\"https://example.com/product.png\",\"productFields\":{\"英文名称\":\"Women knitted woolen socks\",\"产品材质\":\"polyester, spandex, nylon\"},\"outputLanguage\":\"en-US\",\"marketRegion\":\"US\",\"visualSupportMode\":\"recommendation\"}'",
+                        }
+                    ],
+                    "responses": _business_responses(
+                        success_description="Product commercialization preview prepared",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=product_commercialization_response_schema,
+                    ),
+                }
+            },
+            "/api/business/product-commercialization/video": {
+                "post": {
+                    "operationId": "podi_business_product_commercialization_video",
+                    "summary": "PODI · 产品商业化 · 生成 Veo Fast 视频",
+                    "description": "显式成本动作：在同一产品理解和分镜基础上调用 KIE Veo3.1 Fast 生成单段商品展示视频，并将结果保存到 PODI OSS。必须提供 productImageUrl。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {**product_commercialization_submit_schema, "required": ["productImageUrl"]},
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Product commercialization video generated or running",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=product_commercialization_response_schema,
+                    ),
+                }
+            },
+            "/api/business/product-commercialization/video-compose": {
+                "post": {
+                    "operationId": "podi_business_product_commercialization_video_compose",
+                    "summary": "PODI · 产品商业化 · 多段生成并合成视频",
+                    "description": "显式多段成本动作：当 targetDurationSeconds 超过 8 秒时，按 preview 返回的分镜顺序调用 Veo3.1 Fast 生成多个 8 秒片段，再用 ffmpeg 裁剪拼接并上传最终 MP4 到 PODI OSS。必须提供 productImageUrl。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {**product_commercialization_submit_schema, "required": ["productImageUrl"]},
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Product commercialization composed video generated",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=product_commercialization_response_schema,
                     ),
                 }
             },

@@ -11,7 +11,6 @@ import httpx
 from PIL import Image
 
 from app.services.media_ingest import media_ingest_service
-from app.services.oss import oss_service
 
 
 logger = logging.getLogger(__name__)
@@ -150,11 +149,12 @@ def _enforce_image_size(
         resized = _resize_with_pad(image, target_w=target_w, target_h=target_h)
         output = BytesIO()
         resized.save(output, format="PNG")
-        upload = oss_service.upload_bytes(
+        upload = media_ingest_service.upload_generated_image_bytes(
             user_id=user_id or "system",
             filename=f"{tag}-target-{target_w}x{target_h}.png",
             data=output.getvalue(),
             content_type="image/png",
+            tag=tag,
         )
         next_item = dict(item)
         previous_url = url

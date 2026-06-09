@@ -91,6 +91,7 @@ from app.services.business_projects import get_business_project_service
 from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
 from app.services.fission_control_prompt import compile_comfyui_v4_prompt
 from app.services.fission_control_prompt import extract_fission_control_card
+from app.services.media_ingest import media_ingest_service
 from app.services.pattern_fission_prompt import LEGACY_TEMPLATE_ALIASES as PATTERN_FISSION_LEGACY_TEMPLATE_ALIASES
 from app.services.pattern_fission_prompt import TEMPLATE_ALIASES as PATTERN_FISSION_TEMPLATE_ALIASES
 from app.services.pattern_fission_prompt import TEMPLATE_ID as PATTERN_FISSION_TEMPLATE_ID
@@ -3474,6 +3475,7 @@ class BusinessRunService:
                 final_image,
                 filename=f"image-edit-outpaint-final-{uuid4().hex[:10]}.png",
                 trace_context=request_meta if isinstance(request_meta, dict) else None,
+                apply_output_dpi=True,
             )
             final_url = str(upload.get("url") or "")
             if not final_url:
@@ -8022,9 +8024,18 @@ class BusinessRunService:
         *,
         filename: str,
         trace_context: dict[str, Any] | None = None,
+        apply_output_dpi: bool = False,
     ) -> dict[str, Any]:
         buffer = BytesIO()
         image.save(buffer, format="PNG")
+        if apply_output_dpi:
+            return media_ingest_service.upload_generated_image_bytes(
+                user_id=str((trace_context or {}).get("tenantId") or "system"),
+                filename=filename,
+                data=buffer.getvalue(),
+                content_type="image/png",
+                tag="image-edit-generated-result",
+            )
         return oss_service.upload_bytes(
             user_id=str((trace_context or {}).get("tenantId") or "system"),
             filename=filename,

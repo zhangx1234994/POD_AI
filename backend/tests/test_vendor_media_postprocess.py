@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from io import BytesIO
+from types import SimpleNamespace
 
 from PIL import Image
 
+import app.services.media_ingest as media_ingest_module
 import app.services.vendor_media as vendor_media_module
 from app.services.vendor_media import persist_vendor_media_payload
 
@@ -34,7 +36,8 @@ def test_persist_vendor_media_can_enforce_desired_image_size(monkeypatch) -> Non
         return {"url": "https://oss.example.com/resized.png", "objectKey": "resized-key"}
 
     monkeypatch.setattr(vendor_media_module.httpx, "get", fake_get)
-    monkeypatch.setattr(vendor_media_module.oss_service, "upload_bytes", fake_upload_bytes)
+    monkeypatch.setattr(media_ingest_module.oss_service, "upload_bytes", fake_upload_bytes)
+    monkeypatch.setattr(media_ingest_module, "get_settings", lambda: SimpleNamespace(output_image_default_dpi=150))
 
     result = persist_vendor_media_payload(
         {
@@ -54,6 +57,8 @@ def test_persist_vendor_media_can_enforce_desired_image_size(monkeypatch) -> Non
     assert result["images"][0]["height"] == 360
     assert result["images"][0]["postprocess"]["strategy"] == "fit_pad_keep_original_size"
     assert uploads[0]["content_type"] == "image/png"
+    stored = Image.open(BytesIO(uploads[0]["data"]))
+    assert stored.info.get("dpi") == (150.01239999999999, 150.01239999999999)
 
 
 def test_persist_vendor_media_keeps_existing_image_when_size_already_matches(monkeypatch) -> None:
@@ -64,7 +69,7 @@ def test_persist_vendor_media_keeps_existing_image_when_size_already_matches(mon
         raise AssertionError("upload should not be called when size already matches")
 
     monkeypatch.setattr(vendor_media_module.httpx, "get", fake_get)
-    monkeypatch.setattr(vendor_media_module.oss_service, "upload_bytes", fail_upload_bytes)
+    monkeypatch.setattr(media_ingest_module.oss_service, "upload_bytes", fail_upload_bytes)
 
     result = persist_vendor_media_payload(
         {"images": [{"ossUrl": "https://oss.example.com/already-ok.png"}]},

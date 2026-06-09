@@ -170,6 +170,23 @@
 | PRODUCT_DESIGN_BRIEF_REQUIRED | 产品设计缺少设计要求 | 400，`/api/business/product-design/runs` 必须传 `designBrief` 或兼容字段 |
 | PRODUCT_DESIGN_PRODUCT_TYPE_INVALID | 产品设计产品类型非法 | 400，允许 `apparel` / `home_textile` / `bag` / `shoe` / `stationery` / `packaging` / `generic` |
 | PRODUCT_DESIGN_SCENE_INVALID | 产品设计展示场景非法 | 400，允许 `studio_product` / `flat_lay` / `ecommerce` / `lifestyle` / `print_mockup` / `generic` |
+| PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID | 产品商业化上下文不是合法 JSON 对象 | 400，`productFields` 必须是对象；缺字段不报错，会进入 `missingFields/inferredFacts` |
+| PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID | 产品商业化输出语言非法 | 400，允许 `en-US` / `zh-CN` / `bilingual` |
+| PRODUCT_COMMERCIALIZATION_MARKET_INVALID | 产品商业化目标市场非法 | 400，允许 `US` / `UK` / `EU` / `global` |
+| PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID | 产品商业化文案场景非法 | 400，允许 `listing_title` / `bullet_points` / `detail_description` / `ad_short_copy` / `keyword_pack` |
+| PRODUCT_COMMERCIALIZATION_VISUAL_MODE_INVALID | 产品商业化配图模式非法 | 400，允许 `none` / `recommendation` / `generate`；预览接口即使为 `generate` 也不隐式生图 |
+| PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID | 产品商业化视频场景非法 | 400，允许 `product_showcase_short` / `social_ad_short` / `detail_explainer` |
+| PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID | 产品商业化目标成片时长非法 | 400，`targetDurationSeconds` 当前允许 8-60；单段执行仍固定 `durationSeconds=8` |
+| PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED | 产品商业化视频生成缺少产品图 | 400，预览可缺图，`/api/business/product-commercialization/video` 必须传 `productImageUrl` |
+| PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED | 产品商业化视频生成缺少可执行视频提示词 | 400，分镜规划异常或输入不足导致无法生成 prompt |
+| PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY | 产品商业化长视频调用了单段视频接口 | 400，`targetDurationSeconds>8` 时不能调用 `/video`，应改用 `/video-compose` |
+| PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED | 产品商业化预览生成失败 | 500，产品理解卡、文案包、配图建议或分镜生成异常 |
+| PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED | 产品商业化视频生成失败 | 502/500，KIE Veo Fast 创建、轮询或 OSS 沉淀失败 |
+| PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED | 产品商业化视频片段生成失败 | 502/500，长视频合成前的某个 Veo 片段未成功返回可用视频 |
+| PRODUCT_COMMERCIALIZATION_COMPOSE_DOWNLOAD_FAILED | 产品商业化视频合成下载失败 | 502/500，合成前下载片段视频失败 |
+| PRODUCT_COMMERCIALIZATION_FFMPEG_MISSING | 产品商业化视频合成缺少 ffmpeg | 500，部署环境未安装 `ffmpeg` 或不可执行 |
+| PRODUCT_COMMERCIALIZATION_COMPOSE_TIMEOUT | 产品商业化视频合成超时 | 502/500，ffmpeg 裁剪或拼接超过超时时间 |
+| PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED | 产品商业化视频合成失败 | 502/500，ffmpeg 裁剪/拼接或最终 OSS 上传失败 |
 | AGENT_CAPABILITY_NOT_FOUND | 业务 Agent 能力不存在或未开放 | 404，当前仅开放 `agent.image_edit_assistant` |
 | AGENT_IMAGE_URL_INVALID | 业务 Agent 图片 URL 非 HTTP(S) 地址 | 400 |
 | AGENT_IMAGE_URL_REQUIRED | 业务 Agent 执行缺少主图 URL | 400 |

@@ -27,7 +27,6 @@ from app.services.api_key_selector import bump_usage, mark_cooldown, pick_execut
 from app.services.comfyui_graph import normalize_comfyui_prompt_graph
 from app.services.executors import ExecutionContext, registry
 from app.services.media_ingest import media_ingest_service
-from app.services.oss import oss_service
 from app.services.runtime_safety import suppress_background_threads_for_tests
 from app.workflows import load_comfy_workflow
 
@@ -897,11 +896,12 @@ class IntegrationTestService:
                     canvas.paste(resized, (offset_x, offset_y))
                     buf = BytesIO()
                     canvas.save(buf, format="PNG")
-                    uploaded = oss_service.upload_bytes(
+                    uploaded = media_ingest_service.upload_generated_image_bytes(
                         user_id="admin-volcengine",
                         filename=f"{model}-{idx + 1}-{target_w}x{target_h}.png",
                         data=buf.getvalue(),
                         content_type="image/png",
+                        tag="volcengine-generated-enforced",
                     )
                     new_asset = {
                         "sourceUrl": src,
@@ -969,6 +969,86 @@ class IntegrationTestService:
         }
         return base_url, headers
 
+    @staticmethod
+    def _is_kie_veo_endpoint(endpoint: str | None) -> bool:
+        path = str(endpoint or "").strip().lower()
+        return "/api/v1/veo/" in path
+
+    @staticmethod
+    def _normalize_kie_status_endpoint(status_endpoint: str | None) -> str:
+        path = str(status_endpoint or "/api/v1/jobs/recordInfo").strip() or "/api/v1/jobs/recordInfo"
+        if not path.startswith("/"):
+            path = f"/{path}"
+        return path
+
+    @staticmethod
+    def _normalize_kie_veo_payload(payload: dict[str, object]) -> dict[str, object]:
+        normalized = dict(payload or {})
+        if "imageUrls" not in normalized and "image_urls" in normalized:
+            value = normalized.pop("image_urls")
+            if value not in (None, "", []):
+                normalized["imageUrls"] = value
+        else:
+            normalized.pop("image_urls", None)
+        # The official schema uses aspectRatio, while some docs/examples and older UI
+        # fields still use aspect_ratio. Keep both callers working but submit one key.
+        if "aspectRatio" not in normalized and "aspect_ratio" in normalized:
+            value = normalized.pop("aspect_ratio")
+            if value not in (None, "", []):
+                normalized["aspectRatio"] = value
+        else:
+            normalized.pop("aspect_ratio", None)
+        if "duration" not in normalized and "durationSeconds" in normalized:
+            value = normalized.pop("durationSeconds")
+            if value not in (None, "", []):
+                normalized["duration"] = value
+        else:
+            normalized.pop("durationSeconds", None)
+        normalized["model"] = "veo3_fast"
+        normalized["enableFallback"] = False
+        normalized.setdefault("enableTranslation", True)
+        image_urls = IntegrationTestService._collect_urls_from_value(normalized.get("imageUrls"))
+        normalized.setdefault("generationType", "REFERENCE_2_VIDEO" if image_urls else "TEXT_2_VIDEO")
+        if not image_urls and str(normalized.get("generationType") or "").strip() != "TEXT_2_VIDEO":
+            normalized["generationType"] = "TEXT_2_VIDEO"
+        normalized.setdefault("aspectRatio", "16:9")
+        return normalized
+
+    @staticmethod
+    def _collect_urls_from_value(value: object) -> list[str]:
+        urls: list[str] = []
+
+        def visit(item: object) -> None:
+            if isinstance(item, str):
+                text = item.strip()
+                if text.startswith(("http://", "https://")):
+                    urls.append(text)
+                return
+            if isinstance(item, dict):
+                for nested in item.values():
+                    visit(nested)
+                return
+            if isinstance(item, list):
+                for nested in item:
+                    visit(nested)
+
+        visit(value)
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            ordered.append(url)
+        return ordered
+
+    @staticmethod
+    def _looks_like_video_url(url: object) -> bool:
+        if not isinstance(url, str):
+            return False
+        path = url.split("?", 1)[0].lower()
+        return path.endswith((".mp4", ".mov", ".m4v", ".webm", ".avi"))
+
     def run_kie_market_task(
         self,
         *,
@@ -977,6 +1057,8 @@ class IntegrationTestService:
         model: str,
         input_payload: dict[str, object],
         input_array_target: str | None = None,
+        status_endpoint: str | None = None,
+        result_format: str | None = None,
         desired_output_size: tuple[int, int] | None = None,
         call_back_url: str | None = None,
         extra_payload: dict[str, object] | None = None,
@@ -989,6 +1071,14 @@ class IntegrationTestService:
         normalized_type = (executor.type or "").lower()
         if normalized_type not in {"kie", "kie-market", "kie_market"}:
             raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_KIE")
+
+        request_path = endpoint or "/api/v1/jobs/createTask"
+        if not request_path.startswith("/"):
+            request_path = f"/{request_path}"
+        is_veo = self._is_kie_veo_endpoint(request_path) or str(result_format or "").strip().lower() == "veo3"
+        if is_veo:
+            model = "veo3_fast"
+            status_endpoint = status_endpoint or "/api/v1/veo/record-info"
 
         # Normalize common field aliases for market models.
         # Flux-2 expects input_urls; some callers still pass image_urls.
@@ -1018,10 +1108,7 @@ class IntegrationTestService:
                 raise HTTPException(status_code=400, detail="KIE_API_KEY_MISSING")
             base_url, headers = self._prepare_kie_client(executor, api_key=api_key)
 
-            path = endpoint or "/api/v1/jobs/createTask"
-            if not path.startswith("/"):
-                path = f"/{path}"
-            url = f"{base_url}{path}"
+            url = f"{base_url}{request_path}"
 
             # KIE pulls images from URL on their side. If Coze sends a URL that is not
             # publicly reachable (or requires cookies), KIE will fail with
@@ -1047,7 +1134,8 @@ class IntegrationTestService:
                     return []
 
                 raw_urls = _to_url_list(entries)
-                for idx, raw_url in enumerate(raw_urls[:10]):
+                max_input_urls = 3 if is_veo else 10
+                for idx, raw_url in enumerate(raw_urls[:max_input_urls]):
                     # Skip if it's already our OSS domain.
                     if "podi.oss-" in raw_url:
                         oss_urls.append(raw_url)
@@ -1070,11 +1158,19 @@ class IntegrationTestService:
                 if oss_urls:
                     input_payload[input_array_target] = oss_urls if len(oss_urls) > 1 else [oss_urls[0]]
 
-            payload: dict[str, object] = {"model": model, "input": input_payload}
-            if call_back_url:
-                payload["callBackUrl"] = call_back_url
-            if extra_payload:
-                payload.update(extra_payload)
+            if is_veo:
+                payload = self._normalize_kie_veo_payload(input_payload)
+                if call_back_url:
+                    payload["callBackUrl"] = call_back_url
+                if extra_payload:
+                    payload.update(extra_payload)
+                payload = self._normalize_kie_veo_payload(payload)
+            else:
+                payload = {"model": model, "input": input_payload}
+                if call_back_url:
+                    payload["callBackUrl"] = call_back_url
+                if extra_payload:
+                    payload.update(extra_payload)
 
             try:
                 response = httpx.post(url, headers=headers, json=payload, timeout=60)
@@ -1154,7 +1250,7 @@ class IntegrationTestService:
         last_status_error: str | None = None
         while time.monotonic() < deadline:
             try:
-                detail_data = self._fetch_kie_task(base_url, headers, task_id)
+                detail_data = self._fetch_kie_task(base_url, headers, task_id, status_endpoint=status_endpoint)
                 last_status_error = None
             except HTTPException as exc:
                 # Status polling is best-effort: gateway errors/timeouts are common on the KIE side.
@@ -1173,17 +1269,23 @@ class IntegrationTestService:
             detail_data = {"detail": last_status_error or "KIE_STATUS_EMPTY"}
         state = self._extract_kie_state(detail_data)
         result_urls, result_object = self._parse_kie_result(detail_data)
+        video_urls = [url for url in (result_urls or []) if self._looks_like_video_url(url)]
+        if is_veo and result_urls and not video_urls:
+            video_urls = list(result_urls)
         stored_assets: list[dict[str, object]] = []
         stored_urls: list[str] = []
+        asset_tag = "kie-veo3-fast" if is_veo else "kie-market"
         for index, remote_url in enumerate(result_urls or []):
             asset = self._store_remote_asset(
                 remote_url,
                 user_id="admin-kie",
                 # Do not force a suffix; keep content-type/extension consistent.
                 filename=f"{model}-{index + 1}",
-                tag="kie-market",
+                tag=asset_tag,
             )
             if asset:
+                if is_veo:
+                    asset["type"] = "video"
                 stored_assets.append(asset)
                 if isinstance(asset.get("ossUrl"), str):
                     stored_urls.append(str(asset["ossUrl"]))
@@ -1239,7 +1341,7 @@ class IntegrationTestService:
 
         # 1) Enforce aspect ratio (pad, no crop). Target size uses resolution when present,
         # otherwise uses output long edge as baseline.
-        if ratio_pair and stored_urls:
+        if not is_veo and ratio_pair and stored_urls:
             rx, ry = ratio_pair
             enforced_urls = []
             for idx, oss_url in enumerate(stored_urls):
@@ -1260,11 +1362,12 @@ class IntegrationTestService:
                     out_im = _resize_with_pad(im, target_w=target_w, target_h=target_h)
                     buf = BytesIO()
                     out_im.save(buf, format="PNG")
-                    upload = oss_service.upload_bytes(
+                    upload = media_ingest_service.upload_generated_image_bytes(
                         user_id="admin-kie",
                         filename=f"{model}-{idx + 1}-{target_w}x{target_h}.png",
                         data=buf.getvalue(),
                         content_type="image/png",
+                        tag="kie-market-enforced",
                     )
                     enforced_url = str(upload.get("url"))
                     enforced_urls.append(enforced_url)
@@ -1282,7 +1385,7 @@ class IntegrationTestService:
                     enforced_urls.append(oss_url)
 
         # 2) Enforce "default to input image size" (pad, no crop). This takes precedence.
-        if desired_output_size and stored_urls:
+        if not is_veo and desired_output_size and stored_urls:
             try:
                 target_w, target_h = int(desired_output_size[0]), int(desired_output_size[1])
             except Exception:
@@ -1298,11 +1401,12 @@ class IntegrationTestService:
                         out_im = _resize_with_pad(im, target_w=target_w, target_h=target_h)
                         buf = BytesIO()
                         out_im.save(buf, format="PNG")
-                        upload = oss_service.upload_bytes(
+                        upload = media_ingest_service.upload_generated_image_bytes(
                             user_id="admin-kie",
                             filename=f"{model}-{idx + 1}-target-{target_w}x{target_h}.png",
                             data=buf.getvalue(),
                             content_type="image/png",
+                            tag="kie-market-target-enforced",
                         )
                         final_url = str(upload.get("url"))
                         final_urls.append(final_url)
@@ -1325,6 +1429,8 @@ class IntegrationTestService:
         if enforced_assets:
             stored_assets.extend(enforced_assets)
 
+        video_output_urls = stored_urls or video_urls if video_urls else []
+
         base_meta = {
             "provider": "kie",
             "model": model,
@@ -1332,9 +1438,14 @@ class IntegrationTestService:
             "state": state or (record.get("state") if isinstance(record, dict) else None),
             "executorId": executor.id,
             "baseUrl": base_url,
+            "requestEndpoint": request_path,
+            "statusEndpoint": self._normalize_kie_status_endpoint(status_endpoint),
             # Include request payload to diagnose field mapping issues.
             "raw": {"response": detail_data, "request": payload},
         }
+        if video_output_urls:
+            base_meta["videoUrls"] = video_output_urls
+            base_meta["videos"] = stored_assets if stored_assets else [{"url": url, "type": "video"} for url in video_output_urls]
 
         if state == "fail":
             return {
@@ -1363,15 +1474,25 @@ class IntegrationTestService:
             "resultUrls": stored_urls or result_urls,
             "resultObject": result_object,
             "storedAssets": stored_assets,
+            "videoUrls": video_output_urls or None,
+            "videos": stored_assets if video_output_urls and stored_assets else None,
             # Include request payload to diagnose field mapping issues.
             "raw": {"response": detail_data, "request": payload},
             "status": "succeeded",
             "executorId": executor.id,
             "baseUrl": base_url,
+            "requestEndpoint": request_path,
+            "statusEndpoint": self._normalize_kie_status_endpoint(status_endpoint),
         }
 
     def fetch_kie_market_result(
-        self, *, executor_id: str, task_id: str, timeout: float = 20.0, max_retries: int = 1
+        self,
+        *,
+        executor_id: str,
+        task_id: str,
+        timeout: float = 20.0,
+        max_retries: int = 1,
+        status_endpoint: str | None = None,
     ) -> dict[str, object]:
         executor = self._get_executor(executor_id)
         api_key = self._pick_kie_api_key(executor)
@@ -1379,31 +1500,42 @@ class IntegrationTestService:
             raise HTTPException(status_code=400, detail="KIE_API_KEY_MISSING")
         base_url, headers = self._prepare_kie_client(executor, api_key=api_key)
         detail_data = self._fetch_kie_task(
-            base_url, headers, task_id, timeout=timeout, max_retries=max_retries
+            base_url, headers, task_id, timeout=timeout, max_retries=max_retries, status_endpoint=status_endpoint
         )
         state = self._extract_kie_state(detail_data)
         result_urls, result_object = self._parse_kie_result(detail_data)
+        is_veo = self._is_kie_veo_endpoint(status_endpoint)
+        video_urls = [url for url in (result_urls or []) if self._looks_like_video_url(url)]
+        if is_veo and result_urls and not video_urls:
+            video_urls = list(result_urls)
         stored_assets: list[dict[str, object]] = []
         stored_urls: list[str] = []
+        asset_tag = "kie-veo3-fast" if is_veo else "kie-market"
         for index, remote_url in enumerate(result_urls or []):
             asset = self._store_remote_asset(
                 remote_url,
                 user_id="admin-kie",
                 filename=f"kie-{task_id}-{index + 1}",
-                tag="kie-market",
+                tag=asset_tag,
             )
             if asset:
+                if is_veo:
+                    asset["type"] = "video"
                 stored_assets.append(asset)
                 if isinstance(asset.get("ossUrl"), str):
                     stored_urls.append(str(asset["ossUrl"]))
+        video_output_urls = (stored_urls or video_urls) if video_urls else []
         return {
             "state": state,
             "resultUrls": stored_urls or result_urls,
+            "videoUrls": video_output_urls or None,
+            "videos": stored_assets if video_output_urls and stored_assets else None,
             "storedAssets": stored_assets,
             "resultObject": result_object,
             "raw": {"response": detail_data},
             "executorId": executor.id,
             "baseUrl": base_url,
+            "statusEndpoint": self._normalize_kie_status_endpoint(status_endpoint),
         }
 
     def _fetch_kie_task(
@@ -1414,8 +1546,9 @@ class IntegrationTestService:
         *,
         timeout: float = 60.0,
         max_retries: int = 3,
+        status_endpoint: str | None = None,
     ) -> dict:
-        detail_url = f"{base_url}/api/v1/jobs/recordInfo"
+        detail_url = f"{base_url}{self._normalize_kie_status_endpoint(status_endpoint)}"
         response = None
         # KIE status calls can occasionally spike in latency or return transient gateway errors.
         # Retry a few times so Coze workflows don't fail due to a single timeout.
@@ -1460,6 +1593,17 @@ class IntegrationTestService:
             state = record.get("state")
             if isinstance(state, str):
                 return state
+            success_flag = record.get("successFlag")
+            try:
+                flag = int(success_flag)
+            except Exception:
+                flag = None
+            if flag == 0:
+                return "running"
+            if flag == 1:
+                return "success"
+            if flag in {2, 3}:
+                return "fail"
         return None
 
     def _parse_kie_result(self, detail_data: dict | None) -> tuple[list[str] | None, dict | None]:
@@ -1479,6 +1623,21 @@ class IntegrationTestService:
                 parsed = payload
         elif isinstance(result_json, dict):
             parsed = result_json
+        if parsed is None:
+            response_payload = record.get("response")
+            if isinstance(response_payload, str) and response_payload.strip():
+                try:
+                    payload = json.loads(response_payload)
+                except json.JSONDecodeError:
+                    payload = {"response": response_payload}
+                if isinstance(payload, dict):
+                    parsed = payload
+                elif isinstance(payload, list):
+                    parsed = {"response": payload}
+            elif isinstance(response_payload, dict):
+                parsed = response_payload
+            elif isinstance(response_payload, list):
+                parsed = {"response": response_payload}
         result_urls = None
         if parsed:
             urls = parsed.get("resultUrls")
@@ -1486,6 +1645,17 @@ class IntegrationTestService:
                 result_urls = [str(item) for item in urls if isinstance(item, str)]
             elif isinstance(parsed.get("resultUrl"), str):
                 result_urls = [str(parsed["resultUrl"])]
+            if not result_urls:
+                for key in ("videoUrls", "video_urls", "videos", "url", "videoUrl", "result_url"):
+                    value = parsed.get(key)
+                    urls = self._collect_urls_from_value(value)
+                    if urls:
+                        result_urls = urls
+                        break
+            if not result_urls:
+                urls = self._collect_urls_from_value(parsed)
+                if urls:
+                    result_urls = urls
         return result_urls, parsed
 
     # ----------------------- ComfyUI helpers ----------------------- #

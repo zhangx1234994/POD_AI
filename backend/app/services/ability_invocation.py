@@ -38,6 +38,7 @@ from app.services.fission_control_prompt import compile_comfyui_v4_prompt
 from app.services.fission_control_prompt import extract_fission_control_card
 from app.services.fission_image_evaluation import normalize_generated_image_eval_result
 from app.services.integration_test import integration_test_service
+from app.services.media_ingest import media_ingest_service
 from app.services.api_key_selector import build_vendor_credentials, bump_usage, pick_vendor_api_key
 from app.services.coze_client import coze_client
 from app.services.oss import oss_service
@@ -1353,11 +1354,12 @@ class AbilityInvocationService:
                 max_long_edge=mle,
                 output_format=fmt,
             )
-            upload = oss_service.upload_bytes(
+            upload = media_ingest_service.upload_generated_image_bytes(
                 user_id=user_id,
                 filename=f"upscale_{mle}{ext}",
                 data=out_bytes,
                 content_type=content_type,
+                tag="podi-upscale-resize",
             )
             asset = {
                 "sourceUrl": src_source_url,
@@ -1731,9 +1733,12 @@ class AbilityInvocationService:
     ) -> dict[str, Any]:
         metadata = ability.extra_metadata or {}
         schema = ability.input_schema or {}
-        model = self._pop_first_string(merged_inputs, ["model"]) or metadata.get("model_id")
+        requested_model = self._pop_first_string(merged_inputs, ["model"])
+        forced_model = metadata.get("forced_model")
+        model = forced_model or requested_model or metadata.get("model_id")
         if not model:
             raise HTTPException(status_code=400, detail="KIE_MODEL_REQUIRED")
+        model = str(model).strip()
         input_payload = self._extract_input_payload(merged_inputs) or {}
         if "prompt" not in input_payload:
             prompt = self._pop_first_string(merged_inputs, ["prompt"])
@@ -1828,6 +1833,7 @@ class AbilityInvocationService:
                 "resolution",
                 "size",
                 "aspect_ratio",
+                "aspectRatio",
             )
         )
 
@@ -1951,6 +1957,8 @@ class AbilityInvocationService:
             model=model,
             input_payload=input_payload,
             input_array_target=metadata.get("input_array_target"),
+            status_endpoint=metadata.get("status_endpoint"),
+            result_format=metadata.get("result_format"),
             desired_output_size=desired_output_size,
             call_back_url=call_back_url,
             extra_payload=self._clean_params(extra_payload) or None,
@@ -2586,6 +2594,8 @@ class AbilityInvocationService:
             "taskId": provider_result.get("taskId"),
             "executorId": provider_result.get("executorId") or provider_result.get("executor"),
             "baseUrl": provider_result.get("baseUrl"),
+            "requestEndpoint": provider_result.get("requestEndpoint") or provider_result.get("request_endpoint"),
+            "statusEndpoint": provider_result.get("statusEndpoint") or provider_result.get("status_endpoint"),
             "promptId": provider_result.get("promptId"),
             "outputNodeIds": provider_result.get("outputNodeIds") or provider_result.get("output_node_ids"),
             "prompt": prompt_value,
@@ -2657,11 +2667,19 @@ class AbilityInvocationService:
 
     def _extract_output_assets(self, payload: dict[str, Any], target: str) -> list[schemas.AbilityOutputAsset]:
         assets: list[schemas.AbilityOutputAsset] = []
+
+        def _looks_like_video_url(url: Any) -> bool:
+            if not isinstance(url, str):
+                return False
+            path = url.split("?", 1)[0].lower()
+            return path.endswith((".mp4", ".mov", ".m4v", ".webm", ".avi"))
+
         if target == "image":
             stored_url = payload.get("storedUrl")
             image_url = payload.get("imageUrl")
             image_base64 = payload.get("imageBase64") or payload.get("resultImage")
             result_urls = payload.get("resultUrls")
+            has_video_outputs = bool(payload.get("videoUrls") or payload.get("videos"))
             if stored_url or image_url or image_base64:
                 assets.append(
                     schemas.AbilityOutputAsset(
@@ -2671,9 +2689,9 @@ class AbilityInvocationService:
                         type="image",
                     )
                 )
-            if isinstance(result_urls, list):
+            if isinstance(result_urls, list) and not has_video_outputs:
                 for url in result_urls:
-                    if isinstance(url, str):
+                    if isinstance(url, str) and not _looks_like_video_url(url):
                         assets.append(schemas.AbilityOutputAsset(sourceUrl=url, type="image"))
             # Providers like ComfyUI return a generic `assets` list; surface image assets in `images`
             # so Coze (and our UI) can display them without custom parsing.
@@ -2716,6 +2734,12 @@ class AbilityInvocationService:
                         continue
                     if isinstance(entry, str):
                         assets.append(schemas.AbilityOutputAsset(sourceUrl=entry, type="video"))
+            if not assets:
+                result_urls = payload.get("resultUrls")
+                if isinstance(result_urls, list):
+                    for url in result_urls:
+                        if isinstance(url, str) and _looks_like_video_url(url):
+                            assets.append(schemas.AbilityOutputAsset(sourceUrl=url, type="video"))
             if not assets:
                 generic_assets = payload.get("assets") or payload.get("storedAssets")
                 if isinstance(generic_assets, list):

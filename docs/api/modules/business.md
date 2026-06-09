@@ -3,7 +3,7 @@
 ## 用途
 
 业务能力接口是给业务方、Coze、客户端、MCP/技能复用的稳定入口。
-第一阶段开放核心业务：花纹提取、图裂变、产品设计、图编辑、对话改图、文字强化裂变、裂变生成图评估、扩图；底层仍复用统一能力任务、商业模型和 ComfyUI workflow，但对外不暴露节点、workflow、executor 等实现细节。
+第一阶段开放核心业务：花纹提取、图裂变、产品设计、产品商业化、图编辑、对话改图、文字强化裂变、裂变生成图评估、扩图；底层仍复用统一能力任务、商业模型、KIE 视频能力和 ComfyUI workflow，但对外不暴露节点、workflow、executor 等实现细节。
 
 核心约定：
 
@@ -48,6 +48,7 @@
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
+| 产品商业化 | `POST /api/business/product-commercialization/preview`；显式视频动作 `POST /api/business/product-commercialization/video` | 预览无强制必填；视频生成必填 `productImageUrl` | `productFields`、`outputLanguage`、`marketRegion`、`copyScenarios`、`visualSupportMode`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio` | `copyPackage`、`visualAssetPlan`、`videoPlan`、可选 `videoResult.videoUrls` | 产品设计后的商业化内容包：生成海外上架文案、配图建议、视频分镜和审核提示。预览不触发图片/视频成本动作；视频生成必须显式调用。当前 Veo 3.1 Fast MVP 单段直出 8 秒；目标成片超过 8 秒时先返回分镜和合成计划。 |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
@@ -103,7 +104,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
     "status": "active",
     "tenantId": "tenant-a",
     "clientId": "open-api",
-    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit", "image_edit_chat", "product_design"],
+    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit", "image_edit_chat", "product_design", "product_commercialization"],
     "expireAt": "2026-12-31T23:59:59+08:00"
   }'
 ```
@@ -1518,6 +1519,244 @@ X-PODI-API-Key: podi_xxx
 - `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
 - `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED`
 - `ABILITY_TASK_FAILED`
+
+---
+
+## 3.4) 产品商业化能力
+
+业务名：产品商业化。业务标识固定为 `product_commercialization`，当前 MVP 版本为 `product-commercialization-mvp-v1`。
+
+它是产品设计之后的能力，不负责花纹提取、裂变或产品设计本身。第一版输出“商品商业化内容包”：产品理解卡、文案包、配图建议、视频分镜、审核提示。预览接口不会隐式生成图片或视频；任何图片/视频生成都必须走显式执行动作并保留成本、任务和 OSS 证据。
+
+### POST /api/business/product-commercialization/preview
+
+用途：生成产品理解、海外文案、配图建议和视频分镜。缺少部分产品字段不会阻塞，系统会在 `productCard.missingFields` 和 `productCard.inferredFacts` 中标记。
+
+最小请求：
+
+```json
+{
+  "productImageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/product-socks.png",
+  "productFields": {
+    "模板名称": "女款长袜（3D打印）",
+    "英文名称": "Women's knitted woolen socks",
+    "产品材质": "包纱、涤纶、尼龙、橡筋",
+    "生产工艺": "3D印花",
+    "具体成分": "65%涤纶，15%氨纶，20%尼龙",
+    "二级分类": "穿搭配件",
+    "建议售价": "10"
+  },
+  "outputLanguage": "en-US",
+  "marketRegion": "US",
+  "copyScenarios": ["listing_title", "bullet_points", "detail_description", "ad_short_copy", "keyword_pack"],
+  "visualSupportMode": "recommendation",
+  "videoScenario": "product_showcase_short",
+  "durationSeconds": 8,
+  "targetDurationSeconds": 15,
+  "aspectRatio": "16:9",
+  "requestId": "req-product-commercialization-001"
+}
+```
+
+参数说明：
+
+| 参数 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `productImageUrl` | 预览否；视频是 | 空 | 产品设计完成后的商品图 URL。预览可缺图，但会降低置信度；视频生成必须提供。 |
+| `designImageUrl` | 否 | 空 | 可选设计稿/印花图 URL，用于辅助理解商品来源。 |
+| `productFields` | 否 | `{}` | 产品导出字段 JSON；字段名可用中文或英文别名。有则使用，没有则推断并标记。 |
+| `extraPrompt` | 否 | 空 | 业务方额外要求，例如“偏节日礼品场景，避免夸张承诺”。 |
+| `outputLanguage` | 否 | `en-US` | `en-US/zh-CN/bilingual`。POD 海外销售默认建议 `en-US`；`bilingual` 返回中英双语结构。 |
+| `marketRegion` | 否 | `US` | `US/UK/EU/global`，用于影响措辞和审核提示。 |
+| `copyScenarios` | 否 | 全部 | `listing_title/bullet_points/detail_description/ad_short_copy/keyword_pack`。 |
+| `visualSupportMode` | 否 | `recommendation` | `none/recommendation/generate`。`generate` 只表示建议生成，预览接口不自动生图。 |
+| `videoScenario` | 否 | `product_showcase_short` | `product_showcase_short/social_ad_short/detail_explainer`。 |
+| `durationSeconds` | 否 | `8` | 单段 Veo 3.1 Fast 执行时长，当前固定 8 秒；传其他值会被接口校验拒绝。 |
+| `targetDurationSeconds` | 否 | `8` | 用户目标成片时长，允许 8-60。`preview` 会为 15 秒这类目标生成多段分镜、裁剪和合成计划；`/video` 只执行 8 秒单段，超过 8 秒应调用 `/video-compose`。 |
+| `aspectRatio` | 否 | `16:9` | 视频画幅。 |
+
+响应重点字段：
+
+```json
+{
+  "requestId": "req-product-commercialization-001",
+  "businessKey": "product_commercialization",
+  "version": "product-commercialization-mvp-v1",
+  "status": "previewed",
+  "outputLanguage": "en-US",
+  "marketRegion": "US",
+  "productCard": {
+    "sourceFacts": {
+      "productNameEn": "Women's knitted woolen socks",
+      "material": "包纱、涤纶、尼龙、橡筋"
+    },
+    "inferredFacts": {},
+    "missingFields": [],
+    "confidence": 0.82
+  },
+  "copyPackage": {
+    "listingTitle": "Women's knitted woolen socks - Custom POD Design, Comfortable Everyday Style",
+    "bulletPoints": ["..."],
+    "detailDescription": "...",
+    "adShortCopy": ["..."],
+    "keywordPack": ["Women's knitted woolen socks", "穿搭配件", "POD"]
+  },
+  "visualAssetPlan": {
+    "mode": "recommendation",
+    "hasProductImage": true,
+    "recommendedScenes": [
+      {
+        "id": "social-ad-cover",
+        "neededFor": ["ad_short_copy"],
+        "generateByDefault": false
+      }
+    ],
+    "generationPolicy": {
+      "requiresExplicitAction": true,
+      "candidateRoute": "business.product_design_or_gpt_image2"
+    }
+  },
+  "videoPlan": {
+    "model": "veo3_fast",
+    "targetDurationSeconds": 15,
+    "durationSeconds": 8,
+    "singleSegmentSeconds": 8,
+    "segmentCount": 2,
+    "totalGeneratedSeconds": 16,
+    "requiresComposition": true,
+    "aspectRatio": "16:9",
+    "storyboard": [
+      {"shot": 1, "durationSeconds": 8, "keepSeconds": 8, "label": "Opening product hero"},
+      {"shot": 2, "durationSeconds": 8, "keepSeconds": 7, "label": "Material and print detail"}
+    ],
+    "assetNeeds": [{"asset": "product_image", "required": true, "available": true}],
+    "videoPrompt": "Create an 8-second POD product showcase video...",
+    "compositionPlan": {
+      "status": "planned_ready_for_compose_endpoint",
+      "composeEngine": "ffmpeg",
+      "executionReady": true,
+      "targetDurationSeconds": 15,
+      "trimPlan": [
+        {"segment": 1, "sourceDurationSeconds": 8, "keepSeconds": 8},
+        {"segment": 2, "sourceDurationSeconds": 8, "keepSeconds": 7}
+      ],
+      "transition": {"type": "cut", "durationSeconds": 0},
+      "costActionPreview": ["kie.veo3_fast.video", "kie.veo3_fast.video", "ffmpeg.compose"]
+    }
+  },
+  "review": {
+    "profile": "default_pod_profile",
+    "score": 82,
+    "issues": [],
+    "videoReady": true
+  },
+  "execution": {
+    "copyGenerated": true,
+    "imageGenerated": false,
+    "videoGenerated": false,
+    "costActions": []
+  }
+}
+```
+
+### POST /api/business/product-commercialization/video
+
+用途：显式调用 KIE Veo3.1 Fast 生成单段商品展示视频，并将结果保存到自有 OSS。该接口会复用同一套产品理解和分镜规划，但属于成本动作，必须由业务方明确触发。
+
+请求体与 `preview` 相同，但必须提供 `productImageUrl`。当前只执行 `targetDurationSeconds=8` 的单段视频；目标超过 8 秒时应先使用 `preview` 获取 `videoPlan.compositionPlan`，再调用 `/api/business/product-commercialization/video-compose` 进入多段生成与合成。可选 `executorId` 指定 KIE 节点；不传使用默认 KIE 执行节点。
+
+成功或运行中响应会在 `videoResult` 中返回 KIE 任务和 OSS 视频：
+
+```json
+{
+  "status": "succeeded",
+  "execution": {
+    "copyGenerated": true,
+    "imageGenerated": false,
+    "videoGenerated": true,
+    "costActions": ["kie.veo3_fast.video"]
+  },
+  "videoResult": {
+    "provider": "kie",
+    "model": "veo3_fast",
+    "taskId": "63f7060d2e1656749efc3ef8d2589ad0",
+    "state": "success",
+    "status": "succeeded",
+    "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4"],
+    "storedAssets": [
+      {
+        "ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4",
+        "contentType": "video/mp4",
+        "type": "video"
+      }
+    ]
+  }
+}
+```
+
+### POST /api/business/product-commercialization/video-compose
+
+用途：显式多段成本动作。接口会按 `preview.videoPlan.storyboard` 顺序调用 Veo3.1 Fast 生成多个 8 秒片段，再按 `compositionPlan.trimPlan` 裁剪并用 ffmpeg 拼接成最终 MP4，结果保存到自有 OSS。
+
+请求体与 `preview` 相同，但必须提供 `productImageUrl`。建议先调用 `preview` 让业务方看到 `segmentCount`、`costActionPreview` 和素材需求后再执行。
+
+15 秒目标会触发 2 次 `kie.veo3_fast.video` 和 1 次 `ffmpeg.compose`。当前合成策略为硬切 `cut`，后续再升级首尾帧控制、转场和异步任务队列。
+
+成功响应会在 `videoResult` 中返回最终视频、片段任务和合成证据：
+
+```json
+{
+  "status": "succeeded",
+  "execution": {
+    "copyGenerated": true,
+    "imageGenerated": false,
+    "videoGenerated": true,
+    "costActions": ["kie.veo3_fast.video", "kie.veo3_fast.video", "ffmpeg.compose"]
+  },
+  "videoResult": {
+    "provider": "kie+ffmpeg",
+    "model": "veo3_fast",
+    "status": "succeeded",
+    "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video-composed.mp4"],
+    "segments": [
+      {"segment": 1, "taskId": "kie-task-1", "videoUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/segment-1.mp4"},
+      {"segment": 2, "taskId": "kie-task-2", "videoUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/segment-2.mp4"}
+    ],
+    "composition": {
+      "composeEngine": "ffmpeg",
+      "targetDurationSeconds": 15,
+      "segmentCount": 2,
+      "output": {
+        "ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video-composed.mp4",
+        "contentType": "video/mp4"
+      }
+    }
+  }
+}
+```
+
+常见错误：
+
+- `PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID`
+- `PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID`
+- `PRODUCT_COMMERCIALIZATION_MARKET_INVALID`
+- `PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID`
+- `PRODUCT_COMMERCIALIZATION_VISUAL_MODE_INVALID`
+- `PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID`
+- `PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID`
+- `PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED`
+- `PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED`
+- `PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY`
+- `PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED`
+- `PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED`
+- `PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED`
+- `PRODUCT_COMMERCIALIZATION_COMPOSE_DOWNLOAD_FAILED`
+- `PRODUCT_COMMERCIALIZATION_FFMPEG_MISSING`
+- `PRODUCT_COMMERCIALIZATION_COMPOSE_TIMEOUT`
+- `PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED`
+- `EXECUTOR_TYPE_NOT_KIE`
+- `KIE_API_KEY_MISSING`
+- `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED`
 
 ---
 

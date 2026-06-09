@@ -2113,20 +2113,36 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                                             "debugResponse": "KIE_TIMEOUT",
                                         }
                                     )
+                            kie_meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+                            kie_status_endpoint = (
+                                str(
+                                    kie_meta.get("statusEndpoint")
+                                    or kie_meta.get("status_endpoint")
+                                    or result_payload.get("statusEndpoint")
+                                    or ""
+                                ).strip()
+                                or None
+                            )
                             fetched = integration_test_service.fetch_kie_market_result(
                                 executor_id=kie_executor_id.strip(),
                                 task_id=kie_task_id.strip(),
                                 timeout=18.0,
                                 max_retries=1,
+                                status_endpoint=kie_status_endpoint,
                             )
                             state = str(fetched.get("state") or "").lower()
                             urls = fetched.get("resultUrls") if isinstance(fetched.get("resultUrls"), list) else []
+                            video_urls = fetched.get("videoUrls") if isinstance(fetched.get("videoUrls"), list) else []
                             assets = fetched.get("storedAssets") if isinstance(fetched.get("storedAssets"), list) else []
                             if state == "success" and (urls or assets):
                                 if not assets and urls:
                                     assets = [{"url": u} for u in urls if isinstance(u, str) and u.strip()]
                                 next_payload = dict(result_payload)
-                                next_payload["images"] = assets
+                                if video_urls:
+                                    next_payload["videos"] = assets
+                                    next_payload["videoUrls"] = video_urls
+                                else:
+                                    next_payload["images"] = assets
                                 next_payload["assets"] = assets
                                 next_payload["status"] = "succeeded"
                                 db_task.status = "succeeded"

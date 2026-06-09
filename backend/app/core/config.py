@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     oss_resumable_threshold_mb: int = Field(default=8, env="OSS_RESUMABLE_THRESHOLD_MB")
     oss_resumable_part_size_mb: int = Field(default=8, env="OSS_RESUMABLE_PART_SIZE_MB")
     oss_resumable_threads: int = Field(default=2, env="OSS_RESUMABLE_THREADS")
+    # Default DPI/PPI metadata written to generated raster images before they are
+    # persisted to OSS. Set to 0 to keep model/vendor output bytes untouched.
+    output_image_default_dpi: int = Field(default=150, env="OUTPUT_IMAGE_DEFAULT_DPI")
     upload_token_secret: str = Field(default="change-me", env="UPLOAD_TOKEN_SECRET")
     upload_token_ttl: int = Field(default=3600, env="UPLOAD_TOKEN_TTL")
     admin_api_token: str | None = Field(default=None, env="ADMIN_API_TOKEN")

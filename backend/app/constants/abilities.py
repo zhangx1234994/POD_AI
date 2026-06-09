@@ -2394,6 +2394,74 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
                 },
             ]
         }
+    if capability_key == "veo3_1_fast_video":
+        return {
+            "fields": [
+                {
+                    "name": "prompt",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("视频提示词", "Video Prompt"),
+                    "placeholder": _compose_bilingual_label(
+                        "例如：把这张产品图生成 5 秒电商短视频，镜头缓慢推进，保持产品结构和花纹稳定。",
+                        "Describe the shot, motion and product constraints.",
+                    ),
+                    "required": True,
+                },
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("参考图（可选）", "Reference Image (Optional)"),
+                    "description": _compose_bilingual_label(
+                        "可选：上传 1 张产品/花纹/场景参考图，用于图生视频或参考视频。",
+                        "Optional: upload one product/pattern/scene reference image.",
+                    ),
+                },
+                {
+                    "name": "image_urls",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("参考图 URL 列表", "Reference Image URLs"),
+                    "description": _compose_bilingual_label(
+                        "可选：每行一个 URL。首尾帧模式建议 2 张；参考视频模式支持 1-3 张。",
+                        "Optional: one URL per line. First/last frame mode usually uses 2 images; reference mode supports 1-3 images.",
+                    ),
+                },
+                {
+                    "name": "generationType",
+                    "type": "select",
+                    "label": _compose_bilingual_label("生成方式", "Generation Type"),
+                    "options": ["TEXT_2_VIDEO", "FIRST_AND_LAST_FRAMES_2_VIDEO", "REFERENCE_2_VIDEO"],
+                    "default": "REFERENCE_2_VIDEO",
+                    "description": _compose_bilingual_label(
+                        "无参考图用 TEXT_2_VIDEO；两张首尾帧用 FIRST_AND_LAST_FRAMES_2_VIDEO。",
+                        "Use TEXT_2_VIDEO without images; use FIRST_AND_LAST_FRAMES_2_VIDEO for first/last frames.",
+                    ),
+                },
+                {
+                    "name": "aspectRatio",
+                    "type": "select",
+                    "label": _compose_bilingual_label("视频比例", "Aspect Ratio"),
+                    "options": ["16:9", "9:16", "Auto"],
+                    "default": "16:9",
+                },
+                {
+                    "name": "enableTranslation",
+                    "type": "switch",
+                    "label": _compose_bilingual_label("自动翻译提示词", "Enable Prompt Translation"),
+                    "default": True,
+                },
+                {
+                    "name": "watermark",
+                    "type": "text",
+                    "label": _compose_bilingual_label("水印文字", "Watermark"),
+                    "description": _compose_bilingual_label("可选。", "Optional."),
+                },
+                {
+                    "name": "callBackUrl",
+                    "type": "text",
+                    "label": _compose_bilingual_label("回调地址", "Callback URL"),
+                },
+            ]
+        }
     return {"fields": []}
 
 
@@ -2405,6 +2473,9 @@ def _kie_metadata(
     model_id: str,
     requires_image_input: bool,
     input_array_target: str | None = None,
+    status_endpoint: str | None = None,
+    result_format: str | None = None,
+    forced_model: str | None = None,
     supports_vision: bool | None = None,
     auto_fill_size: bool | None = None,
 ) -> dict[str, Any]:
@@ -2415,7 +2486,7 @@ def _kie_metadata(
         "model_id": model_id,
         "request_endpoint": endpoint,
         # Bump when changing built-in KIE schemas/metadata/defaults so ability_seed can refresh DB rows.
-        "seed_version": 6,
+        "seed_version": 7,
     }
     if requires_image_input:
         metadata["requires_image_input"] = True
@@ -2424,6 +2495,12 @@ def _kie_metadata(
         metadata["supports_vision"] = True
     if input_array_target:
         metadata["input_array_target"] = input_array_target
+    if status_endpoint:
+        metadata["status_endpoint"] = status_endpoint
+    if result_format:
+        metadata["result_format"] = result_format
+    if forced_model:
+        metadata["forced_model"] = forced_model
     if auto_fill_size is not None:
         metadata["auto_fill_size"] = auto_fill_size
     return metadata
@@ -3066,6 +3143,67 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
                 {"label": "10s", "price": 0.375},
                 {"label": "15-25s", "price": 0.675},
             ],
+        },
+    },
+    "veo3_1_fast_video": {
+        "endpoint": "/api/v1/veo/generate",
+        "defaults": {
+            "model": "veo3_fast",
+            "generationType": "REFERENCE_2_VIDEO",
+            "aspectRatio": "16:9",
+            "enableFallback": False,
+            "enableTranslation": True,
+        },
+        "display_name": "KIE · Veo3.1 Fast 视频生成",
+        "description": "KIE Veo3.1 Fast 视频生成能力；仅开放 fast 模型，支持文生视频、首尾帧与参考图视频。",
+        "category": "video_generation",
+        "input_schema": _build_kie_schema("veo3_1_fast_video"),
+        "metadata": _kie_metadata(
+            capability_key="veo3_1_fast_video",
+            endpoint="/api/v1/veo/generate",
+            api_type="market_text_to_video",
+            model_id="veo3_fast",
+            requires_image_input=False,
+            input_array_target="imageUrls",
+            status_endpoint="/api/v1/veo/record-info",
+            result_format="veo3",
+            forced_model="veo3_fast",
+            supports_vision=True,
+        )
+        | {
+            "pricing": {
+                "currency": "USD",
+                "unit": "per_video",
+                "model": "veo3_fast",
+            },
+            "presentation": _presentation(
+                name="产品转视频",
+                summary="把已确定的产品图或花纹图转成可评估的短视频方向。",
+                form_intro="描述镜头运动、产品稳定性要求和使用场景，默认只走 Veo3.1 Fast。",
+                expected_output="产出 1 条短视频并沉淀到 OSS，可继续做推广视频评估。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "prompt": _presentation_field(
+                        label="视频说明",
+                        placeholder="例如：镜头缓慢推进，产品轻微转动，保持花纹清晰和结构稳定。",
+                        description="写清镜头、动作、节奏和必须保持不变的产品要素。",
+                    ),
+                    "image_url": _presentation_field(
+                        label="参考图（可选）",
+                        description="可选：上传产品图、花纹图或场景图。",
+                    ),
+                    "image_urls": _presentation_field(
+                        label="补充参考图（可选）",
+                        description="可选：每行一张，用于首尾帧或参考图视频。",
+                        advanced=True,
+                    ),
+                    "generationType": _presentation_field(label="生成方式", advanced=True),
+                    "aspectRatio": _presentation_field(label="视频比例"),
+                    "enableTranslation": _presentation_field(label="自动翻译提示词", advanced=True),
+                    "watermark": _presentation_field(label="水印文字", advanced=True),
+                    "callBackUrl": _presentation_field(label="回调地址", advanced=True),
+                },
+            ),
         },
     },
 }

@@ -152,6 +152,7 @@ export type AbilityTestResultPayload = {
   imageUrl?: string;
   storedUrl?: string;
   resultUrls?: string[];
+  videoUrls?: string[];
   assets?: StoredAsset[];
   text?: string;
   raw?: JsonRecord | null;

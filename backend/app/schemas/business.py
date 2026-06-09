@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -408,6 +408,92 @@ class BusinessRoutePreviewResponse(BaseModel):
     defaultCapabilityId: str | None = Field(default=None, alias="default_capability_id")
     defaultVersion: str | None = Field(default=None, alias="default_version")
     activeVersions: list[dict[str, Any]] = Field(default_factory=list, alias="active_versions")
+
+
+class ProductCommercializationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    productImageUrl: str | None = Field(
+        default=None,
+        alias="product_image_url",
+        description="产品设计完成后的商品图 URL；预览可为空，视频生成必填",
+    )
+    designImageUrl: str | None = Field(
+        default=None,
+        alias="design_image_url",
+        description="可选设计稿/印花图 URL，用于辅助理解商品来源",
+    )
+    productFields: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="product_fields",
+        description="产品导出字段 JSON；有则使用，没有则推断并标记 missing/inferred",
+    )
+    extraPrompt: str | None = Field(default=None, alias="extra_prompt", description="业务方补充要求")
+    outputLanguage: str = Field(
+        default="en-US",
+        alias="output_language",
+        description="输出语言：en-US / zh-CN / bilingual",
+    )
+    marketRegion: str = Field(default="US", alias="market_region", description="目标市场：US / UK / EU / global")
+    copyScenarios: list[str] | None = Field(
+        default=None,
+        alias="copy_scenarios",
+        description="文案场景：listing_title / bullet_points / detail_description / ad_short_copy / keyword_pack",
+    )
+    visualSupportMode: str = Field(
+        default="recommendation",
+        alias="visual_support_mode",
+        description="配图模式：none / recommendation / generate；generate 仍需显式执行动作",
+    )
+    videoScenario: str = Field(
+        default="product_showcase_short",
+        alias="video_scenario",
+        description="视频场景：product_showcase_short / social_ad_short / detail_explainer",
+    )
+    durationSeconds: Literal[8] | None = Field(
+        default=8,
+        alias="duration_seconds",
+        description="单段 Veo 3.1 Fast 执行时长，当前固定 8 秒。",
+    )
+    targetDurationSeconds: int | None = Field(
+        default=8,
+        ge=8,
+        le=60,
+        alias="target_duration_seconds",
+        description="用户目标成片时长。8 秒直接生成；超过 8 秒当前只输出分镜和合成计划。",
+    )
+    aspectRatio: str | None = Field(default="16:9", alias="aspect_ratio")
+    strategyProfile: str | None = Field(default="default_pod_profile", alias="strategy_profile")
+    executorId: str | None = Field(default=None, alias="executor_id", description="视频生成使用的 KIE executor，可不传")
+    pollTimeout: float | None = Field(default=None, alias="poll_timeout", description="视频生成轮询超时秒数")
+    requestId: str | None = Field(default=None, alias="request_id")
+    traceId: str | None = Field(default=None, alias="trace_id")
+    source: str | None = None
+
+
+class ProductCommercializationPreviewResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    requestId: str = Field(alias="request_id")
+    businessKey: str = Field(alias="business_key")
+    version: str
+    status: str
+    generatedAt: str = Field(alias="generated_at")
+    strategyProfile: str = Field(alias="strategy_profile")
+    outputLanguage: str = Field(alias="output_language")
+    marketRegion: str = Field(alias="market_region")
+    copyScenarios: list[str] = Field(alias="copy_scenarios")
+    productCard: dict[str, Any] = Field(alias="product_card")
+    copyPackage: dict[str, Any] = Field(alias="copy_package")
+    visualAssetPlan: dict[str, Any] = Field(alias="visual_asset_plan")
+    videoPlan: dict[str, Any] = Field(alias="video_plan")
+    review: dict[str, Any]
+    execution: dict[str, Any]
+    audit: dict[str, Any] | None = None
+
+
+class ProductCommercializationVideoResponse(ProductCommercializationPreviewResponse):
+    videoResult: dict[str, Any] | None = Field(default=None, alias="video_result")
 
 
 class BusinessProjectCreateRequest(BaseModel):

@@ -769,6 +769,9 @@ export const adminApi = {
     executorId: string;
     model: string;
     endpoint?: string;
+    statusEndpoint?: string;
+    inputArrayTarget?: string;
+    resultFormat?: string;
     callBackUrl?: string;
     input: JsonRecord;
     extra?: JsonRecord;
@@ -780,6 +783,7 @@ export const adminApi = {
       taskId: string;
       state?: string;
       resultUrls?: string[];
+      videoUrls?: string[];
       storedAssets?: StoredAsset[];
       raw?: JsonRecord | null;
     }>(

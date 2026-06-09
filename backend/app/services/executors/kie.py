@@ -25,6 +25,8 @@ class KieMarketExecutorAdapter(ExecutorAdapter):
             return ExecutionResult(success=False, status="failed", error_message="KIE_MODEL_REQUIRED")
 
         endpoint = self._pick_string(payload, definition, "endpoint", "requestEndpoint", "request_endpoint")
+        status_endpoint = self._pick_string(payload, definition, "statusEndpoint", "status_endpoint")
+        result_format = self._pick_string(payload, definition, "resultFormat", "result_format")
         input_array_target = self._pick_string(
             payload,
             definition,
@@ -49,6 +51,8 @@ class KieMarketExecutorAdapter(ExecutorAdapter):
                 model=model,
                 input_payload=input_payload,
                 input_array_target=input_array_target,
+                status_endpoint=status_endpoint,
+                result_format=result_format,
                 desired_output_size=desired_output_size,
                 call_back_url=call_back_url,
                 extra_payload=extra_payload,
@@ -84,6 +88,10 @@ class KieMarketExecutorAdapter(ExecutorAdapter):
             "endpoint",
             "requestEndpoint",
             "request_endpoint",
+            "statusEndpoint",
+            "status_endpoint",
+            "resultFormat",
+            "result_format",
             "input",
             "input_payload",
             "inputPayload",

@@ -18,6 +18,7 @@
 **近期动作（按优先顺序）**
 0. ✅（2026-01-13）管理端“能力目录”表格支持搜索/筛选，右侧详情抽屉拆分为“概览 / 参数 / 元信息 / 实时测试 / 调用记录”五个 Tab，并在概览卡片中预留成本、自检、SLA 占位说明。
 0. ✅（2026-04-25）能力调用日志结束时自动汇总最近 50 条成功/失败记录，回写 `last_health_check_at / last_health_status / success_rate`，管理端不再只展示空占位。
+0. ✅（2026-06-09）KIE 视频能力先接入 `veo3_fast`，后端强制模型锁定并关闭默认 fallback；视频结果归入 `videos/videoUrls`，远端 URL 继续沉淀到自有 OSS。
 1. 跑一遍数据库，把所有 `comfyui_*` 能力写入默认定价（0.3/张），并补充 Baidu/Volcengine/KIE 的成本。
 2. 实现一个 `ability_health_runner`（FastAPI background + APScheduler 或 Celery 定时任务），每天巡检高优先级能力。
 3. 在管理端的“能力管理”表格新增“成功率/最近自检时间”列，与“成本”一起呈现。

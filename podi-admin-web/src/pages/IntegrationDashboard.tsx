@@ -5739,11 +5739,17 @@ export function IntegrationDashboard({
           'prompt',
           'model',
           'image_urls',
+          'imageUrls',
           'input_urls',
           'aspect_ratio',
+          'aspectRatio',
           'resolution',
           'output_format',
           'callBackUrl',
+          'generationType',
+          'enableFallback',
+          'enableTranslation',
+          'watermark',
           'n_frames',
           'size',
           'remove_watermark',
@@ -5810,7 +5816,7 @@ export function IntegrationDashboard({
           const outputFormat = getPickedString('output_format');
           if (outputFormat) inputPayload.output_format = outputFormat;
         } else if (apiType === 'market_text_to_video') {
-          const mergedImageValue = mergedPicked.image_urls ?? mergedPicked.input_urls;
+          const mergedImageValue = mergedPicked.image_urls ?? mergedPicked.imageUrls ?? mergedPicked.input_urls;
           let imageList = parseMultilineList(mergedImageValue);
           if (imageList.length === 0 && resolvedImageUrl) {
             imageList = [resolvedImageUrl];
@@ -5822,8 +5828,21 @@ export function IntegrationDashboard({
                 : 'image_input';
             inputPayload[arrayTarget] = imageList;
           }
-          const aspectRatio = getPickedString('aspect_ratio');
-          if (aspectRatio) inputPayload.aspect_ratio = aspectRatio;
+          const isVeoKie =
+            typeof metadata.status_endpoint === 'string' && (metadata.status_endpoint as string).includes('/veo/');
+          const aspectRatio = getPickedString('aspectRatio') || getPickedString('aspect_ratio');
+          if (aspectRatio) {
+            if (isVeoKie) inputPayload.aspectRatio = aspectRatio;
+            else inputPayload.aspect_ratio = aspectRatio;
+          }
+          const generationType = getPickedString('generationType');
+          if (generationType) inputPayload.generationType = generationType;
+          const enableFallback = getPickedBoolean('enableFallback');
+          if (enableFallback !== undefined) inputPayload.enableFallback = enableFallback;
+          const enableTranslation = getPickedBoolean('enableTranslation');
+          if (enableTranslation !== undefined) inputPayload.enableTranslation = enableTranslation;
+          const watermark = getPickedString('watermark');
+          if (watermark) inputPayload.watermark = watermark;
           const nFrames = getPickedString('n_frames');
           if (nFrames) inputPayload.n_frames = nFrames;
           const sizeValue = getPickedString('size');
@@ -5842,6 +5861,11 @@ export function IntegrationDashboard({
           executorId: testForm.executorId,
           model: modelValue,
           endpoint: typeof metadata.request_endpoint === 'string' ? (metadata.request_endpoint as string) : undefined,
+          statusEndpoint:
+            typeof metadata.status_endpoint === 'string' ? (metadata.status_endpoint as string) : undefined,
+          inputArrayTarget:
+            typeof metadata.input_array_target === 'string' ? (metadata.input_array_target as string) : undefined,
+          resultFormat: typeof metadata.result_format === 'string' ? (metadata.result_format as string) : undefined,
           callBackUrl: callBackUrlValue,
           input: inputPayload,
           extra: Object.keys(extraParams).length > 0 ? extraParams : undefined,
@@ -5856,6 +5880,7 @@ export function IntegrationDashboard({
             response.storedAssets && response.storedAssets[0]?.ossUrl ? response.storedAssets[0]?.ossUrl : undefined,
           imageUrl: response.resultUrls && response.resultUrls.length > 0 ? response.resultUrls[0] : undefined,
           resultUrls: response.resultUrls || [],
+          videoUrls: response.videoUrls || [],
           assets: response.storedAssets || undefined,
           raw: response.raw ?? null,
         });

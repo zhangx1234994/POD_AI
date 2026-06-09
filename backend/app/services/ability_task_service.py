@@ -708,6 +708,7 @@ class AbilityTaskService:
             meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
             kie_task_id = meta.get("taskId") or result_payload.get("taskId")
             executor_id = meta.get("executorId") or result_payload.get("executorId") or result_payload.get("executor")
+            status_endpoint = meta.get("statusEndpoint") or meta.get("status_endpoint") or result_payload.get("statusEndpoint")
             if not (isinstance(kie_task_id, str) and kie_task_id.strip()):
                 continue
             if not (isinstance(executor_id, str) and executor_id.strip()):
@@ -750,19 +751,25 @@ class AbilityTaskService:
                     task_id=str(kie_task_id).strip(),
                     timeout=18.0,
                     max_retries=1,
+                    status_endpoint=str(status_endpoint).strip() if isinstance(status_endpoint, str) else None,
                 )
             except Exception:
                 continue
 
             state = str(fetched.get("state") or "").lower()
             urls = fetched.get("resultUrls") if isinstance(fetched.get("resultUrls"), list) else []
+            video_urls = fetched.get("videoUrls") if isinstance(fetched.get("videoUrls"), list) else []
             assets = fetched.get("storedAssets") if isinstance(fetched.get("storedAssets"), list) else []
 
             if state == "success" and (urls or assets):
                 if not assets and urls:
                     assets = [{"url": u} for u in urls if isinstance(u, str) and u.strip()]
                 next_payload = dict(result_payload)
-                next_payload["images"] = assets
+                if video_urls:
+                    next_payload["videos"] = assets
+                    next_payload["videoUrls"] = video_urls
+                else:
+                    next_payload["images"] = assets
                 next_payload["assets"] = assets
                 next_payload["status"] = "succeeded"
                 next_payload["state"] = state

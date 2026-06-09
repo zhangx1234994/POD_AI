@@ -30,6 +30,7 @@
 | `COZE_API_TOKEN` | Coze 访问凭证 | 现网有效 token |
 | `COZE_TRUSTED_IPS` | 信任 Coze 源 IP | 同机或实际入口 IP |
 | `OSS_*` | OSS 上传/下载 | 首轮继续公网地址为对外真源 |
+| `OUTPUT_IMAGE_DEFAULT_DPI` | 生成结果入 OSS 前写入的 DPI/PPI 元数据 | 默认 `150`；设为 `0` 保持上游原始字节 |
 | `IMAGE_OPS_BASE_URL` | 图片原子服务地址 | 例如 `http://127.0.0.1:8301` 或独立机器地址 |
 | `IMAGE_OPS_SERVICE_TOKEN` | backend 调 image-ops 的鉴权 | 必须与 image-ops 保持一致 |
 | `IMAGE_OPS_TIMEOUT_SECONDS` | 图片原子服务超时 | 建议 `120` |

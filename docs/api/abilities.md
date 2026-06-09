@@ -119,6 +119,24 @@
 > - `metadata`：调用方自定义上下文（日志可见，不参与能力逻辑）。
 > - **执行器必须配置**：每个能力都要在管理端（或 `/api/admin/abilities/{id}`）绑定一个可用的 `executor_id`，否则调用会返回 `400 ABILITY_EXECUTOR_NOT_CONFIGURED`。常见原因是执行节点尚未创建或被禁用。
 
+### KIE · Veo3.1 Fast 视频生成
+
+- 能力：`provider=kie`，`capabilityKey=veo3_1_fast_video`
+- 模型：后端强制 `model=veo3_fast`，调用方即使传入其他 `model` 也不会透传给 KIE。
+- 提交接口：`/api/v1/veo/generate`
+- 查询接口：`/api/v1/veo/record-info`
+- 输入：
+  - `prompt`：必填，描述镜头、动作、产品稳定性要求。
+  - `imageUrl` 或 `images[]`：可选；提供后会整理为 KIE `imageUrls`，最多 3 张。
+  - `inputs.generationType`：可选，`TEXT_2_VIDEO` / `FIRST_AND_LAST_FRAMES_2_VIDEO` / `REFERENCE_2_VIDEO`。无参考图时后端会自动改为 `TEXT_2_VIDEO`。
+  - `inputs.aspectRatio`：可选，`16:9` / `9:16` / `Auto`。
+  - `inputs.enableTranslation`：默认 `true`。
+  - `inputs.enableFallback`：不作为表单能力开放；后端固定为 `false`，避免成本和效果不可控。
+- 输出：
+  - `videos[]` / `metadata.taskId`：统一能力响应会把视频结果归入 `videos`，同时保留 KIE 任务 ID。
+  - 兼容字段 `resultUrls` 仍可能存在，但视频业务应优先读取 `videos` 或业务 API 的 `videoUrls`。
+- 错误：复用 KIE 统一错误契约，如 `KIE_API_KEY_MISSING`、`KIE_TASK_CREATE_FAILED`、`KIE_TASK_ID_MISSING`、`KIE_STATUS_ERROR`、`KIE_TIMEOUT`。
+
 #### 回调（可选）
 
 - `callbackUrl`：如需异步通知，在请求体顶层提供 HTTPS 地址，服务端会在成功或失败后 POST 回执。仍会同步返回 `AbilityInvokeResponse`，回调只是额外通知。

@@ -104,6 +104,9 @@ class KieMarketTestRequest(AbilityTestContext):
     executorId: str = Field(..., description="Executor ID configured with type=kie")
     model: str = Field(..., description="模型 ID，例如 nano-banana-pro")
     endpoint: str | None = Field("/api/v1/jobs/createTask", description="KIE API 路径")
+    statusEndpoint: str | None = Field(default=None, description="KIE 任务查询路径，Veo 使用 /api/v1/veo/record-info")
+    inputArrayTarget: str | None = Field(default=None, description="输入图片数组字段，例如 image_input / imageUrls")
+    resultFormat: str | None = Field(default=None, description="结果结构类型，例如 veo3")
     callBackUrl: str | None = Field(default=None, description="可选回调 URL")
     input: dict[str, Any] = Field(..., description="input 对象，包含 prompt/参数/URL 等")
     extra: dict[str, Any] | None = Field(default=None, description="附加顶层字段，如扩展参数")
@@ -117,6 +120,7 @@ class KieMarketTestResponse(BaseModel):
     taskId: str
     state: str | None = None
     resultUrls: list[str] | None = None
+    videoUrls: list[str] | None = None
     resultObject: dict[str, Any] | None = None
     storedAssets: list[StoredAsset] | None = None
     raw: dict[str, Any] | None = None
