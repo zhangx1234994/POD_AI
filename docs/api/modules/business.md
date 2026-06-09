@@ -1526,13 +1526,16 @@ X-PODI-API-Key: podi_xxx
 
 业务名：产品商业化。业务标识固定为 `product_commercialization`，当前 MVP 版本为 `product-commercialization-mvp-v1`。
 
-它是产品设计之后的能力，不负责花纹提取、裂变或产品设计本身。第一版输出“商品商业化内容包”：产品理解卡、文案包、配图建议、视频分镜、审核提示。预览接口不会隐式生成图片或视频；任何图片/视频生成都必须走显式执行动作并保留成本、任务和 OSS 证据。
+它是产品设计之后的能力，不负责花纹提取、裂变或产品设计本身。第一版输出“商品商业化内容包”：产品理解卡、文案包、配图计划、视频分镜、审核提示。预览接口不会隐式生成图片或视频；任何图片/视频生成都必须走显式执行动作并保留成本、任务和 OSS 证据。
+
+当前测评端配图生成的最小安全实现是：先调用 `preview` 得到文案和配图计划，再由用户显式点击配图生成按钮，前端提交 `POST /api/business/product-design/runs`，用返回的 `runId` 轮询 `/api/business/runs/get`，最终展示自有 OSS 图片。也就是说，`visualSupportMode=generate` 不等于预览接口自动生图，它只表示“本次计划允许后续显式生成配图”。
 
 统一任务口径：
 
 - 规划/预览：`POST /api/business/product-commercialization/preview`，同步返回文案、配图建议、分镜和风险，不扣视频成本。
 - 执行视频：`POST /api/business/product-commercialization/runs`，立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。
-- 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。成功标准是查询到 `status=succeeded` 且 `videoUrls` 非空；失败原因看 `errorMessage/errorCode`。
+- 执行配图：当前测评端复用 `POST /api/business/product-design/runs`，立即返回 `runId`，再通过 `/api/business/runs/get` 查询 `imageUrls`。后续若独立出 `product_image_set`，仍沿用同一 runId 查询口径。
+- 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。视频成功标准是查询到 `status=succeeded` 且 `videoUrls` 非空；配图成功标准是查询到 `status=succeeded` 且 `imageUrls` 非空；失败原因看 `errorMessage/errorCode`。
 - 计费口径：MVP 阶段按生成片段计量，每个视频片段记 `quotaUnits=1`。`billingUnit` 会按真实供应商成本动作派生，例如 `kie_veo3_fast_video_segment` 或 `vidu_viduq3_turbo_video_segment`；当前先记录 quota 和成本证据，不虚构第三方货币单价，正式价格表后续接入模型成本策略。
 - 兼容调试：`/video` 与 `/video-compose` 暂时保留给内部联调，不作为正式业务方接入口径。
 
@@ -1577,11 +1580,16 @@ X-PODI-API-Key: podi_xxx
 | `outputLanguage` | 否 | `en-US` | `en-US/zh-CN/bilingual`。POD 海外销售默认建议 `en-US`；`bilingual` 返回中英双语结构。 |
 | `marketRegion` | 否 | `US` | `US/UK/EU/global`，用于影响措辞和审核提示。 |
 | `copyScenarios` | 否 | 全部 | `listing_title/bullet_points/detail_description/ad_short_copy/keyword_pack`。 |
-| `visualSupportMode` | 否 | `recommendation` | `none/recommendation/generate`。`generate` 只表示建议生成，预览接口不自动生图。 |
+| `visualSupportMode` | 否 | `recommendation` | `none/recommendation/generate`。`generate` 只表示允许后续显式生成配图，预览接口不自动生图。 |
 | `videoScenario` | 否 | `product_showcase_short` | `product_showcase_short/social_ad_short/detail_explainer`。 |
 | `durationSeconds` | 否 | `8` | 单段视频执行时长，当前固定 8 秒；传其他值会被接口校验拒绝。 |
 | `targetDurationSeconds` | 否 | `8` | 用户目标成片时长，允许 8-60。`preview` 会为 15 秒这类目标生成多段分镜、裁剪和合成计划；`/video` 只执行 8 秒单段，超过 8 秒应调用 `/video-compose`。 |
 | `aspectRatio` | 否 | `16:9` | 视频画幅。 |
+| `executorId` | 否 | 默认 KIE | 视频供应商执行节点。当前可执行：`executor_kie_market_default`（KIE Veo3.1 Fast）、`executor_vidu_default`（Vidu viduq3-turbo）。 |
+
+产品导出字段建议至少包含：模板名称/编号/主体编码/产品型号、英文名称、一级/二级分类、工厂、重量、生产工艺、材质、成分、包装尺寸、包装重量、关键词和其他描述。字段缺失不阻塞预览，但会降低 `productCard.confidence` 并进入 `missingFields`。
+
+图片和 JSON 一致性：中台当前不自动识别图片内容是否与 JSON 完全一致。测评端在触发配图或视频这类成本动作前要求用户确认“图片与导出 JSON 属于同一商品”；后续如接入 VL 自动比对，应将比对结果写入 `review.issues`，但仍不能绕过人工确认。
 
 响应重点字段：
 
@@ -1673,6 +1681,16 @@ X-PODI-API-Key: podi_xxx
 用途：显式提交产品商业化视频任务，并将生成结果保存到自有 OSS。该接口会复用同一套产品理解和分镜规划，但属于成本动作，必须由业务方明确触发。
 
 请求体与 `preview` 相同，但必须提供 `productImageUrl`。`targetDurationSeconds=8` 时执行单段视频；目标超过 8 秒时自动按 `preview.videoPlan.storyboard` 多段生成，再用 ffmpeg 裁剪拼接。可选 `executorId` 指定 KIE 或 Vidu 节点；不传使用默认 KIE 执行节点。Vidu/KIE 返回的临时外链都必须先沉淀到自有 OSS，对外结果以 `videoUrls` 中的自有 OSS URL 为准。
+
+当前视频供应商和模型口径：
+
+| `executorId` | 当前模型 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| `executor_kie_market_default` | Veo3.1 Fast | 可执行 | 默认视频路径，适合单段商品展示和多段合成。 |
+| `executor_vidu_default` | viduq3-turbo | 可执行 | 已完成线上实跑和 OSS 回填验证。 |
+| 待定 | Vidu 一键营销成片 Agent | 待接入 | 需要单独接口/参数，不混入当前单段视频按钮。 |
+| 待定 | Vidu 视频复刻 Agent | 待接入 | 需要参考视频输入、复刻策略和版权/风格风险提示。 |
+| 待定 | viduq3-ad / reference2video | 待接入 | 需要多参考图和广告模型参数，不伪装为当前已完成能力。 |
 
 提交成功响应只代表任务已进入中台统一运行表：
 

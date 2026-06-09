@@ -41,6 +41,21 @@ html.t-theme-dark {
   background: var(--podi-surface);
 }
 
+.podi-shell,
+.podi-shell > .t-layout,
+.podi-shell__content {
+  min-height: 0;
+}
+
+.podi-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+.podi-shell__content {
+  overscroll-behavior: contain;
+}
+
 .podi-eval-shell__header-inner {
   width: 100%;
   display: flex;
@@ -403,13 +418,19 @@ html.t-theme-dark {
 }
 
 .podi-product-commercialization__chips button {
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--td-border-level-2-color);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--td-bg-color-container);
   color: var(--td-text-color-primary);
   cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1.2;
 }
 
 .podi-product-commercialization__chips button.is-active {
@@ -417,6 +438,12 @@ html.t-theme-dark {
   background: rgba(15, 118, 110, 0.1);
   color: #0f766e;
   font-weight: 600;
+}
+
+.podi-product-commercialization__chips button small {
+  color: var(--td-text-color-secondary);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .podi-product-commercialization__result {
@@ -455,6 +482,78 @@ html.t-theme-dark {
   max-height: 360px;
   border-radius: 8px;
   background: #0f172a;
+}
+
+.podi-product-commercialization__field-check {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--td-warning-color) 26%, var(--td-border-level-1-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--td-warning-color) 5%, var(--td-bg-color-container));
+}
+
+.podi-product-commercialization__confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--td-text-color-primary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.podi-product-commercialization__confirm input {
+  margin-top: 3px;
+}
+
+.podi-product-commercialization__pending {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--td-border-level-2-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.podi-product-commercialization__copy-list {
+  display: grid;
+  gap: 12px;
+}
+
+.podi-product-commercialization__copy-list > div {
+  display: grid;
+  gap: 6px;
+}
+
+.podi-product-commercialization__visual-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.podi-product-commercialization__visual-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 210px;
+  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+}
+
+.podi-product-commercialization__visual-card > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.podi-product-commercialization__visual-card img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: #f8fafc;
 }
 
 .podi-field-stack {

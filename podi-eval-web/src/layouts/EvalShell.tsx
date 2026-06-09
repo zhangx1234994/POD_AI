@@ -40,7 +40,7 @@ export function EvalShell({
   };
 
   return (
-    <Layout className="podi-shell" style={{ height: "100vh" }}>
+    <Layout className="podi-shell" style={{ height: "100dvh", minHeight: 0 }}>
       <Layout.Header className="podi-shell__header" style={{ padding: compact ? "10px 12px" : "12px 20px", height: "auto" }}>
         <div className="podi-eval-shell__header-inner">
           <div className="podi-eval-shell__header-title">
@@ -62,7 +62,7 @@ export function EvalShell({
           </div>
         </div>
       </Layout.Header>
-      <Layout>
+      <Layout style={{ minHeight: 0, flex: 1 }}>
         {showSideNav ? (
           <Layout.Aside className={`podi-shell__aside${iconOnly ? " podi-eval-shell__aside--icon" : ""}`} style={{ width: asideWidth, padding: compact ? 10 : 16, overflow: "auto" }}>
             <Space direction="vertical" size="small" style={{ width: "100%" }}>
@@ -93,7 +93,7 @@ export function EvalShell({
             </Space>
           </Layout.Aside>
         ) : null}
-        <Layout.Content className="podi-shell__content" style={{ padding: mobile ? 12 : 24, overflow: "auto" }}>
+        <Layout.Content className="podi-shell__content" style={{ padding: mobile ? 12 : 24, overflow: "auto", minHeight: 0 }}>
           <div ref={contentRef} className="podi-eval-shell__content-inner" style={{ maxWidth: mobile ? "none" : 1400, margin: "0 auto" }}>
             {showMobileNav ? (
               <nav className="podi-eval-shell__mobile-nav" aria-label={sidebarTitle}>

@@ -323,6 +323,19 @@ export type ProductCommercializationRequest = {
   source?: string;
 };
 
+export type ProductDesignRunRequest = {
+  imageUrl: string;
+  productType?: 'apparel' | 'home_textile' | 'bag' | 'shoe' | 'stationery' | 'packaging' | 'generic';
+  designBrief: string;
+  scene?: 'studio_product' | 'flat_lay' | 'ecommerce' | 'lifestyle' | 'print_mockup' | 'generic';
+  quality?: 'preview' | 'production' | 'premium';
+  size?: string;
+  output_format?: string;
+  inputs?: Record<string, unknown>;
+  source?: string;
+  requestId?: string;
+};
+
 export type ProductCommercializationResponse = {
   requestId: string;
   businessKey: string;
@@ -798,6 +811,12 @@ export const evalApi = {
   submitProductCommercializationVideoRun: (payload: ProductCommercializationRequest) =>
     request<BusinessRunPollResult>(
       '/api/business/product-commercialization/runs',
+      { method: 'POST', body: JSON.stringify(payload) },
+      30000,
+    ),
+  submitProductDesignRun: (payload: ProductDesignRunRequest) =>
+    request<BusinessRunPollResult>(
+      '/api/business/product-design/runs',
       { method: 'POST', body: JSON.stringify(payload) },
       30000,
     ),
