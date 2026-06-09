@@ -457,7 +457,7 @@ class ProductCommercializationService:
         request_id: str,
         user_id: str,
     ) -> dict[str, Any]:
-        ffmpeg = shutil.which("ffmpeg")
+        ffmpeg = self._resolve_ffmpeg_binary()
         if not ffmpeg:
             raise HTTPException(status_code=500, detail="PRODUCT_COMMERCIALIZATION_FFMPEG_MISSING")
         trims = trim_plan if isinstance(trim_plan, list) else []
@@ -532,6 +532,18 @@ class ProductCommercializationService:
             content_type="video/mp4",
             tag="product-commercialization-compose",
         )
+
+    def _resolve_ffmpeg_binary(self) -> str | None:
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            return ffmpeg
+        try:
+            import imageio_ffmpeg
+
+            candidate = _clean_text(imageio_ffmpeg.get_ffmpeg_exe())
+        except Exception:
+            return None
+        return candidate or None
 
     def _download_video(self, url: str, target_path: Path) -> None:
         try:

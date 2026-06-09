@@ -19,6 +19,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "python-multipart>=0.0.9",
   "httpx>=0.26",
+  "imageio-ffmpeg>=0.5",
   "passlib[bcrypt]>=1.7",
   "pyjwt[crypto]>=2.8",
   "redis>=5.0",
