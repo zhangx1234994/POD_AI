@@ -97,7 +97,10 @@ def test_product_commercialization_preview_uses_model_content_package(monkeypatc
                         "en-US": ["A fresh patterned gift for everyday outfits.", "Bring a seasonal accent to your store.", "Soft style, easy gifting."],
                         "zh-CN": ["适合日常穿搭的礼品。", "为店铺带来季节氛围。", "柔和风格，适合送礼。"],
                     },
-                    "keywordPack": ["patterned socks", "gift socks", "POD socks", "custom socks", "seasonal socks", "women socks"],
+                    "keywordPack": {
+                        "coreKeywords": ["patterned socks", "gift socks", "POD socks"],
+                        "sceneKeywords": ["custom socks", "seasonal socks", "women socks"],
+                    },
                     "styleGuardrails": ["Avoid unsupported certification claims.", "Avoid brand words."],
                     "sourcePrompt": None,
                 },
@@ -173,6 +176,14 @@ def test_product_commercialization_preview_uses_model_content_package(monkeypatc
     assert result["copyGeneration"]["method"] == "volcengine_chat"
     assert result["execution"]["copyGenerated"] is True
     assert result["copyPackage"]["listingTitle"] == "Gift-Ready Patterned Socks for Everyday Outfits"
+    assert result["copyPackage"]["keywordPack"] == [
+        "patterned socks",
+        "gift socks",
+        "POD socks",
+        "custom socks",
+        "seasonal socks",
+        "women socks",
+    ]
     assert result["contentPackage"]["commercePositioning"]["coreAngle"].startswith("Gift-ready")
     assert result["visualAssetPlan"]["modelImageBriefs"][0]["id"] == "listing-main"
 

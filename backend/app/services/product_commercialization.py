@@ -190,8 +190,21 @@ def _first_present(data: dict[str, Any], aliases: tuple[str, ...]) -> tuple[str 
 def _normalize_list(value: Any) -> list[str]:
     if value is None:
         return []
+    if isinstance(value, dict):
+        result: list[str] = []
+        for item in value.values():
+            result.extend(_normalize_list(item))
+        return result
     if isinstance(value, list):
-        return [_clean_text(item) for item in value if _clean_text(item)]
+        result: list[str] = []
+        for item in value:
+            if isinstance(item, (dict, list)):
+                result.extend(_normalize_list(item))
+                continue
+            text = _clean_text(item)
+            if text:
+                result.append(text)
+        return result
     text = _clean_text(value)
     if not text:
         return []
@@ -1206,7 +1219,7 @@ class ProductCommercializationService:
         if "ad_short_copy" in scenarios:
             result["adShortCopy"] = self._pick_language(full_copy.get("adShortCopy"), output_language)
         if "keyword_pack" in scenarios:
-            result["keywordPack"] = full_copy.get("keywordPack") or []
+            result["keywordPack"] = self._normalize_string_list(full_copy.get("keywordPack"), [], min_items=0)
         return result
 
     def _pick_language(self, value: Any, output_language: str) -> Any:
