@@ -309,6 +309,11 @@ export type ProductCommercializationRequest = {
   extraPrompt?: string;
   outputLanguage?: 'en-US' | 'zh-CN' | 'bilingual';
   marketRegion?: 'US' | 'UK' | 'EU' | 'global';
+  commercePlatform?: string;
+  copyTone?: string;
+  targetAudience?: string;
+  sellingAngle?: string;
+  forbiddenClaims?: string[];
   copyScenarios?: string[];
   visualSupportMode?: 'none' | 'recommendation' | 'generate';
   videoScenario?: 'product_showcase_short' | 'social_ad_short' | 'detail_explainer';
@@ -348,6 +353,8 @@ export type ProductCommercializationResponse = {
   copyScenarios: string[];
   productCard: Record<string, unknown>;
   copyPackage: Record<string, unknown>;
+  contentPackage?: Record<string, unknown> | null;
+  copyGeneration?: Record<string, unknown> | null;
   visualAssetPlan: Record<string, unknown>;
   videoPlan: Record<string, unknown>;
   review: Record<string, unknown>;

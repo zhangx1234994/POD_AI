@@ -15,6 +15,18 @@ from app.services.product_commercialization import ProductCommercializationServi
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def disable_external_copy_model(monkeypatch) -> None:
+    def fake_generate_model_content_package(*args, **kwargs):
+        raise RuntimeError("COPY_MODEL_DISABLED_IN_TEST")
+
+    monkeypatch.setattr(
+        ProductCommercializationService,
+        "_generate_model_content_package",
+        fake_generate_model_content_package,
+    )
+
+
 def test_product_commercialization_preview_builds_english_copy_and_visual_plan() -> None:
     service = ProductCommercializationService()
 
@@ -39,12 +51,130 @@ def test_product_commercialization_preview_builds_english_copy_and_visual_plan()
     assert result["outputLanguage"] == "en-US"
     assert result["productCard"]["sourceFacts"]["productNameEn"] == "Women's knitted woolen socks"
     assert result["copyPackage"]["listingTitle"].startswith("Women's knitted woolen socks")
+    assert result["copyGeneration"]["method"] == "template_fallback"
+    assert result["execution"]["copyGenerated"] is False
     assert len(result["copyPackage"]["bulletPoints"]) == 5
     assert result["visualAssetPlan"]["mode"] == "recommendation"
     assert result["visualAssetPlan"]["hasProductImage"] is True
     assert result["visualAssetPlan"]["generationPolicy"]["requiresExplicitAction"] is True
     assert result["videoPlan"]["model"] == "veo3_fast"
     assert result["execution"]["costActions"] == []
+
+
+def test_product_commercialization_preview_uses_model_content_package(monkeypatch) -> None:
+    service = ProductCommercializationService()
+
+    def fake_generate_model_content_package(*args, **kwargs):
+        return (
+            {
+                "commercePositioning": {
+                    "coreAngle": "Gift-ready patterned socks for overseas ecommerce buyers.",
+                    "targetCustomers": ["gift shoppers", "daily outfit buyers"],
+                    "purchaseOccasions": ["birthday gifting", "seasonal collection"],
+                    "sellingPoints": ["original pattern", "soft material", "POD-ready listing"],
+                    "factBoundaries": ["Do not claim certification", "Do not invent shipping speed"],
+                },
+                "copyPackage": {
+                    "listingTitle": {
+                        "en-US": "Gift-Ready Patterned Socks for Everyday Outfits",
+                        "zh-CN": "适合礼品场景的图案长袜",
+                    },
+                    "bulletPoints": {
+                        "en-US": [
+                            "Soft everyday styling",
+                            "Pattern-forward gift appeal",
+                            "POD-ready product presentation",
+                            "Easy to pair with casual outfits",
+                            "Designed for seasonal store updates",
+                        ],
+                        "zh-CN": ["日常穿搭", "礼品属性", "适合 POD", "易搭配", "适合上新"],
+                    },
+                    "detailDescription": {
+                        "en-US": "A natural ecommerce detail-page description written by the model.",
+                        "zh-CN": "由模型生成的自然详情页文案。",
+                    },
+                    "adShortCopy": {
+                        "en-US": ["A fresh patterned gift for everyday outfits.", "Bring a seasonal accent to your store.", "Soft style, easy gifting."],
+                        "zh-CN": ["适合日常穿搭的礼品。", "为店铺带来季节氛围。", "柔和风格，适合送礼。"],
+                    },
+                    "keywordPack": ["patterned socks", "gift socks", "POD socks", "custom socks", "seasonal socks", "women socks"],
+                    "styleGuardrails": ["Avoid unsupported certification claims.", "Avoid brand words."],
+                    "sourcePrompt": None,
+                },
+                "imageBriefs": [
+                    {
+                        "id": "listing-main",
+                        "label": "上架主图",
+                        "usage": "用于商品主图",
+                        "linkedCopy": ["listingTitle"],
+                        "prompt": "Create a clean ecommerce main image for the socks.",
+                        "riskNotes": ["No embedded text."],
+                    },
+                    {
+                        "id": "detail-closeup",
+                        "label": "细节图",
+                        "usage": "用于详情页材质说明",
+                        "linkedCopy": ["detailDescription"],
+                        "prompt": "Create a detail close-up.",
+                        "riskNotes": ["Do not invent components."],
+                    },
+                    {
+                        "id": "social-ad-cover",
+                        "label": "广告封面",
+                        "usage": "用于社媒广告",
+                        "linkedCopy": ["adShortCopy"],
+                        "prompt": "Create a social ad cover.",
+                        "riskNotes": ["No logo."],
+                    },
+                ],
+                "channelUsageGuide": [
+                    {
+                        "channel": "Amazon",
+                        "howToUse": "Use title, bullets and listing-main visual together.",
+                        "assets": ["listingTitle", "bulletPoints", "listing-main"],
+                    },
+                    {
+                        "channel": "Social ad",
+                        "howToUse": "Use ad copy with the social cover.",
+                        "assets": ["adShortCopy", "social-ad-cover"],
+                    },
+                ],
+                "styleGuardrails": ["Avoid unsupported certification claims.", "Avoid brand words."],
+                "modelNotes": ["Generated by test model fixture."],
+            },
+            {
+                "method": "volcengine_chat",
+                "provider": "volcengine",
+                "model": "doubao-seed-1-6",
+                "fallback": False,
+                "evidence": "test model evidence",
+            },
+        )
+
+    monkeypatch.setattr(
+        ProductCommercializationService,
+        "_generate_model_content_package",
+        fake_generate_model_content_package,
+    )
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/socks.png",
+            productFields={"英文名称": "Women's knitted woolen socks", "产品材质": "polyester", "二级分类": "socks"},
+            outputLanguage="en-US",
+            commercePlatform="amazon_marketplace",
+            copyTone="warm_gift",
+            targetAudience="gift buyers",
+            sellingAngle="giftable_moment",
+            forbiddenClaims=["certification", "shipping speed"],
+        )
+    )
+
+    assert result["copyGeneration"]["method"] == "volcengine_chat"
+    assert result["execution"]["copyGenerated"] is True
+    assert result["copyPackage"]["listingTitle"] == "Gift-Ready Patterned Socks for Everyday Outfits"
+    assert result["contentPackage"]["commercePositioning"]["coreAngle"].startswith("Gift-ready")
+    assert result["visualAssetPlan"]["modelImageBriefs"][0]["id"] == "listing-main"
 
 
 def test_product_commercialization_preview_supports_bilingual_copy_and_missing_fields() -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -13,9 +15,12 @@ from uuid import uuid4
 import httpx
 from fastapi import HTTPException
 
+from app.constants.abilities import DEFAULT_VOLCENGINE_VL_MODEL_ID
 from app.core.config import get_settings
 from app.services.integration_test import integration_test_service
 from app.services.media_ingest import media_ingest_service
+
+logger = logging.getLogger(__name__)
 
 
 OUTPUT_LANGUAGE_VALUES = {"en-US", "zh-CN", "bilingual"}
@@ -42,6 +47,103 @@ VIDEO_COMPOSE_TIMEOUT_SECONDS = 300
 VIDEO_SEGMENT_MAX_ATTEMPTS = 2
 DEFAULT_KIE_VIDEO_EXECUTOR_ID = "executor_kie_market_default"
 DEFAULT_VIDU_VIDEO_MODEL = "viduq3-turbo"
+
+COPY_MODEL_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "commercePositioning": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "coreAngle": {"type": "string"},
+                "targetCustomers": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 6},
+                "purchaseOccasions": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 8},
+                "sellingPoints": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 8},
+                "factBoundaries": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 8},
+            },
+            "required": ["coreAngle", "targetCustomers", "purchaseOccasions", "sellingPoints", "factBoundaries"],
+        },
+        "listingTitle": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"en-US": {"type": "string"}, "zh-CN": {"type": "string"}},
+            "required": ["en-US", "zh-CN"],
+        },
+        "bulletPoints": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "en-US": {"type": "array", "items": {"type": "string"}, "minItems": 5, "maxItems": 5},
+                "zh-CN": {"type": "array", "items": {"type": "string"}, "minItems": 5, "maxItems": 5},
+            },
+            "required": ["en-US", "zh-CN"],
+        },
+        "detailDescription": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"en-US": {"type": "string"}, "zh-CN": {"type": "string"}},
+            "required": ["en-US", "zh-CN"],
+        },
+        "adShortCopy": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "en-US": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 5},
+                "zh-CN": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 5},
+            },
+            "required": ["en-US", "zh-CN"],
+        },
+        "keywordPack": {"type": "array", "items": {"type": "string"}, "minItems": 6, "maxItems": 20},
+        "imageBriefs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "label": {"type": "string"},
+                    "usage": {"type": "string"},
+                    "linkedCopy": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 6},
+                    "prompt": {"type": "string"},
+                    "riskNotes": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 5},
+                },
+                "required": ["id", "label", "usage", "linkedCopy", "prompt", "riskNotes"],
+            },
+            "minItems": 3,
+            "maxItems": 6,
+        },
+        "channelUsageGuide": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "channel": {"type": "string"},
+                    "howToUse": {"type": "string"},
+                    "assets": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 8},
+                },
+                "required": ["channel", "howToUse", "assets"],
+            },
+            "minItems": 2,
+            "maxItems": 6,
+        },
+        "styleGuardrails": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 8},
+        "modelNotes": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 8},
+    },
+    "required": [
+        "commercePositioning",
+        "listingTitle",
+        "bulletPoints",
+        "detailDescription",
+        "adShortCopy",
+        "keywordPack",
+        "imageBriefs",
+        "channelUsageGuide",
+        "styleGuardrails",
+        "modelNotes",
+    ],
+}
 
 
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
@@ -141,15 +243,19 @@ class ProductCommercializationService:
         video_scenario = self._normalize_video_scenario(getattr(payload, "videoScenario", None))
         copy_scenarios = self._normalize_copy_scenarios(getattr(payload, "copyScenarios", None))
         product_card = self._build_product_card(payload)
-        copy_package = self._build_copy_package(
+        content_bundle = self._build_content_bundle(
+            payload=payload,
             product_card=product_card,
             scenarios=copy_scenarios,
             output_language=output_language,
             market_region=market_region,
-            extra_prompt=getattr(payload, "extraPrompt", None),
         )
+        copy_package = content_bundle["copyPackage"]
+        content_package = content_bundle["contentPackage"]
+        copy_generation = content_bundle["copyGeneration"]
         visual_asset_plan = self._build_visual_asset_plan(
             product_card=product_card,
+            content_package=content_package,
             visual_mode=visual_mode,
             output_language=output_language,
             product_image_url=getattr(payload, "productImageUrl", None),
@@ -183,15 +289,21 @@ class ProductCommercializationService:
             "copyScenarios": copy_scenarios,
             "productCard": product_card,
             "copyPackage": copy_package,
+            "contentPackage": content_package,
+            "copyGeneration": copy_generation,
             "visualAssetPlan": visual_asset_plan,
             "videoPlan": video_plan,
             "review": review,
             "execution": {
-                "copyGenerated": True,
+                "copyGenerated": copy_generation.get("method") != "template_fallback",
+                "copyGenerationMethod": copy_generation.get("method"),
                 "imageGenerated": False,
                 "videoGenerated": False,
                 "costActions": [],
-                "note": "Preview only. Image/video generation requires explicit execute endpoint.",
+                "note": (
+                    "Copy preview uses the configured LLM/VL planner when available. "
+                    "Image/video generation requires explicit execute endpoint."
+                ),
             },
             "audit": {
                 "userId": user_id,
@@ -236,7 +348,8 @@ class ProductCommercializationService:
                 "raw": result.get("raw"),
             },
             "execution": {
-                "copyGenerated": True,
+                "copyGenerated": bool(preview.get("copyGeneration", {}).get("method") != "template_fallback"),
+                "copyGenerationMethod": preview.get("copyGeneration", {}).get("method"),
                 "imageGenerated": False,
                 "videoGenerated": bool(video_urls),
                 "costActions": [self._video_cost_action(provider=provider, model=model)],
@@ -341,7 +454,8 @@ class ProductCommercializationService:
                 },
             },
             "execution": {
-                "copyGenerated": True,
+                "copyGenerated": bool(preview.get("copyGeneration", {}).get("method") != "template_fallback"),
+                "copyGenerationMethod": preview.get("copyGeneration", {}).get("method"),
                 "imageGenerated": False,
                 "videoGenerated": bool(video_url),
                 "costActions": cost_actions,
@@ -654,7 +768,7 @@ class ProductCommercializationService:
         except subprocess.TimeoutExpired as exc:
             raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_COMPOSE_TIMEOUT") from exc
         if completed.returncode != 0:
-            self._logger.warning("ffmpeg failed: %s", (completed.stderr or completed.stdout or "")[-1000:])
+            logger.warning("ffmpeg failed: %s", (completed.stderr or completed.stdout or "")[-1000:])
             raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED")
 
     def _normalize_target_duration_seconds(self, value: Any) -> int:
@@ -763,6 +877,451 @@ class ProductCommercializationService:
             return zh
         return {"en-US": en, "zh-CN": zh}
 
+    def _build_content_bundle(
+        self,
+        *,
+        payload: Any,
+        product_card: dict[str, Any],
+        scenarios: list[str],
+        output_language: str,
+        market_region: str,
+    ) -> dict[str, Any]:
+        template_package = self._build_template_content_package(
+            product_card=product_card,
+            market_region=market_region,
+            extra_prompt=getattr(payload, "extraPrompt", None),
+        )
+        generation: dict[str, Any] = {
+            "method": "template_fallback",
+            "provider": "internal",
+            "model": "template-commercial-copy-v1",
+            "fallback": True,
+            "evidence": "No LLM/VL response was used.",
+        }
+        content_package = template_package
+        try:
+            content_package, generation = self._generate_model_content_package(
+                payload=payload,
+                product_card=product_card,
+                template_package=template_package,
+                market_region=market_region,
+            )
+        except Exception as exc:  # pragma: no cover - defensive provider path
+            logger.warning("product commercialization copy model fallback: %s", exc)
+            generation = {
+                **generation,
+                "fallbackReason": str(exc)[:500],
+                "evidence": "LLM/VL unavailable or returned invalid JSON; template fallback used.",
+            }
+
+        copy_package = self._select_copy_package(
+            full_package=content_package,
+            scenarios=scenarios,
+            output_language=output_language,
+            market_region=market_region,
+            extra_prompt=getattr(payload, "extraPrompt", None),
+        )
+        return {
+            "copyPackage": copy_package,
+            "contentPackage": content_package,
+            "copyGeneration": generation,
+        }
+
+    def _build_template_content_package(
+        self,
+        *,
+        product_card: dict[str, Any],
+        market_region: str,
+        extra_prompt: Any,
+    ) -> dict[str, Any]:
+        copy_package = self._build_copy_package(
+            product_card=product_card,
+            scenarios=list(DEFAULT_COPY_SCENARIOS),
+            output_language="bilingual",
+            market_region=market_region,
+            extra_prompt=extra_prompt,
+        )
+        facts = {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
+        name_en = _english_product_name(facts)
+        name_zh = _zh_product_name(facts)
+        material = _clean_text(facts.get("material") or facts.get("composition"))
+        category = _clean_text(facts.get("categoryLevel2") or facts.get("categoryLevel1"))
+        positioning = {
+            "coreAngle": f"{name_en} positioned as a practical POD-ready ecommerce item for {market_region} buyers.",
+            "targetCustomers": [category or "POD shoppers", "gift buyers", "everyday style shoppers"],
+            "purchaseOccasions": ["daily use", "seasonal gifting", "custom design collections"],
+            "sellingPoints": [
+                f"Recognizable product type: {name_en}",
+                f"Material cue: {material or 'source material needs review'}",
+                "Suitable for listing copy, ad copy, and visual asset planning.",
+            ],
+            "factBoundaries": [
+                "Template fallback only; validate facts before publishing.",
+                "Do not claim shipping, certification, or trademark details unless source fields provide them.",
+            ],
+        }
+        image_briefs = [
+            {
+                "id": "listing-main",
+                "label": "商品主图",
+                "usage": "Marketplace listing hero image / 商品上架首图",
+                "linkedCopy": ["listingTitle", "bulletPoints"],
+                "prompt": (
+                    f"Create a clean ecommerce hero image for {name_en}. Preserve product shape, pattern, "
+                    "color and material. No text, watermark, logo, price tag or unrelated props."
+                ),
+                "riskNotes": ["Use the uploaded product image as factual reference."],
+            },
+            {
+                "id": "detail-closeup",
+                "label": "材质细节图",
+                "usage": "Detail page proof image / 详情页材质卖点图",
+                "linkedCopy": ["bulletPoints", "detailDescription"],
+                "prompt": (
+                    f"Create a close-up detail image for {name_en}, focusing on material texture, print clarity "
+                    f"and product construction. Material cue: {material or 'use visible material only'}."
+                ),
+                "riskNotes": ["Do not invent unavailable product components."],
+            },
+            {
+                "id": "social-ad-cover",
+                "label": "社媒广告封面",
+                "usage": "Social ad cover / 社媒广告封面",
+                "linkedCopy": ["adShortCopy"],
+                "prompt": (
+                    f"Create a clean lifestyle ad cover for {name_en}, suitable for {market_region} ecommerce "
+                    "marketing. Premium but natural, no embedded text."
+                ),
+                "riskNotes": ["Avoid overpromising performance or sustainability."],
+            },
+        ]
+        channel_usage = [
+            {
+                "channel": "Marketplace listing",
+                "howToUse": "Use listing title, bullet points, detail description, and listing-main visual together.",
+                "assets": ["listingTitle", "bulletPoints", "detailDescription", "listing-main"],
+            },
+            {
+                "channel": "Social advertising",
+                "howToUse": "Use ad short copy with a social-ad-cover visual; keep final ad claims factual.",
+                "assets": ["adShortCopy", "social-ad-cover"],
+            },
+        ]
+        return {
+            "commercePositioning": positioning,
+            "copyPackage": copy_package,
+            "imageBriefs": image_briefs,
+            "channelUsageGuide": channel_usage,
+            "styleGuardrails": copy_package.get("styleGuardrails") or [],
+            "modelNotes": ["Template fallback package. Use only when LLM/VL is unavailable."],
+        }
+
+    def _generate_model_content_package(
+        self,
+        *,
+        payload: Any,
+        product_card: dict[str, Any],
+        template_package: dict[str, Any],
+        market_region: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        settings = get_settings()
+        image_url = _clean_text(getattr(payload, "productImageUrl", None))
+        context_payload = self._build_copy_model_context(
+            payload=payload,
+            product_card=product_card,
+            market_region=market_region,
+        )
+        provider_errors: list[str] = []
+        if settings.business_agent_planner_enabled and settings.business_agent_openai_api_key:
+            try:
+                data = self._call_openai_copy_model(
+                    settings=settings,
+                    context_payload=context_payload,
+                    image_url=image_url,
+                )
+                content = self._normalize_model_content_package(data["content"], template_package=template_package)
+                return content, {
+                    "method": "openai_responses",
+                    "provider": "openai",
+                    "model": settings.business_agent_planner_model,
+                    "fallback": False,
+                    "responseId": data.get("responseId"),
+                    "usage": data.get("usage"),
+                    "evidence": "LLM/VL generated structured ecommerce content package.",
+                }
+            except Exception as exc:
+                provider_errors.append(f"openai:{str(exc)[:240]}")
+
+        try:
+            prompt = self._build_copy_model_prompt(context_payload=context_payload)
+            result = integration_test_service.run_volcengine_chat_completion(
+                executor_id="executor_volcengine_default",
+                model=DEFAULT_VOLCENGINE_VL_MODEL_ID,
+                prompt=prompt,
+                image_url=image_url or None,
+                params={"temperature": 0.72},
+            )
+            content = self._normalize_model_content_package(
+                self._parse_model_json_text(_clean_text(result.get("text"))),
+                template_package=template_package,
+            )
+            return content, {
+                "method": "volcengine_chat",
+                "provider": "volcengine",
+                "model": _clean_text(result.get("model")) or DEFAULT_VOLCENGINE_VL_MODEL_ID,
+                "fallback": False,
+                "usage": None,
+                "evidence": "Volcengine VL chat generated structured ecommerce content package.",
+            }
+        except Exception as exc:
+            provider_errors.append(f"volcengine:{str(exc)[:240]}")
+
+        raise RuntimeError("; ".join(provider_errors) or "COPY_MODEL_NOT_CONFIGURED")
+
+    def _build_copy_model_context(self, *, payload: Any, product_card: dict[str, Any], market_region: str) -> dict[str, Any]:
+        return {
+            "task": "Generate a one-stop ecommerce copy and visual-brief content package for a POD merchant.",
+            "outputLanguage": _clean_text(getattr(payload, "outputLanguage", None)) or "en-US",
+            "marketRegion": market_region,
+            "commercePlatform": _clean_text(getattr(payload, "commercePlatform", None)) or "marketplace",
+            "copyTone": _clean_text(getattr(payload, "copyTone", None)) or "natural_professional",
+            "targetAudience": _clean_text(getattr(payload, "targetAudience", None)) or "general ecommerce shoppers",
+            "sellingAngle": _clean_text(getattr(payload, "sellingAngle", None)) or "product benefits and gifting occasions",
+            "forbiddenClaims": _normalize_list(getattr(payload, "forbiddenClaims", None)),
+            "extraPrompt": _clean_text(getattr(payload, "extraPrompt", None)) or None,
+            "productCard": product_card,
+            "rules": [
+                "Use product fields as facts; mark inference in modelNotes instead of inventing unsupported facts.",
+                "Use the image as visual evidence when provided. Do not describe invisible details as facts.",
+                "Write natural ecommerce copy; avoid generic template phrases and mechanical repetition.",
+                "Do not include medical, trademark, sustainability, shipping, discount, certification, or size claims unless the fields explicitly provide them.",
+                "Return JSON only and follow the provided schema exactly.",
+            ],
+        }
+
+    def _build_copy_model_prompt(self, *, context_payload: dict[str, Any]) -> str:
+        return (
+            "你是 PODI 的电商商品内容策略师。请基于产品图和产品导出字段，为 POD 商家生成可直接用于上架和营销的内容包。\n"
+            "必须输出 JSON，不要 Markdown，不要解释。JSON 字段必须包含 commercePositioning、listingTitle、bulletPoints、"
+            "detailDescription、adShortCopy、keywordPack、imageBriefs、channelUsageGuide、styleGuardrails、modelNotes。\n"
+            "listingTitle/detailDescription 使用 {\"en-US\": string, \"zh-CN\": string}；bulletPoints/adShortCopy 使用双语数组。"
+            "imageBriefs 要说明每张配图服务哪类文案和使用场景。\n"
+            f"输入上下文：{json.dumps(context_payload, ensure_ascii=False)}"
+        )
+
+    def _call_openai_copy_model(self, *, settings: Any, context_payload: dict[str, Any], image_url: str) -> dict[str, Any]:
+        content: list[dict[str, Any]] = [
+            {"type": "input_text", "text": json.dumps(context_payload, ensure_ascii=False)}
+        ]
+        if image_url:
+            content.append({"type": "input_image", "image_url": image_url})
+        request_payload = {
+            "model": settings.business_agent_planner_model,
+            "instructions": (
+                "You are PODI's ecommerce copy strategist for POD merchants. Generate a practical, non-mechanical "
+                "content package for listing and marketing. Use images as visual evidence when provided. Distinguish "
+                "source facts from inference. Return only JSON matching the schema."
+            ),
+            "input": [{"role": "user", "content": content}],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "podi_product_commerce_content_package",
+                    "strict": True,
+                    "schema": COPY_MODEL_JSON_SCHEMA,
+                }
+            },
+            "store": False,
+        }
+        base_url = str(settings.business_agent_openai_base_url or "https://api.openai.com").rstrip("/")
+        with httpx.Client(timeout=float(settings.business_agent_planner_timeout_seconds or 30)) as client:
+            response = client.post(
+                f"{base_url}/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {settings.business_agent_openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=request_payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+        return {
+            "content": self._parse_model_json_text(self._extract_openai_output_text(data)),
+            "responseId": data.get("id"),
+            "usage": data.get("usage"),
+        }
+
+    def _normalize_model_content_package(
+        self,
+        raw: dict[str, Any],
+        *,
+        template_package: dict[str, Any],
+    ) -> dict[str, Any]:
+        template_copy = template_package.get("copyPackage") if isinstance(template_package.get("copyPackage"), dict) else {}
+        return {
+            "commercePositioning": self._normalize_positioning(
+                raw.get("commercePositioning"),
+                fallback=template_package.get("commercePositioning") if isinstance(template_package.get("commercePositioning"), dict) else {},
+            ),
+            "copyPackage": {
+                "listingTitle": self._normalize_bilingual_text(raw.get("listingTitle"), template_copy.get("listingTitle")),
+                "bulletPoints": self._normalize_bilingual_list(raw.get("bulletPoints"), template_copy.get("bulletPoints"), min_items=5),
+                "detailDescription": self._normalize_bilingual_text(raw.get("detailDescription"), template_copy.get("detailDescription")),
+                "adShortCopy": self._normalize_bilingual_list(raw.get("adShortCopy"), template_copy.get("adShortCopy"), min_items=3),
+                "keywordPack": self._normalize_string_list(raw.get("keywordPack"), template_copy.get("keywordPack"), min_items=6),
+                "styleGuardrails": self._normalize_string_list(
+                    raw.get("styleGuardrails"),
+                    template_package.get("styleGuardrails"),
+                    min_items=2,
+                ),
+                "sourcePrompt": template_copy.get("sourcePrompt"),
+            },
+            "imageBriefs": self._normalize_image_briefs(raw.get("imageBriefs"), template_package.get("imageBriefs")),
+            "channelUsageGuide": self._normalize_channel_usage(raw.get("channelUsageGuide"), template_package.get("channelUsageGuide")),
+            "styleGuardrails": self._normalize_string_list(raw.get("styleGuardrails"), template_package.get("styleGuardrails"), min_items=2),
+            "modelNotes": self._normalize_string_list(raw.get("modelNotes"), ["Model generated package; review facts before publishing."], min_items=1),
+        }
+
+    def _select_copy_package(
+        self,
+        *,
+        full_package: dict[str, Any],
+        scenarios: list[str],
+        output_language: str,
+        market_region: str,
+        extra_prompt: Any,
+    ) -> dict[str, Any]:
+        full_copy = full_package.get("copyPackage") if isinstance(full_package.get("copyPackage"), dict) else {}
+        result: dict[str, Any] = {
+            "marketRegion": market_region,
+            "styleGuardrails": full_package.get("styleGuardrails") or full_copy.get("styleGuardrails") or [],
+            "sourcePrompt": _clean_text(extra_prompt) or None,
+        }
+        if "listing_title" in scenarios:
+            result["listingTitle"] = self._pick_language(full_copy.get("listingTitle"), output_language)
+        if "bullet_points" in scenarios:
+            result["bulletPoints"] = self._pick_language(full_copy.get("bulletPoints"), output_language)
+        if "detail_description" in scenarios:
+            result["detailDescription"] = self._pick_language(full_copy.get("detailDescription"), output_language)
+        if "ad_short_copy" in scenarios:
+            result["adShortCopy"] = self._pick_language(full_copy.get("adShortCopy"), output_language)
+        if "keyword_pack" in scenarios:
+            result["keywordPack"] = full_copy.get("keywordPack") or []
+        return result
+
+    def _pick_language(self, value: Any, output_language: str) -> Any:
+        if not isinstance(value, dict):
+            return value
+        if output_language == "bilingual":
+            return {"en-US": value.get("en-US"), "zh-CN": value.get("zh-CN")}
+        return value.get(output_language) or value.get("en-US") or value.get("zh-CN")
+
+    def _normalize_positioning(self, value: Any, *, fallback: dict[str, Any]) -> dict[str, Any]:
+        raw = value if isinstance(value, dict) else {}
+        return {
+            "coreAngle": _clean_text(raw.get("coreAngle")) or _clean_text(fallback.get("coreAngle")) or "POD ecommerce content angle.",
+            "targetCustomers": self._normalize_string_list(raw.get("targetCustomers"), fallback.get("targetCustomers"), min_items=2),
+            "purchaseOccasions": self._normalize_string_list(raw.get("purchaseOccasions"), fallback.get("purchaseOccasions"), min_items=2),
+            "sellingPoints": self._normalize_string_list(raw.get("sellingPoints"), fallback.get("sellingPoints"), min_items=3),
+            "factBoundaries": self._normalize_string_list(raw.get("factBoundaries"), fallback.get("factBoundaries"), min_items=2),
+        }
+
+    def _normalize_bilingual_text(self, value: Any, fallback: Any) -> dict[str, str]:
+        raw = value if isinstance(value, dict) else {}
+        fallback_map = fallback if isinstance(fallback, dict) else {}
+        if isinstance(fallback, str):
+            fallback_map = {"en-US": fallback, "zh-CN": fallback}
+        en = _clean_text(raw.get("en-US")) or _clean_text(fallback_map.get("en-US")) or "POD ecommerce listing draft"
+        zh = _clean_text(raw.get("zh-CN")) or _clean_text(fallback_map.get("zh-CN")) or en
+        return {"en-US": en, "zh-CN": zh}
+
+    def _normalize_bilingual_list(self, value: Any, fallback: Any, *, min_items: int) -> dict[str, list[str]]:
+        raw = value if isinstance(value, dict) else {}
+        fallback_map = fallback if isinstance(fallback, dict) else {}
+        en = self._normalize_string_list(raw.get("en-US"), fallback_map.get("en-US") if isinstance(fallback_map, dict) else fallback, min_items=min_items)
+        zh = self._normalize_string_list(raw.get("zh-CN"), fallback_map.get("zh-CN") if isinstance(fallback_map, dict) else fallback, min_items=min_items)
+        return {"en-US": en[:8], "zh-CN": zh[:8]}
+
+    def _normalize_string_list(self, value: Any, fallback: Any = None, *, min_items: int = 1) -> list[str]:
+        items = _normalize_list(value)
+        if len(items) < min_items:
+            items.extend(item for item in _normalize_list(fallback) if item not in items)
+        while len(items) < min_items:
+            items.append("Review and refine this item before publishing.")
+        return items[:20]
+
+    def _normalize_image_briefs(self, value: Any, fallback: Any) -> list[dict[str, Any]]:
+        raw_items = value if isinstance(value, list) else []
+        fallback_items = fallback if isinstance(fallback, list) else []
+        items: list[dict[str, Any]] = []
+        for index, raw in enumerate(raw_items[:6]):
+            if not isinstance(raw, dict):
+                continue
+            items.append(
+                {
+                    "id": _clean_text(raw.get("id")) or f"image-brief-{index + 1}",
+                    "label": _clean_text(raw.get("label")) or "配图建议",
+                    "usage": _clean_text(raw.get("usage")) or "Ecommerce visual asset",
+                    "linkedCopy": self._normalize_string_list(raw.get("linkedCopy"), ["listingTitle"], min_items=1)[:6],
+                    "prompt": _clean_text(raw.get("prompt")) or "Create a clean ecommerce product visual.",
+                    "riskNotes": self._normalize_string_list(raw.get("riskNotes"), ["Keep product facts consistent."], min_items=1)[:5],
+                }
+            )
+        if len(items) < 3:
+            items.extend(item for item in fallback_items if isinstance(item, dict))
+        return items[:6]
+
+    def _normalize_channel_usage(self, value: Any, fallback: Any) -> list[dict[str, Any]]:
+        raw_items = value if isinstance(value, list) else []
+        fallback_items = fallback if isinstance(fallback, list) else []
+        items: list[dict[str, Any]] = []
+        for index, raw in enumerate(raw_items[:6]):
+            if not isinstance(raw, dict):
+                continue
+            items.append(
+                {
+                    "channel": _clean_text(raw.get("channel")) or f"Channel {index + 1}",
+                    "howToUse": _clean_text(raw.get("howToUse")) or "Use the generated copy and visual together.",
+                    "assets": self._normalize_string_list(raw.get("assets"), ["listingTitle"], min_items=1)[:8],
+                }
+            )
+        if len(items) < 2:
+            items.extend(item for item in fallback_items if isinstance(item, dict))
+        return items[:6]
+
+    def _extract_openai_output_text(self, data: dict[str, Any]) -> str:
+        direct = data.get("output_text")
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
+        for item in data.get("output") or []:
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            for content in item.get("content") or []:
+                if not isinstance(content, dict):
+                    continue
+                text = content.get("text") or content.get("output_text")
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+        raise RuntimeError("PRODUCT_COPY_MODEL_EMPTY_RESPONSE")
+
+    def _parse_model_json_text(self, text: str) -> dict[str, Any]:
+        cleaned = _clean_text(text)
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start < 0 or end <= start:
+                raise
+            parsed = json.loads(cleaned[start : end + 1])
+        if not isinstance(parsed, dict):
+            raise RuntimeError("PRODUCT_COPY_MODEL_JSON_NOT_OBJECT")
+        return parsed
+
     def _build_copy_package(
         self,
         *,
@@ -849,6 +1408,7 @@ class ProductCommercializationService:
         self,
         *,
         product_card: dict[str, Any],
+        content_package: dict[str, Any] | None = None,
         visual_mode: str,
         output_language: str,
         product_image_url: Any,
@@ -856,6 +1416,9 @@ class ProductCommercializationService:
         facts = {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
         name = _english_product_name(facts) if output_language != "zh-CN" else _zh_product_name(facts)
         has_image = bool(_clean_text(product_image_url))
+        model_briefs = []
+        if isinstance(content_package, dict) and isinstance(content_package.get("imageBriefs"), list):
+            model_briefs = content_package.get("imageBriefs") or []
         scenes = [
             {
                 "id": "listing-main",
@@ -879,11 +1442,21 @@ class ProductCommercializationService:
                 "generateByDefault": False,
             },
         ]
+        scene_by_id = {scene["id"]: scene for scene in scenes}
+        for brief in model_briefs:
+            if not isinstance(brief, dict):
+                continue
+            brief_id = _clean_text(brief.get("id"))
+            if brief_id in scene_by_id:
+                scene_by_id[brief_id]["modelBrief"] = brief
+                scene_by_id[brief_id]["recommendation"] = _clean_text(brief.get("usage")) or scene_by_id[brief_id]["recommendation"]
+                scene_by_id[brief_id]["prompt"] = _clean_text(brief.get("prompt")) or None
         return {
             "mode": visual_mode,
             "hasProductImage": has_image,
             "primaryAssetRole": "product_image" if has_image else "missing_product_image",
             "recommendedScenes": scenes if visual_mode != "none" else [],
+            "modelImageBriefs": model_briefs if visual_mode != "none" else [],
             "generatedAssets": [],
             "generationPolicy": {
                 "requiresExplicitAction": True,

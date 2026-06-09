@@ -435,6 +435,23 @@ class ProductCommercializationRequest(BaseModel):
         description="输出语言：en-US / zh-CN / bilingual",
     )
     marketRegion: str = Field(default="US", alias="market_region", description="目标市场：US / UK / EU / global")
+    commercePlatform: str | None = Field(
+        default=None,
+        alias="commerce_platform",
+        description="目标电商平台/渠道，例如 Amazon、Shopify、Etsy、TikTok Shop、独立站等",
+    )
+    copyTone: str | None = Field(
+        default=None,
+        alias="copy_tone",
+        description="文案语气，例如 natural_professional / warm_gift / premium / playful / concise",
+    )
+    targetAudience: str | None = Field(default=None, alias="target_audience", description="目标人群")
+    sellingAngle: str | None = Field(default=None, alias="selling_angle", description="本轮主打卖点或营销角度")
+    forbiddenClaims: list[str] | str | None = Field(
+        default=None,
+        alias="forbidden_claims",
+        description="禁止或谨慎使用的宣传点，例如环保、医疗、认证、品牌词等",
+    )
     copyScenarios: list[str] | None = Field(
         default=None,
         alias="copy_scenarios",
@@ -485,6 +502,8 @@ class ProductCommercializationPreviewResponse(BaseModel):
     copyScenarios: list[str] = Field(alias="copy_scenarios")
     productCard: dict[str, Any] = Field(alias="product_card")
     copyPackage: dict[str, Any] = Field(alias="copy_package")
+    contentPackage: dict[str, Any] | None = Field(default=None, alias="content_package")
+    copyGeneration: dict[str, Any] | None = Field(default=None, alias="copy_generation")
     visualAssetPlan: dict[str, Any] = Field(alias="visual_asset_plan")
     videoPlan: dict[str, Any] = Field(alias="video_plan")
     review: dict[str, Any]

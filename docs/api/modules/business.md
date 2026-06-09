@@ -48,7 +48,7 @@
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
-| 产品商业化 | `POST /api/business/product-commercialization/preview`；视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 预览无强制必填；视频执行必填 `productImageUrl` | `productFields`、`outputLanguage`、`marketRegion`、`copyScenarios`、`visualSupportMode`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio` | 预览返回 `copyPackage`、`visualAssetPlan`、`videoPlan`；视频执行返回 `runId`，终态查询返回 `videoUrls/resultPayload.videoResult` | 产品设计后的商业化内容包：生成海外上架文案、配图建议、视频分镜和审核提示。预览不触发图片/视频成本动作；视频执行统一走业务任务模型。当前 MVP 以 8 秒视频片段为基本生成单元；目标成片超过 8 秒时自动多段生成并合成。 |
+| 产品商业化 | 文案预览 `POST /api/business/product-commercialization/preview`；视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 文案预览建议传 `productImageUrl/productFields`；视频执行必填 `productImageUrl` | 文案：`productFields`、`outputLanguage`、`marketRegion`、`commercePlatform`、`copyTone`、`targetAudience`、`sellingAngle`、`forbiddenClaims`、`copyScenarios`、`visualSupportMode`；视频：`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId` | 文案预览返回 `copyGeneration`、`contentPackage`、`copyPackage`、`visualAssetPlan`；视频执行返回 `runId`，终态查询返回 `videoUrls/resultPayload.videoResult` | 产品设计后的商业化能力拆为两个心智：产品文案内容包和产品视频。文案必须优先走大模型/VL 生成结构化电商内容包；模板兜底只用于排障，不能作为验收通过。配图/视频都是显式后续动作。 |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
@@ -1526,13 +1526,15 @@ X-PODI-API-Key: podi_xxx
 
 业务名：产品商业化。业务标识固定为 `product_commercialization`，当前 MVP 版本为 `product-commercialization-mvp-v1`。
 
-它是产品设计之后的能力，不负责花纹提取、裂变或产品设计本身。第一版输出“商品商业化内容包”：产品理解卡、文案包、配图计划、视频分镜、审核提示。预览接口不会隐式生成图片或视频；任何图片/视频生成都必须走显式执行动作并保留成本、任务和 OSS 证据。
+它是产品设计之后的能力，不负责花纹提取、裂变或产品设计本身。当前按业务心智拆成两个入口：**产品文案内容包** 和 **产品视频生成**。文案入口的核心目标是基于商品图、产品导出字段、目标平台、语气、人群、卖点角度和禁用声明，由大模型/VL 生成自然、不机械的海外电商内容包；视频入口是文案/商品理解之后的后续商业化能力。两者可以联动，但不能把文案能力做成视频生成，也不能把视频模型当作文案验收证据。
+
+第一版文案输出“商品商业化内容包”：产品理解卡、模型生成证据、文案包、配图 brief、渠道使用建议和审核提示。预览接口不会隐式生成图片或视频；任何图片/视频生成都必须走显式执行动作并保留成本、任务和 OSS 证据。`copyGeneration.method=template_fallback` 只表示模型不可用时的排障兜底，不得作为文案能力验收通过。
 
 当前测评端配图生成的最小安全实现是：先调用 `preview` 得到文案和配图计划，再由用户显式点击配图生成按钮，前端提交 `POST /api/business/product-design/runs`，用返回的 `runId` 轮询 `/api/business/runs/get`，最终展示自有 OSS 图片。也就是说，`visualSupportMode=generate` 不等于预览接口自动生图，它只表示“本次计划允许后续显式生成配图”。
 
 统一任务口径：
 
-- 规划/预览：`POST /api/business/product-commercialization/preview`，同步返回文案、配图建议、分镜和风险，不扣视频成本。
+- 文案预览：`POST /api/business/product-commercialization/preview`，同步返回大模型/VL 文案内容包、配图建议和风险；模型不可用时会返回 `template_fallback` 证据。
 - 执行视频：`POST /api/business/product-commercialization/runs`，立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。
 - 执行配图：当前测评端复用 `POST /api/business/product-design/runs`，立即返回 `runId`，再通过 `/api/business/runs/get` 查询 `imageUrls`。后续若独立出 `product_image_set`，仍沿用同一 runId 查询口径。
 - 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。视频成功标准是查询到 `status=succeeded` 且 `videoUrls` 非空；配图成功标准是查询到 `status=succeeded` 且 `imageUrls` 非空；失败原因看 `errorMessage/errorCode`。
@@ -1542,6 +1544,8 @@ X-PODI-API-Key: podi_xxx
 ### POST /api/business/product-commercialization/preview
 
 用途：生成产品理解、海外文案、配图建议和视频分镜。缺少部分产品字段不会阻塞，系统会在 `productCard.missingFields` 和 `productCard.inferredFacts` 中标记。
+
+验收口径：文案能力必须优先返回 `copyGeneration.method=openai_responses` 或 `volcengine_chat` 等模型生成证据，并返回 `contentPackage`。如果返回 `template_fallback`，说明大模型/VL 未实际参与，只能作为接口可用性排障结果，不能判定文案能力通过。
 
 最小请求：
 
@@ -1559,6 +1563,11 @@ X-PODI-API-Key: podi_xxx
   },
   "outputLanguage": "en-US",
   "marketRegion": "US",
+  "commercePlatform": "amazon_marketplace",
+  "copyTone": "warm_gift",
+  "targetAudience": "海外电商买家，偏礼品和日常穿搭场景",
+  "sellingAngle": "giftable_moment",
+  "forbiddenClaims": ["环保认证", "医疗功效", "品牌词", "物流时效承诺"],
   "copyScenarios": ["listing_title", "bullet_points", "detail_description", "ad_short_copy", "keyword_pack"],
   "visualSupportMode": "recommendation",
   "videoScenario": "product_showcase_short",
@@ -1579,6 +1588,11 @@ X-PODI-API-Key: podi_xxx
 | `extraPrompt` | 否 | 空 | 业务方额外要求，例如“偏节日礼品场景，避免夸张承诺”。 |
 | `outputLanguage` | 否 | `en-US` | `en-US/zh-CN/bilingual`。POD 海外销售默认建议 `en-US`；`bilingual` 返回中英双语结构。 |
 | `marketRegion` | 否 | `US` | `US/UK/EU/global`，用于影响措辞和审核提示。 |
+| `commercePlatform` | 否 | `marketplace` | 目标平台/渠道，例如 `amazon_marketplace`、`shopify_independent_site`、`etsy_gift`、`tiktok_shop_social`、`global_marketplace`；用于控制标题长度、语气和渠道建议。 |
+| `copyTone` | 否 | `natural_professional` | 文案语气，例如 `natural_professional`、`warm_gift`、`premium`、`playful_social`、`concise_conversion`。 |
+| `targetAudience` | 否 | 通用买家 | 目标人群，例如“海外礼品买家”“季节上新受众”“日常穿搭人群”。 |
+| `sellingAngle` | 否 | 商品卖点和礼品场景 | 本轮主打角度，例如 `everyday_utility`、`giftable_moment`、`material_comfort`、`pattern_design`、`seasonal_collection`。 |
+| `forbiddenClaims` | 否 | 空 | 禁用或谨慎使用的声明，支持字符串或数组，例如环保认证、医疗功效、品牌词、物流时效承诺。 |
 | `copyScenarios` | 否 | 全部 | `listing_title/bullet_points/detail_description/ad_short_copy/keyword_pack`。 |
 | `visualSupportMode` | 否 | `recommendation` | `none/recommendation/generate`。`generate` 只表示允许后续显式生成配图，预览接口不自动生图。 |
 | `videoScenario` | 否 | `product_showcase_short` | `product_showcase_short/social_ad_short/detail_explainer`。 |
@@ -1616,6 +1630,39 @@ X-PODI-API-Key: podi_xxx
     "detailDescription": "...",
     "adShortCopy": ["..."],
     "keywordPack": ["Women's knitted woolen socks", "穿搭配件", "POD"]
+  },
+  "copyGeneration": {
+    "method": "volcengine_chat",
+    "provider": "volcengine",
+    "model": "doubao-seed-1-6",
+    "fallback": false,
+    "evidence": "Volcengine VL chat generated structured ecommerce content package."
+  },
+  "contentPackage": {
+    "commercePositioning": {
+      "coreAngle": "Gift-ready patterned socks for overseas ecommerce buyers.",
+      "targetCustomers": ["gift shoppers", "daily outfit buyers"],
+      "purchaseOccasions": ["birthday gifting", "seasonal collection"],
+      "sellingPoints": ["original pattern", "soft material", "POD-ready listing"],
+      "factBoundaries": ["Do not claim certification", "Do not invent shipping speed"]
+    },
+    "imageBriefs": [
+      {
+        "id": "social-ad-cover",
+        "label": "社媒广告封面",
+        "usage": "搭配广告短文案使用",
+        "linkedCopy": ["adShortCopy"],
+        "prompt": "Create a clean lifestyle ad cover using the product image as factual reference.",
+        "riskNotes": ["No embedded text or unsupported claims."]
+      }
+    ],
+    "channelUsageGuide": [
+      {
+        "channel": "Amazon",
+        "howToUse": "Use listing title, bullet points and listing-main visual together.",
+        "assets": ["listingTitle", "bulletPoints", "listing-main"]
+      }
+    ]
   },
   "visualAssetPlan": {
     "mode": "recommendation",

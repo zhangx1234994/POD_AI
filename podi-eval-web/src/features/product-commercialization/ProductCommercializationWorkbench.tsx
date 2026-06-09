@@ -49,6 +49,30 @@ const COPY_SCENARIOS = [
   { key: 'keyword_pack', label: '关键词包', desc: 'SEO keywords' },
 ];
 
+const COMMERCE_PLATFORM_OPTIONS = [
+  { label: 'Amazon / marketplace', value: 'amazon_marketplace' },
+  { label: 'Shopify 独立站', value: 'shopify_independent_site' },
+  { label: 'Etsy 手作礼品', value: 'etsy_gift' },
+  { label: 'TikTok Shop / 社媒', value: 'tiktok_shop_social' },
+  { label: '通用海外电商', value: 'global_marketplace' },
+];
+
+const COPY_TONE_OPTIONS = [
+  { label: '自然专业', value: 'natural_professional' },
+  { label: '温暖礼品', value: 'warm_gift' },
+  { label: '高级质感', value: 'premium' },
+  { label: '活泼社媒', value: 'playful_social' },
+  { label: '简洁转化', value: 'concise_conversion' },
+];
+
+const SELLING_ANGLE_OPTIONS = [
+  { label: '日常实用', value: 'everyday_utility' },
+  { label: '礼品场景', value: 'giftable_moment' },
+  { label: '材质舒适', value: 'material_comfort' },
+  { label: '图案设计', value: 'pattern_design' },
+  { label: '季节上新', value: 'seasonal_collection' },
+];
+
 const VIDEO_SCENARIOS = [
   { key: 'product_showcase_short', label: '商品展示短视频', desc: '展示主体、材质和轮廓' },
   { key: 'social_ad_short', label: '社媒广告短视频', desc: '开头更吸睛，节奏更快' },
@@ -114,14 +138,14 @@ const MODE_META: Record<
 > = {
   copy: {
     title: '产品文案内容包',
-    subtitle: '产品设计完成后，生成上架文案、配图、关键词和审核提示。',
-    inputHint: '可以乱填测试；系统会标记缺失、推断和低置信字段。',
-    outputHint: '预览不扣图片/视频成本；配图必须点击生成。',
-    emptyText: '先生成一次内容包，再按需要生成配图并下载图文包。',
+    subtitle: '产品设计完成后，用大模型/VL 生成海外上架、详情页、广告和关键词内容。',
+    inputHint: '产品图和字段是事实锚点；平台、语气、人群和卖点决定文案风格。',
+    outputHint: '必须看到模型生成证据；模板兜底只能排障，不能作为验收通过。',
+    emptyText: '先生成一次大模型文案包，再按需要显式生成配图。',
     previewButton: '生成文案内容包',
     tags: [
-      { label: '上架文案', theme: 'primary' },
-      { label: '显式配图', theme: 'success' },
+      { label: 'LLM / VL', theme: 'primary' },
+      { label: '电商文案', theme: 'success' },
       { label: '多语言', theme: 'warning' },
     ],
   },
@@ -217,6 +241,25 @@ function formatCopyValue(value: unknown): string {
   return String(value ?? '');
 }
 
+function splitLines(value: string): string[] {
+  return value
+    .split(/[\n,，;；|]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function copyGenerationLabel(method: unknown): string {
+  const value = String(method || '').trim();
+  if (value === 'openai_responses') return 'OpenAI Responses';
+  if (value === 'volcengine_chat') return '火山 VL Chat';
+  if (value === 'template_fallback') return '模板兜底';
+  return value || '未知';
+}
+
+function themeForGeneration(method: unknown): 'success' | 'warning' | 'danger' {
+  return String(method || '') === 'template_fallback' ? 'danger' : 'success';
+}
+
 function getVideoUrls(result: ProductCommercializationResponse | null): string[] {
   const videoResult = result?.videoResult;
   if (!videoResult || typeof videoResult !== 'object') return [];
@@ -269,6 +312,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const [extraPrompt, setExtraPrompt] = useState('');
   const [outputLanguage, setOutputLanguage] = useState<'en-US' | 'zh-CN' | 'bilingual'>('en-US');
   const [marketRegion, setMarketRegion] = useState<'US' | 'UK' | 'EU' | 'global'>('US');
+  const [commercePlatform, setCommercePlatform] = useState('amazon_marketplace');
+  const [copyTone, setCopyTone] = useState('natural_professional');
+  const [targetAudience, setTargetAudience] = useState('海外电商买家，偏礼品和日常穿搭场景');
+  const [sellingAngle, setSellingAngle] = useState('giftable_moment');
+  const [forbiddenClaims, setForbiddenClaims] = useState('环保认证, 医疗功效, 品牌词, 物流时效承诺');
   const [visualSupportMode, setVisualSupportMode] = useState<'none' | 'recommendation' | 'generate'>('generate');
   const [videoScenario, setVideoScenario] = useState<'product_showcase_short' | 'social_ad_short' | 'detail_explainer'>('product_showcase_short');
   const [videoProvider, setVideoProvider] = useState<VideoProvider>('vidu_viduq3_turbo');
@@ -313,6 +361,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       extraPrompt: extraPrompt.trim() || undefined,
       outputLanguage,
       marketRegion,
+      commercePlatform,
+      copyTone,
+      targetAudience: targetAudience.trim() || undefined,
+      sellingAngle,
+      forbiddenClaims: splitLines(forbiddenClaims),
       copyScenarios,
       visualSupportMode,
       videoScenario,
@@ -436,10 +489,18 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     });
   };
 
+  const findModelImageBrief = (sceneId: string): Record<string, unknown> | null => {
+    const briefs = asArray(asRecord(result?.contentPackage).imageBriefs).map((item) => asRecord(item));
+    return briefs.find((item) => String(item.id || '').trim() === sceneId) || null;
+  };
+
   const buildVisualDesignBrief = (scene: (typeof VISUAL_SCENES)[number]): string => {
     const copyPackage = asRecord(result?.copyPackage);
     const adCopy = formatCopyValue(copyPackage.adShortCopy).split('\n').slice(0, 2).join('；');
+    const modelBrief = findModelImageBrief(scene.id);
+    const modelPrompt = String(modelBrief?.prompt || '').trim();
     return [
+      modelPrompt ? `大模型配图规划：${modelPrompt}` : '',
       `基于当前产品图生成一张${scene.label}。`,
       `商品：${productSummary.name}；分类：${productSummary.category}；材质：${productSummary.material}。`,
       `用途：${scene.desc}，目标市场：${marketRegion}。`,
@@ -533,6 +594,8 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
 <h1>PODI 产品商业化内容包</h1>
 <section><h2>产品图</h2>${productImageUrl ? `<img src="${escapeHtml(productImageUrl)}" alt="产品图">` : '<p>未提供产品图</p>'}</section>
 <section><h2>产品字段</h2><pre>${escapeHtml(prettyJson(parsedFields || {}))}</pre></section>
+<section><h2>模型生成证据</h2><pre>${escapeHtml(prettyJson(result.copyGeneration || {}))}</pre></section>
+<section><h2>商家内容策略</h2><pre>${escapeHtml(prettyJson(result.contentPackage || {}))}</pre></section>
 <section><h2>文案包</h2>${Object.entries(copyPackage)
       .map(([key, value]) => `<h3>${escapeHtml(COPY_OUTPUT_LABELS[key] || key)}</h3><pre>${escapeHtml(formatCopyValue(value))}</pre>`)
       .join('\n')}</section>
@@ -554,6 +617,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   };
 
   const copyPackage = asRecord(result?.copyPackage);
+  const contentPackage = asRecord(result?.contentPackage);
+  const copyGeneration = asRecord(result?.copyGeneration);
+  const commercePositioning = asRecord(contentPackage.commercePositioning);
+  const modelImageBriefs = asArray(contentPackage.imageBriefs).map((item) => asRecord(item));
+  const channelUsageGuide = asArray(contentPackage.channelUsageGuide).map((item) => asRecord(item));
   const productCard = asRecord(result?.productCard);
   const visualAssetPlan = asRecord(result?.visualAssetPlan);
   const videoPlan = asRecord(result?.videoPlan);
@@ -582,7 +650,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
 
       <Alert
         theme="warning"
-        message="当前是测评入口：预览不扣图片/视频成本；生成配图和生成视频都必须显式点击，并通过中台业务 runId 查询结果。"
+        message={
+          isVideoMode
+            ? '当前是测评入口：视频规划不扣成本；生成视频必须显式点击，并通过中台业务 runId 查询结果。'
+            : '当前是测评入口：文案包应由大模型/VL 生成；模板兜底只用于排障，生成配图必须显式点击。'
+        }
       />
       {error ? <Alert theme="error" message={error} /> : null}
       {videoRun ? (
@@ -685,16 +757,36 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                 ]}
               />
               {!isVideoMode ? (
-                <Select
-                  label="配图"
-                  value={visualSupportMode}
-                  onChange={(v) => setVisualSupportMode(String(v) as any)}
-                  options={[
-                    { label: '生成配图', value: 'generate' },
-                    { label: '只给建议', value: 'recommendation' },
-                    { label: '不配图', value: 'none' },
-                  ]}
-                />
+                <>
+                  <Select
+                    label="平台"
+                    value={commercePlatform}
+                    onChange={(v) => setCommercePlatform(String(v))}
+                    options={COMMERCE_PLATFORM_OPTIONS}
+                  />
+                  <Select
+                    label="语气"
+                    value={copyTone}
+                    onChange={(v) => setCopyTone(String(v))}
+                    options={COPY_TONE_OPTIONS}
+                  />
+                  <Select
+                    label="主打角度"
+                    value={sellingAngle}
+                    onChange={(v) => setSellingAngle(String(v))}
+                    options={SELLING_ANGLE_OPTIONS}
+                  />
+                  <Select
+                    label="配图"
+                    value={visualSupportMode}
+                    onChange={(v) => setVisualSupportMode(String(v) as any)}
+                    options={[
+                      { label: '生成配图', value: 'generate' },
+                      { label: '只给建议', value: 'recommendation' },
+                      { label: '不配图', value: 'none' },
+                    ]}
+                  />
+                </>
               ) : (
                 <>
                   <Select
@@ -721,22 +813,41 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
             </div>
 
             {!isVideoMode ? (
-              <div className="podi-field-stack">
-                <Typography.Text>文案应用场景</Typography.Text>
-                <div className="podi-product-commercialization__chips" aria-label="文案场景">
-                  {COPY_SCENARIOS.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      className={copyScenarios.includes(item.key) ? 'is-active' : ''}
-                      onClick={() => toggleScenario(item.key)}
-                    >
-                      <strong>{item.label}</strong>
-                      <small>{item.desc}</small>
-                    </button>
-                  ))}
+              <>
+                <div className="podi-product-commercialization__strategy">
+                  <Input
+                    label="目标人群"
+                    value={targetAudience}
+                    onChange={(v) => setTargetAudience(String(v))}
+                    placeholder="例如：美国礼品买家、日常穿搭人群、季节上新受众"
+                  />
+                  <div className="podi-field-stack">
+                    <Typography.Text>禁用声明</Typography.Text>
+                    <Textarea
+                      value={forbiddenClaims}
+                      onChange={(v) => setForbiddenClaims(String(v))}
+                      placeholder="用逗号或换行分隔，例如：医疗功效、环保认证、品牌词、物流时效承诺"
+                      autosize={{ minRows: 2, maxRows: 4 }}
+                    />
+                  </div>
                 </div>
-              </div>
+                <div className="podi-field-stack">
+                  <Typography.Text>文案应用场景</Typography.Text>
+                  <div className="podi-product-commercialization__chips" aria-label="文案场景">
+                    {COPY_SCENARIOS.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className={copyScenarios.includes(item.key) ? 'is-active' : ''}
+                        onClick={() => toggleScenario(item.key)}
+                      >
+                        <strong>{item.label}</strong>
+                        <small>{item.desc}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : (
               <div className="podi-field-stack">
                 <Typography.Text>视频应用场景</Typography.Text>
@@ -845,6 +956,46 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
               {!isVideoMode ? (
                 <>
                   <section className="podi-result-section">
+                    <div className="podi-product-commercialization__panel-head">
+                      <Typography.Text strong>模型生成证据</Typography.Text>
+                      <Tag theme={themeForGeneration(copyGeneration.method)} variant="light">
+                        {copyGenerationLabel(copyGeneration.method)}
+                      </Tag>
+                    </div>
+                    <div className="podi-product-commercialization__facts">
+                      <span>provider {String(copyGeneration.provider || '-')}</span>
+                      <span>model {String(copyGeneration.model || '-')}</span>
+                      <span>fallback {String(copyGeneration.fallback ?? '-')}</span>
+                    </div>
+                    {String(copyGeneration.method || '') === 'template_fallback' ? (
+                      <Alert
+                        theme="error"
+                        message="当前是模板兜底，没有通过大模型/VL 生成；只能用于排障，不能作为文案能力验收通过。"
+                      />
+                    ) : (
+                      <Alert theme="success" message={String(copyGeneration.evidence || '已返回结构化电商文案内容包。')} />
+                    )}
+                  </section>
+
+                  <section className="podi-result-section">
+                    <Typography.Text strong>商家内容策略</Typography.Text>
+                    <div className="podi-product-commercialization__strategy-summary">
+                      <div>
+                        <Typography.Text theme="secondary">核心角度</Typography.Text>
+                        <Typography.Text>{String(commercePositioning.coreAngle || '-')}</Typography.Text>
+                      </div>
+                      <div>
+                        <Typography.Text theme="secondary">目标人群</Typography.Text>
+                        <Typography.Text>{formatCopyValue(commercePositioning.targetCustomers || [])}</Typography.Text>
+                      </div>
+                      <div>
+                        <Typography.Text theme="secondary">购买场景</Typography.Text>
+                        <Typography.Text>{formatCopyValue(commercePositioning.purchaseOccasions || [])}</Typography.Text>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="podi-result-section">
                     <Typography.Text strong>文案结果</Typography.Text>
                     <div className="podi-product-commercialization__copy-list">
                       {Object.entries(copyPackage)
@@ -861,21 +1012,35 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   {visualSupportMode !== 'none' ? (
                     <section className="podi-result-section">
                       <div className="podi-product-commercialization__panel-head">
-                        <Typography.Text strong>配图</Typography.Text>
+                        <Typography.Text strong>配图建议与生成</Typography.Text>
                         <Typography.Text theme="secondary">
-                          {visualSupportMode === 'generate' ? '点击后调用产品设计能力生成图片' : '当前只输出配图建议'}
+                          {visualSupportMode === 'generate' ? '建议来自文案模型；点击后调用产品设计能力生成图片' : '当前只输出配图建议'}
                         </Typography.Text>
                       </div>
+                      {modelImageBriefs.length > 0 ? (
+                        <div className="podi-product-commercialization__briefs">
+                          {modelImageBriefs.map((brief, index) => (
+                            <div key={`${brief.id || index}`} className="podi-product-commercialization__brief">
+                              <Typography.Text strong>{String(brief.label || brief.id || `配图 ${index + 1}`)}</Typography.Text>
+                              <Typography.Text theme="secondary">{String(brief.usage || '')}</Typography.Text>
+                              <pre>{String(brief.prompt || '')}</pre>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="podi-product-commercialization__visual-grid">
                         {VISUAL_SCENES.map((scene) => {
                           const visual = generatedVisuals.find((item) => item.id === scene.id);
+                          const modelBrief = modelImageBriefs.find((item) => String(item.id || '').trim() === scene.id);
+                          const label = String(modelBrief?.label || scene.label);
+                          const desc = String(modelBrief?.usage || scene.desc);
                           return (
                             <div key={scene.id} className="podi-product-commercialization__visual-card">
                               <div>
-                                <Typography.Text strong>{scene.label}</Typography.Text>
-                                <Typography.Text theme="secondary">{scene.desc}</Typography.Text>
+                                <Typography.Text strong>{label}</Typography.Text>
+                                <Typography.Text theme="secondary">{desc}</Typography.Text>
                               </div>
-                              {visual?.urls?.[0] ? <img src={visual.urls[0]} alt={scene.label} /> : null}
+                              {visual?.urls?.[0] ? <img src={visual.urls[0]} alt={label} /> : null}
                               {visual ? (
                                 <Typography.Text theme={visual.status === 'failed' ? 'error' : 'secondary'}>
                                   {businessRunStatusLabel(visual.status)} · runId={visual.runId}
@@ -891,11 +1056,26 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                                 disabled={visualSupportMode !== 'generate' || !canRunPaidAction}
                                 onClick={() => void generateVisualScene(scene)}
                               >
-                                生成{scene.label}
+                                生成{label}
                               </Button>
                             </div>
                           );
                         })}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {channelUsageGuide.length > 0 ? (
+                    <section className="podi-result-section">
+                      <Typography.Text strong>渠道使用建议</Typography.Text>
+                      <div className="podi-product-commercialization__channel-list">
+                        {channelUsageGuide.map((item, index) => (
+                          <div key={`${item.channel || index}`}>
+                            <Typography.Text strong>{String(item.channel || `渠道 ${index + 1}`)}</Typography.Text>
+                            <Typography.Text>{String(item.howToUse || '')}</Typography.Text>
+                            <Typography.Text theme="secondary">资产：{formatCopyValue(item.assets || [])}</Typography.Text>
+                          </div>
+                        ))}
                       </div>
                     </section>
                   ) : null}
