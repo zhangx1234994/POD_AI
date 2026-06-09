@@ -6,7 +6,9 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.integration import BusinessRun
 from app.schemas.business import ProductCommercializationRequest
+from app.services.business_runs import BusinessRunService
 from app.services.product_commercialization import ProductCommercializationService
 
 
@@ -416,6 +418,21 @@ def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:
     )
     assert alias_resp.status_code == 200
     assert alias_resp.json()["runId"] == run_id
+
+
+def test_product_commercialization_internal_run_is_not_route_missing() -> None:
+    row = BusinessRun(
+        id="pc-failed-route-check",
+        business_key="product_commercialization",
+        version="product-commercialization-mvp-v1",
+        status="failed",
+        source="business-api",
+        error_message="PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED",
+    )
+    service = BusinessRunService()
+
+    assert service._build_usage_run_issue_summary(row)["category"] == "executor"
+    assert service._build_run_issue_summary(row)["category"] == "executor"
 
 
 def test_business_openapi_exposes_product_commercialization() -> None:

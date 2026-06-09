@@ -6102,6 +6102,12 @@ class BusinessRunService:
         return "billing_pending"
 
     @staticmethod
+    def _business_route_missing(row: BusinessRun) -> bool:
+        if row.business_key == "product_commercialization" and row.version:
+            return False
+        return not row.business_version_id or not row.version
+
+    @staticmethod
     def _business_billing_status_for_usage_summary(row: BusinessRun) -> str:
         status = str(row.status or "").strip().lower()
         if status in {"queued", "running", "pending", "planned"}:
@@ -12763,7 +12769,7 @@ class BusinessRunService:
         elif status == "succeeded" and billing_status == "billable" and row.user_id and not settlement:
             billing_issue = True
             billing_evidence = "任务应计费但未发现套餐或钱包扣减流水"
-        route_missing = not row.business_version_id or not row.version
+        route_missing = self._business_route_missing(row)
         error_text = " ".join(
             str(item or "")
             for item in [
@@ -12827,7 +12833,7 @@ class BusinessRunService:
         )
         billing_status = self._business_billing_status_for_usage_summary(row)
         billing_issue = status == "succeeded" and billing_status == "unpriced"
-        route_missing = not row.business_version_id or not row.version
+        route_missing = self._business_route_missing(row)
         error_text = " ".join(str(item or "") for item in [row.error_message, row.callback_error]).lower()
         parameter_markers = (
             "missing",
