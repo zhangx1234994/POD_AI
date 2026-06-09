@@ -1543,7 +1543,9 @@ X-PODI-API-Key: podi_xxx
 
 ### POST /api/business/product-commercialization/preview
 
-用途：生成产品理解、海外文案、配图建议和视频分镜。缺少部分产品字段不会阻塞，系统会在 `productCard.missingFields` 和 `productCard.inferredFacts` 中标记。
+用途：生成产品理解、海外文案、配图建议和审核提示。缺少部分产品字段不会阻塞，系统会在 `productCard.missingFields` 和 `productCard.inferredFacts` 中标记。
+
+注意：当前 MVP 复用同一个 `product_commercialization` 预览服务，响应里可能包含 `videoPlan` 作为后续进入产品视频能力的联动参考；但**文案入口不生成视频，视频规划也不是文案能力的验收证据**。业务方做文案验收时只看 `copyGeneration/contentPackage/copyPackage/visualAssetPlan/review`，视频执行必须显式调用 `/api/business/product-commercialization/runs` 或后续独立视频入口。
 
 验收口径：文案能力必须优先返回 `copyGeneration.method=openai_responses` 或 `volcengine_chat` 等模型生成证据，并返回 `contentPackage`。如果返回 `template_fallback`，说明大模型/VL 未实际参与，只能作为接口可用性排障结果，不能判定文案能力通过。
 
@@ -1597,7 +1599,7 @@ X-PODI-API-Key: podi_xxx
 | `visualSupportMode` | 否 | `recommendation` | `none/recommendation/generate`。`generate` 只表示允许后续显式生成配图，预览接口不自动生图。 |
 | `videoScenario` | 否 | `product_showcase_short` | `product_showcase_short/social_ad_short/detail_explainer`。 |
 | `durationSeconds` | 否 | `8` | 单段视频执行时长，当前固定 8 秒；传其他值会被接口校验拒绝。 |
-| `targetDurationSeconds` | 否 | `8` | 用户目标成片时长，允许 8-60。`preview` 会为 15 秒这类目标生成多段分镜、裁剪和合成计划；`/video` 只执行 8 秒单段，超过 8 秒应调用 `/video-compose`。 |
+| `targetDurationSeconds` | 否 | `8` | 产品视频目标成片时长，允许 8-60。文案入口可忽略该字段；产品视频预览会为 15 秒这类目标生成多段分镜、裁剪和合成计划；`/video` 只执行 8 秒单段，超过 8 秒应调用 `/video-compose` 或正式异步 runs 入口。 |
 | `aspectRatio` | 否 | `16:9` | 视频画幅。 |
 | `executorId` | 否 | 默认 KIE | 视频供应商执行节点。当前可执行：`executor_kie_market_default`（KIE Veo3.1 Fast）、`executor_vidu_default`（Vidu viduq3-turbo）。 |
 
