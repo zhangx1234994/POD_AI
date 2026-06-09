@@ -343,11 +343,22 @@ def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:
             "videoPlan": {"model": "veo3_fast", "targetDurationSeconds": 8},
             "review": {"score": 90},
             "execution": {"videoGenerated": True, "costActions": ["kie.veo3_fast.video"]},
+            "videoUrls": ["https://tempfile.aiquickdraw.com/v/transient.mp4"],
             "videoResult": {
                 "provider": "kie",
                 "model": "veo3_fast",
                 "status": "succeeded",
                 "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"],
+                "resultUrls": ["https://tempfile.aiquickdraw.com/v/transient.mp4"],
+                "raw": {
+                    "response": {
+                        "data": {
+                            "response": {
+                                "resultUrls": ["https://tempfile.aiquickdraw.com/v/transient.mp4"]
+                            }
+                        }
+                    }
+                },
             },
         }
 

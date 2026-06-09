@@ -3373,9 +3373,7 @@ class BusinessRunService:
             if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
                 urls.append(value.strip())
             elif isinstance(value, dict):
-                for key in ("videoUrls", "video_urls", "resultUrls", "result_urls", "storedAssets", "stored_assets"):
-                    add(value.get(key))
-                for key in ("ossUrl", "storedUrl", "url", "sourceUrl"):
+                for key in ("ossUrl", "storedUrl", "url"):
                     candidate = value.get(key)
                     if isinstance(candidate, str) and candidate.strip().startswith(("http://", "https://")):
                         urls.append(candidate.strip())
@@ -3383,8 +3381,16 @@ class BusinessRunService:
                 for item in value:
                     add(item)
 
-        add(result.get("videoResult") if isinstance(result, dict) else None)
-        add(result.get("videoUrls") if isinstance(result, dict) else None)
+        if isinstance(result, dict):
+            video_result = result.get("videoResult")
+            if isinstance(video_result, dict):
+                add(video_result.get("videoUrls"))
+                add(video_result.get("video_urls"))
+                add(video_result.get("storedAssets"))
+                add(video_result.get("stored_assets"))
+            if not urls:
+                add(result.get("videoUrls"))
+                add(result.get("video_urls"))
         seen: set[str] = set()
         out: list[str] = []
         for url in urls:
