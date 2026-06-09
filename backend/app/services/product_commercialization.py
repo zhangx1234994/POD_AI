@@ -13,6 +13,7 @@ from uuid import uuid4
 import httpx
 from fastapi import HTTPException
 
+from app.core.config import get_settings
 from app.services.integration_test import integration_test_service
 from app.services.media_ingest import media_ingest_service
 
@@ -38,6 +39,7 @@ DEFAULT_COPY_SCENARIOS = [
 VEO_FAST_SEGMENT_SECONDS = 8
 MAX_TARGET_VIDEO_SECONDS = 60
 VIDEO_COMPOSE_TIMEOUT_SECONDS = 300
+VIDEO_SEGMENT_MAX_ATTEMPTS = 2
 
 
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
@@ -271,7 +273,8 @@ class ProductCommercializationService:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
 
         executor_id = _clean_text(getattr(payload, "executorId", None)) or "executor_kie_market_default"
-        poll_timeout = float(getattr(payload, "pollTimeout", None) or 240)
+        default_poll_timeout = max(float(get_settings().kie_task_timeout_seconds), 300.0)
+        poll_timeout = float(getattr(payload, "pollTimeout", None) or default_poll_timeout)
         segment_results: list[dict[str, Any]] = []
         for index, shot in enumerate(storyboard, start=1):
             if not isinstance(shot, dict):
@@ -279,32 +282,26 @@ class ProductCommercializationService:
             prompt = _clean_text(shot.get("prompt") or video_plan.get("videoPrompt"))
             if not prompt:
                 raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
-            try:
-                result = integration_test_service.run_kie_market_task(
-                    executor_id=executor_id,
-                    endpoint="/api/v1/veo/generate",
-                    status_endpoint="/api/v1/veo/record-info",
-                    result_format="veo3",
-                    model="veo3_fast",
-                    input_payload={
-                        "prompt": prompt,
-                        "imageUrls": [image_url],
-                        "aspectRatio": video_plan.get("aspectRatio") or "16:9",
-                        "duration": VEO_FAST_SEGMENT_SECONDS,
-                        "enableTranslation": True,
-                        "enableFallback": False,
-                    },
-                    input_array_target="imageUrls",
-                    poll_timeout=poll_timeout,
-                    poll_interval=2.5,
-                )
-            except HTTPException:
-                raise
-            except Exception as exc:  # pragma: no cover - defensive
-                raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED") from exc
-            video_urls = self._extract_video_urls(result)
+            result, video_urls = self._generate_segment_with_retry(
+                executor_id=executor_id,
+                prompt=prompt,
+                image_url=image_url,
+                aspect_ratio=video_plan.get("aspectRatio") or "16:9",
+                poll_timeout=poll_timeout,
+                segment_index=index,
+            )
             if _clean_text(result.get("status")) != "succeeded" or not video_urls:
-                raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED")
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED",
+                        "segment": index,
+                        "taskId": result.get("taskId"),
+                        "state": result.get("state"),
+                        "status": result.get("status"),
+                        "error": self._summarize_kie_failure(result),
+                    },
+                )
             segment_results.append(
                 {
                     "segment": index,
@@ -357,6 +354,90 @@ class ProductCommercializationService:
                 "note": "Composed video generation is an explicit multi-segment cost action; all segment and final assets are persisted to PODI OSS.",
             },
         }
+
+    def _generate_segment_with_retry(
+        self,
+        *,
+        executor_id: str,
+        prompt: str,
+        image_url: str,
+        aspect_ratio: str,
+        poll_timeout: float,
+        segment_index: int,
+    ) -> tuple[dict[str, Any], list[str]]:
+        last_result: dict[str, Any] = {}
+        last_exception: Exception | None = None
+        for attempt in range(1, VIDEO_SEGMENT_MAX_ATTEMPTS + 1):
+            try:
+                result = integration_test_service.run_kie_market_task(
+                    executor_id=executor_id,
+                    endpoint="/api/v1/veo/generate",
+                    status_endpoint="/api/v1/veo/record-info",
+                    result_format="veo3",
+                    model="veo3_fast",
+                    input_payload={
+                        "prompt": prompt,
+                        "imageUrls": [image_url],
+                        "aspectRatio": aspect_ratio,
+                        "duration": VEO_FAST_SEGMENT_SECONDS,
+                        "enableTranslation": True,
+                        "enableFallback": False,
+                    },
+                    input_array_target="imageUrls",
+                    poll_timeout=poll_timeout,
+                    poll_interval=2.5,
+                )
+            except HTTPException as exc:
+                last_exception = exc
+                if attempt >= VIDEO_SEGMENT_MAX_ATTEMPTS:
+                    raise
+                continue
+            except Exception as exc:  # pragma: no cover - defensive
+                last_exception = exc
+                if attempt >= VIDEO_SEGMENT_MAX_ATTEMPTS:
+                    raise HTTPException(
+                        status_code=502,
+                        detail={
+                            "code": "PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED",
+                            "segment": segment_index,
+                            "attempts": attempt,
+                            "error": str(exc),
+                        },
+                    ) from exc
+                continue
+            last_result = result
+            video_urls = self._extract_video_urls(result)
+            if _clean_text(result.get("status")) == "succeeded" and video_urls:
+                return result, video_urls
+            if attempt >= VIDEO_SEGMENT_MAX_ATTEMPTS:
+                break
+        detail = {
+            "code": "PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED",
+            "segment": segment_index,
+            "attempts": VIDEO_SEGMENT_MAX_ATTEMPTS,
+            "taskId": last_result.get("taskId"),
+            "state": last_result.get("state"),
+            "status": last_result.get("status"),
+            "error": self._summarize_kie_failure(last_result),
+        }
+        if last_exception is not None and not detail["error"]:
+            detail["error"] = str(getattr(last_exception, "detail", last_exception))
+        raise HTTPException(status_code=502, detail=detail)
+
+    def _summarize_kie_failure(self, result: dict[str, Any]) -> dict[str, Any] | str | None:
+        raw = result.get("raw") if isinstance(result, dict) else None
+        response = raw.get("response") if isinstance(raw, dict) else None
+        data = response.get("data") if isinstance(response, dict) else None
+        if isinstance(data, dict):
+            summary = {
+                "errorCode": data.get("errorCode"),
+                "errorMessage": data.get("errorMessage"),
+                "successFlag": data.get("successFlag"),
+            }
+            return {key: value for key, value in summary.items() if value not in (None, "", [])}
+        if isinstance(response, dict):
+            return response.get("msg") or response.get("detail") or None
+        return None
 
     def _extract_video_urls(self, result: dict[str, Any]) -> list[str]:
         raw = result.get("videoUrls") or result.get("resultUrls") or []

@@ -176,6 +176,68 @@ def test_product_commercialization_composed_video_calls_segments_and_compose(mon
     assert result["execution"]["costActions"] == ["kie.veo3_fast.video", "kie.veo3_fast.video", "ffmpeg.compose"]
 
 
+def test_product_commercialization_composed_video_retries_failed_segment(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    captured_calls = []
+
+    def fake_run_kie_market_task(**kwargs):
+        captured_calls.append(kwargs)
+        if len(captured_calls) == 1:
+            return {
+                "status": "failed",
+                "taskId": "veo_segment_failed_once",
+                "state": "fail",
+                "raw": {
+                    "response": {
+                        "data": {
+                            "successFlag": 2,
+                            "errorCode": "KIE_TEMPORARY_FAILURE",
+                            "errorMessage": "temporary upstream generation failure",
+                        }
+                    }
+                },
+            }
+        index = len(captured_calls)
+        return {
+            "status": "succeeded",
+            "taskId": f"veo_segment_{index}",
+            "state": "success",
+            "videoUrls": [f"https://podi.oss-cn-hangzhou.aliyuncs.com/segment-{index}.mp4"],
+            "storedAssets": [{"ossUrl": f"https://podi.oss-cn-hangzhou.aliyuncs.com/segment-{index}.mp4"}],
+        }
+
+    monkeypatch.setattr(
+        "app.services.product_commercialization.integration_test_service",
+        SimpleNamespace(run_kie_market_task=fake_run_kie_market_task),
+    )
+    monkeypatch.setattr(
+        service,
+        "_compose_segment_videos",
+        lambda **kwargs: {
+            "ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/composed.mp4",
+            "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/composed.mp4",
+            "ossKey": "test/composed.mp4",
+            "contentType": "video/mp4",
+            "size": 12345,
+        },
+    )
+
+    result = service.generate_composed_video(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/socks.png",
+            productFields={"productNameEn": "Women's knitted woolen socks"},
+            targetDurationSeconds=15,
+        )
+    )
+
+    assert len(captured_calls) == 3
+    assert "Segment 1 of 2" in captured_calls[0]["input_payload"]["prompt"]
+    assert "Segment 1 of 2" in captured_calls[1]["input_payload"]["prompt"]
+    assert "Segment 2 of 2" in captured_calls[2]["input_payload"]["prompt"]
+    assert captured_calls[0]["poll_timeout"] >= 300
+    assert result["status"] == "succeeded"
+
+
 def test_product_commercialization_video_calls_veo_fast(monkeypatch) -> None:
     service = ProductCommercializationService()
     captured = {}
