@@ -1687,11 +1687,14 @@ X-PODI-API-Key: podi_xxx
 }
 ```
 
+口径说明：`product_commercialization` 当前是中台内置编排任务，不额外暴露一套底层任务表。对外 `taskId` 等同 `runId`，业务方可用 `runId` 或 `taskId` 调用 `/api/business/runs/get` 查询同一条任务数据。
+
 查询：
 
 ```json
 {
   "runId": "c0887c163edc44b1b4408d421ff7f332",
+  "taskId": "c0887c163edc44b1b4408d421ff7f332",
   "status": "succeeded",
   "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4"],
   "resultPayload": {

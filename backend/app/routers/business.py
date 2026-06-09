@@ -191,7 +191,12 @@ def _business_structured_result_payload(full: dict[str, Any], texts: list[Any]) 
 
 
 def _business_run_full_response(run: dict[str, Any]) -> dict[str, Any]:
-    return schemas.BusinessRunRead.model_validate(run).model_dump(mode="json", by_alias=False)
+    result = schemas.BusinessRunRead.model_validate(run).model_dump(mode="json", by_alias=False)
+    business_key = str(result.get("businessKey") or "").strip()
+    run_id = result.get("runId") or result.get("id")
+    if business_key == "product_commercialization" and run_id and not result.get("taskId"):
+        result["taskId"] = run_id
+    return result
 
 
 def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:

@@ -341,6 +341,7 @@ def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:
 
     assert polled is not None
     assert polled["status"] == "succeeded"
+    assert polled["taskId"] == run_id
     assert polled["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"]
     assert polled["resultPayload"]["videoResult"]["videoUrls"] == [
         "https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"
