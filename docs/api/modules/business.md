@@ -48,7 +48,7 @@
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
-| 产品商业化 | `POST /api/business/product-commercialization/preview`；显式视频动作 `POST /api/business/product-commercialization/video` | 预览无强制必填；视频生成必填 `productImageUrl` | `productFields`、`outputLanguage`、`marketRegion`、`copyScenarios`、`visualSupportMode`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio` | `copyPackage`、`visualAssetPlan`、`videoPlan`、可选 `videoResult.videoUrls` | 产品设计后的商业化内容包：生成海外上架文案、配图建议、视频分镜和审核提示。预览不触发图片/视频成本动作；视频生成必须显式调用。当前 Veo 3.1 Fast MVP 单段直出 8 秒；目标成片超过 8 秒时先返回分镜和合成计划。 |
+| 产品商业化 | `POST /api/business/product-commercialization/preview`；视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 预览无强制必填；视频执行必填 `productImageUrl` | `productFields`、`outputLanguage`、`marketRegion`、`copyScenarios`、`visualSupportMode`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio` | 预览返回 `copyPackage`、`visualAssetPlan`、`videoPlan`；视频执行返回 `runId`，终态查询返回 `videoUrls/resultPayload.videoResult` | 产品设计后的商业化内容包：生成海外上架文案、配图建议、视频分镜和审核提示。预览不触发图片/视频成本动作；视频执行统一走业务任务模型。当前 Veo 3.1 Fast MVP 单段直出 8 秒；目标成片超过 8 秒时自动多段生成并合成。 |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
@@ -1528,6 +1528,13 @@ X-PODI-API-Key: podi_xxx
 
 它是产品设计之后的能力，不负责花纹提取、裂变或产品设计本身。第一版输出“商品商业化内容包”：产品理解卡、文案包、配图建议、视频分镜、审核提示。预览接口不会隐式生成图片或视频；任何图片/视频生成都必须走显式执行动作并保留成本、任务和 OSS 证据。
 
+统一任务口径：
+
+- 规划/预览：`POST /api/business/product-commercialization/preview`，同步返回文案、配图建议、分镜和风险，不扣视频成本。
+- 执行视频：`POST /api/business/product-commercialization/runs`，立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。
+- 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。成功标准是查询到 `status=succeeded` 且 `videoUrls` 非空；失败原因看 `errorMessage/errorCode`。
+- 兼容调试：`/video` 与 `/video-compose` 暂时保留给内部联调，不作为正式业务方接入口径。
+
 ### POST /api/business/product-commercialization/preview
 
 用途：生成产品理解、海外文案、配图建议和视频分镜。缺少部分产品字段不会阻塞，系统会在 `productCard.missingFields` 和 `productCard.inferredFacts` 中标记。
@@ -1659,81 +1666,53 @@ X-PODI-API-Key: podi_xxx
 }
 ```
 
-### POST /api/business/product-commercialization/video
+### POST /api/business/product-commercialization/runs
 
-用途：显式调用 KIE Veo3.1 Fast 生成单段商品展示视频，并将结果保存到自有 OSS。该接口会复用同一套产品理解和分镜规划，但属于成本动作，必须由业务方明确触发。
+用途：显式提交产品商业化视频任务，并将生成结果保存到自有 OSS。该接口会复用同一套产品理解和分镜规划，但属于成本动作，必须由业务方明确触发。
 
-请求体与 `preview` 相同，但必须提供 `productImageUrl`。当前只执行 `targetDurationSeconds=8` 的单段视频；目标超过 8 秒时应先使用 `preview` 获取 `videoPlan.compositionPlan`，再调用 `/api/business/product-commercialization/video-compose` 进入多段生成与合成。可选 `executorId` 指定 KIE 节点；不传使用默认 KIE 执行节点。
+请求体与 `preview` 相同，但必须提供 `productImageUrl`。`targetDurationSeconds=8` 时执行单段 Veo3.1 Fast；目标超过 8 秒时自动按 `preview.videoPlan.storyboard` 多段生成，再用 ffmpeg 裁剪拼接。可选 `executorId` 指定 KIE 节点；不传使用默认 KIE 执行节点。
 
-成功或运行中响应会在 `videoResult` 中返回 KIE 任务和 OSS 视频：
+提交成功响应只代表任务已进入中台统一运行表：
 
 ```json
 {
-  "status": "succeeded",
-  "execution": {
-    "copyGenerated": true,
-    "imageGenerated": false,
-    "videoGenerated": true,
-    "costActions": ["kie.veo3_fast.video"]
-  },
-  "videoResult": {
-    "provider": "kie",
-    "model": "veo3_fast",
-    "taskId": "63f7060d2e1656749efc3ef8d2589ad0",
-    "state": "success",
-    "status": "succeeded",
-    "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4"],
-    "storedAssets": [
-      {
-        "ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4",
-        "contentType": "video/mp4",
-        "type": "video"
-      }
-    ]
-  }
+  "runId": "c0887c163edc44b1b4408d421ff7f332",
+  "taskId": "c0887c163edc44b1b4408d421ff7f332",
+  "businessKey": "product_commercialization",
+  "version": "product-commercialization-mvp-v1",
+  "status": "queued",
+  "taskStatus": "queued",
+  "retryAfterSeconds": 10,
+  "requestId": "req-product-commercialization-001"
 }
 ```
 
-### POST /api/business/product-commercialization/video-compose
-
-用途：显式多段成本动作。接口会按 `preview.videoPlan.storyboard` 顺序调用 Veo3.1 Fast 生成多个 8 秒片段，再按 `compositionPlan.trimPlan` 裁剪并用 ffmpeg 拼接成最终 MP4，结果保存到自有 OSS。
-
-请求体与 `preview` 相同，但必须提供 `productImageUrl`。建议先调用 `preview` 让业务方看到 `segmentCount`、`costActionPreview` 和素材需求后再执行。
-
-15 秒目标会触发 2 次 `kie.veo3_fast.video` 和 1 次 `ffmpeg.compose`。当前合成策略为硬切 `cut`，后续再升级首尾帧控制、转场和异步任务队列。
-
-成功响应会在 `videoResult` 中返回最终视频、片段任务和合成证据：
+查询：
 
 ```json
 {
+  "runId": "c0887c163edc44b1b4408d421ff7f332",
   "status": "succeeded",
-  "execution": {
-    "copyGenerated": true,
-    "imageGenerated": false,
-    "videoGenerated": true,
-    "costActions": ["kie.veo3_fast.video", "kie.veo3_fast.video", "ffmpeg.compose"]
-  },
-  "videoResult": {
-    "provider": "kie+ffmpeg",
-    "model": "veo3_fast",
+  "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4"],
+  "resultPayload": {
+    "businessKey": "product_commercialization",
     "status": "succeeded",
-    "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video-composed.mp4"],
-    "segments": [
-      {"segment": 1, "taskId": "kie-task-1", "videoUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/segment-1.mp4"},
-      {"segment": 2, "taskId": "kie-task-2", "videoUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/segment-2.mp4"}
-    ],
-    "composition": {
-      "composeEngine": "ffmpeg",
-      "targetDurationSeconds": 15,
-      "segmentCount": 2,
-      "output": {
-        "ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video-composed.mp4",
-        "contentType": "video/mp4"
-      }
+    "videoResult": {
+      "provider": "kie+ffmpeg",
+      "model": "veo3_fast",
+      "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4"]
     }
   }
 }
 ```
+
+### POST /api/business/product-commercialization/video
+
+兼容/内部调试同步入口。正式业务接入不要依赖这个接口；请使用 `/api/business/product-commercialization/runs` 提交，再用 `/api/business/runs/get` 查询。
+
+### POST /api/business/product-commercialization/video-compose
+
+兼容/内部调试同步入口。正式业务接入不要依赖这个接口；多段生成和合成已经由 `/api/business/product-commercialization/runs` 自动判断。
 
 常见错误：
 

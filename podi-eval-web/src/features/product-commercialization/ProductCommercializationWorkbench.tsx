@@ -74,6 +74,10 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function getNestedString(payload: Record<string, unknown> | null | undefined, key: string): string {
   const value = payload?.[key];
   return typeof value === 'string' ? value : '';
@@ -84,6 +88,20 @@ function getVideoUrls(result: ProductCommercializationResponse | null): string[]
   if (!videoResult || typeof videoResult !== 'object') return [];
   const urls = (videoResult as Record<string, unknown>).videoUrls;
   return Array.isArray(urls) ? urls.filter((item): item is string => typeof item === 'string' && item.length > 0) : [];
+}
+
+function asProductCommercializationResponse(value: unknown): ProductCommercializationResponse | null {
+  if (!value || typeof value !== 'object') return null;
+  const payload = value as ProductCommercializationResponse;
+  return payload.businessKey === 'product_commercialization' ? payload : null;
+}
+
+function businessRunStatusLabel(status: string) {
+  if (status === 'succeeded') return '已完成';
+  if (status === 'failed') return '失败';
+  if (status === 'cancelled') return '已取消';
+  if (status === 'queued') return '排队中';
+  return '生成中';
 }
 
 export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?: ProductCommercializationMode }) {
@@ -104,6 +122,8 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const [status, setStatus] = useState<'idle' | 'previewing' | 'video' | 'uploading'>('idle');
   const [error, setError] = useState('');
   const uploadRef = useRef<HTMLInputElement | null>(null);
+  const activeVideoRunIdRef = useRef<string | null>(null);
+  const [videoRun, setVideoRun] = useState<{ runId: string; status: string; elapsedSeconds: number } | null>(null);
 
   const parsedFields = useMemo(() => {
     try {
@@ -149,6 +169,50 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     }
   };
 
+  const pollProductVideoRun = async (runId: string) => {
+    let retryAfterSeconds = 3;
+    const startedAt = Date.now();
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      if (attempt > 0) {
+        await delay(Math.max(2, Math.min(15, retryAfterSeconds)) * 1000);
+      }
+      const poll = await evalApi.getBusinessRun(runId, 'full');
+      if (activeVideoRunIdRef.current !== runId) return;
+      const runStatus = String(poll.status || poll.taskStatus || 'running');
+      retryAfterSeconds = Number(poll.retryAfterSeconds || 5);
+      setVideoRun({
+        runId,
+        status: runStatus,
+        elapsedSeconds: Math.max(0, Math.round((Date.now() - startedAt) / 1000)),
+      });
+
+      const fullResult = asProductCommercializationResponse(poll.resultPayload || poll.result);
+      if (fullResult) {
+        setResult(fullResult);
+      } else if (Array.isArray(poll.videoUrls) && poll.videoUrls.length > 0) {
+        setResult((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: runStatus,
+                videoResult: {
+                  ...((prev.videoResult || {}) as Record<string, unknown>),
+                  status: runStatus,
+                  videoUrls: poll.videoUrls,
+                },
+              }
+            : prev,
+        );
+      }
+
+      if (runStatus === 'succeeded') return;
+      if (runStatus === 'failed' || runStatus === 'cancelled') {
+        throw new Error(String(poll.errorMessage || poll.error || poll.debugResponse || `视频任务${businessRunStatusLabel(runStatus)}`));
+      }
+    }
+    throw new Error('视频任务轮询超时，请复制 runId 到任务追踪继续排查');
+  };
+
   const runVideo = async () => {
     setError('');
     if (!productImageUrl.trim()) {
@@ -158,10 +222,15 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     setStatus('video');
     try {
       const payload = buildPayload();
-      const response = requiresComposition
-        ? await evalApi.generateProductCommercializationComposedVideo(payload)
-        : await evalApi.generateProductCommercializationVideo(payload);
-      setResult(response);
+      const submitted = await evalApi.submitProductCommercializationVideoRun(payload);
+      const runId = String(submitted.runId || submitted.id || '').trim();
+      if (!runId) {
+        throw new Error('视频任务提交成功但未返回 runId');
+      }
+      activeVideoRunIdRef.current = runId;
+      setVideoRun({ runId, status: String(submitted.status || 'queued'), elapsedSeconds: 0 });
+      MessagePlugin.success(`视频任务已提交：${runId}`);
+      await pollProductVideoRun(runId);
     } catch (err) {
       setError(String((err as any)?.message || err || '视频生成失败'));
     } finally {
@@ -222,6 +291,12 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       </div>
 
       {error ? <Alert theme="error" message={error} /> : null}
+      {videoRun ? (
+        <Alert
+          theme={videoRun.status === 'failed' ? 'error' : videoRun.status === 'succeeded' ? 'success' : 'info'}
+          message={`视频任务 ${businessRunStatusLabel(videoRun.status)} · runId=${videoRun.runId} · 已等待 ${videoRun.elapsedSeconds}s`}
+        />
+      ) : null}
 
       <div className="podi-product-commercialization__grid">
         <div className="podi-product-commercialization__panel">

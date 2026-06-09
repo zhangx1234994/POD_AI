@@ -201,10 +201,12 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
     video_urls = full.get("videoUrls") if isinstance(full.get("videoUrls"), list) else []
     texts = full.get("texts") if isinstance(full.get("texts"), list) else []
     business_key = str(full.get("businessKey") or full.get("business_key") or "").strip()
+    run_id = full.get("runId") or full.get("id")
+    task_id = full.get("taskId") or (run_id if business_key == "product_commercialization" else None)
     error_message = str(full.get("errorMessage") or full.get("error") or full.get("callbackError") or "").strip() or None
     result = {
-        "runId": full.get("runId") or full.get("id"),
-        "taskId": full.get("taskId"),
+        "runId": run_id,
+        "taskId": task_id,
         "status": status,
         "taskStatus": status,
         "imageUrl": image_urls[0] if image_urls else None,
@@ -238,9 +240,12 @@ def _business_run_submit_response(run: dict[str, Any]) -> dict[str, Any]:
     full = _business_run_full_response(run)
     status = _normalize_business_task_status(full.get("status"))
     error_message = str(full.get("errorMessage") or full.get("error") or "").strip() or None
+    business_key = str(full.get("businessKey") or full.get("business_key") or "").strip()
+    run_id = full.get("runId") or full.get("id")
+    task_id = full.get("taskId") or (run_id if business_key == "product_commercialization" else None)
     return {
-        "runId": full.get("runId") or full.get("id"),
-        "taskId": full.get("taskId"),
+        "runId": run_id,
+        "taskId": task_id,
         "businessKey": full.get("businessKey"),
         "version": full.get("version"),
         "status": status,
@@ -824,6 +829,39 @@ def _create_business_run_with_usage(
     return _business_run_submit_response(result)
 
 
+def _create_product_commercialization_run_with_usage(
+    *,
+    request: Request,
+    payload: schemas.ProductCommercializationRequest,
+    user: User,
+) -> dict[str, Any]:
+    business_key = "product_commercialization"
+    request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+    try:
+        _business_key_allowed_for_api_key(request, business_key)
+        result = get_business_run_service().create_product_commercialization_run(payload=payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="BUSINESS_RUN_CREATE_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, business_key=business_key, run=result)
+    return _business_run_submit_response(result)
+
+
 def _record_project_api_usage(
     request: Request,
     *,
@@ -968,6 +1006,15 @@ def create_product_design_run(
     user: User = Depends(_resolve_business_user),
 ) -> dict[str, Any]:
     return _create_business_run_with_usage(request=request, business_key="product_design", payload=payload, user=user)
+
+
+@router.post("/product-commercialization/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_product_commercialization_run(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    return _create_product_commercialization_run_with_usage(request=request, payload=payload, user=user)
 
 
 @router.post(
@@ -3112,6 +3159,28 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     ),
                 }
             },
+            "/api/business/product-commercialization/runs": {
+                "post": {
+                    "operationId": "podi_business_product_commercialization_run_create",
+                    "summary": "PODI · 产品商业化 · 异步生成视频",
+                    "description": "正式异步成本动作：提交产品商业化视频生成任务，立即返回 runId；业务方必须使用 /api/business/runs/get 按 runId 或 taskId 查询状态和结果。targetDurationSeconds=8 时生成单段 Veo Fast 视频；超过 8 秒时按分镜生成多段并合成。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {**product_commercialization_submit_schema, "required": ["productImageUrl"]},
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Business run accepted; poll /api/business/runs/get for status and videoUrls",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
             "/api/business/product-commercialization/preview": {
                 "post": {
                     "operationId": "podi_business_product_commercialization_preview",
@@ -3144,8 +3213,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/product-commercialization/video": {
                 "post": {
                     "operationId": "podi_business_product_commercialization_video",
-                    "summary": "PODI · 产品商业化 · 生成 Veo Fast 视频",
-                    "description": "显式成本动作：在同一产品理解和分镜基础上调用 KIE Veo3.1 Fast 生成单段商品展示视频，并将结果保存到 PODI OSS。必须提供 productImageUrl。",
+                    "summary": "PODI · 产品商业化 · 生成 Veo Fast 视频（兼容调试）",
+                    "description": "兼容/内部调试同步入口。正式业务接入请调用 /api/business/product-commercialization/runs 提交任务，并使用 /api/business/runs/get 查询结果。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
@@ -3166,8 +3235,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/product-commercialization/video-compose": {
                 "post": {
                     "operationId": "podi_business_product_commercialization_video_compose",
-                    "summary": "PODI · 产品商业化 · 多段生成并合成视频",
-                    "description": "显式多段成本动作：当 targetDurationSeconds 超过 8 秒时，按 preview 返回的分镜顺序调用 Veo3.1 Fast 生成多个 8 秒片段，再用 ffmpeg 裁剪拼接并上传最终 MP4 到 PODI OSS。必须提供 productImageUrl。",
+                    "summary": "PODI · 产品商业化 · 多段生成并合成视频（兼容调试）",
+                    "description": "兼容/内部调试同步入口。正式业务接入请调用 /api/business/product-commercialization/runs；该异步入口会自动判断单段生成或多段生成并合成。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,

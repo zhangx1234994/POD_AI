@@ -287,6 +287,7 @@ export type BusinessRunPollResult = {
   id?: string;
   businessKey?: string;
   status?: string;
+  taskStatus?: string;
   version?: string | null;
   imageUrls?: string[];
   image_urls?: string[];
@@ -295,8 +296,10 @@ export type BusinessRunPollResult = {
   error?: string | null;
   errorMessage?: string | null;
   error_message?: string | null;
+  debugResponse?: string | null;
   retryAfterSeconds?: number;
   result?: Record<string, unknown> | null;
+  resultPayload?: Record<string, unknown> | null;
 };
 
 export type ProductCommercializationRequest = {
@@ -780,10 +783,10 @@ export const evalApi = {
       { method: 'POST', body: JSON.stringify({ ...(payload || {}), planId }) },
       30000,
     ),
-  getBusinessRun: (runId: string) =>
+  getBusinessRun: (runId: string, detail?: 'full' | 'debug' | 'detail') =>
     request<BusinessRunPollResult>(
       '/api/business/runs/get',
-      { method: 'POST', body: JSON.stringify({ runId }) },
+      { method: 'POST', body: JSON.stringify({ runId, ...(detail ? { detail } : {}) }) },
       30000,
     ),
   previewProductCommercialization: (payload: ProductCommercializationRequest) =>
@@ -791,6 +794,12 @@ export const evalApi = {
       '/api/business/product-commercialization/preview',
       { method: 'POST', body: JSON.stringify(payload) },
       90000,
+    ),
+  submitProductCommercializationVideoRun: (payload: ProductCommercializationRequest) =>
+    request<BusinessRunPollResult>(
+      '/api/business/product-commercialization/runs',
+      { method: 'POST', body: JSON.stringify(payload) },
+      30000,
     ),
   generateProductCommercializationVideo: (payload: ProductCommercializationRequest) =>
     request<ProductCommercializationResponse>(

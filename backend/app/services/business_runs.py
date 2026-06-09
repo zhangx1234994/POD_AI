@@ -20,6 +20,7 @@ from uuid import uuid4
 import httpx
 from fastapi import HTTPException
 from PIL import Image, ImageDraw
+from pydantic import ValidationError
 from sqlalchemy import and_, case, func, inspect, not_, or_, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import load_only
@@ -70,6 +71,7 @@ from app.schemas.business import (
     BusinessQualitySampleImportRequest,
     BusinessQualitySampleUpdateRequest,
     BusinessRunCreateRequest,
+    ProductCommercializationRequest,
     TextFissionPromptRequest,
 )
 from app.constants.business_api_contract import (
@@ -88,6 +90,7 @@ from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
 from app.services.business_projects import get_business_project_service
+from app.services.product_commercialization import product_commercialization_service
 from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
 from app.services.fission_control_prompt import compile_comfyui_v4_prompt
 from app.services.fission_control_prompt import extract_fission_control_card
@@ -265,6 +268,8 @@ class BusinessRunService:
         worker_decision = log_background_worker_decision("BusinessRunService")
         self._background_workers_enabled = worker_decision.enabled
         self._thread_started = False
+        self._product_commercialization_active_run_ids: set[str] = set()
+        self._product_commercialization_lock = threading.Lock()
         if self._background_workers_enabled and not suppress_background_threads_for_tests():
             self._start_finalize_thread()
 
@@ -2579,6 +2584,110 @@ class BusinessRunService:
             selected_by="default",
         )
 
+    def create_product_commercialization_run(
+        self,
+        *,
+        payload: ProductCommercializationRequest,
+        user: User | None,
+        source: str = "business-api",
+    ) -> dict[str, Any]:
+        """Create a unified business run for the explicit product video cost action."""
+        if not getattr(self, "_background_workers_enabled", True):
+            raise HTTPException(status_code=503, detail="BACKGROUND_WORKERS_DISABLED")
+        image_url = self._first_string(payload.productImageUrl)
+        if not image_url:
+            raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED")
+
+        request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+        run_id = uuid4().hex
+        business_key = "product_commercialization"
+        business_payload = BusinessRunCreateRequest(
+            imageUrl=image_url,
+            inputs=request_payload,
+            source=payload.source or source,
+            traceId=payload.traceId,
+            requestId=payload.requestId,
+            metadata={
+                "source": payload.source or source,
+                "productCommercialization": {
+                    "action": "video_generate",
+                    "contract": "business_run_v1",
+                    "queryEndpoint": "/api/business/runs/get",
+                },
+            },
+        )
+        trace_context = self._resolve_trace_context(
+            run_id=run_id,
+            business_key=business_key,
+            payload=business_payload,
+            source=source,
+            user=user,
+        )
+        request_payload["_trace"] = trace_context
+        request_payload["_productCommercialization"] = {
+            "action": "video_generate",
+            "contract": "business_run_v1",
+            "queryEndpoint": "/api/business/runs/get",
+        }
+
+        with get_session() as session:
+            client_policy = self._check_business_client_policy(
+                session=session,
+                business_key=business_key,
+                payload=business_payload,
+                trace_context=trace_context,
+            )
+            if client_policy:
+                request_payload["_businessClient"] = client_policy
+            run = BusinessRun(
+                id=run_id,
+                business_key=business_key,
+                business_version_id=None,
+                version="product-commercialization-mvp-v1",
+                status="queued",
+                source=trace_context["source"],
+                channel=trace_context.get("channel"),
+                trace_id=trace_context["traceId"],
+                request_id=trace_context["requestId"],
+                tenant_id=trace_context.get("tenantId"),
+                client_id=trace_context.get("clientId"),
+                user_id=self._resolve_business_user_id(user=user, payload=business_payload, trace_context=trace_context),
+                user_name=self._resolve_business_user_name(user=user, payload=business_payload),
+                ability_id=None,
+                request_payload=self._omit_large_fields(request_payload),
+            )
+            session.add(run)
+            session.add(
+                BusinessRunStep(
+                    id=uuid4().hex,
+                    run_id=run.id,
+                    step_order=1,
+                    step_id="product_commercialization_video",
+                    step_type="product_commercialization_video",
+                    role="primary",
+                    display_name="产品商业化视频生成",
+                    enabled=True,
+                    status="queued",
+                    request_payload=self._omit_large_fields(request_payload),
+                )
+            )
+            project_context = get_business_project_service().link_run_to_project(
+                session=session,
+                run=run,
+                payload=business_payload,
+                trace_context=trace_context,
+                user=user,
+            )
+            if project_context and isinstance(request_payload, dict):
+                request_payload["_projectContext"] = project_context
+                run.request_payload = self._omit_large_fields(request_payload)
+            session.commit()
+            session.refresh(run)
+            result = self._run_to_dict(run, session=session)
+
+        self._enqueue_product_commercialization_run(run_id=run_id, user_id=getattr(user, "id", None))
+        return result
+
     def create_run_for_capability(
         self,
         *,
@@ -3117,6 +3226,185 @@ class BusinessRunService:
             session.add(db_run)
             session.commit()
 
+    def _enqueue_product_commercialization_run(self, *, run_id: str, user_id: str | None = None) -> bool:
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            return False
+        with self._product_commercialization_lock:
+            if normalized_run_id in self._product_commercialization_active_run_ids:
+                return False
+            self._product_commercialization_active_run_ids.add(normalized_run_id)
+
+        def _target() -> None:
+            try:
+                self._execute_product_commercialization_run(run_id=normalized_run_id, user_id=user_id)
+            except Exception as exc:  # pragma: no cover - defensive, execution should self-record
+                logger.warning("product commercialization run worker failed: run_id=%s error=%s", normalized_run_id, exc)
+            finally:
+                with self._product_commercialization_lock:
+                    self._product_commercialization_active_run_ids.discard(normalized_run_id)
+
+        threading.Thread(target=_target, daemon=True).start()
+        return True
+
+    def _execute_product_commercialization_run(self, *, run_id: str, user_id: str | None = None) -> None:
+        started_at = datetime.utcnow()
+        with get_session() as session:
+            run = session.get(BusinessRun, run_id)
+            if not run or run.business_key != "product_commercialization":
+                return
+            if run.status in {"succeeded", "failed", "cancelled"}:
+                return
+            request_payload = dict(run.request_payload) if isinstance(run.request_payload, dict) else {}
+            run.status = "running"
+            run.started_at = run.started_at or started_at
+            step = self._find_product_commercialization_step(session=session, run=run)
+            if step:
+                step.status = "running"
+                step.started_at = step.started_at or run.started_at
+                session.add(step)
+            session.add(run)
+            session.commit()
+
+        clean_payload = {key: value for key, value in request_payload.items() if not str(key).startswith("_")}
+        try:
+            payload = ProductCommercializationRequest.model_validate(clean_payload)
+        except ValidationError as exc:
+            self._finish_product_commercialization_run(
+                run_id=run_id,
+                status="failed",
+                started_at=started_at,
+                error_message="PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID",
+                result_payload={"error": "PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID", "validation": str(exc)[:500]},
+            )
+            return
+
+        try:
+            target_duration = int(payload.targetDurationSeconds or payload.durationSeconds or 8)
+            segment_duration = int(payload.durationSeconds or 8)
+            if target_duration > segment_duration:
+                result = product_commercialization_service.generate_composed_video(payload, user_id=user_id)
+            else:
+                result = product_commercialization_service.generate_video(payload, user_id=user_id)
+            video_urls = self._extract_product_commercialization_video_urls(result)
+            result_status = str(result.get("status") or "").strip().lower()
+            if result_status != "succeeded" or not video_urls:
+                raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED")
+            self._finish_product_commercialization_run(
+                run_id=run_id,
+                status="succeeded",
+                started_at=started_at,
+                result_payload=result,
+                video_urls=video_urls,
+                texts=self._extract_product_commercialization_texts(result),
+            )
+        except Exception as exc:
+            self._finish_product_commercialization_run(
+                run_id=run_id,
+                status="failed",
+                started_at=started_at,
+                error_message=self._extract_error_message(exc),
+                result_payload={"error": self._extract_error_message(exc)},
+            )
+
+    def _finish_product_commercialization_run(
+        self,
+        *,
+        run_id: str,
+        status: str,
+        started_at: datetime,
+        result_payload: dict[str, Any] | None = None,
+        video_urls: list[str] | None = None,
+        texts: list[str] | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        finished_at = datetime.utcnow()
+        with get_session() as session:
+            run = session.get(BusinessRun, run_id)
+            if not run:
+                return
+            run.status = status
+            run.result_payload = self._omit_large_fields(result_payload if isinstance(result_payload, dict) else {})
+            run.video_urls = video_urls or None
+            run.texts = texts or None
+            run.error_message = error_message
+            run.started_at = run.started_at or started_at
+            run.finished_at = finished_at
+            run.duration_ms = self._calculate_duration_ms(run.started_at, finished_at)
+            step = self._find_product_commercialization_step(session=session, run=run)
+            if step:
+                step.status = status
+                step.result_payload = run.result_payload
+                step.error_message = error_message
+                step.started_at = step.started_at or run.started_at
+                step.finished_at = finished_at
+                step.duration_ms = run.duration_ms
+                session.add(step)
+            session.add(run)
+            session.commit()
+        if status in {"succeeded", "failed", "cancelled"}:
+            get_business_project_service().sync_run_outputs_to_project_assets(run_id)
+            self._auto_settle_run_if_needed(run_id)
+            self._deliver_callback(run_id)
+
+    def _find_product_commercialization_step(self, *, session, run: BusinessRun) -> BusinessRunStep | None:
+        return (
+            session.execute(
+                select(BusinessRunStep)
+                .where(
+                    BusinessRunStep.run_id == run.id,
+                    BusinessRunStep.step_id == "product_commercialization_video",
+                )
+                .order_by(BusinessRunStep.step_order.asc())
+            )
+            .scalars()
+            .first()
+        )
+
+    def _extract_product_commercialization_video_urls(self, result: dict[str, Any]) -> list[str]:
+        urls: list[str] = []
+
+        def add(value: Any) -> None:
+            if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
+                urls.append(value.strip())
+            elif isinstance(value, dict):
+                for key in ("videoUrls", "video_urls", "resultUrls", "result_urls", "storedAssets", "stored_assets"):
+                    add(value.get(key))
+                for key in ("ossUrl", "storedUrl", "url", "sourceUrl"):
+                    candidate = value.get(key)
+                    if isinstance(candidate, str) and candidate.strip().startswith(("http://", "https://")):
+                        urls.append(candidate.strip())
+            elif isinstance(value, list):
+                for item in value:
+                    add(item)
+
+        add(result.get("videoResult") if isinstance(result, dict) else None)
+        add(result.get("videoUrls") if isinstance(result, dict) else None)
+        seen: set[str] = set()
+        out: list[str] = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            out.append(url)
+        return out
+
+    @staticmethod
+    def _extract_product_commercialization_texts(result: dict[str, Any]) -> list[str]:
+        copy_package = result.get("copyPackage") if isinstance(result, dict) else None
+        if not isinstance(copy_package, dict):
+            return []
+        values: list[str] = []
+        for key in ("listingTitle", "detailDescription"):
+            value = copy_package.get(key)
+            if isinstance(value, str) and value.strip():
+                values.append(value.strip())
+        for key in ("bulletPoints", "adShortCopy", "keywordPack"):
+            value = copy_package.get(key)
+            if isinstance(value, list):
+                values.extend(str(item).strip() for item in value if str(item).strip())
+        return values[:20]
+
     def _submit_primary_ability(
         self,
         *,
@@ -3271,10 +3559,21 @@ class BusinessRunService:
                 task = session.get(AbilityTask, run.ability_task_id)
                 if task:
                     self._copy_task_to_run(session=session, run=run, task=task)
-            should_submit_primary = not run.ability_task_id and run.status not in {"failed", "cancelled"}
+            should_resume_product_commercialization = (
+                run.business_key == "product_commercialization"
+                and not run.ability_task_id
+                and run.status in {"queued", "running"}
+            )
+            should_submit_primary = (
+                not should_resume_product_commercialization
+                and not run.ability_task_id
+                and run.status not in {"failed", "cancelled"}
+            )
             session.commit()
             run_status = run.status
             terminal_after_sync = run.status in {"succeeded", "failed", "cancelled"}
+        if should_resume_product_commercialization:
+            self._enqueue_product_commercialization_run(run_id=run_id, user_id=None)
         if should_submit_primary:
             self._submit_primary_after_vl_if_ready(run_id=run_id, user=None)
             with get_session() as session:
@@ -3320,12 +3619,22 @@ class BusinessRunService:
                     self._copy_task_to_run(session=session, run=run, task=task)
             session.commit()
             terminal_ids = [row.id for row in rows if row.status in {"succeeded", "failed", "cancelled"}]
+            product_commercialization_ids = [
+                row.id
+                for row in rows
+                if row.business_key == "product_commercialization"
+                and not row.ability_task_id
+                and row.status in {"queued", "running"}
+            ]
             waiting_primary_ids = [
                 row.id
                 for row in rows
                 if not row.ability_task_id and row.status not in {"failed", "cancelled", "succeeded"}
+                and row.business_key != "product_commercialization"
             ]
         self._finalize_pending_steps()
+        for run_id in product_commercialization_ids:
+            self._enqueue_product_commercialization_run(run_id=run_id, user_id=None)
         for run_id in waiting_primary_ids:
             self._submit_primary_after_vl_if_ready(run_id=run_id, user=None)
         for run_id in terminal_ids:

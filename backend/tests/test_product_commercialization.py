@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -277,13 +278,95 @@ def test_product_commercialization_video_calls_veo_fast(monkeypatch) -> None:
     assert result["videoResult"]["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/video.mp4"]
 
 
+def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:
+    def fake_generate_video(payload, *, user_id=None):
+        return {
+            "requestId": payload.requestId or "pc-run-test",
+            "businessKey": "product_commercialization",
+            "version": "product-commercialization-mvp-v1",
+            "status": "succeeded",
+            "generatedAt": "2026-06-09T00:00:00+00:00",
+            "strategyProfile": "default_pod_profile",
+            "outputLanguage": "en-US",
+            "marketRegion": "US",
+            "copyScenarios": ["listing_title"],
+            "productCard": {"confidence": 0.9, "missingFields": [], "inferredFacts": {}},
+            "copyPackage": {"listingTitle": "POD socks listing title"},
+            "visualAssetPlan": {"mode": "recommendation"},
+            "videoPlan": {"model": "veo3_fast", "targetDurationSeconds": 8},
+            "review": {"score": 90},
+            "execution": {"videoGenerated": True, "costActions": ["kie.veo3_fast.video"]},
+            "videoResult": {
+                "provider": "kie",
+                "model": "veo3_fast",
+                "status": "succeeded",
+                "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"],
+            },
+        }
+
+    monkeypatch.setattr(
+        "app.services.business_runs.product_commercialization_service.generate_video",
+        fake_generate_video,
+    )
+
+    resp = client.post(
+        "/api/business/product-commercialization/runs",
+        headers={"x-real-ip": "127.0.0.1"},
+        json={
+            "productImageUrl": "https://example.com/socks.png",
+            "productFields": {"productNameEn": "POD socks"},
+            "requestId": "pc-run-test",
+        },
+    )
+
+    assert resp.status_code == 200
+    submitted = resp.json()
+    run_id = submitted["runId"]
+    assert submitted["businessKey"] == "product_commercialization"
+    assert submitted["taskId"] == run_id
+    assert submitted["status"] in {"queued", "running"}
+
+    polled = None
+    for _ in range(40):
+        poll_resp = client.post(
+            "/api/business/runs/get",
+            headers={"x-real-ip": "127.0.0.1"},
+            json={"runId": run_id, "detail": "full"},
+        )
+        assert poll_resp.status_code == 200
+        polled = poll_resp.json()
+        if polled["status"] == "succeeded":
+            break
+        time.sleep(0.05)
+
+    assert polled is not None
+    assert polled["status"] == "succeeded"
+    assert polled["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"]
+    assert polled["resultPayload"]["videoResult"]["videoUrls"] == [
+        "https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"
+    ]
+
+    alias_resp = client.post(
+        "/api/business/runs/get",
+        headers={"x-real-ip": "127.0.0.1"},
+        json={"taskId": run_id},
+    )
+    assert alias_resp.status_code == 200
+    assert alias_resp.json()["runId"] == run_id
+
+
 def test_business_openapi_exposes_product_commercialization() -> None:
     resp = client.get("/api/business/openapi.json", headers={"x-real-ip": "127.0.0.1"})
     assert resp.status_code == 200
     paths = resp.json()["paths"]
+    assert "/api/business/product-commercialization/runs" in paths
     assert "/api/business/product-commercialization/preview" in paths
     assert "/api/business/product-commercialization/video" in paths
     assert "/api/business/product-commercialization/video-compose" in paths
+    runs_schema = paths["/api/business/product-commercialization/runs"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert runs_schema["required"] == ["productImageUrl"]
     preview_schema = paths["/api/business/product-commercialization/preview"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]
