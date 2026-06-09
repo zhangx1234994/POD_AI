@@ -79,6 +79,53 @@ def test_product_commercialization_video_requires_product_image() -> None:
     assert excinfo.value.detail == "PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED"
 
 
+def test_product_commercialization_video_retries_single_segment(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    captured_calls = []
+
+    def fake_run_kie_market_task(**kwargs):
+        captured_calls.append(kwargs)
+        if len(captured_calls) == 1:
+            return {
+                "status": "failed",
+                "taskId": "veo_single_failed_once",
+                "state": "fail",
+                "raw": {
+                    "response": {
+                        "data": {
+                            "successFlag": 2,
+                            "errorCode": "KIE_TEMPORARY_FAILURE",
+                            "errorMessage": "temporary upstream generation failure",
+                        }
+                    }
+                },
+            }
+        return {
+            "status": "succeeded",
+            "taskId": "veo_single_succeeded",
+            "state": "success",
+            "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"],
+            "storedAssets": [{"ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"}],
+        }
+
+    monkeypatch.setattr(
+        "app.services.product_commercialization.integration_test_service",
+        SimpleNamespace(run_kie_market_task=fake_run_kie_market_task),
+    )
+
+    result = service.generate_video(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/socks.png",
+            productFields={"productNameEn": "Women's knitted woolen socks"},
+        )
+    )
+
+    assert len(captured_calls) == 2
+    assert result["status"] == "succeeded"
+    assert result["videoResult"]["taskId"] == "veo_single_succeeded"
+    assert result["videoResult"]["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"]
+
+
 def test_product_commercialization_preview_plans_long_video_segments() -> None:
     service = ProductCommercializationService()
 

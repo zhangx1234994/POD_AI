@@ -3299,12 +3299,17 @@ class BusinessRunService:
                 texts=self._extract_product_commercialization_texts(result),
             )
         except Exception as exc:
+            error_message = self._extract_error_message(exc)
+            error_payload: dict[str, Any] = {"error": error_message}
+            detail = getattr(exc, "detail", None)
+            if isinstance(detail, dict):
+                error_payload["detail"] = detail
             self._finish_product_commercialization_run(
                 run_id=run_id,
                 status="failed",
                 started_at=started_at,
-                error_message=self._extract_error_message(exc),
-                result_payload={"error": self._extract_error_message(exc)},
+                error_message=error_message,
+                result_payload=error_payload,
             )
 
     def _finish_product_commercialization_run(

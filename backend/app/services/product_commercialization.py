@@ -208,35 +208,15 @@ class ProductCommercializationService:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
         if video_plan.get("requiresComposition"):
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY")
-        try:
-            result = integration_test_service.run_kie_market_task(
-                executor_id=_clean_text(getattr(payload, "executorId", None)) or "executor_kie_market_default",
-                endpoint="/api/v1/veo/generate",
-                status_endpoint="/api/v1/veo/record-info",
-                result_format="veo3",
-                model="veo3_fast",
-                input_payload={
-                    "prompt": prompt,
-                    "imageUrls": [image_url],
-                    "aspectRatio": video_plan.get("aspectRatio") or "16:9",
-                    "duration": video_plan.get("durationSeconds") or getattr(payload, "durationSeconds", None) or VEO_FAST_SEGMENT_SECONDS,
-                    "enableTranslation": True,
-                    "enableFallback": False,
-                },
-                input_array_target="imageUrls",
-                poll_timeout=float(getattr(payload, "pollTimeout", None) or 180),
-                poll_interval=2.5,
-            )
-        except HTTPException:
-            raise
-        except Exception as exc:  # pragma: no cover - defensive
-            raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED") from exc
+        result, video_urls = self._generate_segment_with_retry(
+            executor_id=_clean_text(getattr(payload, "executorId", None)) or "executor_kie_market_default",
+            prompt=prompt,
+            image_url=image_url,
+            aspect_ratio=video_plan.get("aspectRatio") or "16:9",
+            poll_timeout=float(getattr(payload, "pollTimeout", None) or 180),
+            segment_index=1,
+        )
         status = _clean_text(result.get("status")) or "running"
-        video_urls = result.get("videoUrls") or result.get("resultUrls") or []
-        if isinstance(video_urls, str):
-            video_urls = [video_urls]
-        if not isinstance(video_urls, list):
-            video_urls = []
         return {
             **preview,
             "status": "succeeded" if status == "succeeded" and video_urls else status,
