@@ -3336,6 +3336,11 @@ class BusinessRunService:
             run.started_at = run.started_at or started_at
             run.finished_at = finished_at
             run.duration_ms = self._calculate_duration_ms(run.started_at, finished_at)
+            if status == "succeeded":
+                billing = self._product_commercialization_billing(result_payload=run.result_payload)
+                run.billing_unit = billing["billing_unit"]
+                run.quota_units = billing["quota_units"]
+                run.cost_breakdown = billing["cost_breakdown"]
             step = self._find_product_commercialization_step(session=session, run=run)
             if step:
                 step.status = status
@@ -3344,6 +3349,10 @@ class BusinessRunService:
                 step.started_at = step.started_at or run.started_at
                 step.finished_at = finished_at
                 step.duration_ms = run.duration_ms
+                if status == "succeeded":
+                    step.billing_unit = run.billing_unit
+                    step.quota_units = run.quota_units
+                    step.cost_breakdown = run.cost_breakdown
                 session.add(step)
             session.add(run)
             session.commit()
@@ -3399,6 +3408,49 @@ class BusinessRunService:
             seen.add(url)
             out.append(url)
         return out
+
+    def _product_commercialization_billing(self, *, result_payload: dict[str, Any] | None) -> dict[str, Any]:
+        payload = result_payload if isinstance(result_payload, dict) else {}
+        video_plan = payload.get("videoPlan") if isinstance(payload.get("videoPlan"), dict) else {}
+        video_result = payload.get("videoResult") if isinstance(payload.get("videoResult"), dict) else {}
+        execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else {}
+
+        segments = video_result.get("segments")
+        segment_count = self._first_int(
+            video_plan.get("segmentCount"),
+            video_plan.get("segment_count"),
+            video_result.get("segmentCount"),
+            video_result.get("segment_count"),
+            len(segments) if isinstance(segments, list) and segments else None,
+        )
+        if segment_count is None:
+            video_urls = self._extract_product_commercialization_video_urls(payload)
+            segment_count = max(1, len(video_urls)) if video_urls else 1
+        segment_count = max(1, int(segment_count))
+
+        cost_actions = execution.get("costActions") or execution.get("cost_actions")
+        if not isinstance(cost_actions, list):
+            cost_actions = ["kie.veo3_fast.video"] * segment_count
+            if bool(video_plan.get("requiresComposition") or video_plan.get("requires_composition")):
+                cost_actions.append("ffmpeg.compose")
+
+        return {
+            "billing_unit": "veo3_fast_video_segment",
+            "quota_units": segment_count,
+            "cost_breakdown": self._omit_large_fields(
+                {
+                    "pricingVersion": "product-commercialization-mvp-v1",
+                    "pricingStatus": "quota_only_mvp",
+                    "billingMode": "billable",
+                    "billingUnit": "veo3_fast_video_segment",
+                    "quotaUnits": segment_count,
+                    "segmentCount": segment_count,
+                    "policy": "one_quota_per_generated_veo_fast_segment",
+                    "costActions": cost_actions,
+                    "monetaryPriceStatus": "pending_vendor_cost_policy",
+                }
+            ),
+        }
 
     @staticmethod
     def _extract_product_commercialization_texts(result: dict[str, Any]) -> list[str]:

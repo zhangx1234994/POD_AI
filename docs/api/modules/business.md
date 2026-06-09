@@ -1533,6 +1533,7 @@ X-PODI-API-Key: podi_xxx
 - 规划/预览：`POST /api/business/product-commercialization/preview`，同步返回文案、配图建议、分镜和风险，不扣视频成本。
 - 执行视频：`POST /api/business/product-commercialization/runs`，立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。
 - 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。成功标准是查询到 `status=succeeded` 且 `videoUrls` 非空；失败原因看 `errorMessage/errorCode`。
+- 计费口径：MVP 阶段按生成片段计量，`billingUnit=veo3_fast_video_segment`，每个 Veo 3.1 Fast 片段记 `quotaUnits=1`。当前先记录 quota 和成本证据，不虚构第三方货币单价；正式价格表后续接入模型成本策略。
 - 兼容调试：`/video` 与 `/video-compose` 暂时保留给内部联调，不作为正式业务方接入口径。
 
 ### POST /api/business/product-commercialization/preview
@@ -1696,7 +1697,15 @@ X-PODI-API-Key: podi_xxx
   "runId": "c0887c163edc44b1b4408d421ff7f332",
   "taskId": "c0887c163edc44b1b4408d421ff7f332",
   "status": "succeeded",
+  "billingStatus": "billable",
+  "billingUnit": "veo3_fast_video_segment",
+  "quotaUnits": 1,
   "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4"],
+  "costBreakdown": {
+    "pricingVersion": "product-commercialization-mvp-v1",
+    "pricingStatus": "quota_only_mvp",
+    "policy": "one_quota_per_generated_veo_fast_segment"
+  },
   "resultPayload": {
     "businessKey": "product_commercialization",
     "status": "succeeded",

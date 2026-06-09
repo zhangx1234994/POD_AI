@@ -401,6 +401,10 @@ def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:
     assert polled["status"] == "succeeded"
     assert polled["taskId"] == run_id
     assert polled["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"]
+    assert polled["billingStatus"] == "billable"
+    assert polled["billingUnit"] == "veo3_fast_video_segment"
+    assert polled["quotaUnits"] == 1
+    assert polled["costBreakdown"]["pricingStatus"] == "quota_only_mvp"
     assert polled["resultPayload"]["videoResult"]["videoUrls"] == [
         "https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"
     ]
