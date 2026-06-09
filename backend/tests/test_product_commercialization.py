@@ -1,3 +1,4 @@
+import json
 import time
 from types import SimpleNamespace
 
@@ -13,6 +14,10 @@ from app.services.product_commercialization import ProductCommercializationServi
 
 
 client = TestClient(app)
+
+
+def _contains_cjk(value: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in value)
 
 
 @pytest.fixture(autouse=True)
@@ -59,6 +64,35 @@ def test_product_commercialization_preview_builds_english_copy_and_visual_plan()
     assert result["visualAssetPlan"]["generationPolicy"]["requiresExplicitAction"] is True
     assert result["videoPlan"]["model"] == "veo3_fast"
     assert result["execution"]["costActions"] == []
+
+
+def test_product_commercialization_english_fallback_translates_common_chinese_facts() -> None:
+    service = ProductCommercializationService()
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/socks.png",
+            productFields={
+                "英文名称": "Women's knitted woolen socks",
+                "产品材质": "包纱、涤纶、尼龙、橡筋",
+                "具体成分": "65%涤纶，15%氨纶，20%尼龙",
+                "生产工艺": "3D印花",
+                "二级分类": "穿搭配件",
+            },
+            outputLanguage="en-US",
+            marketRegion="US",
+        ),
+        user_id="tester",
+    )
+
+    rendered = json.dumps(result["copyPackage"], ensure_ascii=False)
+    assert "穿搭配件" not in rendered
+    assert "包纱" not in rendered
+    assert "涤纶" not in rendered
+    assert not _contains_cjk(rendered)
+    assert "fashion accessories" in rendered
+    assert "covered yarn" in rendered
+    assert "polyester" in rendered
 
 
 def test_product_commercialization_preview_uses_model_content_package(monkeypatch) -> None:
@@ -186,6 +220,143 @@ def test_product_commercialization_preview_uses_model_content_package(monkeypatc
     ]
     assert result["contentPackage"]["commercePositioning"]["coreAngle"].startswith("Gift-ready")
     assert result["visualAssetPlan"]["modelImageBriefs"][0]["id"] == "listing-main"
+
+
+def test_product_commercialization_fact_guard_falls_back_when_model_changes_product_type(monkeypatch) -> None:
+    service = ProductCommercializationService()
+
+    def fake_generate_model_content_package(*args, **kwargs):
+        return (
+            {
+                "commercePositioning": {
+                    "coreAngle": "Coastal cowboy tote bag for summer shoppers.",
+                    "targetCustomers": ["beach shoppers", "gift buyers"],
+                    "purchaseOccasions": ["beach trip", "summer gifting"],
+                    "sellingPoints": ["cotton canvas", "foldable tote", "western print"],
+                    "factBoundaries": ["Model saw a bag in the image."],
+                },
+                "copyPackage": {
+                    "listingTitle": {
+                        "en-US": "Coastal Cowboy Print Cotton Canvas Tote Bag",
+                        "zh-CN": "海岸牛仔印花帆布包",
+                    },
+                    "bulletPoints": {
+                        "en-US": ["Reusable tote bag", "Cotton canvas", "Beach-ready", "Foldable", "Giftable"],
+                        "zh-CN": ["可复用托特包", "棉帆布", "适合海边", "可折叠", "适合送礼"],
+                    },
+                    "detailDescription": {
+                        "en-US": "A reusable tote bag for shopping and beach trips.",
+                        "zh-CN": "适合购物和海边出行的托特包。",
+                    },
+                    "adShortCopy": {"en-US": ["Carry summer style."], "zh-CN": ["带上海边风格。"]},
+                    "keywordPack": ["cotton tote bag", "western tote", "beach bag"],
+                    "styleGuardrails": ["Avoid unsupported claims.", "Check marketplace policy."],
+                    "sourcePrompt": None,
+                },
+                "imageBriefs": [],
+                "channelUsageGuide": [],
+                "styleGuardrails": ["Avoid unsupported claims.", "Check marketplace policy."],
+                "modelNotes": ["Image looked like a tote bag."],
+            },
+            {
+                "method": "volcengine_chat",
+                "provider": "volcengine",
+                "model": "test-vl",
+                "fallback": False,
+                "evidence": "test model evidence",
+            },
+        )
+
+    monkeypatch.setattr(
+        ProductCommercializationService,
+        "_generate_model_content_package",
+        fake_generate_model_content_package,
+    )
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/mismatched-bag.png",
+            productFields={
+                "英文名称": "Women's knitted woolen socks",
+                "产品材质": "包纱、涤纶、尼龙、橡筋",
+                "生产工艺": "3D印花",
+                "二级分类": "穿搭配件",
+            },
+            outputLanguage="en-US",
+            marketRegion="US",
+        )
+    )
+
+    assert result["copyGeneration"]["fallback"] is True
+    assert result["copyGeneration"]["factGuard"]["passed"] is False
+    assert result["execution"]["copyGenerated"] is False
+    assert "Women's knitted woolen socks" in result["copyPackage"]["listingTitle"]
+    assert "Tote Bag" not in result["copyPackage"]["listingTitle"]
+    assert any(issue["code"] == "PRODUCT_COPY_FACT_GUARD_FALLBACK" for issue in result["review"]["issues"])
+
+
+def test_product_commercialization_model_normalization_does_not_leak_template_fallback_boundary() -> None:
+    service = ProductCommercializationService()
+    payload = ProductCommercializationRequest(
+        productImageUrl="https://example.com/socks.png",
+        productFields={
+            "英文名称": "Women's knitted woolen socks",
+            "产品材质": "包纱、涤纶、尼龙、橡筋",
+            "生产工艺": "3D印花",
+            "二级分类": "穿搭配件",
+        },
+        outputLanguage="en-US",
+        marketRegion="US",
+    )
+    product_card = service._build_product_card(payload)
+    template_package = service._build_template_content_package(
+        product_card=product_card,
+        market_region="US",
+        extra_prompt=None,
+    )
+
+    normalized = service._normalize_model_content_package(
+        {
+            "commercePositioning": {
+                "coreAngle": "Gift-ready socks for ecommerce buyers.",
+                "targetCustomers": ["gift buyers", "穿搭配件"],
+                "purchaseOccasions": ["birthday gifting", "seasonal collection"],
+                "sellingPoints": ["soft material", "POD-ready listing", "3D印花"],
+            },
+            "listingTitle": {"en-US": "Gift Socks", "zh-CN": "礼品袜"},
+            "bulletPoints": {
+                "en-US": ["Soft 包纱 fabric", "涤纶 blend", "3D印花 design", "Gift ready", "Daily wear"],
+                "zh-CN": ["柔软包纱", "涤纶混纺", "3D印花", "适合送礼", "日常穿搭"],
+            },
+            "detailDescription": {"en-US": "A product description.", "zh-CN": "商品描述。"},
+            "adShortCopy": {"en-US": ["Gift-ready socks", "Soft daily style", "POD friendly"], "zh-CN": ["礼品袜", "日常风格", "适合 POD"]},
+            "keywordPack": ["gift socks", "穿搭配件", "3D印花"],
+            "imageBriefs": [],
+            "channelUsageGuide": [],
+            "styleGuardrails": ["Avoid unsupported claims.", "Check marketplace policy."],
+            "modelNotes": ["Model generated package."],
+        },
+        template_package=template_package,
+    )
+
+    normalized_text = json.dumps(normalized, ensure_ascii=False)
+    english_delivery_surface = {
+        "commercePositioning": normalized["commercePositioning"],
+        "listingTitle": normalized["copyPackage"]["listingTitle"]["en-US"],
+        "bulletPoints": normalized["copyPackage"]["bulletPoints"]["en-US"],
+        "detailDescription": normalized["copyPackage"]["detailDescription"]["en-US"],
+        "adShortCopy": normalized["copyPackage"]["adShortCopy"]["en-US"],
+        "keywordPack": normalized["copyPackage"]["keywordPack"],
+    }
+    english_text = json.dumps(english_delivery_surface, ensure_ascii=False)
+    assert "Template fallback only" not in normalized_text
+    assert "穿搭配件" not in english_text
+    assert "包纱" not in english_text
+    assert "3D印花" not in english_text
+    assert not _contains_cjk(english_text)
+    assert "fashion accessories" in english_text
+    assert "covered yarn" in english_text
+    assert "3D print" in english_text
 
 
 def test_product_commercialization_preview_supports_bilingual_copy_and_missing_fields() -> None:

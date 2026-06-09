@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -41,6 +42,45 @@ DEFAULT_COPY_SCENARIOS = [
     "ad_short_copy",
     "keyword_pack",
 ]
+ENGLISH_FACT_TRANSLATIONS: tuple[tuple[str, str], ...] = (
+    ("饰品/配件", "accessories"),
+    ("穿搭配件", "fashion accessories"),
+    ("女款长袜", "women's long socks"),
+    ("3D打印", "3D printed"),
+    ("3D印花", "3D print"),
+    ("包纱", "covered yarn"),
+    ("涤纶", "polyester"),
+    ("氨纶", "spandex"),
+    ("尼龙", "nylon"),
+    ("橡筋", "elastic"),
+    ("棉", "cotton"),
+    ("羊毛", "wool"),
+    ("陶瓷", "ceramic"),
+    ("杯具", "drinkware"),
+)
+FACT_GUARD_STOPWORDS = {
+    "and",
+    "for",
+    "the",
+    "with",
+    "from",
+    "into",
+    "your",
+    "women",
+    "woman",
+    "womens",
+    "men",
+    "mens",
+    "custom",
+    "design",
+    "product",
+    "ready",
+    "daily",
+    "style",
+    "printed",
+    "print",
+}
+FACT_GUARD_MIN_FIELD_HITS = 2
 VEO_FAST_SEGMENT_SECONDS = 8
 MAX_TARGET_VIDEO_SECONDS = 60
 VIDEO_COMPOSE_TIMEOUT_SECONDS = 300
@@ -217,12 +257,65 @@ def _compact_sentence(parts: list[str]) -> str:
     return ", ".join([part for part in (_clean_text(p) for p in parts) if part])
 
 
+def _english_fact_phrase(value: Any) -> str:
+    text = _clean_text(value)
+    if not text:
+        return ""
+    for source, target in ENGLISH_FACT_TRANSLATIONS:
+        text = text.replace(source, target)
+    for sep in ("；", "，", "、"):
+        text = text.replace(sep, ", ")
+    return " ".join(text.split())
+
+
+def _contains_cjk(value: Any) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", _clean_text(value)))
+
+
+def _english_text_or_empty(value: Any) -> str:
+    text = _english_fact_phrase(value)
+    return "" if _contains_cjk(text) else text
+
+
 def _english_product_name(facts: dict[str, Any]) -> str:
     for key in ("productNameEn", "templateName", "categoryLevel2", "categoryLevel1"):
         value = _clean_text(facts.get(key))
         if value:
-            return value
+            if key == "productNameEn":
+                return value
+            translated = _english_text_or_empty(value)
+            if translated:
+                return translated
     return "POD product"
+
+
+def _word_tokens(value: Any) -> list[str]:
+    text = _english_fact_phrase(value).lower()
+    return [token for token in re.findall(r"[a-z0-9]+", text) if token]
+
+
+def _critical_product_terms(facts: dict[str, Any]) -> list[str]:
+    candidates = [
+        _english_product_name(facts),
+        facts.get("categoryLevel2"),
+        facts.get("categoryLevel1"),
+    ]
+    terms: list[str] = []
+    for candidate in candidates:
+        for token in _word_tokens(candidate):
+            if len(token) < 3 or token in FACT_GUARD_STOPWORDS:
+                continue
+            if token not in terms:
+                terms.append(token)
+    return terms[:8]
+
+
+def _flatten_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return " ".join(_flatten_text(item) for item in value.values())
+    if isinstance(value, list):
+        return " ".join(_flatten_text(item) for item in value)
+    return _clean_text(value)
 
 
 def _zh_product_name(facts: dict[str, Any]) -> str:
@@ -287,6 +380,7 @@ class ProductCommercializationService:
         review = self._build_review(
             product_card=product_card,
             copy_package=copy_package,
+            copy_generation=copy_generation,
             visual_asset_plan=visual_asset_plan,
             video_plan=video_plan,
         )
@@ -308,7 +402,7 @@ class ProductCommercializationService:
             "videoPlan": video_plan,
             "review": review,
             "execution": {
-                "copyGenerated": copy_generation.get("method") != "template_fallback",
+                "copyGenerated": not bool(copy_generation.get("fallback")),
                 "copyGenerationMethod": copy_generation.get("method"),
                 "imageGenerated": False,
                 "videoGenerated": False,
@@ -361,7 +455,7 @@ class ProductCommercializationService:
                 "raw": result.get("raw"),
             },
             "execution": {
-                "copyGenerated": bool(preview.get("copyGeneration", {}).get("method") != "template_fallback"),
+                "copyGenerated": not bool(preview.get("copyGeneration", {}).get("fallback")),
                 "copyGenerationMethod": preview.get("copyGeneration", {}).get("method"),
                 "imageGenerated": False,
                 "videoGenerated": bool(video_urls),
@@ -467,7 +561,7 @@ class ProductCommercializationService:
                 },
             },
             "execution": {
-                "copyGenerated": bool(preview.get("copyGeneration", {}).get("method") != "template_fallback"),
+                "copyGenerated": not bool(preview.get("copyGeneration", {}).get("fallback")),
                 "copyGenerationMethod": preview.get("copyGeneration", {}).get("method"),
                 "imageGenerated": False,
                 "videoGenerated": bool(video_url),
@@ -919,12 +1013,24 @@ class ProductCommercializationService:
                 template_package=template_package,
                 market_region=market_region,
             )
+            fact_guard = self._content_fact_guard(content_package=content_package, product_card=product_card)
+            generation = {**generation, "factGuard": fact_guard}
+            if not fact_guard.get("passed", True):
+                logger.warning("product commercialization copy model fact guard fallback: %s", fact_guard)
+                content_package = template_package
+                generation = {
+                    **generation,
+                    "fallback": True,
+                    "fallbackReason": f"PRODUCT_COPY_FACT_GUARD_FAILED: {', '.join(fact_guard.get('missingFields') or [])}",
+                    "evidence": "LLM/VL response failed product fact guard; field-anchored template fallback used.",
+                }
         except Exception as exc:  # pragma: no cover - defensive provider path
             logger.warning("product commercialization copy model fallback: %s", exc)
             generation = {
                 **generation,
                 "fallbackReason": str(exc)[:500],
                 "evidence": "LLM/VL unavailable or returned invalid JSON; template fallback used.",
+                "factGuard": {"passed": False, "reason": "model_unavailable_or_invalid"},
             }
 
         copy_package = self._select_copy_package(
@@ -938,6 +1044,31 @@ class ProductCommercializationService:
             "copyPackage": copy_package,
             "contentPackage": content_package,
             "copyGeneration": generation,
+        }
+
+    def _content_fact_guard(self, *, content_package: dict[str, Any], product_card: dict[str, Any]) -> dict[str, Any]:
+        facts = {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
+        terms = _critical_product_terms(facts)
+        if not terms:
+            return {"passed": True, "terms": [], "fieldHits": {}, "reason": "no_critical_terms"}
+        copy = content_package.get("copyPackage") if isinstance(content_package.get("copyPackage"), dict) else {}
+        fields = {
+            "listingTitle": self._pick_language(copy.get("listingTitle"), "en-US"),
+            "detailDescription": self._pick_language(copy.get("detailDescription"), "en-US"),
+            "keywordPack": copy.get("keywordPack"),
+        }
+        field_hits: dict[str, bool] = {}
+        for field, value in fields.items():
+            text = _flatten_text(value).lower()
+            field_hits[field] = any(term in text for term in terms)
+        missing = [field for field, hit in field_hits.items() if not hit]
+        passed = len(field_hits) - len(missing) >= FACT_GUARD_MIN_FIELD_HITS
+        return {
+            "passed": passed,
+            "terms": terms,
+            "fieldHits": field_hits,
+            "missingFields": missing,
+            "reason": None if passed else "critical_product_terms_missing_from_major_copy_fields",
         }
 
     def _build_template_content_package(
@@ -959,17 +1090,19 @@ class ProductCommercializationService:
         name_zh = _zh_product_name(facts)
         material = _clean_text(facts.get("material") or facts.get("composition"))
         category = _clean_text(facts.get("categoryLevel2") or facts.get("categoryLevel1"))
+        material_en = _english_text_or_empty(material)
+        category_en = _english_text_or_empty(category)
         positioning = {
             "coreAngle": f"{name_en} positioned as a practical POD-ready ecommerce item for {market_region} buyers.",
-            "targetCustomers": [category or "POD shoppers", "gift buyers", "everyday style shoppers"],
+            "targetCustomers": [category_en or "POD shoppers", "gift buyers", "everyday style shoppers"],
             "purchaseOccasions": ["daily use", "seasonal gifting", "custom design collections"],
             "sellingPoints": [
                 f"Recognizable product type: {name_en}",
-                f"Material cue: {material or 'source material needs review'}",
+                f"Material cue: {material_en or 'source material needs review'}",
                 "Suitable for listing copy, ad copy, and visual asset planning.",
             ],
             "factBoundaries": [
-                "Template fallback only; validate facts before publishing.",
+                "Validate product facts before publishing.",
                 "Do not claim shipping, certification, or trademark details unless source fields provide them.",
             ],
         }
@@ -992,7 +1125,7 @@ class ProductCommercializationService:
                 "linkedCopy": ["bulletPoints", "detailDescription"],
                 "prompt": (
                     f"Create a close-up detail image for {name_en}, focusing on material texture, print clarity "
-                    f"and product construction. Material cue: {material or 'use visible material only'}."
+                    f"and product construction. Material cue: {material_en or 'use visible material only'}."
                 ),
                 "riskNotes": ["Do not invent unavailable product components."],
             },
@@ -1104,9 +1237,11 @@ class ProductCommercializationService:
             "extraPrompt": _clean_text(getattr(payload, "extraPrompt", None)) or None,
             "productCard": product_card,
             "rules": [
-                "Use product fields as facts; mark inference in modelNotes instead of inventing unsupported facts.",
-                "Use the image as visual evidence when provided. Do not describe invisible details as facts.",
+                "Product fields are the primary source of truth for product type, material, process, category, size, and market facts.",
+                "Use the image only as supporting visual evidence. If image evidence appears to conflict with product fields, keep the product fields and record the conflict in modelNotes.",
+                "Do not change the product type from the exported fields based on the image.",
                 "Write natural ecommerce copy; avoid generic template phrases and mechanical repetition.",
+                "For en-US output, translate Chinese source fields into natural English. Do not mix Chinese category or material words into English copy unless they are exact product names.",
                 "Do not include medical, trademark, sustainability, shipping, discount, certification, or size claims unless the fields explicitly provide them.",
                 "Return JSON only and follow the provided schema exactly.",
             ],
@@ -1115,9 +1250,12 @@ class ProductCommercializationService:
     def _build_copy_model_prompt(self, *, context_payload: dict[str, Any]) -> str:
         return (
             "你是 PODI 的电商商品内容策略师。请基于产品图和产品导出字段，为 POD 商家生成可直接用于上架和营销的内容包。\n"
+            "产品导出字段是商品类型、材质、工艺、类目的最高优先级事实来源；图片只能作为辅助视觉证据。"
+            "如果图片和字段疑似不一致，必须以字段为准，并在 modelNotes 标记冲突，不能把商品类型改成图片里的其他物品。\n"
             "必须输出 JSON，不要 Markdown，不要解释。JSON 字段必须包含 commercePositioning、listingTitle、bulletPoints、"
             "detailDescription、adShortCopy、keywordPack、imageBriefs、channelUsageGuide、styleGuardrails、modelNotes。\n"
             "listingTitle/detailDescription 使用 {\"en-US\": string, \"zh-CN\": string}；bulletPoints/adShortCopy 使用双语数组。"
+            "en-US 字段必须是自然英文，需要把中文类目、材质、工艺翻译成英文，不能把中文词直接混进英文文案。"
             "imageBriefs 要说明每张配图服务哪类文案和使用场景。\n"
             f"输入上下文：{json.dumps(context_payload, ensure_ascii=False)}"
         )
@@ -1132,8 +1270,10 @@ class ProductCommercializationService:
             "model": settings.business_agent_planner_model,
             "instructions": (
                 "You are PODI's ecommerce copy strategist for POD merchants. Generate a practical, non-mechanical "
-                "content package for listing and marketing. Use images as visual evidence when provided. Distinguish "
-                "source facts from inference. Return only JSON matching the schema."
+                "content package for listing and marketing. Product fields are the highest-priority factual source "
+                "for product type, material, process, category, and market facts. Use images only as supporting "
+                "visual evidence; if image evidence conflicts with fields, keep the fields and note the conflict. "
+                "Return only JSON matching the schema."
             ),
             "input": [{"role": "user", "content": content}],
             "text": {
@@ -1181,7 +1321,7 @@ class ProductCommercializationService:
                 "bulletPoints": self._normalize_bilingual_list(raw.get("bulletPoints"), template_copy.get("bulletPoints"), min_items=5),
                 "detailDescription": self._normalize_bilingual_text(raw.get("detailDescription"), template_copy.get("detailDescription")),
                 "adShortCopy": self._normalize_bilingual_list(raw.get("adShortCopy"), template_copy.get("adShortCopy"), min_items=3),
-                "keywordPack": self._normalize_string_list(raw.get("keywordPack"), template_copy.get("keywordPack"), min_items=6),
+                "keywordPack": self._normalize_english_string_list(raw.get("keywordPack"), template_copy.get("keywordPack"), min_items=6),
                 "styleGuardrails": self._normalize_string_list(
                     raw.get("styleGuardrails"),
                     template_package.get("styleGuardrails"),
@@ -1232,11 +1372,11 @@ class ProductCommercializationService:
     def _normalize_positioning(self, value: Any, *, fallback: dict[str, Any]) -> dict[str, Any]:
         raw = value if isinstance(value, dict) else {}
         return {
-            "coreAngle": _clean_text(raw.get("coreAngle")) or _clean_text(fallback.get("coreAngle")) or "POD ecommerce content angle.",
-            "targetCustomers": self._normalize_string_list(raw.get("targetCustomers"), fallback.get("targetCustomers"), min_items=2),
-            "purchaseOccasions": self._normalize_string_list(raw.get("purchaseOccasions"), fallback.get("purchaseOccasions"), min_items=2),
-            "sellingPoints": self._normalize_string_list(raw.get("sellingPoints"), fallback.get("sellingPoints"), min_items=3),
-            "factBoundaries": self._normalize_string_list(raw.get("factBoundaries"), fallback.get("factBoundaries"), min_items=2),
+            "coreAngle": _english_text_or_empty(raw.get("coreAngle")) or _english_text_or_empty(fallback.get("coreAngle")) or "POD ecommerce content angle.",
+            "targetCustomers": self._normalize_english_string_list(raw.get("targetCustomers"), fallback.get("targetCustomers"), min_items=2),
+            "purchaseOccasions": self._normalize_english_string_list(raw.get("purchaseOccasions"), fallback.get("purchaseOccasions"), min_items=2),
+            "sellingPoints": self._normalize_english_string_list(raw.get("sellingPoints"), fallback.get("sellingPoints"), min_items=3),
+            "factBoundaries": self._normalize_english_string_list(raw.get("factBoundaries"), fallback.get("factBoundaries"), min_items=2),
         }
 
     def _normalize_bilingual_text(self, value: Any, fallback: Any) -> dict[str, str]:
@@ -1244,16 +1384,35 @@ class ProductCommercializationService:
         fallback_map = fallback if isinstance(fallback, dict) else {}
         if isinstance(fallback, str):
             fallback_map = {"en-US": fallback, "zh-CN": fallback}
-        en = _clean_text(raw.get("en-US")) or _clean_text(fallback_map.get("en-US")) or "POD ecommerce listing draft"
+        en = _english_text_or_empty(raw.get("en-US")) or _english_text_or_empty(fallback_map.get("en-US")) or "POD ecommerce listing draft"
         zh = _clean_text(raw.get("zh-CN")) or _clean_text(fallback_map.get("zh-CN")) or en
         return {"en-US": en, "zh-CN": zh}
 
     def _normalize_bilingual_list(self, value: Any, fallback: Any, *, min_items: int) -> dict[str, list[str]]:
         raw = value if isinstance(value, dict) else {}
         fallback_map = fallback if isinstance(fallback, dict) else {}
-        en = self._normalize_string_list(raw.get("en-US"), fallback_map.get("en-US") if isinstance(fallback_map, dict) else fallback, min_items=min_items)
+        en = self._normalize_english_string_list(
+            raw.get("en-US"),
+            fallback_map.get("en-US") if isinstance(fallback_map, dict) else fallback,
+            min_items=min_items,
+        )
         zh = self._normalize_string_list(raw.get("zh-CN"), fallback_map.get("zh-CN") if isinstance(fallback_map, dict) else fallback, min_items=min_items)
         return {"en-US": en[:8], "zh-CN": zh[:8]}
+
+    def _normalize_english_string_list(self, value: Any, fallback: Any = None, *, min_items: int = 1) -> list[str]:
+        items: list[str] = []
+        for item in _normalize_list(value):
+            cleaned = _english_text_or_empty(item)
+            if cleaned and cleaned not in items:
+                items.append(cleaned)
+        if len(items) < min_items:
+            for item in _normalize_list(fallback):
+                cleaned = _english_text_or_empty(item)
+                if cleaned and cleaned not in items:
+                    items.append(cleaned)
+        while len(items) < min_items:
+            items.append("Review and refine this item before publishing.")
+        return items[:20]
 
     def _normalize_string_list(self, value: Any, fallback: Any = None, *, min_items: int = 1) -> list[str]:
         items = _normalize_list(value)
@@ -1350,14 +1509,18 @@ class ProductCommercializationService:
         material = _clean_text(facts.get("material") or facts.get("composition"))
         process = _clean_text(facts.get("productionProcess"))
         category = _clean_text(facts.get("categoryLevel2") or facts.get("categoryLevel1"))
+        material_en = _english_text_or_empty(material)
+        process_en = _english_text_or_empty(process)
+        category_en = _english_text_or_empty(category)
+        source_keywords = [_english_text_or_empty(item) for item in _normalize_list(facts.get("keywords"))]
         keywords = _join_keywords(
-            _normalize_list(facts.get("keywords")),
-            [name_en, category, material, "custom design", "POD"],
+            source_keywords,
+            [name_en, category_en, material_en, "custom design", "POD"],
         )
         selling_base_en = [
-            _compact_sentence(["Made for everyday styling", category]),
-            _compact_sentence(["Soft, comfortable feel", material]) if material else "Designed for comfort and easy pairing",
-            _compact_sentence(["Print-on-demand friendly", process]) if process else "Clean visual presentation for POD listings",
+            f"Made for everyday styling in {category_en}" if category_en else "Made for everyday styling",
+            _compact_sentence(["Soft, comfortable feel", material_en]) if material_en else "Designed for comfort and easy pairing",
+            _compact_sentence(["Print-on-demand friendly", process_en]) if process_en else "Clean visual presentation for POD listings",
             "Works as a practical gift or seasonal wardrobe update",
             "Lightweight product story suitable for marketplace and ad copy",
         ]
@@ -1388,8 +1551,8 @@ class ProductCommercializationService:
             detail_en = (
                 f"Refresh your store with {name_en}, a POD-ready product designed around clear product visuals, "
                 f"comfortable styling, and easy giftable appeal. "
-                f"{'Key material: ' + material + '. ' if material else ''}"
-                f"{'Production process: ' + process + '. ' if process else ''}"
+                f"{'Key material: ' + material_en + '. ' if material_en else ''}"
+                f"{'Production process: ' + process_en + '. ' if process_en else ''}"
                 "Use the final copy as a listing draft and adjust factual fields before publishing."
             )
             detail_zh = (
@@ -1403,7 +1566,7 @@ class ProductCommercializationService:
             result["adShortCopy"] = self._localized_copy(
                 en=[
                     f"Freshen up your look with {name_en}.",
-                    f"A gift-ready {category or 'POD pick'} with a clean custom design.",
+                    f"A gift-ready POD pick for {category_en}." if category_en else "A gift-ready POD pick with a clean custom design.",
                     "Designed for everyday comfort, styled for seasonal moments.",
                 ],
                 zh=[
@@ -1660,10 +1823,20 @@ class ProductCommercializationService:
         *,
         product_card: dict[str, Any],
         copy_package: dict[str, Any],
+        copy_generation: dict[str, Any],
         visual_asset_plan: dict[str, Any],
         video_plan: dict[str, Any],
     ) -> dict[str, Any]:
         issues: list[dict[str, Any]] = []
+        fact_guard = copy_generation.get("factGuard") if isinstance(copy_generation.get("factGuard"), dict) else {}
+        if fact_guard and not fact_guard.get("passed", True):
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "PRODUCT_COPY_FACT_GUARD_FALLBACK",
+                    "message": "LLM/VL output did not keep enough product fact anchors, so the system used field-anchored fallback copy.",
+                }
+            )
         if product_card.get("missingFields"):
             issues.append(
                 {

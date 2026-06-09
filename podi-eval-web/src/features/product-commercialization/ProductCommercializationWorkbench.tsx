@@ -366,6 +366,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const activeVideoRunIdRef = useRef<string | null>(null);
   const [videoRun, setVideoRun] = useState<{ runId: string; status: string; elapsedSeconds: number } | null>(null);
+  const [resultInputSignature, setResultInputSignature] = useState('');
 
   const parsedFields = useMemo(() => {
     try {
@@ -377,8 +378,52 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   }, [productFieldsText]);
 
   const productSummary = useMemo(() => getProductFieldSummary(parsedFields), [parsedFields]);
+  const currentInputSignature = useMemo(
+    () =>
+      JSON.stringify({
+        mode,
+        productImageUrl: productImageUrl.trim(),
+        productFieldsText,
+        extraPrompt: extraPrompt.trim(),
+        outputLanguage,
+        marketRegion,
+        commercePlatform: isVideoMode ? undefined : commercePlatform,
+        copyTone: isVideoMode ? undefined : copyTone,
+        targetAudience: isVideoMode ? undefined : targetAudience.trim(),
+        sellingAngle: isVideoMode ? undefined : sellingAngle,
+        forbiddenClaims: isVideoMode ? undefined : forbiddenClaims,
+        visualSupportMode: isVideoMode ? undefined : visualSupportMode,
+        copyScenarios: isVideoMode ? undefined : [...copyScenarios].sort(),
+        videoScenario: isVideoMode ? videoScenario : undefined,
+        videoProvider: isVideoMode ? videoProvider : undefined,
+        aspectRatio: isVideoMode ? aspectRatio.trim() : undefined,
+        targetDurationSeconds: isVideoMode ? targetDurationSeconds : undefined,
+      }),
+    [
+      aspectRatio,
+      commercePlatform,
+      copyScenarios,
+      copyTone,
+      extraPrompt,
+      forbiddenClaims,
+      isVideoMode,
+      marketRegion,
+      mode,
+      outputLanguage,
+      productFieldsText,
+      productImageUrl,
+      sellingAngle,
+      targetAudience,
+      targetDurationSeconds,
+      videoProvider,
+      videoScenario,
+      visualSupportMode,
+    ],
+  );
   const shouldConfirmMatch = Boolean(productImageUrl.trim() && parsedFields && Object.keys(parsedFields).length > 0);
   const canRunPaidAction = Boolean(productImageUrl.trim() && (!shouldConfirmMatch || fieldsConfirmed));
+  const hasFreshResult = Boolean(result && resultInputSignature === currentInputSignature && parsedFields !== null);
+  const resultIsStale = Boolean(result && !hasFreshResult);
   const videoUrls = getVideoUrls(result);
 
   useEffect(() => {
@@ -416,10 +461,14 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const runPreview = async () => {
     setError('');
     setStatus('previewing');
+    const signature = currentInputSignature;
     try {
       const payload = buildPayload();
       const response = await evalApi.previewProductCommercialization(payload);
       setResult(response);
+      setResultInputSignature(signature);
+      setGeneratedVisuals([]);
+      if (!isVideoMode) setVideoRun(null);
     } catch (err) {
       setError(String((err as any)?.message || err || '生成失败'));
     } finally {
@@ -461,6 +510,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       return;
     }
     setStatus('video');
+    const signature = currentInputSignature;
     try {
       const payload = buildPayload();
       const submitted = await evalApi.submitProductCommercializationVideoRun(payload);
@@ -478,6 +528,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         const fullResult = asProductCommercializationResponse(poll.resultPayload || poll.result);
         if (fullResult) {
           setResult(fullResult);
+          setResultInputSignature(signature);
         } else if (Array.isArray(poll.videoUrls) && poll.videoUrls.length > 0) {
           setResult((prev) =>
             prev
@@ -557,6 +608,10 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       setError('请先把配图模式切换为“生成配图”，再触发图片成本动作');
       return;
     }
+    if (!hasFreshResult) {
+      setError('当前输入已经变化，请先基于当前图片和字段重新生成文案内容包，再触发配图生成');
+      return;
+    }
     if (!canRunPaidAction) {
       setError('请先确认产品图与导出 JSON 属于同一商品，再触发配图生成');
       return;
@@ -617,6 +672,10 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
 
   const downloadContentPackage = () => {
     if (!result) return;
+    if (!hasFreshResult) {
+      setError('当前输入已经变化，请先重新生成内容包，再下载交付文件');
+      return;
+    }
     const copyPackage = asRecord(result.copyPackage);
     const generatedImages = generatedVisuals.flatMap((item) =>
       item.urls.map((url) => ({ label: item.label, runId: item.runId, url })),
@@ -697,6 +756,12 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           theme={videoRun.status === 'failed' ? 'error' : videoRun.status === 'succeeded' ? 'success' : 'info'}
           message={`视频任务 ${businessRunStatusLabel(videoRun.status)} · runId=${videoRun.runId} · 已等待 ${videoRun.elapsedSeconds}s`}
         />
+      ) : null}
+      {status === 'previewing' ? (
+        <Alert theme="info" message="正在生成内容包，通常需要 20-90 秒；完成后结果会出现在右侧输出区。" />
+      ) : null}
+      {status === 'visual' ? (
+        <Alert theme="info" message="正在生成配图，页面会按 runId 轮询任务状态；完成后图片会自动回填到结果区。" />
       ) : null}
 
       <div className="podi-product-commercialization__grid">
@@ -944,7 +1009,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                 {meta.previewButton}
               </Button>
               {!isVideoMode && result ? (
-                <Button variant="outline" disabled={visualSupportMode !== 'generate' || !canRunPaidAction} onClick={() => void generateVisualScene(VISUAL_SCENES[1])}>
+                <Button
+                  variant="outline"
+                  disabled={visualSupportMode !== 'generate' || !canRunPaidAction || !hasFreshResult}
+                  onClick={() => void generateVisualScene(VISUAL_SCENES[1])}
+                >
                   生成一张配图
                 </Button>
               ) : null}
@@ -962,7 +1031,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
             <Typography.Text strong>输出与交付</Typography.Text>
             <Space size="small">
               {result ? (
-                <Button size="small" variant="outline" onClick={downloadContentPackage}>
+                <Button size="small" variant="outline" disabled={!hasFreshResult} onClick={downloadContentPackage}>
                   下载图文包
                 </Button>
               ) : null}
@@ -972,6 +1041,14 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           {!result ? (
             <div className="podi-product-commercialization__empty">
               <Typography.Text theme="secondary">{meta.emptyText}</Typography.Text>
+            </div>
+          ) : resultIsStale ? (
+            <div className="podi-product-commercialization__empty">
+              <Alert
+                theme="warning"
+                title="结果已过期"
+                message="当前产品图、JSON 或策略参数已经变化，旧结果已收起。请重新生成内容包后再下载或触发配图/视频成本动作。"
+              />
             </div>
           ) : (
             <Space direction="vertical" size="medium" style={{ width: '100%' }}>
@@ -1088,7 +1165,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                                 size="small"
                                 variant="outline"
                                 loading={status === 'visual'}
-                                disabled={visualSupportMode !== 'generate' || !canRunPaidAction}
+                                disabled={visualSupportMode !== 'generate' || !canRunPaidAction || !hasFreshResult}
                                 onClick={() => void generateVisualScene(scene)}
                               >
                                 生成{label}
