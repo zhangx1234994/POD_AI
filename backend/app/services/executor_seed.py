@@ -341,7 +341,7 @@ def _ensure_executor_api_keys(session: Session) -> bool:
         cfg = ex.config or {}
         provider = (ex.type or "").lower()
 
-        if provider in {"volcengine", "kie"}:
+        if provider in {"volcengine", "kie", "vidu"}:
             key_value = cfg.get("apiKey") or cfg.get("api_key")
             if isinstance(key_value, str) and key_value.strip():
                 api_key = upsert_key(provider=provider, name=f"{ex.name} · API Key", key_value=key_value.strip())

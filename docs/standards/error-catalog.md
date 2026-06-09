@@ -74,6 +74,7 @@
 | EXECUTOR_TYPE_NOT_BAIDU | 执行器类型不匹配（百度） | 400 |
 | EXECUTOR_TYPE_NOT_COMFYUI | 执行器类型不匹配（ComfyUI） | 400 |
 | EXECUTOR_TYPE_NOT_KIE | 执行器类型不匹配（KIE） | 400 |
+| EXECUTOR_TYPE_NOT_VIDU | 执行器类型不匹配（Vidu） | 400 |
 | EXECUTOR_TYPE_NOT_VOLCENGINE | 执行器类型不匹配（火山） | 400 |
 | ABILITY_NOT_FOUND | 能力不存在 | 404 |
 | ABILITY_NOT_FOUND_OR_INACTIVE | 能力不存在或未激活 | 404 |
@@ -181,7 +182,7 @@
 | PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED | 产品商业化视频生成缺少可执行视频提示词 | 400，分镜规划异常或输入不足导致无法生成 prompt |
 | PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY | 产品商业化长视频调用了单段视频接口 | 400，`targetDurationSeconds>8` 时不能调用 `/video`，应改用 `/video-compose` |
 | PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED | 产品商业化预览生成失败 | 500，产品理解卡、文案包、配图建议或分镜生成异常 |
-| PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED | 产品商业化视频生成失败 | 502/500，KIE Veo Fast 创建、轮询或 OSS 沉淀失败 |
+| PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED | 产品商业化视频生成失败 | 502/500，KIE/Vidu 创建、轮询或 OSS 沉淀失败 |
 | PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED | 产品商业化视频片段生成失败 | 502/500，长视频合成前的某个 Veo 片段未成功返回可用视频 |
 | PRODUCT_COMMERCIALIZATION_COMPOSE_DOWNLOAD_FAILED | 产品商业化视频合成下载失败 | 502/500，合成前下载片段视频失败 |
 | PRODUCT_COMMERCIALIZATION_FFMPEG_MISSING | 产品商业化视频合成缺少 ffmpeg | 500，部署环境未安装 `ffmpeg` 或不可执行 |
@@ -477,6 +478,15 @@
 | KIE_TIMEOUT | KIE 任务硬超时 | 默认 15 分钟 |
 | KIE_MODEL_KEY_REQUIRED | KIE 查询缺少 modelKey | `/api/coze/podi/kie/models/schema` |
 | KIE_MODEL_NOT_FOUND | KIE 查询模型不存在 | `/api/coze/podi/kie/models/schema` |
+| VIDU_TASK_CREATE_FAILED | Vidu 创建任务失败 | `POST /ent/v2/img2video` |
+| VIDU_TASK_FAILED | Vidu 任务执行失败 | 返回 failed/canceled 等终态 |
+| VIDU_TASK_ID_MISSING | Vidu 返回 task id 为空 | |
+| VIDU_API_KEY_MISSING | Vidu API Key 缺失 | |
+| VIDU_IMAGE_REQUIRED | Vidu 图生视频缺少输入图片 | |
+| VIDU_RESPONSE_INVALID | Vidu 返回结构异常 | |
+| VIDU_STATUS_EMPTY | Vidu 状态为空 | |
+| VIDU_STATUS_ERROR | Vidu 状态查询失败 | |
+| VIDU_TIMEOUT | Vidu 任务硬超时 | 默认按调用方 pollTimeout |
 | VENDOR_API_EXECUTOR_UNAVAILABLE | 第三方 API 执行服务不可用 | vendor-api-ops 或对应 executor 不可达 |
 | VENDOR_API_EXECUTOR_NOT_CONFIGURED | 第三方 API 执行节点未配置 | OpenAI/OpenAI-compatible 等 global-egress 能力无可用 vendor_api executor |
 | VENDOR_API_EXECUTOR_NOT_CONFIGURED_LEGACY_ALLOWED | 第三方 API 执行节点未配置但允许旧链路兜底 | 仅 Baidu/Volcengine/KIE 迁移期使用，OpenAI 不允许 |

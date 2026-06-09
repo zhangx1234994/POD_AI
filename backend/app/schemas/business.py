@@ -453,18 +453,18 @@ class ProductCommercializationRequest(BaseModel):
     durationSeconds: Literal[8] | None = Field(
         default=8,
         alias="duration_seconds",
-        description="单段 Veo 3.1 Fast 执行时长，当前固定 8 秒。",
+        description="单段视频执行时长，当前固定 8 秒。",
     )
     targetDurationSeconds: int | None = Field(
         default=8,
         ge=8,
         le=60,
         alias="target_duration_seconds",
-        description="用户目标成片时长。8 秒直接生成；超过 8 秒当前只输出分镜和合成计划。",
+        description="用户目标成片时长。8 秒直接生成；超过 8 秒按分镜多段生成并合成。",
     )
     aspectRatio: str | None = Field(default="16:9", alias="aspect_ratio")
     strategyProfile: str | None = Field(default="default_pod_profile", alias="strategy_profile")
-    executorId: str | None = Field(default=None, alias="executor_id", description="视频生成使用的 KIE executor，可不传")
+    executorId: str | None = Field(default=None, alias="executor_id", description="视频生成使用的 executor，可选 KIE/Vidu；不传使用默认 KIE")
     pollTimeout: float | None = Field(default=None, alias="poll_timeout", description="视频生成轮询超时秒数")
     requestId: str | None = Field(default=None, alias="request_id")
     traceId: str | None = Field(default=None, alias="trace_id")

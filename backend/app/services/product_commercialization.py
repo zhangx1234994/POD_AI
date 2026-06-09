@@ -40,6 +40,8 @@ VEO_FAST_SEGMENT_SECONDS = 8
 MAX_TARGET_VIDEO_SECONDS = 60
 VIDEO_COMPOSE_TIMEOUT_SECONDS = 300
 VIDEO_SEGMENT_MAX_ATTEMPTS = 2
+DEFAULT_KIE_VIDEO_EXECUTOR_ID = "executor_kie_market_default"
+DEFAULT_VIDU_VIDEO_MODEL = "viduq3-turbo"
 
 
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
@@ -161,6 +163,7 @@ class ProductCommercializationService:
             aspect_ratio=getattr(payload, "aspectRatio", None),
             output_language=output_language,
             market_region=market_region,
+            executor_id=getattr(payload, "executorId", None),
         )
         review = self._build_review(
             product_card=product_card,
@@ -209,7 +212,7 @@ class ProductCommercializationService:
         if video_plan.get("requiresComposition"):
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY")
         result, video_urls = self._generate_segment_with_retry(
-            executor_id=_clean_text(getattr(payload, "executorId", None)) or "executor_kie_market_default",
+            executor_id=_clean_text(getattr(payload, "executorId", None)) or DEFAULT_KIE_VIDEO_EXECUTOR_ID,
             prompt=prompt,
             image_url=image_url,
             aspect_ratio=video_plan.get("aspectRatio") or "16:9",
@@ -217,12 +220,14 @@ class ProductCommercializationService:
             segment_index=1,
         )
         status = _clean_text(result.get("status")) or "running"
+        provider = self._normalize_video_provider(result.get("provider"))
+        model = _clean_text(result.get("model")) or ("veo3_fast" if provider == "kie" else DEFAULT_VIDU_VIDEO_MODEL)
         return {
             **preview,
             "status": "succeeded" if status == "succeeded" and video_urls else status,
             "videoResult": {
-                "provider": "kie",
-                "model": "veo3_fast",
+                "provider": provider,
+                "model": model,
                 "taskId": result.get("taskId"),
                 "state": result.get("state"),
                 "status": status,
@@ -234,7 +239,7 @@ class ProductCommercializationService:
                 "copyGenerated": True,
                 "imageGenerated": False,
                 "videoGenerated": bool(video_urls),
-                "costActions": ["kie.veo3_fast.video"],
+                "costActions": [self._video_cost_action(provider=provider, model=model)],
                 "note": "Video generation is an explicit cost action and result assets are persisted to PODI OSS.",
             },
         }
@@ -252,7 +257,7 @@ class ProductCommercializationService:
         if not isinstance(storyboard, list) or not storyboard:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
 
-        executor_id = _clean_text(getattr(payload, "executorId", None)) or "executor_kie_market_default"
+        executor_id = _clean_text(getattr(payload, "executorId", None)) or DEFAULT_KIE_VIDEO_EXECUTOR_ID
         default_poll_timeout = max(float(get_settings().kie_task_timeout_seconds), 300.0)
         poll_timeout = float(getattr(payload, "pollTimeout", None) or default_poll_timeout)
         segment_results: list[dict[str, Any]] = []
@@ -279,7 +284,7 @@ class ProductCommercializationService:
                         "taskId": result.get("taskId"),
                         "state": result.get("state"),
                         "status": result.get("status"),
-                        "error": self._summarize_kie_failure(result),
+                        "error": self._summarize_video_failure(result),
                     },
                 )
             segment_results.append(
@@ -293,6 +298,8 @@ class ProductCommercializationService:
                     "videoUrls": video_urls,
                     "storedAssets": result.get("storedAssets") or [],
                     "prompt": prompt,
+                    "provider": self._normalize_video_provider(result.get("provider")),
+                    "model": _clean_text(result.get("model")) or "veo3_fast",
                 }
             )
 
@@ -306,12 +313,20 @@ class ProductCommercializationService:
             user_id=user_id or "product-commercialization",
         )
         video_url = _clean_text(composition.get("ossUrl"))
+        providers = [self._normalize_video_provider(segment.get("provider")) for segment in segment_results]
+        models = [_clean_text(segment.get("model")) or "veo3_fast" for segment in segment_results]
+        primary_provider = providers[0] if providers else "kie"
+        primary_model = models[0] if models else "veo3_fast"
+        cost_actions = [
+            self._video_cost_action(provider=provider, model=model) for provider, model in zip(providers, models)
+        ]
+        cost_actions.append("ffmpeg.compose")
         return {
             **preview,
             "status": "succeeded",
             "videoResult": {
-                "provider": "kie+ffmpeg",
-                "model": "veo3_fast",
+                "provider": f"{primary_provider}+ffmpeg",
+                "model": primary_model,
                 "status": "succeeded",
                 "videoUrls": [video_url] if video_url else [],
                 "storedAssets": [composition] if composition else [],
@@ -329,9 +344,11 @@ class ProductCommercializationService:
                 "copyGenerated": True,
                 "imageGenerated": False,
                 "videoGenerated": bool(video_url),
-                "costActions": (video_plan.get("compositionPlan") or {}).get("costActionPreview")
-                or ["kie.veo3_fast.video", "ffmpeg.compose"],
-                "note": "Composed video generation is an explicit multi-segment cost action; all segment and final assets are persisted to PODI OSS.",
+                "costActions": cost_actions,
+                "note": (
+                    "Composed video generation is an explicit multi-segment cost action; "
+                    "all segment and final assets are persisted to PODI OSS."
+                ),
             },
         }
 
@@ -347,26 +364,47 @@ class ProductCommercializationService:
     ) -> tuple[dict[str, Any], list[str]]:
         last_result: dict[str, Any] = {}
         last_exception: Exception | None = None
+        provider = self._resolve_video_provider(executor_id)
         for attempt in range(1, VIDEO_SEGMENT_MAX_ATTEMPTS + 1):
             try:
-                result = integration_test_service.run_kie_market_task(
-                    executor_id=executor_id,
-                    endpoint="/api/v1/veo/generate",
-                    status_endpoint="/api/v1/veo/record-info",
-                    result_format="veo3",
-                    model="veo3_fast",
-                    input_payload={
-                        "prompt": prompt,
-                        "imageUrls": [image_url],
-                        "aspectRatio": aspect_ratio,
-                        "duration": VEO_FAST_SEGMENT_SECONDS,
-                        "enableTranslation": True,
-                        "enableFallback": False,
-                    },
-                    input_array_target="imageUrls",
-                    poll_timeout=poll_timeout,
-                    poll_interval=2.5,
-                )
+                if provider == "vidu":
+                    result = integration_test_service.run_vidu_video_task(
+                        executor_id=executor_id,
+                        endpoint="/ent/v2/img2video",
+                        status_endpoint="/ent/v2/tasks/{task_id}/creations",
+                        model=DEFAULT_VIDU_VIDEO_MODEL,
+                        input_payload={
+                            "prompt": prompt,
+                            "images": [image_url],
+                            "duration": VEO_FAST_SEGMENT_SECONDS,
+                            "resolution": "720p",
+                            "movement_amplitude": "auto",
+                            "audio": False,
+                            "bgm": False,
+                        },
+                        input_array_target="images",
+                        poll_timeout=poll_timeout,
+                        poll_interval=2.5,
+                    )
+                else:
+                    result = integration_test_service.run_kie_market_task(
+                        executor_id=executor_id,
+                        endpoint="/api/v1/veo/generate",
+                        status_endpoint="/api/v1/veo/record-info",
+                        result_format="veo3",
+                        model="veo3_fast",
+                        input_payload={
+                            "prompt": prompt,
+                            "imageUrls": [image_url],
+                            "aspectRatio": aspect_ratio,
+                            "duration": VEO_FAST_SEGMENT_SECONDS,
+                            "enableTranslation": True,
+                            "enableFallback": False,
+                        },
+                        input_array_target="imageUrls",
+                        poll_timeout=poll_timeout,
+                        poll_interval=2.5,
+                    )
             except HTTPException as exc:
                 last_exception = exc
                 if attempt >= VIDEO_SEGMENT_MAX_ATTEMPTS:
@@ -398,11 +436,65 @@ class ProductCommercializationService:
             "taskId": last_result.get("taskId"),
             "state": last_result.get("state"),
             "status": last_result.get("status"),
-            "error": self._summarize_kie_failure(last_result),
+            "error": self._summarize_video_failure(last_result),
         }
         if last_exception is not None and not detail["error"]:
             detail["error"] = str(getattr(last_exception, "detail", last_exception))
         raise HTTPException(status_code=502, detail=detail)
+
+    def _resolve_video_provider(self, executor_id: str) -> str:
+        lowered = _clean_text(executor_id).lower()
+        if "vidu" in lowered:
+            return "vidu"
+        try:
+            executor = integration_test_service._get_executor(executor_id)  # type: ignore[attr-defined]
+        except Exception:
+            return "kie"
+        executor_type = _clean_text(getattr(executor, "type", None)).lower()
+        if executor_type in {"vidu", "vidu-video", "vidu_video"}:
+            return "vidu"
+        return "kie"
+
+    def _normalize_video_provider(self, value: Any) -> str:
+        text = _clean_text(value).lower()
+        if text.startswith("vidu"):
+            return "vidu"
+        return "kie"
+
+    def _video_cost_action(self, *, provider: str, model: str) -> str:
+        normalized_provider = self._normalize_video_provider(provider)
+        normalized_model = _clean_text(model).lower().replace("-", "_") or (
+            DEFAULT_VIDU_VIDEO_MODEL.replace("-", "_") if normalized_provider == "vidu" else "veo3_fast"
+        )
+        return f"{normalized_provider}.{normalized_model}.video"
+
+    def _summarize_video_failure(self, result: dict[str, Any]) -> dict[str, Any] | str | None:
+        provider = self._normalize_video_provider(result.get("provider") if isinstance(result, dict) else None)
+        if provider == "vidu":
+            return self._summarize_vidu_failure(result)
+        return self._summarize_kie_failure(result)
+
+    def _summarize_vidu_failure(self, result: dict[str, Any]) -> dict[str, Any] | str | None:
+        raw = result.get("raw") if isinstance(result, dict) else None
+        response = raw.get("response") if isinstance(raw, dict) else None
+        if isinstance(response, dict):
+            summary = {
+                "state": response.get("state") or response.get("status"),
+                "error": response.get("error"),
+                "message": response.get("message") or response.get("detail"),
+            }
+            nested = response.get("data")
+            if isinstance(nested, dict):
+                summary.update(
+                    {
+                        "dataState": nested.get("state") or nested.get("status"),
+                        "dataError": nested.get("error"),
+                        "dataMessage": nested.get("message") or nested.get("detail"),
+                    }
+                )
+            compact = {key: value for key, value in summary.items() if value not in (None, "", [])}
+            return compact or None
+        return None
 
     def _summarize_kie_failure(self, result: dict[str, Any]) -> dict[str, Any] | str | None:
         raw = result.get("raw") if isinstance(result, dict) else None
@@ -813,11 +905,14 @@ class ProductCommercializationService:
         aspect_ratio: Any,
         output_language: str,
         market_region: str,
+        executor_id: Any,
     ) -> dict[str, Any]:
         facts = {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
         name = _english_product_name(facts)
         material = _clean_text(facts.get("material") or facts.get("composition"))
-        # KIE Veo 3.1 direct generation currently returns 8-second clips in live tests.
+        provider = self._resolve_video_provider(_clean_text(executor_id) or DEFAULT_KIE_VIDEO_EXECUTOR_ID)
+        model = DEFAULT_VIDU_VIDEO_MODEL if provider == "vidu" else "veo3_fast"
+        # The first executable version standardizes on 8-second segments across providers.
         # Longer or precisely variable lengths are planned as storyboard + composition.
         duration = VEO_FAST_SEGMENT_SECONDS
         target_duration = self._normalize_target_duration_seconds(target_duration_seconds or duration_seconds)
@@ -878,7 +973,7 @@ class ProductCommercializationService:
                 "asset": "product_image",
                 "required": True,
                 "available": bool(_clean_text(product_image_url)),
-                "reason": "Veo image-to-video needs a factual visual anchor.",
+                "reason": "Image-to-video generation needs a factual visual anchor.",
             },
             {
                 "asset": "multi_angle_images",
@@ -895,7 +990,8 @@ class ProductCommercializationService:
         ]
         return {
             "scenario": scenario,
-            "model": "veo3_fast",
+            "provider": provider,
+            "model": model,
             "targetDurationSeconds": target_duration,
             "durationSeconds": duration,
             "singleSegmentSeconds": duration,
@@ -919,14 +1015,16 @@ class ProductCommercializationService:
                     "type": "cut" if requires_composition else "none",
                     "durationSeconds": 0,
                 },
-                "costActionPreview": ["kie.veo3_fast.video" for _ in range(segment_count)]
+                "costActionPreview": [
+                    self._video_cost_action(provider=provider, model=model) for _ in range(segment_count)
+                ]
                 + (["ffmpeg.compose"] if requires_composition else []),
                 "plannerRole": "llm_storyboard_planner",
                 "nextEndpoint": "/api/business/product-commercialization/video-compose" if requires_composition else None,
                 "guardrails": [
                     "Backend validates target duration and segment count before execution.",
                     "Each ability call must persist returned video assets to PODI OSS before composition.",
-                    "Direct video execution remains single-segment until compose endpoint is implemented.",
+                    "Provider-specific temporary URLs must not be exposed as the final business result.",
                 ],
             },
             "languagePolicy": {
@@ -1011,7 +1109,7 @@ class ProductCommercializationService:
             "nextActions": [
                 "Verify product facts before publishing.",
                 "Generate visual assets only when the target copy scenario needs them.",
-                "Run Veo Fast only after the product image and storyboard are accepted.",
+                "Run video generation only after the product image and storyboard are accepted.",
             ],
             "videoReady": all(item.get("available") or not item.get("required") for item in video_plan.get("assetNeeds") or []),
         }

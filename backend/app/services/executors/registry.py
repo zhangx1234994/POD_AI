@@ -9,6 +9,7 @@ from .mock import MockExecutorAdapter
 from .baidu_image import BaiduImageExecutorAdapter
 from .comfyui import ComfyUIExecutorAdapter
 from .kie import KieMarketExecutorAdapter
+from .vidu import ViduVideoExecutorAdapter
 
 
 class ExecutorRegistry:
@@ -29,6 +30,9 @@ registry.register("comfyui", ComfyUIExecutorAdapter())
 registry.register("kie", KieMarketExecutorAdapter())
 registry.register("kie-market", KieMarketExecutorAdapter())
 registry.register("kie_market", KieMarketExecutorAdapter())
+registry.register("vidu", ViduVideoExecutorAdapter())
+registry.register("vidu-video", ViduVideoExecutorAdapter())
+registry.register("vidu_video", ViduVideoExecutorAdapter())
 
 # 默认将常见 provider 指向对应实现（暂以 mock 作为 fallback）
 for provider_type in ("openai", "openai_compatible", "volcengine", "aliyun", "vendor_api"):

@@ -327,6 +327,50 @@ def test_product_commercialization_video_calls_veo_fast(monkeypatch) -> None:
     assert result["videoResult"]["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/video.mp4"]
 
 
+def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    captured = {}
+
+    def fake_run_vidu_video_task(**kwargs):
+        captured.update(kwargs)
+        return {
+            "provider": "vidu",
+            "model": "viduq3-turbo",
+            "status": "succeeded",
+            "taskId": "vidu_task_1",
+            "state": "success",
+            "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/vidu-video.mp4"],
+            "storedAssets": [{"ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/vidu-video.mp4", "type": "video"}],
+        }
+
+    monkeypatch.setattr(
+        "app.services.product_commercialization.integration_test_service",
+        SimpleNamespace(run_vidu_video_task=fake_run_vidu_video_task),
+    )
+
+    result = service.generate_video(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/socks.png",
+            productFields={"productNameEn": "Women's knitted woolen socks"},
+            executorId="executor_vidu_default",
+        )
+    )
+
+    assert captured["endpoint"] == "/ent/v2/img2video"
+    assert captured["status_endpoint"] == "/ent/v2/tasks/{task_id}/creations"
+    assert captured["model"] == "viduq3-turbo"
+    assert captured["input_payload"]["images"] == ["https://example.com/socks.png"]
+    assert captured["input_payload"]["duration"] == 8
+    assert captured["input_payload"]["audio"] is False
+    assert captured["input_payload"]["bgm"] is False
+    assert result["videoPlan"]["provider"] == "vidu"
+    assert result["videoPlan"]["model"] == "viduq3-turbo"
+    assert result["videoResult"]["provider"] == "vidu"
+    assert result["videoResult"]["model"] == "viduq3-turbo"
+    assert result["execution"]["costActions"] == ["vidu.viduq3_turbo.video"]
+    assert result["videoResult"]["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/vidu-video.mp4"]
+
+
 def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:
     def fake_generate_video(payload, *, user_id=None):
         return {
@@ -404,9 +448,10 @@ def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:
     assert polled["taskId"] == run_id
     assert polled["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"]
     assert polled["billingStatus"] == "billable"
-    assert polled["billingUnit"] == "veo3_fast_video_segment"
+    assert polled["billingUnit"] == "kie_veo3_fast_video_segment"
     assert polled["quotaUnits"] == 1
     assert polled["costBreakdown"]["pricingStatus"] == "quota_only_mvp"
+    assert polled["costBreakdown"]["primaryCostAction"] == "kie.veo3_fast.video"
     assert polled["resultPayload"]["videoResult"]["videoUrls"] == [
         "https://podi.oss-cn-hangzhou.aliyuncs.com/product-video.mp4"
     ]

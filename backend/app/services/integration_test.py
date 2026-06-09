@@ -1658,6 +1658,329 @@ class IntegrationTestService:
                     result_urls = urls
         return result_urls, parsed
 
+    # ----------------------- Vidu helpers ----------------------- #
+    def _pick_vidu_api_key(self, executor: Executor, exclude_ids: set[str] | None = None) -> ApiKey | None:
+        exclude_ids = exclude_ids or set()
+        with get_session() as session:
+            api_key = pick_executor_api_key(
+                session,
+                executor_id=executor.id,
+                provider="vidu",
+                exclude_ids=exclude_ids,
+            )
+            if api_key:
+                return api_key
+            api_key = pick_provider_api_key(session, provider="vidu", exclude_ids=exclude_ids)
+            if api_key:
+                return api_key
+        legacy = (executor.config or {}).get("apiKey") or (executor.config or {}).get("api_key")
+        if legacy:
+            return ApiKey(id="legacy", provider="vidu", name="legacy", key=str(legacy), status="active")
+        return None
+
+    def _prepare_vidu_client(self, executor: Executor, *, api_key: ApiKey) -> tuple[str, dict[str, str]]:
+        config = executor.config or {}
+        base_url = (config.get("baseUrl") or executor.base_url or "https://api.vidu.cn").rstrip("/")
+        headers = {
+            "Authorization": f"Token {api_key.key}",
+            "Content-Type": "application/json",
+        }
+        return base_url, headers
+
+    @staticmethod
+    def _normalize_vidu_endpoint(endpoint: str | None) -> str:
+        path = str(endpoint or "/ent/v2/img2video").strip() or "/ent/v2/img2video"
+        if not path.startswith("/"):
+            path = f"/{path}"
+        return path
+
+    @staticmethod
+    def _normalize_vidu_status_endpoint(status_endpoint: str | None) -> str:
+        default_path = "/ent/v2/tasks/{task_id}/creations"
+        path = str(status_endpoint or default_path).strip() or default_path
+        if not path.startswith("/"):
+            path = f"/{path}"
+        return path
+
+    @staticmethod
+    def _extract_vidu_task_id(data: dict[str, Any] | None) -> str | None:
+        if not isinstance(data, dict):
+            return None
+        for key in ("task_id", "taskId", "id"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            return IntegrationTestService._extract_vidu_task_id(nested)
+        return None
+
+    @staticmethod
+    def _extract_vidu_state(detail_data: dict[str, Any] | None) -> str | None:
+        if not isinstance(detail_data, dict):
+            return None
+        for key in ("state", "status"):
+            value = detail_data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().lower()
+        nested = detail_data.get("data")
+        if isinstance(nested, dict):
+            return IntegrationTestService._extract_vidu_state(nested)
+        return None
+
+    def _parse_vidu_creations(self, detail_data: dict[str, Any] | None) -> tuple[list[str], list[dict[str, Any]]]:
+        if not isinstance(detail_data, dict):
+            return [], []
+        raw_creations = detail_data.get("creations")
+        if raw_creations is None and isinstance(detail_data.get("data"), dict):
+            raw_creations = detail_data["data"].get("creations")
+        creations = raw_creations if isinstance(raw_creations, list) else []
+        urls: list[str] = []
+        normalized_creations: list[dict[str, Any]] = []
+        for item in creations:
+            if not isinstance(item, dict):
+                continue
+            normalized_creations.append(dict(item))
+            for key in ("url", "video_url", "videoUrl", "watermarked_url", "watermarkedUrl"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
+                    urls.append(value.strip())
+                    break
+        if not urls:
+            urls = self._collect_urls_from_value(detail_data)
+        seen: set[str] = set()
+        ordered_urls: list[str] = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            ordered_urls.append(url)
+        return ordered_urls, normalized_creations
+
+    @staticmethod
+    def _normalize_vidu_duration(value: object) -> int:
+        try:
+            duration = int(value)
+        except (TypeError, ValueError):
+            return 8
+        return max(1, min(duration, 16))
+
+    def _prepare_vidu_images(self, raw_images: object) -> list[str]:
+        urls = self._collect_urls_from_value(raw_images)
+        if not urls:
+            return []
+        oss_urls: list[str] = []
+        for idx, raw_url in enumerate(urls[:1]):
+            if "podi.oss-" in raw_url or "podiaidesign.oss-" in raw_url:
+                oss_urls.append(raw_url)
+                continue
+            try:
+                asset = self._store_remote_asset(
+                    raw_url,
+                    user_id="admin-vidu-input",
+                    filename=f"vidu-input-{idx + 1}",
+                    tag="vidu-input",
+                )
+                if asset and isinstance(asset.get("ossUrl"), str):
+                    oss_urls.append(str(asset["ossUrl"]))
+                else:
+                    oss_urls.append(raw_url)
+            except Exception:
+                oss_urls.append(raw_url)
+        return oss_urls
+
+    def run_vidu_video_task(
+        self,
+        *,
+        executor_id: str,
+        endpoint: str | None = None,
+        model: str = "viduq3-turbo",
+        input_payload: dict[str, object],
+        status_endpoint: str | None = None,
+        input_array_target: str | None = "images",
+        poll_timeout: float = 180.0,
+        poll_interval: float = 2.5,
+    ) -> dict[str, object]:
+        executor = self._get_executor(executor_id)
+        normalized_type = (executor.type or "").lower()
+        if normalized_type not in {"vidu", "vidu-video", "vidu_video"}:
+            raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_VIDU")
+
+        api_key = self._pick_vidu_api_key(executor)
+        if not api_key:
+            raise HTTPException(status_code=400, detail="VIDU_API_KEY_MISSING")
+        base_url, headers = self._prepare_vidu_client(executor, api_key=api_key)
+        request_path = self._normalize_vidu_endpoint(endpoint)
+        status_path = self._normalize_vidu_status_endpoint(status_endpoint)
+
+        source_payload = dict(input_payload or {})
+        image_source = source_payload.get(input_array_target or "images")
+        if image_source in (None, "", []):
+            image_source = (
+                source_payload.get("images")
+                or source_payload.get("imageUrls")
+                or source_payload.get("image_urls")
+                or source_payload.get("input_urls")
+            )
+        images = self._prepare_vidu_images(image_source)
+        if not images:
+            raise HTTPException(status_code=400, detail="VIDU_IMAGE_REQUIRED")
+
+        prompt = str(source_payload.get("prompt") or "").strip()
+        payload: dict[str, object] = {
+            "model": str(model or source_payload.get("model") or "viduq3-turbo").strip() or "viduq3-turbo",
+            "images": images[:1],
+            "prompt": prompt,
+            "duration": self._normalize_vidu_duration(
+                source_payload.get("duration") or source_payload.get("durationSeconds")
+            ),
+            "resolution": str(source_payload.get("resolution") or "720p").strip() or "720p",
+            "movement_amplitude": str(
+                source_payload.get("movement_amplitude") or source_payload.get("movementAmplitude") or "auto"
+            ).strip()
+            or "auto",
+            "audio": bool(source_payload.get("audio")) if source_payload.get("audio") is not None else False,
+            "bgm": bool(source_payload.get("bgm")) if source_payload.get("bgm") is not None else False,
+        }
+        for source_key, target_key in (
+            ("seed", "seed"),
+            ("callback_url", "callback_url"),
+            ("callbackUrl", "callback_url"),
+            ("payload", "payload"),
+            ("off_peak", "off_peak"),
+            ("offPeak", "off_peak"),
+        ):
+            value = source_payload.get(source_key)
+            if value not in (None, "", []):
+                payload[target_key] = value
+
+        try:
+            response = httpx.post(f"{base_url}{request_path}", headers=headers, json=payload, timeout=60)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"VIDU_TASK_CREATE_FAILED: {exc}") from exc
+        try:
+            create_data = response.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="VIDU_RESPONSE_INVALID") from exc
+        if response.status_code >= 400:
+            detail = create_data.get("message") or create_data.get("detail") or "VIDU_TASK_CREATE_FAILED"
+            raise HTTPException(status_code=502, detail=detail)
+
+        task_id = self._extract_vidu_task_id(create_data)
+        if not task_id:
+            raise HTTPException(status_code=502, detail="VIDU_TASK_ID_MISSING")
+        if api_key.id != "legacy":
+            with get_session() as session:
+                real_key = session.get(ApiKey, api_key.id)
+                if real_key:
+                    bump_usage(session, api_key=real_key)
+
+        detail_data: dict[str, Any] | None = None
+        deadline = time.monotonic() + max(poll_timeout, 10)
+        interval = max(poll_interval, 0.8)
+        last_status_error: str | None = None
+        while time.monotonic() < deadline:
+            try:
+                detail_data = self._fetch_vidu_task(base_url, headers, task_id, status_endpoint=status_path)
+                last_status_error = None
+            except HTTPException as exc:
+                last_status_error = str(exc.detail or "VIDU_STATUS_ERROR")
+                time.sleep(interval)
+                interval = min(interval * 1.35, 8.0)
+                continue
+            state = self._extract_vidu_state(detail_data)
+            if state in {"success", "succeeded", "failed", "fail", "canceled", "cancelled"}:
+                break
+            time.sleep(interval)
+            interval = min(interval * 1.15, 6.0)
+
+        if detail_data is None:
+            detail_data = {"detail": last_status_error or "VIDU_STATUS_EMPTY"}
+        state = self._extract_vidu_state(detail_data)
+        result_urls, creations = self._parse_vidu_creations(detail_data)
+        video_urls = [url for url in result_urls if self._looks_like_video_url(url)] or result_urls
+
+        stored_assets: list[dict[str, object]] = []
+        stored_urls: list[str] = []
+        for index, remote_url in enumerate(video_urls):
+            asset = self._store_remote_asset(
+                remote_url,
+                user_id="admin-vidu",
+                filename=f"{payload['model']}-{task_id}-{index + 1}",
+                tag="vidu-video",
+            )
+            if asset:
+                asset["type"] = "video"
+                stored_assets.append(asset)
+                if isinstance(asset.get("ossUrl"), str):
+                    stored_urls.append(str(asset["ossUrl"]))
+
+        video_assets: list[dict[str, object]] = stored_assets or [
+            {"url": url, "type": "video"} for url in (stored_urls or video_urls)
+        ]
+        base_meta = {
+            "provider": "vidu",
+            "model": payload["model"],
+            "taskId": task_id,
+            "state": state,
+            "executorId": executor.id,
+            "baseUrl": base_url,
+            "requestEndpoint": request_path,
+            "statusEndpoint": status_path,
+            "raw": {"response": detail_data, "create": create_data, "request": payload},
+            "creations": creations,
+            "resultUrls": stored_urls or result_urls,
+            "videoUrls": stored_urls or video_urls,
+            "videos": video_assets,
+            "storedAssets": stored_assets,
+        }
+
+        if state in {"failed", "fail", "canceled", "cancelled"}:
+            return {**base_meta, "status": "failed"}
+        if state not in {"success", "succeeded"} or not (stored_urls or video_urls):
+            return {**base_meta, "status": "running"}
+        return {**base_meta, "status": "succeeded"}
+
+    def _fetch_vidu_task(
+        self,
+        base_url: str,
+        headers: dict[str, str],
+        task_id: str,
+        *,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+        status_endpoint: str | None = None,
+    ) -> dict[str, Any]:
+        path = self._normalize_vidu_status_endpoint(status_endpoint)
+        path = path.replace("{task_id}", task_id).replace("{id}", task_id)
+        detail_url = f"{base_url}{path}"
+        response = None
+        retries = max(1, int(max_retries))
+        for attempt in range(retries):
+            try:
+                response = httpx.get(detail_url, headers=headers, timeout=timeout)
+            except httpx.HTTPError as exc:
+                if attempt < retries - 1:
+                    time.sleep(0.8 * (1.6**attempt))
+                    continue
+                raise HTTPException(status_code=502, detail=f"VIDU_STATUS_HTTP_ERROR: {exc}") from exc
+            if response.status_code >= 500:
+                if attempt < retries - 1:
+                    time.sleep(0.8 * (1.6**attempt))
+                    continue
+                raise HTTPException(status_code=502, detail=f"VIDU_STATUS_HTTP_{response.status_code}")
+            break
+        if response is None:  # pragma: no cover - defensive
+            return {}
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="VIDU_RESPONSE_INVALID") from exc
+        if response.status_code >= 400:
+            detail = data.get("message") or data.get("detail") or "VIDU_STATUS_ERROR"
+            raise HTTPException(status_code=502, detail=detail)
+        return data
+
     # ----------------------- ComfyUI helpers ----------------------- #
     def submit_comfyui_workflow(
         self,

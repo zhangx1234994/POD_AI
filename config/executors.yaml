@@ -57,6 +57,17 @@ executors:
     config:
       apiKey: "${KIE_API_KEY}"
       baseUrl: "https://api.kie.ai"
+  - id: executor_vidu_default
+    name: "Vidu Video · Default Node"
+    type: vidu
+    base_url: "https://api.vidu.cn"
+    status: active
+    weight: 1
+    max_concurrency: 4
+    config:
+      apiKey: "${VIDU_API_KEY}"
+      baseUrl: "https://api.vidu.cn"
+      tags: ["vidu", "video-generation", "domestic-egress"]
   - id: executor_comfyui_seamless_117
     name: "ComfyUI 4090 · 233 · 117.50.216.233"
     type: comfyui

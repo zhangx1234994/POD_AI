@@ -3433,19 +3433,27 @@ class BusinessRunService:
             cost_actions = ["kie.veo3_fast.video"] * segment_count
             if bool(video_plan.get("requiresComposition") or video_plan.get("requires_composition")):
                 cost_actions.append("ffmpeg.compose")
+        video_cost_actions = [
+            str(item).strip()
+            for item in cost_actions
+            if isinstance(item, str) and item.strip() and str(item).strip() != "ffmpeg.compose"
+        ]
+        primary_cost_action = video_cost_actions[0] if video_cost_actions else "kie.veo3_fast.video"
+        billing_unit = f"{primary_cost_action.replace('.', '_')}_segment"
 
         return {
-            "billing_unit": "veo3_fast_video_segment",
+            "billing_unit": billing_unit,
             "quota_units": segment_count,
             "cost_breakdown": self._omit_large_fields(
                 {
                     "pricingVersion": "product-commercialization-mvp-v1",
                     "pricingStatus": "quota_only_mvp",
                     "billingMode": "billable",
-                    "billingUnit": "veo3_fast_video_segment",
+                    "billingUnit": billing_unit,
                     "quotaUnits": segment_count,
                     "segmentCount": segment_count,
-                    "policy": "one_quota_per_generated_veo_fast_segment",
+                    "policy": "one_quota_per_generated_video_segment",
+                    "primaryCostAction": primary_cost_action,
                     "costActions": cost_actions,
                     "monetaryPriceStatus": "pending_vendor_cost_policy",
                 }
