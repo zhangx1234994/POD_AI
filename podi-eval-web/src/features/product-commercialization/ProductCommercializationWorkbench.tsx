@@ -241,6 +241,41 @@ function formatCopyValue(value: unknown): string {
   return String(value ?? '');
 }
 
+function getReviewIssueTheme(level: unknown): 'success' | 'warning' | 'danger' | 'primary' {
+  const text = String(level || '').toLowerCase();
+  if (text === 'error' || text === 'critical') return 'danger';
+  if (text === 'warning') return 'warning';
+  if (text === 'info') return 'primary';
+  return 'success';
+}
+
+function getReviewIssueLabel(level: unknown): string {
+  const text = String(level || '').toLowerCase();
+  if (text === 'error' || text === 'critical') return '阻断';
+  if (text === 'warning') return '需确认';
+  if (text === 'info') return '提示';
+  return '通过';
+}
+
+function renderReviewHtml(value: unknown): string {
+  const review = asRecord(value);
+  const score = review.score;
+  const issues = asArray(review.issues).map((item) => asRecord(item));
+  const nextActions = asArray(review.nextActions).map((item) => String(item || '').trim()).filter(Boolean);
+  const videoReady = Boolean(review.videoReady);
+  const issueHtml =
+    issues
+      .map((item) => {
+        const label = getReviewIssueLabel(item.level);
+        const code = String(item.code || '').trim();
+        const message = String(item.message || '').trim();
+        return `<li><strong>${escapeHtml(label)}</strong>${code ? ` · ${escapeHtml(code)}` : ''}<br>${escapeHtml(message)}</li>`;
+      })
+      .join('') || '<li>暂无阻断项。</li>';
+  const actionHtml = nextActions.map((item) => `<li>${escapeHtml(item)}</li>`).join('') || '<li>核对事实后即可进入发布或后续联动。</li>';
+  return `<p>审核分：${escapeHtml(score ?? '-')}</p><h3>审核提示</h3><ul>${issueHtml}</ul><h3>下一步</h3><ol>${actionHtml}</ol><p>后续联动：${videoReady ? '可进入产品视频能力' : '需要先补齐产品图或分镜素材'}</p>`;
+}
+
 function splitLines(value: string): string[] {
   return value
     .split(/[\n,，;；|]+/)
@@ -603,7 +638,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       .map((item) => `<h3>${escapeHtml(item.label)} · runId=${escapeHtml(item.runId)}</h3><img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.label)}"><p>${escapeHtml(item.url)}</p>`)
       .join('\n') || '<p>暂无生成配图</p>'}</section>
 <section><h2>视频</h2>${videoUrls.map((url) => `<video src="${escapeHtml(url)}" controls></video><p>${escapeHtml(url)}</p>`).join('\n') || '<p>暂无视频</p>'}</section>
-<section><h2>审核与下一步</h2><pre>${escapeHtml(prettyJson(result.review))}</pre></section>
+<section><h2>审核与下一步</h2>${renderReviewHtml(result.review)}</section>
 </body></html>`;
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -1109,7 +1144,55 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
 
               <section className="podi-result-section">
                 <Typography.Text strong>审核与下一步</Typography.Text>
-                <pre>{prettyJson(review)}</pre>
+                <div className="podi-product-commercialization__review">
+                  <div className="podi-product-commercialization__facts">
+                    <span>审核分 {String(review.score ?? '-')}</span>
+                    <span>提示 {asArray(review.issues).length}</span>
+                    <span>{review.videoReady ? '可联动产品视频' : '需补齐视频素材'}</span>
+                  </div>
+                  <div className="podi-product-commercialization__review-grid">
+                    <div>
+                      <Typography.Text theme="secondary">审核提示</Typography.Text>
+                      <div className="podi-product-commercialization__review-list">
+                        {asArray(review.issues).length > 0 ? (
+                          asArray(review.issues).map((item, index) => {
+                            const issue = asRecord(item);
+                            return (
+                              <div key={`${String(issue.code || 'issue')}-${index}`}>
+                                <Tag theme={getReviewIssueTheme(issue.level)} variant="light">
+                                  {getReviewIssueLabel(issue.level)}
+                                </Tag>
+                                <div>
+                                  <strong>{String(issue.code || '审核提示')}</strong>
+                                  <p>{String(issue.message || '请核对商品事实后再发布。')}</p>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div>
+                            <Tag theme="success" variant="light">通过</Tag>
+                            <div>
+                              <strong>暂无阻断项</strong>
+                              <p>仍需人工核对商品事实、平台规则和禁用声明。</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Typography.Text theme="secondary">下一步</Typography.Text>
+                      <ol className="podi-product-commercialization__next-list">
+                        {(asArray(review.nextActions).map((item) => String(item || '').trim()).filter(Boolean).length > 0
+                          ? asArray(review.nextActions).map((item) => String(item || '').trim()).filter(Boolean)
+                          : ['核对事实后复制文案，按需要生成配图；视频请进入产品视频能力。']
+                        ).map((item, index) => (
+                          <li key={`${item}-${index}`}>{item}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+                </div>
               </section>
             </Space>
           )}

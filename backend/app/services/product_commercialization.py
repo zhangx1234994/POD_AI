@@ -1695,7 +1695,7 @@ class ProductCommercializationService:
             "nextActions": [
                 "Verify product facts before publishing.",
                 "Generate visual assets only when the target copy scenario needs them.",
-                "Run video generation only after the product image and storyboard are accepted.",
+                "After the copy package is accepted, optionally continue in the product video ability.",
             ],
             "videoReady": all(item.get("available") or not item.get("required") for item in video_plan.get("assetNeeds") or []),
         }

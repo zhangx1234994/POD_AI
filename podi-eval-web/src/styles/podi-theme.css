@@ -581,6 +581,46 @@ html.t-theme-dark {
   background: var(--td-bg-color-secondarycontainer);
 }
 
+.podi-product-commercialization__review {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.podi-product-commercialization__review-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.podi-product-commercialization__review-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.podi-product-commercialization__review-list > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.podi-product-commercialization__review-list p,
+.podi-product-commercialization__next-list {
+  margin: 4px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.podi-product-commercialization__next-list {
+  padding-left: 18px;
+}
+
 .podi-product-commercialization__visual-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -672,6 +712,10 @@ html.t-theme-dark {
   }
 
   .podi-product-commercialization__strategy-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .podi-product-commercialization__review-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
