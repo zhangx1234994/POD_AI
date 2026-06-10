@@ -480,6 +480,65 @@ def test_business_fission_variation_preset_does_not_leak_into_gpt_image2_recipe(
     assert "profile" not in request.inputs
 
 
+def test_business_fission_size_preset_maps_to_comfyui_canvas() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        size="1536x1024",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe={"primaryAbilityId": "comfyui_flux_strong_hq_softstyle_fission"},
+    )
+
+    assert request.inputs["size"] == "1536x1024"
+    assert request.inputs["width"] == 1536
+    assert request.inputs["height"] == 1024
+
+
+def test_business_fission_size_preset_does_not_override_explicit_comfyui_canvas() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        size="1536x1024",
+        width=2048,
+        height=2048,
+    )
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe={"primaryAbilityId": "comfyui_flux_strong_hq_softstyle_fission_control_v1"},
+    )
+
+    assert request.inputs["size"] == "1536x1024"
+    assert request.inputs["width"] == 2048
+    assert request.inputs["height"] == 2048
+
+
+def test_business_fission_size_preset_does_not_leak_into_gpt_image2_recipe() -> None:
+    service = object.__new__(BusinessRunService)
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        size="1536x1024",
+    )
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe={"primaryAbilityId": "openai_gpt_image_2_edit"},
+    )
+
+    assert request.inputs["size"] == "1536x1024"
+    assert "width" not in request.inputs
+    assert "height" not in request.inputs
+
+
 def test_business_fission_variation_preset_does_not_override_explicit_profile_aliases() -> None:
     service = object.__new__(BusinessRunService)
     payload = BusinessRunCreateRequest(

@@ -118,6 +118,11 @@ VENDOR_KEY_CHECK_STALE_DAYS = 7
 RECIPE_EXECUTABLE_STEP_TYPES = {"ability_task", "comfyui_workflow", "vendor_api", "vl_analyze", "vl_analyze_image"}
 RECIPE_PASSIVE_STEP_TYPES = {"input_mapping", "output_mapping", "prompt_template", "note"}
 INTERNAL_NO_CHARGE_SOURCES = {"business-api-patrol"}
+COMFYUI_FISSION_SIZE_COMPAT_ABILITY_IDS = {
+    "comfyui_flux_strong_hq_softstyle_fission",
+    "comfyui_flux_strong_hq_softstyle_fission_control_v1",
+    "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2",
+}
 COMFYUI_COLORLOCK_FISSION_ABILITY_IDS = {"comfyui_flux_strong_hq_softstyle_fission_colorlock_v2"}
 COMFYUI_FISSION_VARIATION_PRESET_VALUES_BY_KEY = {
     str(item.get("key")): dict(item.get("values") or {})
@@ -7163,6 +7168,33 @@ class BusinessRunService:
             if inputs.get(key) in (None, "", []):
                 inputs[key] = value
 
+    def _normalize_fission_size_preset(self, inputs: dict[str, Any], *, recipe: dict[str, Any] | None) -> None:
+        """Map public size presets to the ComfyUI fission canvas fields.
+
+        GPT Image 2 consumes `size` directly. ComfyUI fission workflows consume
+        `width`/`height`, so business callers using the shared size preset must
+        be normalized before ability invocation.
+        """
+
+        try:
+            primary_ability_id = self._extract_primary_ability_id(recipe or {})
+        except HTTPException:
+            return
+        if primary_ability_id not in COMFYUI_FISSION_SIZE_COMPAT_ABILITY_IDS:
+            return
+        size_value = self._first_string(inputs.get("size"))
+        if not size_value:
+            return
+        match = re.fullmatch(r"\s*([1-9]\d{1,4})\s*[xX×*]\s*([1-9]\d{1,4})\s*", size_value)
+        if not match:
+            return
+        width = int(match.group(1))
+        height = int(match.group(2))
+        if inputs.get("width") in (None, "", []):
+            inputs["width"] = width
+        if inputs.get("height") in (None, "", []):
+            inputs["height"] = height
+
     def _maybe_apply_fission_aspect_recompose(
         self,
         *,
@@ -7549,6 +7581,7 @@ class BusinessRunService:
             if key not in inputs and key in flat_payload:
                 inputs[key] = flat_payload[key]
         if capability_key == "fission":
+            self._normalize_fission_size_preset(inputs, recipe=recipe)
             self._apply_fission_variation_preset(inputs, recipe=recipe)
             self._enforce_single_output_fission_inputs(inputs)
         if capability_key == "fission_evaluate":
