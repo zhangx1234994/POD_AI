@@ -7246,23 +7246,23 @@ class BusinessRunService:
             "aspectRatioDelta": round(aspect_ratio_delta, 6),
         }
         if source_shape < FISSION_ASPECT_RECOMPOSE_SOURCE_SHAPE_MIN:
-            self._apply_fission_original_ratio_fallback(inputs, source_width=source_w, source_height=source_h)
-            return {**base_meta, "route": "keep_original_ratio", "reason": "source_shape_too_extreme"}
+            self._apply_fission_direct_target_size(inputs, width=target_w, height=target_h)
+            return {**base_meta, "route": "direct_target_size", "reason": "source_shape_too_extreme"}
         if FISSION_ASPECT_RECOMPOSE_RATIO_MIN <= aspect_ratio_delta <= FISSION_ASPECT_RECOMPOSE_RATIO_MAX:
             return {**base_meta, "route": "keep_original_ratio", "reason": "aspect_close_enough"}
         if (
             aspect_ratio_delta < FISSION_ASPECT_RECOMPOSE_EXTREME_MIN
             or aspect_ratio_delta > FISSION_ASPECT_RECOMPOSE_EXTREME_MAX
         ):
-            self._apply_fission_original_ratio_fallback(inputs, source_width=source_w, source_height=source_h)
-            return {**base_meta, "route": "keep_original_ratio", "reason": "aspect_change_too_extreme"}
+            self._apply_fission_direct_target_size(inputs, width=target_w, height=target_h)
+            return {**base_meta, "route": "direct_target_size", "reason": "aspect_change_too_extreme"}
 
         router = self._extract_fission_aspect_router(vl_summary)
         if not self._is_fission_aspect_router_allowed(router):
-            self._apply_fission_original_ratio_fallback(inputs, source_width=source_w, source_height=source_h)
+            self._apply_fission_direct_target_size(inputs, width=target_w, height=target_h)
             return {
                 **base_meta,
-                "route": "keep_original_ratio",
+                "route": "direct_target_size",
                 "reason": "vl_router_not_allowed",
                 "vlRouter": router,
             }
@@ -7324,20 +7324,20 @@ class BusinessRunService:
         return max(16, int(value) - (int(value) % 16))
 
     @classmethod
-    def _apply_fission_original_ratio_fallback(
+    def _apply_fission_direct_target_size(
         cls,
         inputs: dict[str, Any],
         *,
-        source_width: int,
-        source_height: int,
+        width: int,
+        height: int,
     ) -> None:
-        width = cls._normalize_fission_aspect_dim(source_width)
-        height = cls._normalize_fission_aspect_dim(source_height)
-        if width and height:
-            inputs["width"] = width
-            inputs["height"] = height
-        inputs["aspect_recompose_route"] = "keep_original_ratio"
-        inputs["guide_mode"] = "fallback_keep_original_ratio"
+        normalized_width = cls._normalize_fission_aspect_dim(width)
+        normalized_height = cls._normalize_fission_aspect_dim(height)
+        if normalized_width and normalized_height:
+            inputs["width"] = normalized_width
+            inputs["height"] = normalized_height
+        inputs["aspect_recompose_route"] = "direct_target_size"
+        inputs["guide_mode"] = "direct_workflow_canvas"
 
     @staticmethod
     def _append_text_once(base: Any, addition: str) -> str:

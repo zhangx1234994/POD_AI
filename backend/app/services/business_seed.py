@@ -781,8 +781,8 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "fields": [
                 _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧传入可访问图片地址；上传图片会先落 OSS。"),
                 _field("bili", "重绘幅度 Variation Percent", field_type="text", default="80%", description="控制图案变化大小；建议低 30%、中 60%、高 80%、极高 100%+。后端会结合 VL 图案类型路由实际 denoise。"),
-                _field("width", "输出宽度 Width", field_type="number", required=False, description="不填则按原图宽度处理；如手动填写，建议保持原图比例。"),
-                _field("height", "输出高度 Height", field_type="number", required=False, description="不填则按原图高度处理；如手动填写，建议保持原图比例。"),
+                _field("width", "输出宽度 Width", field_type="number", required=False, description="不填则按原图宽度处理；手动填写时保留目标画布，底层按 16 像素安全倍数归一。"),
+                _field("height", "输出高度 Height", field_type="number", required=False, description="不填则按原图高度处理；手动填写时保留目标画布，底层按 16 像素安全倍数归一。"),
                 _field(
                     "profile",
                     "裂变路由配置 Fission Routing Profile",
@@ -823,8 +823,8 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "vl_component_ability_id": "vl_fission_control_card",
             "eval_component_ability_id": "vl_fission_generated_image_evaluate",
             "coze_strategy": "Coze 仍调用图裂变业务入口；中台内部完成 VL 风险类型识别和 ComfyUI 智能路由裂变调用。",
-            "aspect_recompose_branch": "当业务接口传入的输出比例与原图差异较大，且 VL 判断为满版密集小元素图案时，后端生成目标比例引导图后再调用同一 ComfyUI 工作流。",
-            "seed_version": 3,
+            "aspect_recompose_branch": "当业务接口传入的输出比例与原图差异较大，且 VL 判断为满版密集小元素图案时，后端生成目标比例引导图后再调用同一 ComfyUI 工作流；若 VL 不允许比例重构，则保留用户目标画布直接出图，不再静默回退到原图尺寸。",
+            "seed_version": 4,
         },
     ),
     BusinessCapabilitySeed(

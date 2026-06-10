@@ -657,6 +657,54 @@ def test_business_fission_aspect_recompose_skips_close_aspect_change() -> None:
     assert request.metadata["fissionAspectRecompose"]["reason"] == "aspect_close_enough"
 
 
+def test_business_fission_aspect_recompose_preserves_target_size_when_router_blocks() -> None:
+    service = object.__new__(BusinessRunService)
+    service._load_image_edit_rgba = lambda _url: Image.new("RGB", (1072, 1344), "white")  # type: ignore[method-assign]
+    service._upload_image_edit_png = lambda *_, **__: pytest.fail("guide should not be uploaded")  # type: ignore[method-assign]
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        inputs={"width": 228, "height": 1350, "bili": "80%"},
+    )
+    recipe = {
+        "primaryAbilityId": "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2",
+        "vlAssist": {
+            "enabled": True,
+            "applyToPrimary": {"compiler": "comfyui_fission_control_card_v2", "overwrite": True},
+        },
+    }
+    vl_summary = {
+        "fissionControlCard": {
+            "prompt_main": "ornamental rug with border",
+            "image_desc": "decorative border and central panel",
+            "pattern_risk_type": "bordered_rug_layout",
+            "aspect_recompose_route": "keep_original_ratio",
+            "aspect_recompose_allowed": False,
+            "layout_type": "bordered_panel",
+            "is_dense_small_repeat": False,
+            "is_scale_safe": False,
+        }
+    }
+
+    request = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        recipe=recipe,
+        vl_summary=vl_summary,
+    )
+
+    assert request.inputs.get("image_url") is None
+    assert request.inputs["width"] == 224
+    assert request.inputs["height"] == 1344
+    assert request.inputs["aspect_recompose_route"] == "direct_target_size"
+    assert request.inputs["guide_mode"] == "direct_workflow_canvas"
+    assert request.metadata["fissionAspectRecompose"]["requestedTargetSize"] == {"width": 228, "height": 1350}
+    assert request.metadata["fissionAspectRecompose"]["normalizedTargetSize"] == {"width": 224, "height": 1344}
+    assert request.metadata["fissionAspectRecompose"]["sourceSize"] == {"width": 1072, "height": 1344}
+    assert request.metadata["fissionAspectRecompose"]["route"] == "direct_target_size"
+    assert request.metadata["fissionAspectRecompose"]["reason"] == "vl_router_not_allowed"
+
+
 def test_text_fission_payload_uses_user_editable_prompt_without_internal_controls() -> None:
     service = object.__new__(BusinessRunService)
     payload = BusinessRunCreateRequest(

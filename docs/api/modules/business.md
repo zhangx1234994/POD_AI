@@ -768,7 +768,7 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/confir
 - ComfyUI VL 控制卡裂变新版使用 `vl_fission_control_card` 作为统一 VL 组件，输出 `fissionControlCard` 后再传给 `comfyui_flux_strong_hq_softstyle_fission_control_v1`；后续更换 VL 模型时优先改这个组件的默认 provider。
 - ComfyUI 颜色锁定裂变版使用版本 `comfyui-vl-control-v2`，主能力为 `comfyui_flux_strong_hq_softstyle_fission_colorlock_v2`。VL 输出必须包含 `palette_card`，中台会把颜色卡和硬负向约束拼进 `image_desc`。`denoise` 不写死，继续按 `bili` 约定映射；其他颜色锁定强度按交付包固定。
 - 图裂变业务入口兼容 `size=1536x1024` 这类尺寸预设：GPT Image 2 线路会原样传递 `size`，ComfyUI 默认线/VL 控制卡线/颜色锁定线会在后端转为 `width/height` 后再调用工作流；若调用方已显式传入 `width/height`，以后者为准。
-- ComfyUI 颜色锁定裂变版内置“比例重构”分支：当业务方传入的 `width/height` 与原图比例明显不一致时，先由 VL 判断是否为满版密集小元素图案；允许时后端生成目标比例引导图，再调用同一个 ComfyUI 工作流。若不适合比例重构，后端会回退为原图比例，避免继续走裁切填充导致坏图。
+- ComfyUI 颜色锁定裂变版内置“比例重构”分支：当业务方传入的 `width/height` 与原图比例明显不一致时，先由 VL 判断是否为满版密集小元素图案；允许时后端生成目标比例引导图，再调用同一个 ComfyUI 工作流。若不适合比例重构，后端会保留用户目标画布走直接出图，并在 `metadata.fissionAspectRecompose.route=direct_target_size` 中记录原因，不再静默回退到原图尺寸。ComfyUI 线路会按 16 像素安全倍数归一，例如 `228x1350` 会进入 `224x1344`。
 - 文字强化裂变（文生图）使用两步式业务接口：第一步 `text-fission/prompts` 只生成可编辑提示词；第二步 `text-fission/runs` 只接收用户最终确认后的 `editable_prompt` 并提交 ComfyUI 文生图。第二步不再二次调用 VL，固定一次生成 1 张图。
 - 裂变生成图评估底层仍是原子能力 `vl_fission_generated_image_evaluate`，但已经提供业务包装入口 `/api/business/fission-evaluate/runs`。它只输出 `pass / needs_refission / reject` 和问题标签，不在业务层自动二次裂变；业务方可按自己的策略决定是否再次调用图裂变。
 
