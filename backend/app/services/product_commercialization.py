@@ -18,7 +18,9 @@ from fastapi import HTTPException
 
 from app.constants.abilities import DEFAULT_VOLCENGINE_VL_MODEL_ID
 from app.core.config import get_settings
+from app.core.db import get_session
 from app.schemas.abilities import AbilityInvokeRequest
+from app.services.api_key_selector import pick_provider_api_key
 from app.services.ability_invocation import ability_invocation_service
 from app.services.integration_test import integration_test_service
 from app.services.media_ingest import media_ingest_service
@@ -1716,12 +1718,15 @@ class ProductCommercializationService:
             market_region=market_region,
         )
         provider_errors: list[str] = []
-        if settings.business_agent_planner_enabled and settings.business_agent_openai_api_key:
+        planner_credentials = self._resolve_openai_planner_credentials(settings)
+        if settings.business_agent_planner_enabled and planner_credentials.get("apiKey"):
             try:
                 data = self._call_openai_copy_model(
                     settings=settings,
                     context_payload=context_payload,
                     image_url=image_url,
+                    api_key=str(planner_credentials["apiKey"]),
+                    base_url=str(planner_credentials["baseUrl"]),
                 )
                 content = self._normalize_model_content_package(data["content"], template_package=template_package)
                 return content, {
@@ -1729,6 +1734,7 @@ class ProductCommercializationService:
                     "provider": "openai",
                     "model": settings.business_agent_planner_model,
                     "fallback": False,
+                    "keySource": planner_credentials.get("source"),
                     "responseId": data.get("responseId"),
                     "usage": data.get("usage"),
                     "evidence": "LLM/VL generated structured ecommerce content package.",
@@ -1761,6 +1767,34 @@ class ProductCommercializationService:
             provider_errors.append(f"volcengine:{str(exc)[:240]}")
 
         raise RuntimeError("; ".join(provider_errors) or "COPY_MODEL_NOT_CONFIGURED")
+
+    def _resolve_openai_planner_credentials(self, settings: Any) -> dict[str, str]:
+        env_key = _clean_text(getattr(settings, "business_agent_openai_api_key", None))
+        env_base_url = _clean_text(getattr(settings, "business_agent_openai_base_url", None)) or "https://api.openai.com"
+        if env_key:
+            return {"apiKey": env_key, "baseUrl": env_base_url.rstrip("/"), "source": "env"}
+
+        try:
+            with get_session() as session:
+                for provider in ("openai", "openai_compatible"):
+                    api_key = pick_provider_api_key(session, provider=provider)
+                    if not api_key or not _clean_text(api_key.key):
+                        continue
+                    metadata = api_key.extra_metadata if isinstance(api_key.extra_metadata, dict) else {}
+                    key_base_url = (
+                        _clean_text(metadata.get("baseUrl"))
+                        or _clean_text(metadata.get("base_url"))
+                        or _clean_text(metadata.get("baseURL"))
+                        or env_base_url
+                    )
+                    return {
+                        "apiKey": _clean_text(api_key.key),
+                        "baseUrl": key_base_url.rstrip("/"),
+                        "source": f"api_key_pool:{provider}:{api_key.id}",
+                    }
+        except Exception as exc:  # noqa: BLE001 - planner can still try other providers.
+            logger.warning("product commercialization openai key pool lookup failed: %s", exc)
+        return {}
 
     def _build_copy_model_context(self, *, payload: Any, product_card: dict[str, Any], market_region: str) -> dict[str, Any]:
         return {
@@ -1800,7 +1834,15 @@ class ProductCommercializationService:
             f"输入上下文：{json.dumps(context_payload, ensure_ascii=False)}"
         )
 
-    def _call_openai_copy_model(self, *, settings: Any, context_payload: dict[str, Any], image_url: str) -> dict[str, Any]:
+    def _call_openai_copy_model(
+        self,
+        *,
+        settings: Any,
+        context_payload: dict[str, Any],
+        image_url: str,
+        api_key: str,
+        base_url: str,
+    ) -> dict[str, Any]:
         content: list[dict[str, Any]] = [
             {"type": "input_text", "text": json.dumps(context_payload, ensure_ascii=False)}
         ]
@@ -1827,12 +1869,12 @@ class ProductCommercializationService:
             },
             "store": False,
         }
-        base_url = str(settings.business_agent_openai_base_url or "https://api.openai.com").rstrip("/")
+        resolved_base_url = str(base_url or "https://api.openai.com").rstrip("/")
         with httpx.Client(timeout=float(settings.business_agent_planner_timeout_seconds or 30)) as client:
             response = client.post(
-                f"{base_url}/v1/responses",
+                f"{resolved_base_url}/v1/responses",
                 headers={
-                    "Authorization": f"Bearer {settings.business_agent_openai_api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json=request_payload,

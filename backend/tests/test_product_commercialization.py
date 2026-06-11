@@ -33,6 +33,44 @@ def disable_external_copy_model(monkeypatch) -> None:
     )
 
 
+def test_product_commercialization_openai_planner_can_use_key_pool(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    session_marker = object()
+
+    class DummySessionContext:
+        def __enter__(self):
+            return session_marker
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_pick_provider_api_key(session, *, provider: str, exclude_ids=None):
+        assert session is session_marker
+        if provider != "openai":
+            return None
+        return SimpleNamespace(
+            id="openai-key-1",
+            key="sk-test-key",
+            extra_metadata={"baseUrl": "https://openai-compatible.example.com/"},
+        )
+
+    monkeypatch.setattr("app.services.product_commercialization.get_session", lambda: DummySessionContext())
+    monkeypatch.setattr("app.services.product_commercialization.pick_provider_api_key", fake_pick_provider_api_key)
+
+    credentials = service._resolve_openai_planner_credentials(
+        SimpleNamespace(
+            business_agent_openai_api_key=None,
+            business_agent_openai_base_url="https://api.openai.com",
+        )
+    )
+
+    assert credentials == {
+        "apiKey": "sk-test-key",
+        "baseUrl": "https://openai-compatible.example.com",
+        "source": "api_key_pool:openai:openai-key-1",
+    }
+
+
 def test_product_commercialization_preview_builds_english_copy_and_visual_plan() -> None:
     service = ProductCommercializationService()
 
