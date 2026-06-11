@@ -18,6 +18,8 @@ from fastapi import HTTPException
 
 from app.constants.abilities import DEFAULT_VOLCENGINE_VL_MODEL_ID
 from app.core.config import get_settings
+from app.schemas.abilities import AbilityInvokeRequest
+from app.services.ability_invocation import ability_invocation_service
 from app.services.integration_test import integration_test_service
 from app.services.media_ingest import media_ingest_service
 
@@ -81,12 +83,67 @@ FACT_GUARD_STOPWORDS = {
     "print",
 }
 FACT_GUARD_MIN_FIELD_HITS = 2
-VEO_FAST_SEGMENT_SECONDS = 8
+DEFAULT_VIDEO_SEGMENT_SECONDS = 8
 MAX_TARGET_VIDEO_SECONDS = 60
 VIDEO_COMPOSE_TIMEOUT_SECONDS = 300
 VIDEO_SEGMENT_MAX_ATTEMPTS = 2
 DEFAULT_KIE_VIDEO_EXECUTOR_ID = "executor_kie_market_default"
 DEFAULT_VIDU_VIDEO_MODEL = "viduq3-turbo"
+DEFAULT_VISUAL_ABILITY_ID = "openai_gpt_image_2_edit"
+DEFAULT_VISUAL_PROVIDER = "openai"
+DEFAULT_VISUAL_MODEL = "gpt-image-2"
+VIDEO_MODEL_PROFILES: dict[str, dict[str, Any]] = {
+    "kie": {
+        "provider": "kie",
+        "model": "veo3_fast",
+        "displayName": "KIE · Veo3.1 Fast",
+        "segmentDurationOptions": [8],
+        "defaultSegmentSeconds": 8,
+        "maxTargetSeconds": 60,
+        "endpoint": "/api/v1/veo/generate",
+        "statusEndpoint": "/api/v1/veo/record-info",
+        "modes": [
+            {
+                "key": "single_reference",
+                "label": "单参考图生视频",
+                "executable": True,
+                "requiresGeneratedFrames": False,
+            },
+            {
+                "key": "first_last_frames",
+                "label": "首尾帧控制",
+                "executable": False,
+                "requiresGeneratedFrames": True,
+                "reason": "待完成首尾帧生成与接口适配后开放执行。",
+            },
+        ],
+    },
+    "vidu": {
+        "provider": "vidu",
+        "model": DEFAULT_VIDU_VIDEO_MODEL,
+        "displayName": "Vidu · viduq3-turbo",
+        "segmentDurationOptions": [3, 5, 8],
+        "defaultSegmentSeconds": 5,
+        "maxTargetSeconds": 60,
+        "endpoint": "/ent/v2/img2video",
+        "statusEndpoint": "/ent/v2/tasks/{task_id}/creations",
+        "modes": [
+            {
+                "key": "single_reference",
+                "label": "单参考图生视频",
+                "executable": True,
+                "requiresGeneratedFrames": False,
+            },
+            {
+                "key": "first_last_frames",
+                "label": "首尾帧控制",
+                "executable": False,
+                "requiresGeneratedFrames": True,
+                "reason": "待接入 start-end-to-video 和首尾帧确认流后开放执行。",
+            },
+        ],
+    },
+}
 
 COPY_MODEL_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -135,6 +192,28 @@ COPY_MODEL_JSON_SCHEMA: dict[str, Any] = {
             "required": ["en-US", "zh-CN"],
         },
         "keywordPack": {"type": "array", "items": {"type": "string"}, "minItems": 6, "maxItems": 20},
+        "imageFactAssessment": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "visualSourcePriority": {"type": "string"},
+                "observedProductType": {"type": "string"},
+                "observedVisualFeatures": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 10},
+                "fieldConflicts": {"type": "array", "items": {"type": "string"}, "minItems": 0, "maxItems": 10},
+                "missingFieldInferences": {"type": "array", "items": {"type": "string"}, "minItems": 0, "maxItems": 10},
+                "copyDecision": {"type": "string"},
+                "confidence": {"type": "string"},
+            },
+            "required": [
+                "visualSourcePriority",
+                "observedProductType",
+                "observedVisualFeatures",
+                "fieldConflicts",
+                "missingFieldInferences",
+                "copyDecision",
+                "confidence",
+            ],
+        },
         "imageBriefs": {
             "type": "array",
             "items": {
@@ -178,6 +257,7 @@ COPY_MODEL_JSON_SCHEMA: dict[str, Any] = {
         "detailDescription",
         "adShortCopy",
         "keywordPack",
+        "imageFactAssessment",
         "imageBriefs",
         "channelUsageGuide",
         "styleGuardrails",
@@ -255,6 +335,109 @@ def _normalize_list(value: Any) -> list[str]:
 
 def _compact_sentence(parts: list[str]) -> str:
     return ", ".join([part for part in (_clean_text(p) for p in parts) if part])
+
+
+def _as_record(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, set):
+        return list(value)
+    if isinstance(value, dict):
+        return [item for item in value.values()]
+    return [value]
+
+
+def _build_visual_prompt(
+    *,
+    product_card: dict[str, Any],
+    resolved_product_facts: dict[str, Any] | None = None,
+    copy_package: dict[str, Any] | None,
+    visual_brief: dict[str, Any],
+    output_language: str,
+    market_region: str,
+    extra_prompt: str | None = None,
+) -> str:
+    facts = (
+        _as_record(resolved_product_facts.get("facts")) if isinstance(resolved_product_facts, dict) else {}
+    ) or {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
+    english_name = _english_product_name(facts)
+    chinese_name = _zh_product_name(facts)
+    material = _clean_text(facts.get("material") or facts.get("composition"))
+    pattern = _clean_text(facts.get("pattern") or facts.get("keywords"))
+    selling_points = _critical_product_terms(facts)
+
+    brief_prompt = _clean_text(visual_brief.get("prompt"))
+    brief_usage = _clean_text(visual_brief.get("usage"))
+    linked_copy = _normalize_list(visual_brief.get("linkedCopy"))
+    scene_label = _clean_text(visual_brief.get("label") or visual_brief.get("id"))
+    risk_notes = _normalize_list(visual_brief.get("riskNotes"))
+
+    copy_highlights = []
+    if isinstance(copy_package, dict):
+        copy_highlights.extend(_normalize_list(copy_package.get("listingTitle")))
+        copy_highlights.extend(_normalize_list(copy_package.get("bulletPoints"))[:2])
+        copy_highlights.extend(_normalize_list(copy_package.get("adShortCopy"))[:2])
+
+    if output_language == "zh-CN":
+        subject = f"基于上传的产品图生成一张高质量配图，场景：{scene_label or '商品主视觉'}。"
+        subject += f"商品名称：{chinese_name}。"
+        if material:
+            subject += f"材质：{material}。"
+        if brief_usage:
+            subject += f"用途意图：{brief_usage}。"
+        if linked_copy:
+            subject += f"参考文案方向：{_compact_sentence(linked_copy)}。"
+        if pattern:
+            subject += f"图案信息：{pattern}。"
+        if selling_points:
+            subject += f"核心卖点：{_compact_sentence(selling_points)}。"
+        if copy_highlights:
+            subject += f"可参考文案：{_compact_sentence(copy_highlights)}。"
+        if market_region:
+            subject += f"目标市场：{market_region}。"
+        if risk_notes:
+            subject += f"约束：{_compact_sentence(risk_notes)}。"
+        if extra_prompt:
+            subject += f"补充要求：{extra_prompt}。"
+        return _compact_sentence([subject, "禁止加入文字、水印、logo、价格标签或未提供的属性。", brief_prompt or "保持产品结构、花纹和比例一致。"])
+
+    english_name = _english_text_or_empty(english_name) or "POD product"
+    market = _clean_text(market_region) or "global marketplace"
+    scene_desc = f"Scene: {scene_label or 'product visual asset'}."
+    subject = f"Generate a high-quality product marketing image based on the source product image. Scene: {scene_desc}"
+    subject += f" Product: {english_name}."
+    if material:
+        subject += f" Material: {material}."
+    if brief_usage:
+        subject += f" Usage intent: {brief_usage}."
+    if linked_copy:
+        subject += f" Reference copy direction: {_compact_sentence(linked_copy)}."
+    if pattern:
+        subject += f" Pattern clues: {pattern}."
+    if selling_points:
+        subject += f" Key points: {_compact_sentence(selling_points)}."
+    if copy_highlights:
+        subject += f" Copy hints: {_compact_sentence(copy_highlights)}."
+    if market:
+        subject += f" Target market: {market}."
+    if risk_notes:
+        subject += f" Constraints: {_compact_sentence(risk_notes)}."
+    if extra_prompt:
+        subject += f" Additional request: {extra_prompt}."
+    subject += " Keep product silhouette, print, material consistency. No watermark, text, logos, brand claims, or irrelevant props."
+    if brief_prompt:
+        subject += f" Brief hint: {brief_prompt}."
+    return " ".join([part for part in subject.split() if part]).strip()
 
 
 def _english_fact_phrase(value: Any) -> str:
@@ -359,8 +542,15 @@ class ProductCommercializationService:
         copy_package = content_bundle["copyPackage"]
         content_package = content_bundle["contentPackage"]
         copy_generation = content_bundle["copyGeneration"]
+        resolved_product_facts = self._build_resolved_product_facts(
+            product_card=product_card,
+            content_package=content_package,
+            copy_package=copy_package,
+            output_language=output_language,
+        )
         visual_asset_plan = self._build_visual_asset_plan(
             product_card=product_card,
+            resolved_product_facts=resolved_product_facts,
             content_package=content_package,
             visual_mode=visual_mode,
             output_language=output_language,
@@ -368,6 +558,7 @@ class ProductCommercializationService:
         )
         video_plan = self._build_video_plan(
             product_card=product_card,
+            resolved_product_facts=resolved_product_facts,
             product_image_url=getattr(payload, "productImageUrl", None),
             scenario=video_scenario,
             duration_seconds=getattr(payload, "durationSeconds", None),
@@ -380,6 +571,7 @@ class ProductCommercializationService:
         review = self._build_review(
             product_card=product_card,
             copy_package=copy_package,
+            content_package=content_package,
             copy_generation=copy_generation,
             visual_asset_plan=visual_asset_plan,
             video_plan=video_plan,
@@ -395,6 +587,7 @@ class ProductCommercializationService:
             "marketRegion": market_region,
             "copyScenarios": copy_scenarios,
             "productCard": product_card,
+            "resolvedProductFacts": resolved_product_facts,
             "copyPackage": copy_package,
             "contentPackage": content_package,
             "copyGeneration": copy_generation,
@@ -425,6 +618,8 @@ class ProductCommercializationService:
         if not image_url:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED")
         video_plan = preview["videoPlan"]
+        video_plan = self._apply_video_prompt_override(video_plan, getattr(payload, "videoPromptOverride", None))
+        preview["videoPlan"] = video_plan
         prompt = _clean_text(video_plan.get("videoPrompt"))
         if not prompt:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
@@ -435,6 +630,7 @@ class ProductCommercializationService:
             prompt=prompt,
             image_url=image_url,
             aspect_ratio=video_plan.get("aspectRatio") or "16:9",
+            duration_seconds=int(video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
             poll_timeout=float(getattr(payload, "pollTimeout", None) or 180),
             segment_index=1,
         )
@@ -470,6 +666,8 @@ class ProductCommercializationService:
         if not image_url:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED")
         video_plan = preview["videoPlan"]
+        video_plan = self._apply_video_prompt_override(video_plan, getattr(payload, "videoPromptOverride", None))
+        preview["videoPlan"] = video_plan
         if not video_plan.get("requiresComposition"):
             return self.generate_video(payload, user_id=user_id)
 
@@ -492,6 +690,7 @@ class ProductCommercializationService:
                 prompt=prompt,
                 image_url=image_url,
                 aspect_ratio=video_plan.get("aspectRatio") or "16:9",
+                duration_seconds=int(shot.get("durationSeconds") or video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
                 poll_timeout=poll_timeout,
                 segment_index=index,
             )
@@ -518,8 +717,9 @@ class ProductCommercializationService:
                     "videoUrls": video_urls,
                     "storedAssets": result.get("storedAssets") or [],
                     "prompt": prompt,
+                    "durationSeconds": int(shot.get("durationSeconds") or video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
                     "provider": self._normalize_video_provider(result.get("provider")),
-                    "model": _clean_text(result.get("model")) or "veo3_fast",
+                    "model": _clean_text(result.get("model")) or _clean_text(video_plan.get("model")) or "veo3_fast",
                 }
             )
 
@@ -573,6 +773,272 @@ class ProductCommercializationService:
             },
         }
 
+    def _apply_video_prompt_override(self, video_plan: dict[str, Any], prompt_override: Any) -> dict[str, Any]:
+        prompt = _clean_text(prompt_override)
+        if not prompt:
+            return video_plan
+        updated = dict(video_plan)
+        updated["videoPrompt"] = prompt
+        updated["promptSource"] = "user_edited"
+        storyboard = updated.get("storyboard")
+        if isinstance(storyboard, list):
+            segment_count = len(storyboard)
+            updated_storyboard: list[dict[str, Any]] = []
+            for index, shot in enumerate(storyboard, start=1):
+                if not isinstance(shot, dict):
+                    continue
+                segment_prompt = prompt
+                if segment_count > 1:
+                    segment_prompt = (
+                        f"{prompt} Segment {index} of {segment_count}: "
+                        f"{_clean_text(shot.get('goal') or shot.get('camera')) or 'continue the planned visual story'}. "
+                        "Keep visual continuity with the previous segment when provided."
+                    )
+                updated_storyboard.append({**shot, "prompt": segment_prompt})
+            updated["storyboard"] = updated_storyboard
+        return updated
+
+    def generate_visual(self, payload: Any, *, user_id: str | None = None) -> dict[str, Any]:
+        preview = self.preview(payload, user_id=user_id)
+        image_url = _clean_text(getattr(payload, "productImageUrl", None))
+        if not image_url:
+            raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED")
+        content_package = preview.get("contentPackage") if isinstance(preview.get("contentPackage"), dict) else {}
+        briefs = self._normalize_image_briefs_for_visual(
+            payload=payload,
+            content_package=content_package,
+        )
+        if not briefs:
+            raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_IMAGE_BRIEF_MISSING")
+        image_results: list[dict[str, Any]] = []
+        stored_urls: list[str] = []
+        image_urls: list[str] = []
+        for brief in briefs:
+            scene_id = _clean_text(brief.get("id")) or "listing-main"
+            scene_label = _clean_text(brief.get("label")) or scene_id or "visual"
+            prompt = _build_visual_prompt(
+                product_card=preview.get("productCard", {}),
+                resolved_product_facts=preview.get("resolvedProductFacts") if isinstance(preview.get("resolvedProductFacts"), dict) else None,
+                copy_package=preview.get("copyPackage"),
+                visual_brief=_as_record(brief),
+                output_language=preview.get("outputLanguage"),
+                market_region=preview.get("marketRegion"),
+                extra_prompt=_clean_text(getattr(payload, "extraPrompt", None)),
+            )
+            if not prompt:
+                raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VISUAL_PROMPT_EMPTY")
+            negative_prompt = " ".join(
+                item
+                for item in _normalize_list(_clean_text(getattr(payload, "forbiddenClaims", None)) or getattr(payload, "forbiddenClaims", None))
+                if item
+            )
+            result = self._generate_visual_image(
+                product_image_url=image_url,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                user_id=user_id,
+                metadata={
+                    "businessKey": "product_commercialization",
+                    "sceneId": scene_id,
+                    "sceneLabel": scene_label,
+                    "visualRoute": "image2_quality_first",
+                    "source": "product_commercialization.visual_generate",
+                },
+            )
+            image_result_urls = self._extract_image_urls(result)
+            if not image_result_urls:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "PRODUCT_COMMERCIALIZATION_VISUAL_GENERATION_FAILED",
+                        "taskId": result.get("taskId"),
+                        "raw": result.get("raw"),
+                    },
+                )
+            scene_url = image_result_urls[0]
+            stored_urls.extend(_as_list(result.get("resultUrls")))
+            image_urls.extend(image_result_urls)
+            image_results.append(
+                {
+                    "sceneId": scene_id,
+                    "label": scene_label,
+                    "provider": self._normalize_visual_provider(result.get("provider")),
+                    "model": _clean_text(result.get("model")) or DEFAULT_VISUAL_MODEL,
+                    "taskId": result.get("taskId"),
+                    "state": result.get("state"),
+                    "status": _clean_text(result.get("status")) or "succeeded",
+                    "imageUrl": scene_url,
+                    "imageUrls": image_result_urls,
+                    "storedAssets": result.get("assets") or result.get("storedAssets") or result.get("result"),
+                    "prompt": prompt,
+                    "raw": result.get("raw"),
+                }
+            )
+
+        provider = self._normalize_visual_provider(
+            image_results[0].get("provider") if isinstance(image_results, list) and image_results else None
+        )
+        model = _clean_text(image_results[0].get("model")) or DEFAULT_VISUAL_MODEL
+        cost_action = self._visual_cost_action(provider=provider, model=model)
+        return {
+            **preview,
+            "status": "succeeded",
+            "imageResult": {
+                "provider": provider,
+                "model": model,
+                "status": "succeeded",
+                "imageResults": image_results,
+                "imageUrls": image_urls,
+                "storedAssets": stored_urls,
+                "costActions": [cost_action] + [item.get("costAction") for item in image_results if item.get("costAction")],
+            },
+            "execution": {
+                "copyGenerated": not bool(preview.get("copyGeneration", {}).get("fallback")),
+                "copyGenerationMethod": preview.get("copyGeneration", {}).get("method"),
+                "imageGenerated": bool(image_urls),
+                "videoGenerated": False,
+                "costActions": [cost_action],
+                "note": "Image generation is an explicit cost action and result assets are persisted to PODI OSS.",
+            },
+        }
+
+    def _normalize_image_briefs_for_visual(self, payload: Any, content_package: dict[str, Any]) -> list[dict[str, Any]]:
+        requested = _normalize_list(getattr(payload, "visualScenes", None))
+        raw_briefs = content_package.get("imageBriefs") if isinstance(content_package, dict) else None
+        briefs = raw_briefs if isinstance(raw_briefs, list) else []
+        normalized: list[dict[str, Any]] = []
+        scene_map: dict[str, dict[str, Any]] = {}
+        for index, brief in enumerate(briefs):
+            if not isinstance(brief, dict):
+                continue
+            brief_id = _clean_text(brief.get("id")) or f"visual-{index + 1}"
+            scene_map[brief_id] = brief
+        if requested:
+            for scene_id in requested:
+                scene = scene_map.get(_clean_text(scene_id))
+                if isinstance(scene, dict):
+                    normalized.append(scene)
+            if normalized:
+                return normalized
+        for scene_id in ("listing-main", "social-ad-cover", "detail-closeup"):
+            scene = scene_map.get(scene_id)
+            if isinstance(scene, dict):
+                normalized.append(scene)
+        if normalized:
+            return normalized
+        if isinstance(briefs, list):
+            return [brief for brief in briefs if isinstance(brief, dict)][:3]
+        return []
+
+    def _generate_visual_image(
+        self,
+        *,
+        product_image_url: str,
+        prompt: str,
+        negative_prompt: str,
+        user_id: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, object]:
+        del user_id
+        compiled_prompt = prompt
+        if negative_prompt:
+            compiled_prompt = f"{prompt}\n\nAvoid: {negative_prompt}"
+        response = ability_invocation_service.invoke(
+            ability_id=DEFAULT_VISUAL_ABILITY_ID,
+            payload=AbilityInvokeRequest(
+                inputs={
+                    "image_url": product_image_url,
+                    "prompt": compiled_prompt,
+                    "model": DEFAULT_VISUAL_MODEL,
+                    "size": "auto",
+                    "quality": "auto",
+                    "background": "auto",
+                    "output_format": "png",
+                    "n": 1,
+                },
+                imageUrl=product_image_url,
+                metadata={
+                    **(metadata or {}),
+                    "primaryExecutionEngine": "gpt-image-2",
+                    "routeType": "image2_quality_first",
+                    "abilityId": DEFAULT_VISUAL_ABILITY_ID,
+                },
+            ),
+            user=None,
+            source="product-commercialization-visual",
+        )
+        if not response:
+            raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_VISUAL_GENERATION_FAILED")
+        result = response.model_dump()
+        image_urls = self._extract_response_asset_urls(result.get("images") or result.get("assets"))
+        result = {
+            "provider": DEFAULT_VISUAL_PROVIDER,
+            "model": DEFAULT_VISUAL_MODEL,
+            "status": result.get("status") or "succeeded",
+            "taskId": result.get("requestId") or result.get("logId"),
+            "state": result.get("status") or "succeeded",
+            "imageUrls": image_urls,
+            "resultUrls": image_urls,
+            "assets": result.get("images") or result.get("assets") or [],
+            "raw": result.get("raw"),
+            "logId": result.get("logId"),
+        }
+        return result
+
+    @staticmethod
+    def _extract_response_asset_urls(value: Any) -> list[str]:
+        urls: list[str] = []
+
+        def add(item: Any) -> None:
+            if isinstance(item, str) and item.strip().startswith(("http://", "https://")):
+                urls.append(item.strip())
+            elif isinstance(item, dict):
+                for key in ("ossUrl", "storedUrl", "sourceUrl", "url", "imageUrl"):
+                    add(item.get(key))
+            elif isinstance(item, list):
+                for child in item:
+                    add(child)
+
+        add(value)
+        seen: set[str] = set()
+        out: list[str] = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            out.append(url)
+        return out
+
+    @staticmethod
+    def _normalize_visual_provider(value: Any) -> str:
+        text = _clean_text(value).lower()
+        if text.startswith("openai"):
+            return "openai"
+        return DEFAULT_VISUAL_PROVIDER
+
+    @staticmethod
+    def _visual_cost_action(*, provider: str, model: str) -> str:
+        normalized_provider = _clean_text(provider).lower() or DEFAULT_VISUAL_PROVIDER
+        normalized_model = _clean_text(model).lower().replace("-", "_") or DEFAULT_VISUAL_MODEL.replace("-", "_")
+        return f"{normalized_provider}.{normalized_model}.image"
+
+    @staticmethod
+    def _extract_image_urls(value: dict[str, Any]) -> list[str]:
+        image_urls = value.get("imageUrls") or value.get("resultUrls") or []
+        urls: list[str] = []
+        if isinstance(image_urls, str):
+            candidates = [image_urls]
+        elif isinstance(image_urls, list):
+            candidates = [str(item) for item in image_urls]
+        else:
+            candidates = []
+        for item in candidates:
+            url = _clean_text(item)
+            if url.startswith(("http://", "https://")):
+                urls.append(url)
+        return urls
+
+
     def _generate_segment_with_retry(
         self,
         *,
@@ -580,24 +1046,27 @@ class ProductCommercializationService:
         prompt: str,
         image_url: str,
         aspect_ratio: str,
+        duration_seconds: int,
         poll_timeout: float,
         segment_index: int,
     ) -> tuple[dict[str, Any], list[str]]:
         last_result: dict[str, Any] = {}
         last_exception: Exception | None = None
         provider = self._resolve_video_provider(executor_id)
+        profile = self._video_profile_for_provider(provider)
+        duration = self._normalize_segment_duration(duration_seconds, profile)
         for attempt in range(1, VIDEO_SEGMENT_MAX_ATTEMPTS + 1):
             try:
                 if provider == "vidu":
                     result = integration_test_service.run_vidu_video_task(
                         executor_id=executor_id,
-                        endpoint="/ent/v2/img2video",
-                        status_endpoint="/ent/v2/tasks/{task_id}/creations",
-                        model=DEFAULT_VIDU_VIDEO_MODEL,
+                        endpoint=_clean_text(profile.get("endpoint")) or "/ent/v2/img2video",
+                        status_endpoint=_clean_text(profile.get("statusEndpoint")) or "/ent/v2/tasks/{task_id}/creations",
+                        model=_clean_text(profile.get("model")) or DEFAULT_VIDU_VIDEO_MODEL,
                         input_payload={
                             "prompt": prompt,
                             "images": [image_url],
-                            "duration": VEO_FAST_SEGMENT_SECONDS,
+                            "duration": duration,
                             "resolution": "720p",
                             "movement_amplitude": "auto",
                             "audio": False,
@@ -610,15 +1079,15 @@ class ProductCommercializationService:
                 else:
                     result = integration_test_service.run_kie_market_task(
                         executor_id=executor_id,
-                        endpoint="/api/v1/veo/generate",
-                        status_endpoint="/api/v1/veo/record-info",
+                        endpoint=_clean_text(profile.get("endpoint")) or "/api/v1/veo/generate",
+                        status_endpoint=_clean_text(profile.get("statusEndpoint")) or "/api/v1/veo/record-info",
                         result_format="veo3",
-                        model="veo3_fast",
+                        model=_clean_text(profile.get("model")) or "veo3_fast",
                         input_payload={
                             "prompt": prompt,
                             "imageUrls": [image_url],
                             "aspectRatio": aspect_ratio,
-                            "duration": VEO_FAST_SEGMENT_SECONDS,
+                            "duration": duration,
                             "enableTranslation": True,
                             "enableFallback": False,
                         },
@@ -675,6 +1144,39 @@ class ProductCommercializationService:
         if executor_type in {"vidu", "vidu-video", "vidu_video"}:
             return "vidu"
         return "kie"
+
+    def _video_profile_for_provider(self, provider: str) -> dict[str, Any]:
+        normalized = "vidu" if _clean_text(provider).lower().startswith("vidu") else "kie"
+        return dict(VIDEO_MODEL_PROFILES[normalized])
+
+    def _normalize_segment_duration(self, value: Any, profile: dict[str, Any]) -> int:
+        options = [int(item) for item in profile.get("segmentDurationOptions", []) if int(item) > 0]
+        if not options:
+            return DEFAULT_VIDEO_SEGMENT_SECONDS
+        try:
+            requested = int(value)
+        except (TypeError, ValueError):
+            requested = int(profile.get("defaultSegmentSeconds") or options[0])
+        if requested in options:
+            return requested
+        return min(options, key=lambda item: (abs(item - requested), item))
+
+    def _plan_video_segment_durations(self, target_duration: int, profile: dict[str, Any]) -> list[int]:
+        options = sorted(
+            [int(item) for item in profile.get("segmentDurationOptions", []) if int(item) > 0],
+            reverse=True,
+        )
+        if not options:
+            return [DEFAULT_VIDEO_SEGMENT_SECONDS]
+        durations: list[int] = []
+        remaining = target_duration
+        max_segment_count = max(1, int(profile.get("maxSegmentCount") or 12))
+        while remaining > 0 and len(durations) < max_segment_count:
+            exact_or_under = [item for item in options if item <= remaining]
+            duration = exact_or_under[0] if exact_or_under else options[-1]
+            durations.append(duration)
+            remaining -= duration
+        return durations or [int(profile.get("defaultSegmentSeconds") or options[0])]
 
     def _normalize_video_provider(self, value: Any) -> str:
         text = _clean_text(value).lower()
@@ -850,17 +1352,18 @@ class ProductCommercializationService:
             raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_COMPOSE_DOWNLOAD_FAILED") from exc
 
     def _resolve_keep_seconds(self, *, index: int, trims: list[Any]) -> float:
-        fallback = float(VEO_FAST_SEGMENT_SECONDS)
+        fallback = float(DEFAULT_VIDEO_SEGMENT_SECONDS)
         for item in trims:
             if not isinstance(item, dict):
                 continue
             try:
                 if int(item.get("segment")) != index:
                     continue
-                keep = float(item.get("keepSeconds") or fallback)
+                source_duration = float(item.get("sourceDurationSeconds") or item.get("durationSeconds") or fallback)
+                keep = float(item.get("keepSeconds") or source_duration)
             except (TypeError, ValueError):
                 return fallback
-            return max(0.5, min(float(VEO_FAST_SEGMENT_SECONDS), keep))
+            return max(0.5, min(source_duration, keep))
         return fallback
 
     def _run_ffmpeg(self, command: list[str]) -> None:
@@ -878,14 +1381,19 @@ class ProductCommercializationService:
             logger.warning("ffmpeg failed: %s", (completed.stderr or completed.stdout or "")[-1000:])
             raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED")
 
-    def _normalize_target_duration_seconds(self, value: Any) -> int:
+    def _normalize_target_duration_seconds(self, value: Any, profile: dict[str, Any] | None = None) -> int:
+        profile = profile or VIDEO_MODEL_PROFILES["kie"]
+        options = [int(item) for item in profile.get("segmentDurationOptions", []) if int(item) > 0]
+        default_duration = int(profile.get("defaultSegmentSeconds") or (options[0] if options else DEFAULT_VIDEO_SEGMENT_SECONDS))
         if value in (None, ""):
-            return VEO_FAST_SEGMENT_SECONDS
+            return default_duration
         try:
             duration = int(value)
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID") from exc
-        if duration < VEO_FAST_SEGMENT_SECONDS or duration > MAX_TARGET_VIDEO_SECONDS:
+        min_duration = min(options) if options else DEFAULT_VIDEO_SEGMENT_SECONDS
+        max_duration = min(int(profile.get("maxTargetSeconds") or MAX_TARGET_VIDEO_SECONDS), MAX_TARGET_VIDEO_SECONDS)
+        if duration < min_duration or duration > max_duration:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID")
         return duration
 
@@ -972,7 +1480,8 @@ class ProductCommercializationService:
             "missingFields": missing,
             "confidence": round(confidence, 2),
             "usageNotes": [
-                "Use source facts directly when present; inferred facts are only drafting aids.",
+                "The product image is the primary visual fact source; exported fields explain the image.",
+                "Use exported fields directly when they match the image; conflicts must be recorded and reviewed.",
                 "Missing fields should not block MVP preview, but should lower review confidence.",
             ],
         }
@@ -1016,14 +1525,29 @@ class ProductCommercializationService:
             fact_guard = self._content_fact_guard(content_package=content_package, product_card=product_card)
             generation = {**generation, "factGuard": fact_guard}
             if not fact_guard.get("passed", True):
-                logger.warning("product commercialization copy model fact guard fallback: %s", fact_guard)
-                content_package = template_package
-                generation = {
-                    **generation,
-                    "fallback": True,
-                    "fallbackReason": f"PRODUCT_COPY_FACT_GUARD_FAILED: {', '.join(fact_guard.get('missingFields') or [])}",
-                    "evidence": "LLM/VL response failed product fact guard; field-anchored template fallback used.",
-                }
+                if self._has_image_field_conflict(content_package):
+                    generation = {
+                        **generation,
+                        "factGuard": {
+                            **fact_guard,
+                            "passed": True,
+                            "conflictOverride": True,
+                            "reason": "image_field_conflict_reported_product_image_primary",
+                        },
+                        "evidence": (
+                            "LLM/VL response reported a product image/exported field conflict; "
+                            "copy is kept because product image is the primary visual fact source."
+                        ),
+                    }
+                else:
+                    logger.warning("product commercialization copy model fact guard fallback: %s", fact_guard)
+                    content_package = template_package
+                    generation = {
+                        **generation,
+                        "fallback": True,
+                        "fallbackReason": f"PRODUCT_COPY_FACT_GUARD_FAILED: {', '.join(fact_guard.get('missingFields') or [])}",
+                        "evidence": "LLM/VL response failed product fact guard; field-anchored template fallback used.",
+                    }
         except Exception as exc:  # pragma: no cover - defensive provider path
             logger.warning("product commercialization copy model fallback: %s", exc)
             generation = {
@@ -1070,6 +1594,10 @@ class ProductCommercializationService:
             "missingFields": missing,
             "reason": None if passed else "critical_product_terms_missing_from_major_copy_fields",
         }
+
+    def _has_image_field_conflict(self, content_package: dict[str, Any]) -> bool:
+        assessment = content_package.get("imageFactAssessment") if isinstance(content_package.get("imageFactAssessment"), dict) else {}
+        return bool(self._normalize_string_list(assessment.get("fieldConflicts"), [], min_items=0))
 
     def _build_template_content_package(
         self,
@@ -1153,9 +1681,19 @@ class ProductCommercializationService:
                 "assets": ["adShortCopy", "social-ad-cover"],
             },
         ]
+        image_fact_assessment = {
+            "visualSourcePriority": "product_image_primary",
+            "observedProductType": "Image analysis unavailable in template fallback.",
+            "observedVisualFeatures": ["Use uploaded product image as the visual anchor.", "Review visible product shape and pattern manually."],
+            "fieldConflicts": [],
+            "missingFieldInferences": product_card.get("missingFields") or [],
+            "copyDecision": "Template fallback uses exported fields but requires manual image/field consistency review.",
+            "confidence": "low",
+        }
         return {
             "commercePositioning": positioning,
             "copyPackage": copy_package,
+            "imageFactAssessment": image_fact_assessment,
             "imageBriefs": image_briefs,
             "channelUsageGuide": channel_usage,
             "styleGuardrails": copy_package.get("styleGuardrails") or [],
@@ -1237,9 +1775,9 @@ class ProductCommercializationService:
             "extraPrompt": _clean_text(getattr(payload, "extraPrompt", None)) or None,
             "productCard": product_card,
             "rules": [
-                "Product fields are the primary source of truth for product type, material, process, category, size, and market facts.",
-                "Use the image only as supporting visual evidence. If image evidence appears to conflict with product fields, keep the product fields and record the conflict in modelNotes.",
-                "Do not change the product type from the exported fields based on the image.",
+                "The uploaded product image is the primary visual source of truth. Read it first, then use exported fields as structured explanation.",
+                "Use exported fields when they match or reasonably explain the image. If fields are missing, infer only visible facts from the image and mark them in imageFactAssessment.missingFieldInferences.",
+                "If exported fields conflict with the product image, do not blindly keep the fields. Record the conflict in imageFactAssessment.fieldConflicts, base copy on the visible product image, and mark low confidence.",
                 "Write natural ecommerce copy; avoid generic template phrases and mechanical repetition.",
                 "For en-US output, translate Chinese source fields into natural English. Do not mix Chinese category or material words into English copy unless they are exact product names.",
                 "Do not include medical, trademark, sustainability, shipping, discount, certification, or size claims unless the fields explicitly provide them.",
@@ -1250,10 +1788,12 @@ class ProductCommercializationService:
     def _build_copy_model_prompt(self, *, context_payload: dict[str, Any]) -> str:
         return (
             "你是 PODI 的电商商品内容策略师。请基于产品图和产品导出字段，为 POD 商家生成可直接用于上架和营销的内容包。\n"
-            "产品导出字段是商品类型、材质、工艺、类目的最高优先级事实来源；图片只能作为辅助视觉证据。"
-            "如果图片和字段疑似不一致，必须以字段为准，并在 modelNotes 标记冲突，不能把商品类型改成图片里的其他物品。\n"
+            "事实优先级：产品图是最高优先级的视觉事实来源；导出 JSON 是对产品图的结构化说明。"
+            "你必须先识别产品图中的商品类型、颜色、图案、材质视觉线索和使用场景，再读取 JSON 字段。\n"
+            "如果 JSON 字段缺失，可以基于图片推断可见事实，但必须写入 imageFactAssessment.missingFieldInferences 并降低 confidence。"
+            "如果 JSON 与产品图疑似不符，不能无脑按 JSON 写；必须写入 imageFactAssessment.fieldConflicts，文案以图片中可见商品为主，冲突字段只作为待人工复核信息。\n"
             "必须输出 JSON，不要 Markdown，不要解释。JSON 字段必须包含 commercePositioning、listingTitle、bulletPoints、"
-            "detailDescription、adShortCopy、keywordPack、imageBriefs、channelUsageGuide、styleGuardrails、modelNotes。\n"
+            "detailDescription、adShortCopy、keywordPack、imageFactAssessment、imageBriefs、channelUsageGuide、styleGuardrails、modelNotes。\n"
             "listingTitle/detailDescription 使用 {\"en-US\": string, \"zh-CN\": string}；bulletPoints/adShortCopy 使用双语数组。"
             "en-US 字段必须是自然英文，需要把中文类目、材质、工艺翻译成英文，不能把中文词直接混进英文文案。"
             "imageBriefs 要说明每张配图服务哪类文案和使用场景。\n"
@@ -1270,9 +1810,10 @@ class ProductCommercializationService:
             "model": settings.business_agent_planner_model,
             "instructions": (
                 "You are PODI's ecommerce copy strategist for POD merchants. Generate a practical, non-mechanical "
-                "content package for listing and marketing. Product fields are the highest-priority factual source "
-                "for product type, material, process, category, and market facts. Use images only as supporting "
-                "visual evidence; if image evidence conflicts with fields, keep the fields and note the conflict. "
+                "content package for listing and marketing. The uploaded product image is the highest-priority "
+                "visual fact source; exported fields are structured explanations of that image. Read the image first. "
+                "Use fields when they match the image, infer missing visible facts from the image with low-confidence "
+                "notes, and record conflicts in imageFactAssessment.fieldConflicts instead of blindly trusting fields. "
                 "Return only JSON matching the schema."
             ),
             "input": [{"role": "user", "content": content}],
@@ -1329,11 +1870,81 @@ class ProductCommercializationService:
                 ),
                 "sourcePrompt": template_copy.get("sourcePrompt"),
             },
+            "imageFactAssessment": self._normalize_image_fact_assessment(
+                raw.get("imageFactAssessment"),
+                template_package.get("imageFactAssessment"),
+            ),
             "imageBriefs": self._normalize_image_briefs(raw.get("imageBriefs"), template_package.get("imageBriefs")),
             "channelUsageGuide": self._normalize_channel_usage(raw.get("channelUsageGuide"), template_package.get("channelUsageGuide")),
             "styleGuardrails": self._normalize_string_list(raw.get("styleGuardrails"), template_package.get("styleGuardrails"), min_items=2),
             "modelNotes": self._normalize_string_list(raw.get("modelNotes"), ["Model generated package; review facts before publishing."], min_items=1),
         }
+
+    def _normalize_image_fact_assessment(self, value: Any, fallback: Any) -> dict[str, Any]:
+        raw = value if isinstance(value, dict) else {}
+        fallback_map = fallback if isinstance(fallback, dict) else {}
+        field_conflicts = self._normalize_string_list(
+            raw.get("fieldConflicts"),
+            fallback_map.get("fieldConflicts"),
+            min_items=0,
+        )[:10]
+        missing_inferences = self._normalize_string_list(
+            raw.get("missingFieldInferences"),
+            fallback_map.get("missingFieldInferences"),
+            min_items=0,
+        )[:10]
+        confidence = self._normalize_image_fact_confidence(
+            raw.get("confidence") or raw.get("confidenceScore") or raw.get("confidenceLevel"),
+            fallback_map.get("confidence"),
+            has_conflicts=bool(field_conflicts),
+        )
+        return {
+            "visualSourcePriority": _clean_text(raw.get("visualSourcePriority"))
+            or _clean_text(fallback_map.get("visualSourcePriority"))
+            or "product_image_primary",
+            "observedProductType": _clean_text(raw.get("observedProductType"))
+            or (
+                "Product image conflicts with exported fields; visible product facts are recorded in fieldConflicts."
+                if field_conflicts
+                else _clean_text(fallback_map.get("observedProductType"))
+            )
+            or "Needs manual review.",
+            "observedVisualFeatures": self._normalize_string_list(
+                raw.get("observedVisualFeatures"),
+                fallback_map.get("observedVisualFeatures"),
+                min_items=2,
+            )[:10],
+            "fieldConflicts": field_conflicts,
+            "missingFieldInferences": missing_inferences,
+            "copyDecision": _clean_text(raw.get("copyDecision"))
+            or (
+                "Use the visible product image as the primary fact source; exported fields with conflicts require manual review."
+                if field_conflicts
+                else _clean_text(fallback_map.get("copyDecision"))
+            )
+            or "Use product image as visual anchor and review field consistency before publishing.",
+            "confidence": confidence,
+        }
+
+    def _normalize_image_fact_confidence(self, value: Any, fallback: Any, *, has_conflicts: bool) -> str:
+        text = _clean_text(value).lower()
+        if text:
+            if text in {"high", "medium", "low"}:
+                return text
+            try:
+                score = float(text)
+            except ValueError:
+                score = None
+            if score is not None:
+                if has_conflicts or score < 0.67:
+                    return "low"
+                if score < 0.85:
+                    return "medium"
+                return "high"
+        fallback_text = _clean_text(fallback).lower()
+        if fallback_text in {"high", "medium", "low"}:
+            return fallback_text
+        return "low" if has_conflicts else "medium"
 
     def _select_copy_package(
         self,
@@ -1389,14 +2000,33 @@ class ProductCommercializationService:
         return {"en-US": en, "zh-CN": zh}
 
     def _normalize_bilingual_list(self, value: Any, fallback: Any, *, min_items: int) -> dict[str, list[str]]:
-        raw = value if isinstance(value, dict) else {}
         fallback_map = fallback if isinstance(fallback, dict) else {}
+        if isinstance(value, list):
+            en_source: list[Any] = []
+            zh_source: list[Any] = []
+            for item in value:
+                if isinstance(item, dict):
+                    en_source.append(item.get("en-US") or item.get("en") or item.get("english"))
+                    zh_source.append(item.get("zh-CN") or item.get("zh") or item.get("chinese"))
+                else:
+                    en_source.append(item)
+                    zh_source.append(item)
+            en_value: Any = en_source
+            zh_value: Any = zh_source
+        else:
+            raw = value if isinstance(value, dict) else {}
+            en_value = raw.get("en-US") or raw.get("en") or raw.get("english")
+            zh_value = raw.get("zh-CN") or raw.get("zh") or raw.get("chinese")
         en = self._normalize_english_string_list(
-            raw.get("en-US"),
+            en_value,
             fallback_map.get("en-US") if isinstance(fallback_map, dict) else fallback,
             min_items=min_items,
         )
-        zh = self._normalize_string_list(raw.get("zh-CN"), fallback_map.get("zh-CN") if isinstance(fallback_map, dict) else fallback, min_items=min_items)
+        zh = self._normalize_string_list(
+            zh_value,
+            fallback_map.get("zh-CN") if isinstance(fallback_map, dict) else fallback,
+            min_items=min_items,
+        )
         return {"en-US": en[:8], "zh-CN": zh[:8]}
 
     def _normalize_english_string_list(self, value: Any, fallback: Any = None, *, min_items: int = 1) -> list[str]:
@@ -1580,16 +2210,97 @@ class ProductCommercializationService:
             result["keywordPack"] = keywords
         return result
 
+    def _build_resolved_product_facts(
+        self,
+        *,
+        product_card: dict[str, Any],
+        content_package: dict[str, Any],
+        copy_package: dict[str, Any],
+        output_language: str,
+    ) -> dict[str, Any]:
+        source_facts = {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
+        assessment = content_package.get("imageFactAssessment") if isinstance(content_package, dict) else {}
+        assessment = assessment if isinstance(assessment, dict) else {}
+        field_conflicts = self._normalize_string_list(assessment.get("fieldConflicts"), [], min_items=0)
+        missing_inferences = self._normalize_string_list(assessment.get("missingFieldInferences"), [], min_items=0)
+        visual_features = self._normalize_string_list(assessment.get("observedVisualFeatures"), [], min_items=0)
+        has_conflicts = bool(field_conflicts)
+
+        copy = copy_package if isinstance(copy_package, dict) else {}
+        listing_title = _clean_text(copy.get("listingTitle"))
+        if isinstance(content_package.get("copyPackage"), dict):
+            listing_title = listing_title or _clean_text(
+                self._pick_language(content_package["copyPackage"].get("listingTitle"), output_language)
+            )
+        keyword_pack = self._normalize_string_list(copy.get("keywordPack"), [], min_items=0)
+        if not keyword_pack and isinstance(content_package.get("copyPackage"), dict):
+            keyword_pack = self._normalize_string_list(content_package["copyPackage"].get("keywordPack"), [], min_items=0)
+
+        observed_type = _clean_text(assessment.get("observedProductType"))
+        generic_observed = {
+            "image analysis unavailable in template fallback.",
+            "needs manual review.",
+            "product image conflicts with exported fields; visible product facts are recorded in fieldconflicts.",
+        }
+        observed_is_generic = observed_type.lower() in generic_observed or not observed_type
+
+        resolved = dict(source_facts)
+        source = "exported_fields"
+        if has_conflicts:
+            source = "product_image_primary"
+            resolved = {
+                key: value
+                for key, value in source_facts.items()
+                if key in {"productImageUrl", "designImageUrl"}
+            }
+            if listing_title:
+                resolved["productNameEn"] = listing_title
+                resolved["templateName"] = listing_title
+            elif observed_type and not observed_is_generic:
+                resolved["productNameEn"] = observed_type
+                resolved["templateName"] = observed_type
+            resolved["fieldConflictPolicy"] = "exclude_conflicting_exported_fields"
+            if keyword_pack:
+                resolved["keywords"] = keyword_pack
+            if visual_features:
+                resolved["visualFeatures"] = visual_features
+            if missing_inferences:
+                resolved["imageInferredFacts"] = missing_inferences
+        else:
+            if keyword_pack and not resolved.get("keywords"):
+                resolved["keywords"] = keyword_pack
+            if observed_type and not observed_is_generic:
+                resolved["observedProductType"] = observed_type
+            if visual_features:
+                resolved["visualFeatures"] = visual_features
+
+        resolved_name = _english_product_name(resolved)
+        return {
+            "source": source,
+            "hasFieldConflicts": has_conflicts,
+            "summary": resolved_name,
+            "facts": resolved,
+            "fieldConflicts": field_conflicts,
+            "missingFieldInferences": missing_inferences,
+            "observedVisualFeatures": visual_features,
+            "copyDecision": _clean_text(assessment.get("copyDecision")),
+            "confidence": _clean_text(assessment.get("confidence")) or ("low" if has_conflicts else "medium"),
+            "rejectedSourceFields": list(product_card.get("sourceMap", {}).keys()) if has_conflicts else [],
+        }
+
     def _build_visual_asset_plan(
         self,
         *,
         product_card: dict[str, Any],
+        resolved_product_facts: dict[str, Any] | None = None,
         content_package: dict[str, Any] | None = None,
         visual_mode: str,
         output_language: str,
         product_image_url: Any,
     ) -> dict[str, Any]:
-        facts = {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
+        facts = (
+            _as_record(resolved_product_facts.get("facts")) if isinstance(resolved_product_facts, dict) else {}
+        ) or {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
         name = _english_product_name(facts) if output_language != "zh-CN" else _zh_product_name(facts)
         has_image = bool(_clean_text(product_image_url))
         model_briefs = []
@@ -1639,6 +2350,7 @@ class ProductCommercializationService:
                 "defaultGenerateImages": visual_mode == "generate",
                 "candidateRoute": "business.product_design_or_gpt_image2",
                 "ossPersistenceRequired": True,
+                "factSource": resolved_product_facts.get("source") if isinstance(resolved_product_facts, dict) else "exported_fields",
             },
             "warnings": [] if has_image else ["Missing product image limits visual and video generation quality."],
         }
@@ -1647,6 +2359,7 @@ class ProductCommercializationService:
         self,
         *,
         product_card: dict[str, Any],
+        resolved_product_facts: dict[str, Any] | None = None,
         product_image_url: Any,
         scenario: str,
         duration_seconds: Any,
@@ -1656,21 +2369,39 @@ class ProductCommercializationService:
         market_region: str,
         executor_id: Any,
     ) -> dict[str, Any]:
-        facts = {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
+        facts = (
+            _as_record(resolved_product_facts.get("facts")) if isinstance(resolved_product_facts, dict) else {}
+        ) or {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
         name = _english_product_name(facts)
         material = _clean_text(facts.get("material") or facts.get("composition"))
         provider = self._resolve_video_provider(_clean_text(executor_id) or DEFAULT_KIE_VIDEO_EXECUTOR_ID)
-        model = DEFAULT_VIDU_VIDEO_MODEL if provider == "vidu" else "veo3_fast"
-        # The first executable version standardizes on 8-second segments across providers.
-        # Longer or precisely variable lengths are planned as storyboard + composition.
-        duration = VEO_FAST_SEGMENT_SECONDS
-        target_duration = self._normalize_target_duration_seconds(target_duration_seconds or duration_seconds)
-        segment_count = max(1, (target_duration + duration - 1) // duration)
-        total_generated_seconds = segment_count * duration
-        requires_composition = target_duration > duration
+        profile = self._video_profile_for_provider(provider)
+        model = _clean_text(profile.get("model")) or (DEFAULT_VIDU_VIDEO_MODEL if provider == "vidu" else "veo3_fast")
+        target_duration = self._normalize_target_duration_seconds(target_duration_seconds or duration_seconds, profile)
+        segment_durations = self._plan_video_segment_durations(target_duration, profile)
+        duration = segment_durations[0]
+        segment_count = len(segment_durations)
+        total_generated_seconds = sum(segment_durations)
+        requires_composition = segment_count > 1
         ratio = _clean_text(aspect_ratio) or "16:9"
+        if provider == "vidu":
+            aspect_policy = {
+                "mode": "input_image_ratio",
+                "requestedAspectRatio": ratio,
+                "executionAspectRatio": "input_image_ratio",
+                "requiresFirstFrameNormalization": True,
+                "reason": "Vidu img2video follows the submitted product/first-frame image ratio; fixed 16:9 or 9:16 output requires generating or padding a matching first frame before execution.",
+            }
+        else:
+            aspect_policy = {
+                "mode": "provider_parameter",
+                "requestedAspectRatio": ratio,
+                "executionAspectRatio": ratio,
+                "requiresFirstFrameNormalization": False,
+                "reason": "This provider accepts aspect ratio as an execution parameter.",
+            }
         prompt_parts = [
-            f"Create an {duration}-second POD product showcase video for {name}.",
+            f"Create a {target_duration}-second POD product showcase video for {name}.",
             "Use the provided product image as the exact visual reference.",
             "Slow camera movement, clean studio lighting, premium ecommerce presentation.",
             "Keep product shape, pattern, color, and material consistent.",
@@ -1686,12 +2417,15 @@ class ProductCommercializationService:
         )
         storyboard: list[dict[str, Any]] = []
         trim_plan: list[dict[str, Any]] = []
-        for index in range(1, segment_count + 1):
-            keep_seconds = min(duration, max(1, target_duration - ((index - 1) * duration)))
+        consumed_seconds = 0
+        for index, segment_duration in enumerate(segment_durations, start=1):
+            keep_seconds = min(segment_duration, max(1, target_duration - consumed_seconds))
+            consumed_seconds += keep_seconds
             role = segment_roles[index - 1]
             segment_prompt = " ".join(
                 [
                     *prompt_parts,
+                    f"Generate this segment as {segment_duration} seconds.",
                     f"Segment {index} of {segment_count}: {role['direction']}.",
                     "Keep visual continuity with the previous segment when provided.",
                 ]
@@ -1699,7 +2433,7 @@ class ProductCommercializationService:
             storyboard.append(
                 {
                     "shot": index,
-                    "durationSeconds": duration,
+                    "durationSeconds": segment_duration,
                     "keepSeconds": keep_seconds,
                     "label": role["label"],
                     "camera": role["camera"],
@@ -1711,7 +2445,7 @@ class ProductCommercializationService:
             trim_plan.append(
                 {
                     "segment": index,
-                    "sourceDurationSeconds": duration,
+                    "sourceDurationSeconds": segment_duration,
                     "keepSeconds": keep_seconds,
                     "trimStartSeconds": 0,
                     "trimEndSeconds": keep_seconds,
@@ -1732,22 +2466,45 @@ class ProductCommercializationService:
             },
             {
                 "asset": "first_last_frames",
-                "required": requires_composition,
+                "required": False,
                 "available": False,
-                "reason": "Needed for controlled opening/ending frames once composition execution is enabled.",
+                "reason": "Optional controlled-frame mode; generate and confirm opening/ending frames before video execution once enabled.",
             },
         ]
+        if provider == "vidu":
+            asset_needs.append(
+                {
+                    "asset": "normalized_first_frame",
+                    "required": False,
+                    "available": False,
+                    "reason": "Required when the final video must strictly match a target aspect ratio; Vidu single-reference generation otherwise follows the uploaded image ratio.",
+                }
+            )
         return {
             "scenario": scenario,
             "provider": provider,
             "model": model,
+            "modelProfile": {
+                "displayName": _clean_text(profile.get("displayName")) or model,
+                "segmentDurationOptions": profile.get("segmentDurationOptions") or [duration],
+                "maxTargetSeconds": profile.get("maxTargetSeconds") or MAX_TARGET_VIDEO_SECONDS,
+                "executableModes": [
+                    item for item in profile.get("modes", []) if isinstance(item, dict) and item.get("executable")
+                ],
+                "plannedModes": [
+                    item for item in profile.get("modes", []) if isinstance(item, dict) and not item.get("executable")
+                ],
+            },
+            "generationMode": "single_reference",
             "targetDurationSeconds": target_duration,
             "durationSeconds": duration,
             "singleSegmentSeconds": duration,
+            "segmentDurationOptions": profile.get("segmentDurationOptions") or [duration],
             "segmentCount": segment_count,
             "totalGeneratedSeconds": total_generated_seconds,
             "requiresComposition": requires_composition,
             "aspectRatio": ratio,
+            "aspectPolicy": aspect_policy,
             "storyboard": storyboard,
             "assetNeeds": asset_needs,
             "videoPrompt": " ".join(prompt_parts),
@@ -1757,6 +2514,7 @@ class ProductCommercializationService:
                 "executionReady": True,
                 "targetDurationSeconds": target_duration,
                 "singleSegmentSeconds": duration,
+                "segmentDurations": segment_durations,
                 "segmentCount": segment_count,
                 "totalGeneratedSeconds": total_generated_seconds,
                 "trimPlan": trim_plan,
@@ -1780,6 +2538,11 @@ class ProductCommercializationService:
                 "outputLanguage": output_language,
                 "spokenAudio": "disabled",
                 "embeddedText": "disabled",
+            },
+            "factSource": {
+                "source": resolved_product_facts.get("source") if isinstance(resolved_product_facts, dict) else "exported_fields",
+                "hasFieldConflicts": bool(resolved_product_facts.get("hasFieldConflicts")) if isinstance(resolved_product_facts, dict) else False,
+                "summary": resolved_product_facts.get("summary") if isinstance(resolved_product_facts, dict) else None,
             },
         }
 
@@ -1823,11 +2586,33 @@ class ProductCommercializationService:
         *,
         product_card: dict[str, Any],
         copy_package: dict[str, Any],
+        content_package: dict[str, Any],
         copy_generation: dict[str, Any],
         visual_asset_plan: dict[str, Any],
         video_plan: dict[str, Any],
     ) -> dict[str, Any]:
         issues: list[dict[str, Any]] = []
+        image_fact_assessment = (
+            content_package.get("imageFactAssessment") if isinstance(content_package.get("imageFactAssessment"), dict) else {}
+        )
+        field_conflicts = self._normalize_string_list(image_fact_assessment.get("fieldConflicts"), [], min_items=0)
+        if field_conflicts:
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "PRODUCT_IMAGE_FIELD_CONFLICT",
+                    "message": "Product image and exported JSON may describe different facts; copy should follow visible product facts and needs manual review.",
+                }
+            )
+        missing_inferences = self._normalize_string_list(image_fact_assessment.get("missingFieldInferences"), [], min_items=0)
+        if missing_inferences:
+            issues.append(
+                {
+                    "level": "info",
+                    "code": "PRODUCT_FACTS_INFERRED_FROM_IMAGE",
+                    "message": "Some missing fields were inferred from the product image; verify them before publishing.",
+                }
+            )
         fact_guard = copy_generation.get("factGuard") if isinstance(copy_generation.get("factGuard"), dict) else {}
         if fact_guard and not fact_guard.get("passed", True):
             issues.append(

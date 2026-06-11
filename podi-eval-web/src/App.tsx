@@ -11109,7 +11109,10 @@ export function App() {
         {workflowListStatus === 'error' ? (
           <WorkflowListErrorState scope="public" error={workflowListError} onRetry={() => void loadWorkflowList()} />
         ) : null}
-        <ProductCommercializationWorkbench mode={activeCategory === '产品视频' ? 'video' : 'copy'} />
+        <ProductCommercializationWorkbench
+          key={`product-commercialization-${activeCategory}`}
+          mode={activeCategory === '产品视频' ? 'video' : 'copy'}
+        />
         <AuxiliaryAbilityNav
           items={auxiliaryCategorySummaries}
           activeCategory={activeCategory}

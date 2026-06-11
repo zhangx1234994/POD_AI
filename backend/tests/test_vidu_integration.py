@@ -64,6 +64,7 @@ def test_vidu_video_task_polls_and_persists_to_oss(monkeypatch) -> None:
             "prompt": "Create an ecommerce product video.",
             "images": ["https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/product.png"],
             "duration": 8,
+            "aspectRatio": "16:9",
         },
         poll_timeout=10,
         poll_interval=0.01,
@@ -73,6 +74,8 @@ def test_vidu_video_task_polls_and_persists_to_oss(monkeypatch) -> None:
     assert captured["post_headers"]["Authorization"] == "Token test-key"
     assert captured["post_json"]["model"] == "viduq3-turbo"
     assert captured["post_json"]["images"] == ["https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/product.png"]
+    assert "aspectRatio" not in captured["post_json"]
+    assert "aspect_ratio" not in captured["post_json"]
     assert captured["get_url"] == "https://api.vidu.cn/ent/v2/tasks/vidu_task_1/creations"
     assert captured["get_headers"]["Authorization"] == "Token test-key"
     assert result["status"] == "succeeded"

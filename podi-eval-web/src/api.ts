@@ -303,6 +303,7 @@ export type BusinessRunPollResult = {
 };
 
 export type ProductCommercializationRequest = {
+  action?: 'video_generate' | 'compose_video' | 'visual_generate';
   productImageUrl?: string;
   designImageUrl?: string;
   productFields?: Record<string, unknown>;
@@ -322,6 +323,8 @@ export type ProductCommercializationRequest = {
   aspectRatio?: string;
   strategyProfile?: string;
   executorId?: string;
+  videoPromptOverride?: string;
+  visualScenes?: string[];
   pollTimeout?: number;
   requestId?: string;
   traceId?: string;
@@ -352,6 +355,7 @@ export type ProductCommercializationResponse = {
   marketRegion: string;
   copyScenarios: string[];
   productCard: Record<string, unknown>;
+  resolvedProductFacts?: Record<string, unknown> | null;
   copyPackage: Record<string, unknown>;
   contentPackage?: Record<string, unknown> | null;
   copyGeneration?: Record<string, unknown> | null;
@@ -361,6 +365,7 @@ export type ProductCommercializationResponse = {
   execution: Record<string, unknown>;
   audit?: Record<string, unknown> | null;
   videoResult?: Record<string, unknown> | null;
+  imageResult?: Record<string, unknown> | null;
 };
 
 export const evalApi = {

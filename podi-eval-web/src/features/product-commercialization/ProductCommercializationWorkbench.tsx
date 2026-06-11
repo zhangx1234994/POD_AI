@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Input, Select, Space, Tag, Textarea, Typography, MessagePlugin } from 'tdesign-react';
 import { evalApi } from '../../api';
-import type { BusinessRunPollResult, ProductCommercializationRequest, ProductCommercializationResponse, ProductDesignRunRequest } from '../../api';
+import type { BusinessRunPollResult, ProductCommercializationRequest, ProductCommercializationResponse } from '../../api';
 
 type ProductCommercializationMode = 'copy' | 'video';
 type WorkStatus = 'idle' | 'previewing' | 'video' | 'uploading' | 'visual';
@@ -12,6 +12,41 @@ const MODE_VIDEO: ProductCommercializationMode = 'video';
 const KIE_EXECUTOR_ID = 'executor_kie_market_default';
 const VIDU_EXECUTOR_ID = 'executor_vidu_default';
 const SEGMENT_SECONDS = 8;
+
+const VIDEO_MODEL_PROFILES: Record<
+  VideoProvider,
+  {
+    label: string;
+    executorId: string;
+    segmentDurationOptions: number[];
+    targetDurationOptions: number[];
+    defaultTargetSeconds: number;
+    modes: Array<{ label: string; status: 'executable' | 'planned'; desc: string }>;
+  }
+> = {
+  vidu_viduq3_turbo: {
+    label: 'Vidu · viduq3-turbo',
+    executorId: VIDU_EXECUTOR_ID,
+    segmentDurationOptions: [3, 5, 8],
+    targetDurationOptions: [3, 5, 8, 13, 16, 24, 32, 48, 60],
+    defaultTargetSeconds: 8,
+    modes: [
+      { label: '单参考图生视频', status: 'executable', desc: '直接用产品图生成单段或多段片段。' },
+      { label: '首尾帧控制', status: 'planned', desc: '先生成并确认首尾帧，再调用对应视频接口。' },
+    ],
+  },
+  kie_veo3_fast: {
+    label: 'KIE · Veo3.1 Fast',
+    executorId: KIE_EXECUTOR_ID,
+    segmentDurationOptions: [8],
+    targetDurationOptions: [8, 16, 24, 32, 48, 60],
+    defaultTargetSeconds: 8,
+    modes: [
+      { label: '单参考图生视频', status: 'executable', desc: '当前稳定执行入口。' },
+      { label: '首尾帧控制', status: 'planned', desc: '待完成首尾帧生成和接口适配后开放。' },
+    ],
+  },
+};
 
 const DEFAULT_PRODUCT_FIELDS = {
   模板名称: '女款长袜（3D打印）',
@@ -106,6 +141,8 @@ const VISUAL_SCENES = [
   },
 ] as const;
 
+type VisualScene = (typeof VISUAL_SCENES)[number];
+
 const COPY_OUTPUT_LABELS: Record<string, string> = {
   listingTitle: '上架标题',
   bulletPoints: '五点描述',
@@ -133,6 +170,8 @@ const MODE_META: Record<
     outputHint: string;
     emptyText: string;
     previewButton: string;
+    usageSteps: string[];
+    interfaceNotes: Array<{ label: string; value: string }>;
     tags: Array<{ label: string; theme: 'primary' | 'success' | 'warning' }>;
   }
 > = {
@@ -143,10 +182,16 @@ const MODE_META: Record<
     outputHint: '必须看到模型生成证据；模板兜底只能排障，不能作为验收通过。',
     emptyText: '先生成一次大模型文案包，再按需要显式生成配图。',
     previewButton: '生成文案内容包',
+    usageSteps: ['上传产品图或填写图片 URL', '粘贴产品导出 JSON 并选择平台/语气', '生成文案包，确认后再按需生成配图'],
+    interfaceNotes: [
+      { label: '预览接口', value: 'POST /api/business/product-commercialization/preview' },
+      { label: '配图执行', value: 'POST /api/business/product-commercialization/runs · action=visual_generate · 默认 GPT Image 2' },
+      { label: '查询结果', value: 'POST /api/business/runs/get · runId' },
+    ],
     tags: [
       { label: 'LLM / VL', theme: 'primary' },
       { label: '电商文案', theme: 'success' },
-      { label: '多语言', theme: 'warning' },
+      { label: 'GPT Image 2 配图', theme: 'warning' },
     ],
   },
   video: {
@@ -156,6 +201,12 @@ const MODE_META: Record<
     outputHint: '预览只生成脚本；视频按钮才会触发成本动作。',
     emptyText: '先生成视频规划，确认商品、场景、供应商和时长，再生成视频。',
     previewButton: '生成视频规划',
+    usageSteps: ['上传产品图或填写图片 URL', '粘贴产品导出 JSON，选择供应商/场景/时长', '生成视频规划，确认素材和风险后提交视频任务'],
+    interfaceNotes: [
+      { label: '规划接口', value: 'POST /api/business/product-commercialization/preview' },
+      { label: '视频执行', value: 'POST /api/business/product-commercialization/runs · action=video_generate' },
+      { label: '查询结果', value: 'POST /api/business/runs/get · runId' },
+    ],
     tags: [
       { label: '视频分镜', theme: 'primary' },
       { label: 'KIE / Vidu', theme: 'success' },
@@ -210,18 +261,6 @@ function getProductFieldSummary(data: Record<string, unknown> | null) {
     model: firstText(fields, ['产品型号', 'productModel', '模板号', '模板编号', 'subjectCode', '主体编码']) || '未识别型号',
     keywords: firstText(fields, ['关键词', 'keywords', 'keyword']) || '未提供关键词',
   };
-}
-
-function inferProductType(data: Record<string, unknown> | null): ProductDesignRunRequest['productType'] {
-  const summary = getProductFieldSummary(data);
-  const text = `${summary.name} ${summary.category} ${summary.material}`.toLowerCase();
-  if (/sock|socks|shirt|dress|apparel|服|袜|穿搭|面料/.test(text)) return 'apparel';
-  if (/home|pillow|blanket|家纺|软装|抱枕|毯/.test(text)) return 'home_textile';
-  if (/bag|tote|箱包|包/.test(text)) return 'bag';
-  if (/shoe|鞋/.test(text)) return 'shoe';
-  if (/stationery|文具/.test(text)) return 'stationery';
-  if (/pack|包装/.test(text)) return 'packaging';
-  return 'generic';
 }
 
 function escapeHtml(value: unknown): string {
@@ -302,23 +341,135 @@ function getVideoUrls(result: ProductCommercializationResponse | null): string[]
   return Array.isArray(urls) ? urls.filter((item): item is string => typeof item === 'string' && item.length > 0) : [];
 }
 
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((item) => {
+    const key = item.trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function collectImageUrls(value: unknown): string[] {
+  const urls: string[] = [];
+  const add = (item: unknown) => {
+    if (typeof item === 'string') {
+      const text = item.trim();
+      if (text.startsWith('http://') || text.startsWith('https://')) urls.push(text);
+      return;
+    }
+    if (Array.isArray(item)) {
+      item.forEach(add);
+      return;
+    }
+    if (item && typeof item === 'object') {
+      const record = item as Record<string, unknown>;
+      ['imageUrl', 'imageUrls', 'image_url', 'image_urls', 'storedUrl', 'storedUrls', 'ossUrl', 'url', 'resultUrls'].forEach((key) =>
+        add(record[key]),
+      );
+    }
+  };
+  add(value);
+  return uniqueStrings(urls);
+}
+
 function getRunImageUrls(result: BusinessRunPollResult | null): string[] {
   if (!result) return [];
+  const resultPayload = asRecord(result.resultPayload);
+  const resultBody = asRecord(result.result);
+  const imageResult = asRecord(resultPayload.imageResult || resultBody.imageResult);
   const candidates = [
     result.imageUrls,
     result.image_urls,
-    asRecord(result.resultPayload).imageUrls,
-    asRecord(result.resultPayload).image_urls,
-    asRecord(result.result).imageUrls,
-    asRecord(result.result).image_urls,
+    resultPayload.imageUrls,
+    resultPayload.image_urls,
+    imageResult.imageUrls,
+    imageResult.image_urls,
+    imageResult.imageResults,
+    imageResult.storedAssets,
+    imageResult.storedUrl,
+    resultBody.imageUrls,
+    resultBody.image_urls,
   ];
-  for (const value of candidates) {
-    if (Array.isArray(value)) {
-      const urls = value.filter((item): item is string => typeof item === 'string' && item.length > 0);
-      if (urls.length > 0) return urls;
-    }
+  return uniqueStrings(candidates.flatMap(collectImageUrls));
+}
+
+function getRunVisualResults(result: BusinessRunPollResult | null): Array<{ sceneId: string; label?: string; urls: string[] }> {
+  if (!result) return [];
+  const resultPayload = asRecord(result.resultPayload);
+  const resultBody = asRecord(result.result);
+  const imageResult = asRecord(resultPayload.imageResult || resultBody.imageResult);
+  const records = asArray(imageResult.imageResults).map((item) => asRecord(item));
+  if (records.length === 0) {
+    const urls = getRunImageUrls(result);
+    return urls.length > 0 ? [{ sceneId: '', urls }] : [];
   }
-  return [];
+  return records
+    .map((item) => {
+      const urls = collectImageUrls(item);
+      return {
+        sceneId: String(item.sceneId || item.scene_id || '').trim(),
+        label: String(item.label || '').trim() || undefined,
+        urls,
+      };
+    })
+    .filter((item) => item.urls.length > 0);
+}
+
+function mergeVisualRunState(
+  previous: GeneratedVisual[],
+  scenes: readonly VisualScene[],
+  runId: string,
+  status: string,
+  elapsedSeconds: number,
+  poll: BusinessRunPollResult | null,
+): GeneratedVisual[] {
+  const visualResults = getRunVisualResults(poll);
+  const fallbackUrls = getRunImageUrls(poll);
+  const byScene = new Map<string, Array<{ sceneId: string; label?: string; urls: string[] }>>();
+  visualResults.forEach((item) => {
+    const key = item.sceneId;
+    byScene.set(key, [...(byScene.get(key) || []), item]);
+  });
+  const sceneIds = new Set<string>(scenes.map((scene) => scene.id));
+  const updated = previous.filter((item) => !(item.runId === runId || sceneIds.has(item.id)));
+  const next = scenes.map((scene, index) => {
+    const matched = byScene.get(scene.id)?.[0];
+    const existing = previous.find((item) => item.runId === runId && item.id === scene.id);
+    const urls = matched?.urls?.length ? matched.urls : scenes.length === 1 ? fallbackUrls : fallbackUrls[index] ? [fallbackUrls[index]] : [];
+    return {
+      id: scene.id,
+      label: matched?.label || scene.label,
+      runId,
+      status,
+      elapsedSeconds: elapsedSeconds || existing?.elapsedSeconds || 0,
+      urls,
+    };
+  });
+  return [...next, ...updated];
+}
+
+function markVisualRunFailed(
+  previous: GeneratedVisual[],
+  scenes: readonly VisualScene[],
+  message: string,
+): GeneratedVisual[] {
+  const sceneIds = new Set<string>(scenes.map((scene) => scene.id));
+  return previous.map((item) =>
+    sceneIds.has(item.id)
+      ? {
+          ...item,
+          status: 'failed',
+          error: message,
+        }
+      : item,
+  );
+}
+
+function hasAnyGeneratedVisualForScenes(visuals: GeneratedVisual[], scenes: readonly VisualScene[]): boolean {
+  const sceneIds = new Set<string>(scenes.map((scene) => scene.id));
+  return visuals.some((item) => sceneIds.has(item.id) && item.urls.length > 0);
 }
 
 function asProductCommercializationResponse(value: unknown): ProductCommercializationResponse | null {
@@ -336,7 +487,12 @@ function businessRunStatusLabel(status: string) {
 }
 
 function videoProviderLabel(value: VideoProvider): string {
-  return value === 'vidu_viduq3_turbo' ? 'Vidu · viduq3-turbo' : 'KIE · Veo3.1 Fast';
+  return VIDEO_MODEL_PROFILES[value]?.label || value;
+}
+
+function hasReviewIssue(result: ProductCommercializationResponse | null, code: string): boolean {
+  const issues = asArray(asRecord(result?.review).issues).map((item) => asRecord(item));
+  return issues.some((item) => String(item.code || '') === code);
 }
 
 export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?: ProductCommercializationMode }) {
@@ -362,11 +518,14 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const [status, setStatus] = useState<WorkStatus>('idle');
   const [error, setError] = useState('');
   const [fieldsConfirmed, setFieldsConfirmed] = useState(false);
+  const [conflictAccepted, setConflictAccepted] = useState(false);
   const [generatedVisuals, setGeneratedVisuals] = useState<GeneratedVisual[]>([]);
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const activeVideoRunIdRef = useRef<string | null>(null);
   const [videoRun, setVideoRun] = useState<{ runId: string; status: string; elapsedSeconds: number } | null>(null);
   const [resultInputSignature, setResultInputSignature] = useState('');
+  const [videoPromptDraft, setVideoPromptDraft] = useState('');
+  const selectedVideoProfile = VIDEO_MODEL_PROFILES[videoProvider];
 
   const parsedFields = useMemo(() => {
     try {
@@ -421,20 +580,39 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     ],
   );
   const shouldConfirmMatch = Boolean(productImageUrl.trim() && parsedFields && Object.keys(parsedFields).length > 0);
-  const canRunPaidAction = Boolean(productImageUrl.trim() && (!shouldConfirmMatch || fieldsConfirmed));
+  const canRunPaidAction = Boolean(productImageUrl.trim());
   const hasFreshResult = Boolean(result && resultInputSignature === currentInputSignature && parsedFields !== null);
   const resultIsStale = Boolean(result && !hasFreshResult);
+  const hasImageFieldConflict = hasFreshResult && hasReviewIssue(result, 'PRODUCT_IMAGE_FIELD_CONFLICT');
+  const canRunCostAction = canRunPaidAction;
   const videoUrls = getVideoUrls(result);
+  const hasGeneratedVisuals = hasAnyGeneratedVisualForScenes(generatedVisuals, VISUAL_SCENES);
 
   useEffect(() => {
     setFieldsConfirmed(false);
+    setConflictAccepted(false);
+    setVideoPromptDraft('');
   }, [productImageUrl, productFieldsText]);
+
+  useEffect(() => {
+    setConflictAccepted(false);
+  }, [resultInputSignature]);
+
+  useEffect(() => {
+    if (!selectedVideoProfile.targetDurationOptions.includes(targetDurationSeconds)) {
+      setTargetDurationSeconds(selectedVideoProfile.defaultTargetSeconds);
+      setVideoPromptDraft('');
+    }
+  }, [selectedVideoProfile, targetDurationSeconds]);
 
   const buildPayload = (): ProductCommercializationRequest => {
     if (parsedFields === null) {
       throw new Error('产品字段 JSON 格式不正确');
     }
-    const executorId = videoProvider === 'vidu_viduq3_turbo' ? VIDU_EXECUTOR_ID : KIE_EXECUTOR_ID;
+    const executorId = selectedVideoProfile.executorId;
+    const requestedSegmentSeconds = selectedVideoProfile.segmentDurationOptions.includes(targetDurationSeconds)
+      ? targetDurationSeconds
+      : selectedVideoProfile.defaultTargetSeconds;
     return {
       productImageUrl: productImageUrl.trim() || undefined,
       productFields: parsedFields,
@@ -450,7 +628,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       visualSupportMode,
       videoScenario,
       aspectRatio,
-      durationSeconds: SEGMENT_SECONDS,
+      durationSeconds: requestedSegmentSeconds,
       targetDurationSeconds,
       executorId,
       source: 'eval-product-commercialization',
@@ -467,6 +645,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       const response = await evalApi.previewProductCommercialization(payload);
       setResult(response);
       setResultInputSignature(signature);
+      if (isVideoMode) {
+        setVideoPromptDraft(String((response.videoPlan as Record<string, unknown> | undefined)?.videoPrompt || ''));
+      }
       setGeneratedVisuals([]);
       if (!isVideoMode) setVideoRun(null);
     } catch (err) {
@@ -505,14 +686,23 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       setError('生成视频必须先提供产品图 URL');
       return;
     }
-    if (!canRunPaidAction) {
-      setError('请先确认产品图与导出 JSON 属于同一商品，再触发视频成本动作');
+    if (!hasFreshResult) {
+      setError('请先生成当前视频规划，确认商品事实、供应商、场景和时长后再提交视频任务');
       return;
+    }
+    if (!videoPromptDraft.trim()) {
+      setError('视频执行脚本不能为空；请先生成视频规划，或在脚本框里补充生成要求。');
+      return;
+    }
+    if (hasImageFieldConflict && !conflictAccepted) {
+      setConflictAccepted(true);
+      MessagePlugin.warning('检测到图片与 JSON 冲突，本次视频将按产品图识别事实生成；导出字段仅用于复核。');
     }
     setStatus('video');
     const signature = currentInputSignature;
     try {
       const payload = buildPayload();
+      payload.videoPromptOverride = videoPromptDraft.trim();
       const submitted = await evalApi.submitProductCommercializationVideoRun(payload);
       const runId = String(submitted.runId || submitted.id || '').trim();
       if (!runId) {
@@ -529,6 +719,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         if (fullResult) {
           setResult(fullResult);
           setResultInputSignature(signature);
+          setVideoPromptDraft(String((fullResult.videoPlan as Record<string, unknown> | undefined)?.videoPrompt || videoPromptDraft));
         } else if (Array.isArray(poll.videoUrls) && poll.videoUrls.length > 0) {
           setResult((prev) =>
             prev
@@ -580,26 +771,12 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     return briefs.find((item) => String(item.id || '').trim() === sceneId) || null;
   };
 
-  const buildVisualDesignBrief = (scene: (typeof VISUAL_SCENES)[number]): string => {
-    const copyPackage = asRecord(result?.copyPackage);
-    const adCopy = formatCopyValue(copyPackage.adShortCopy).split('\n').slice(0, 2).join('；');
-    const modelBrief = findModelImageBrief(scene.id);
-    const modelPrompt = String(modelBrief?.prompt || '').trim();
-    return [
-      modelPrompt ? `大模型配图规划：${modelPrompt}` : '',
-      `基于当前产品图生成一张${scene.label}。`,
-      `商品：${productSummary.name}；分类：${productSummary.category}；材质：${productSummary.material}。`,
-      `用途：${scene.desc}，目标市场：${marketRegion}。`,
-      adCopy ? `可参考广告文案氛围：${adCopy}。` : '',
-      '必须保持产品主体、花纹、颜色和结构一致；不要新增文字、水印、价格牌、Logo 或无关装饰元素。',
-      extraPrompt.trim() ? `补充要求：${extraPrompt.trim()}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  };
-
-  const generateVisualScene = async (scene: (typeof VISUAL_SCENES)[number]) => {
+  const generateVisualScenes = async (scenes: readonly VisualScene[]) => {
     setError('');
+    if (scenes.length === 0) {
+      setError('请至少选择一个配图场景');
+      return;
+    }
     if (!productImageUrl.trim()) {
       setError('生成配图必须先提供产品图 URL');
       return;
@@ -612,63 +789,51 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       setError('当前输入已经变化，请先基于当前图片和字段重新生成文案内容包，再触发配图生成');
       return;
     }
-    if (!canRunPaidAction) {
-      setError('请先确认产品图与导出 JSON 属于同一商品，再触发配图生成');
-      return;
+    if (hasImageFieldConflict && !conflictAccepted) {
+      setConflictAccepted(true);
+      MessagePlugin.warning('检测到图片与 JSON 冲突，本次配图将按产品图识别事实生成；导出字段仅用于复核。');
     }
     setStatus('visual');
     try {
-      const payload: ProductDesignRunRequest = {
-        imageUrl: productImageUrl.trim(),
-        productType: inferProductType(parsedFields),
-        designBrief: buildVisualDesignBrief(scene),
-        scene: scene.scene,
-        quality: 'preview',
-        size: '1024x1024',
-        output_format: 'png',
-        source: 'eval-product-commercialization-visual',
-        requestId: `eval-pc-visual-${scene.id}-${Date.now()}`,
-        inputs: {
-          productCommercializationScene: scene.id,
-          productFields: parsedFields || {},
-          marketRegion,
-          outputLanguage,
-        },
+      const payload: ProductCommercializationRequest = {
+        ...buildPayload(),
+        action: 'visual_generate',
+        visualScenes: scenes.map((scene) => scene.id),
       };
-      const submitted = await evalApi.submitProductDesignRun(payload);
+      payload.requestId = `eval-pc-visual-${scenes.map((scene) => scene.id).join('-')}-${Date.now()}`;
+      const submitted = await evalApi.submitProductCommercializationVideoRun(payload);
       const runId = String(submitted.runId || submitted.id || '').trim();
       if (!runId) {
         throw new Error('配图任务提交成功但未返回 runId');
       }
-      setGeneratedVisuals((prev) => [
-        { id: scene.id, label: scene.label, runId, status: String(submitted.status || 'queued'), elapsedSeconds: 0, urls: [] },
-        ...prev.filter((item) => item.id !== scene.id),
-      ]);
-      MessagePlugin.success(`配图任务已提交：${runId}`);
+      setGeneratedVisuals((prev) =>
+        mergeVisualRunState(prev, scenes, runId, String(submitted.status || 'queued'), 0, submitted),
+      );
+      MessagePlugin.success(`${scenes.length > 1 ? '组图' : '配图'}任务已提交：${runId}`);
       const finalPoll = await pollBusinessRun(runId, (poll, elapsedSeconds) => {
         const runStatus = String(poll.status || poll.taskStatus || 'running');
-        const urls = getRunImageUrls(poll);
         setGeneratedVisuals((prev) =>
-          prev.map((item) => (item.runId === runId ? { ...item, status: runStatus, elapsedSeconds, urls } : item)),
+          mergeVisualRunState(prev, scenes, runId, runStatus, elapsedSeconds, poll),
         );
       });
-      const urls = getRunImageUrls(finalPoll);
-      if (urls.length === 0) {
+      if (getRunImageUrls(finalPoll).length === 0) {
         throw new Error('配图任务已完成但未返回图片 URL');
       }
       setGeneratedVisuals((prev) =>
-        prev.map((item) => (item.runId === runId ? { ...item, status: 'succeeded', urls } : item)),
+        mergeVisualRunState(prev, scenes, runId, 'succeeded', 0, finalPoll),
       );
     } catch (err) {
       const message = String((err as any)?.message || err || '配图生成失败');
       setError(message);
-      setGeneratedVisuals((prev) =>
-        prev.map((item) => (item.id === scene.id ? { ...item, status: 'failed', error: message } : item)),
-      );
+      setGeneratedVisuals((prev) => markVisualRunFailed(prev, scenes, message));
     } finally {
       setStatus('idle');
     }
   };
+
+  const generateVisualScene = async (scene: VisualScene) => generateVisualScenes([scene]);
+
+  const generateAllVisualScenes = async () => generateVisualScenes(VISUAL_SCENES);
 
   const downloadContentPackage = () => {
     if (!result) return;
@@ -713,21 +878,29 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const copyPackage = asRecord(result?.copyPackage);
   const contentPackage = asRecord(result?.contentPackage);
   const copyGeneration = asRecord(result?.copyGeneration);
+  const resolvedProductFacts = asRecord(result?.resolvedProductFacts);
   const commercePositioning = asRecord(contentPackage.commercePositioning);
+  const imageFactAssessment = asRecord(contentPackage.imageFactAssessment);
   const modelImageBriefs = asArray(contentPackage.imageBriefs).map((item) => asRecord(item));
   const channelUsageGuide = asArray(contentPackage.channelUsageGuide).map((item) => asRecord(item));
   const productCard = asRecord(result?.productCard);
   const visualAssetPlan = asRecord(result?.visualAssetPlan);
   const videoPlan = asRecord(result?.videoPlan);
+  const videoAspectPolicy = asRecord(videoPlan.aspectPolicy);
+  const isViduVideoProvider = videoProvider === 'vidu_viduq3_turbo';
+  const videoAspectExecutionLabel =
+    String(videoAspectPolicy.mode || '') === 'input_image_ratio'
+      ? '实际比例随首帧'
+      : String(videoAspectPolicy.executionAspectRatio || videoPlan.aspectRatio || aspectRatio);
   const review = asRecord(result?.review);
-  const requiresComposition = targetDurationSeconds > SEGMENT_SECONDS;
+  const requiresComposition = !selectedVideoProfile.segmentDurationOptions.includes(targetDurationSeconds);
   const selectedScenario = VIDEO_SCENARIOS.find((item) => item.key === videoScenario);
 
   return (
     <section className="podi-product-commercialization">
       <div className="podi-product-commercialization__head">
         <div>
-          <Typography.Text theme="primary">v0.7 新能力试点 · 整改版</Typography.Text>
+          <Typography.Text theme="primary">产品商业化能力</Typography.Text>
           <Typography.Title level="h3" style={{ margin: '4px 0' }}>
             {meta.title}
           </Typography.Title>
@@ -743,13 +916,36 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       </div>
 
       <Alert
-        theme="warning"
+        theme="info"
         message={
           isVideoMode
-            ? '当前是测评入口：视频规划不扣成本；生成视频必须显式点击，并通过中台业务 runId 查询结果。'
-            : '当前是测评入口：文案包应由大模型/VL 生成；模板兜底只用于排障，生成配图必须显式点击。'
+            ? '预览只生成分镜和执行参数；生成视频需单独点击，并按所选模型的时长画像提交任务。'
+            : '预览生成大模型文案包和配图方案；商业化配图需单独点击，默认走 GPT Image 2 并按 runId 回填。'
         }
       />
+      <div className="podi-product-commercialization__guide">
+        <div>
+          <Typography.Text strong>流程</Typography.Text>
+          <div className="podi-product-commercialization__guide-steps">
+            {meta.usageSteps.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </div>
+        </div>
+        <div>
+          <details className="podi-product-commercialization__interface-note">
+            <summary>接口口径</summary>
+            <dl>
+              {meta.interfaceNotes.map((item) => (
+                <div key={item.label}>
+                  <dt>{item.label}</dt>
+                  <dd>{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        </div>
+      </div>
       {error ? <Alert theme="error" message={error} /> : null}
       {videoRun ? (
         <Alert
@@ -805,7 +1001,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
               <Textarea
                 value={productFieldsText}
                 onChange={(v) => setProductFieldsText(String(v))}
-                autosize={{ minRows: 12, maxRows: 22 }}
+                autosize={{ minRows: 8, maxRows: 16 }}
                 status={parsedFields === null ? 'error' : 'default'}
               />
             </div>
@@ -901,15 +1097,23 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   <Select
                     label="目标时长"
                     value={String(targetDurationSeconds)}
-                    onChange={(v) => setTargetDurationSeconds(Number(v) || SEGMENT_SECONDS)}
-                    options={[8, 16, 24, 32, 48, 60].map((seconds) => ({
-                      label: seconds === 8 ? '8 秒 · 单段' : `${seconds} 秒 · 多段合成`,
+                    onChange={(v) => setTargetDurationSeconds(Number(v) || selectedVideoProfile.defaultTargetSeconds)}
+                    options={selectedVideoProfile.targetDurationOptions.map((seconds) => ({
+                      label: selectedVideoProfile.segmentDurationOptions.includes(seconds)
+                        ? `${seconds} 秒 · 单段`
+                        : `${seconds} 秒 · 多段合成`,
                       value: String(seconds),
                     }))}
                   />
                 </>
               )}
-              {isVideoMode ? <Input label="比例" value={aspectRatio} onChange={(v) => setAspectRatio(String(v))} /> : null}
+              {isVideoMode ? (
+                <Input
+                  label={isViduVideoProvider ? '目标比例（Vidu 跟随首帧）' : '目标比例'}
+                  value={aspectRatio}
+                  onChange={(v) => setAspectRatio(String(v))}
+                />
+              ) : null}
             </div>
 
             {!isVideoMode ? (
@@ -965,23 +1169,34 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   ))}
                 </div>
                 <div className="podi-product-commercialization__pending">
-                  <Typography.Text theme="secondary">当前可执行视频模型</Typography.Text>
+                  <Typography.Text theme="secondary">当前模型</Typography.Text>
                   <Space size="small" breakLine>
                     <Tag theme="success" variant="light">
-                      Vidu · viduq3-turbo
-                    </Tag>
-                    <Tag theme="success" variant="light">
-                      KIE · Veo3.1 Fast
+                      {selectedVideoProfile.label}
                     </Tag>
                   </Space>
-                  <Typography.Text theme="secondary">当前可选时长</Typography.Text>
+                  <Typography.Text theme="secondary">模型支持片段</Typography.Text>
                   <Space size="small" breakLine>
-                    {[8, 16, 24, 32, 48, 60].map((seconds) => (
-                      <Tag key={seconds} theme={seconds === 8 ? 'primary' : 'success'} variant="light">
-                        {seconds === 8 ? '8 秒单段' : `${seconds} 秒多段合成`}
+                    {selectedVideoProfile.segmentDurationOptions.map((seconds) => (
+                      <Tag key={seconds} theme="primary" variant="light">
+                        {seconds} 秒片段
                       </Tag>
                     ))}
                   </Space>
+                  <Typography.Text theme="secondary">生成模式</Typography.Text>
+                  <Space size="small" breakLine>
+                    {selectedVideoProfile.modes.map((item) => (
+                      <Tag key={item.label} theme={item.status === 'executable' ? 'success' : 'warning'} variant="light">
+                        {item.label} · {item.status === 'executable' ? '可执行' : '规划中'}
+                      </Tag>
+                    ))}
+                  </Space>
+                  {isViduVideoProvider ? (
+                    <Alert
+                      theme="info"
+                      message="Vidu 图生视频当前按上传产品图/首帧比例出片；要稳定输出 16:9 或 9:16，需要先生成或补边对应比例首帧后再执行。"
+                    />
+                  ) : null}
                   <Typography.Text theme="secondary">待接入 Vidu 场景</Typography.Text>
                   <Space size="small" breakLine>
                     {PENDING_VIDEO_ROUTES.map((item) => (
@@ -1009,17 +1224,33 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                 {meta.previewButton}
               </Button>
               {!isVideoMode && result ? (
-                <Button
-                  variant="outline"
-                  disabled={visualSupportMode !== 'generate' || !canRunPaidAction || !hasFreshResult}
-                  onClick={() => void generateVisualScene(VISUAL_SCENES[1])}
-                >
-                  生成一张配图
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    loading={status === 'visual'}
+                    disabled={status === 'visual' || visualSupportMode !== 'generate' || !canRunCostAction || !hasFreshResult}
+                    onClick={() => void generateVisualScene(VISUAL_SCENES[1])}
+                  >
+                    生成社媒封面
+                  </Button>
+                  <Button
+                    theme="success"
+                    loading={status === 'visual'}
+                    disabled={status === 'visual' || visualSupportMode !== 'generate' || !canRunCostAction || !hasFreshResult}
+                    onClick={() => void generateAllVisualScenes()}
+                  >
+                    {hasGeneratedVisuals ? '重新生成全部组图' : '生成全部组图'}
+                  </Button>
+                </>
               ) : null}
               {isVideoMode ? (
-                <Button theme="success" loading={status === 'video'} disabled={!canRunPaidAction} onClick={() => void runVideo()}>
-                  {requiresComposition ? `生成 ${targetDurationSeconds}s 多段视频` : `生成 ${videoProviderLabel(videoProvider)} 视频`}
+                <Button
+                  theme="success"
+                  loading={status === 'video'}
+                  disabled={status === 'video' || !canRunCostAction || !hasFreshResult || !videoPromptDraft.trim()}
+                  onClick={() => void runVideo()}
+                >
+                  {requiresComposition ? `生成 ${targetDurationSeconds}s 分镜合成视频` : `生成 ${targetDurationSeconds}s ${videoProviderLabel(videoProvider)} 视频`}
                 </Button>
               ) : null}
             </Space>
@@ -1107,6 +1338,53 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                     </div>
                   </section>
 
+                  {Object.keys(imageFactAssessment).length > 0 ? (
+                    <section className="podi-result-section">
+                      <Typography.Text strong>图片 / JSON 一致性</Typography.Text>
+                      <div className="podi-product-commercialization__strategy-summary">
+                        <div>
+                          <Typography.Text theme="secondary">图像主判断</Typography.Text>
+                          <Typography.Text>{String(imageFactAssessment.observedProductType || '-')}</Typography.Text>
+                        </div>
+                        <div>
+                          <Typography.Text theme="secondary">采用口径</Typography.Text>
+                          <Typography.Text>{String(imageFactAssessment.copyDecision || '-')}</Typography.Text>
+                        </div>
+                        <div>
+                          <Typography.Text theme="secondary">置信度</Typography.Text>
+                          <Typography.Text>{String(imageFactAssessment.confidence || '-')}</Typography.Text>
+                        </div>
+                      </div>
+                      {asArray(imageFactAssessment.fieldConflicts).length > 0 ? (
+                        <Alert
+                          theme="warning"
+                          message={`疑似冲突：${asArray(imageFactAssessment.fieldConflicts).map((item) => String(item)).join('；')}`}
+                        />
+                      ) : null}
+                      {hasImageFieldConflict ? (
+                        <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
+                          <input
+                            type="checkbox"
+                            checked={conflictAccepted}
+                            onChange={(event) => setConflictAccepted(event.currentTarget.checked)}
+                          />
+                          <span>我确认按产品图识别结果继续，忽略与图片冲突的导出字段；后续配图/视频将以图片事实为准。</span>
+                        </label>
+                      ) : null}
+                      {asArray(imageFactAssessment.missingFieldInferences).length > 0 ? (
+                        <Alert
+                          theme="info"
+                          message={`图片推断：${asArray(imageFactAssessment.missingFieldInferences).map((item) => String(item)).join('；')}`}
+                        />
+                      ) : null}
+                      <div className="podi-product-commercialization__facts">
+                        {asArray(imageFactAssessment.observedVisualFeatures).map((item, index) => (
+                          <span key={`${String(item)}-${index}`}>{String(item)}</span>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
                   <section className="podi-result-section">
                     <Typography.Text strong>文案结果</Typography.Text>
                     <div className="podi-product-commercialization__copy-list">
@@ -1126,7 +1404,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       <div className="podi-product-commercialization__panel-head">
                         <Typography.Text strong>配图建议与生成</Typography.Text>
                         <Typography.Text theme="secondary">
-                          {visualSupportMode === 'generate' ? '建议来自文案模型；点击后调用产品设计能力生成图片' : '当前只输出配图建议'}
+                          {visualSupportMode === 'generate'
+                            ? '建议来自文案模型；点击后默认调用 GPT Image 2 生成配图'
+                            : '当前只输出配图建议'}
                         </Typography.Text>
                       </div>
                       {modelImageBriefs.length > 0 ? (
@@ -1165,7 +1445,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                                 size="small"
                                 variant="outline"
                                 loading={status === 'visual'}
-                                disabled={visualSupportMode !== 'generate' || !canRunPaidAction || !hasFreshResult}
+                                disabled={status === 'visual' || visualSupportMode !== 'generate' || !canRunCostAction || !hasFreshResult}
                                 onClick={() => void generateVisualScene(scene)}
                               >
                                 生成{label}
@@ -1193,16 +1473,101 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   ) : null}
                 </>
               ) : (
-                <section className="podi-result-section">
-                  <Typography.Text strong>视频规划</Typography.Text>
-                  <div className="podi-product-commercialization__facts">
-                    <span>{videoProviderLabel(videoProvider)}</span>
-                    <span>{selectedScenario?.label || videoScenario}</span>
-                    <span>{targetDurationSeconds}s</span>
-                    <span>{aspectRatio}</span>
-                  </div>
-                  <pre>{prettyJson(videoPlan)}</pre>
-                </section>
+                <>
+                  <section className="podi-result-section">
+                    <Typography.Text strong>最终采用事实</Typography.Text>
+                    <div className="podi-product-commercialization__strategy-summary">
+                      <div>
+                        <Typography.Text theme="secondary">事实来源</Typography.Text>
+                        <Typography.Text>
+                          {String(resolvedProductFacts.source || 'exported_fields') === 'product_image_primary'
+                            ? '产品图优先'
+                            : '导出字段'}
+                        </Typography.Text>
+                      </div>
+                      <div>
+                        <Typography.Text theme="secondary">商品判断</Typography.Text>
+                        <Typography.Text>{String(resolvedProductFacts.summary || productSummary.name || '-')}</Typography.Text>
+                      </div>
+                      <div>
+                        <Typography.Text theme="secondary">置信度</Typography.Text>
+                        <Typography.Text>{String(resolvedProductFacts.confidence || imageFactAssessment.confidence || '-')}</Typography.Text>
+                      </div>
+                    </div>
+                    {asArray(resolvedProductFacts.fieldConflicts).length > 0 ? (
+                      <Alert
+                        theme="warning"
+                        message={`疑似冲突：${asArray(resolvedProductFacts.fieldConflicts).map((item) => String(item)).join('；')}`}
+                      />
+                    ) : null}
+                    {hasImageFieldConflict ? (
+                      <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
+                        <input
+                          type="checkbox"
+                          checked={conflictAccepted}
+                          onChange={(event) => setConflictAccepted(event.currentTarget.checked)}
+                        />
+                        <span>我确认按产品图识别结果继续，忽略与图片冲突的导出字段；后续视频将以图片事实为准。</span>
+                      </label>
+                    ) : null}
+                  </section>
+
+                  <section className="podi-result-section">
+                    <Typography.Text strong>视频规划</Typography.Text>
+                    <div className="podi-product-commercialization__facts">
+                      <span>{videoProviderLabel(videoProvider)}</span>
+                      <span>{selectedScenario?.label || videoScenario}</span>
+                      <span>{String(videoPlan.targetDurationSeconds || targetDurationSeconds)}s</span>
+                      <span>目标 {String(videoAspectPolicy.requestedAspectRatio || videoPlan.aspectRatio || aspectRatio)}</span>
+                      <span>{videoAspectExecutionLabel}</span>
+                      <span>{asArray(videoPlan.storyboard).length || 1} 个镜头</span>
+                    </div>
+                    <div className="podi-product-commercialization__channel-list">
+                      {asArray(videoPlan.storyboard).map((item, index) => {
+                        const shot = asRecord(item);
+                        return (
+                          <div key={`${String(shot.label || 'shot')}-${index}`}>
+                            <Typography.Text strong>
+                              镜头 {String(shot.shot || index + 1)} · {String(shot.label || '商品镜头')}
+                            </Typography.Text>
+                            <Typography.Text>{String(shot.goal || shot.camera || '')}</Typography.Text>
+                            <Typography.Text theme="secondary">
+                              保留 {String(shot.keepSeconds || shot.durationSeconds || SEGMENT_SECONDS)}s · 主体 {String(shot.subject || '-')}
+                            </Typography.Text>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {asArray(videoPlan.assetNeeds).length > 0 ? (
+                      <div className="podi-product-commercialization__facts">
+                        {asArray(videoPlan.assetNeeds).map((item, index) => {
+                          const asset = asRecord(item);
+                          return (
+                            <span key={`${String(asset.asset || 'asset')}-${index}`}>
+                              {String(asset.asset || '素材')}：{asset.available ? '已具备' : asset.required ? '建议补齐' : '可选'}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <div className="podi-product-commercialization__brief">
+                      <div className="podi-product-commercialization__panel-head">
+                        <Typography.Text strong>执行脚本</Typography.Text>
+                        <Typography.Text theme="secondary">可编辑；点击生成视频时按当前脚本提交给视频模型。</Typography.Text>
+                      </div>
+                      <Textarea
+                        value={videoPromptDraft || String(videoPlan.videoPrompt || '')}
+                        onChange={(value) => setVideoPromptDraft(String(value))}
+                        autosize={{ minRows: 6, maxRows: 12 }}
+                        placeholder="先生成视频规划，或在这里写入最终视频脚本。"
+                      />
+                    </div>
+                    <details className="podi-product-commercialization__debug">
+                      <summary>调试 JSON</summary>
+                      <pre>{prettyJson(videoPlan)}</pre>
+                    </details>
+                  </section>
+                </>
               )}
 
               {videoUrls.length > 0 ? (

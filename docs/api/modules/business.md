@@ -48,7 +48,7 @@
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
-| 产品商业化 | 文案预览 `POST /api/business/product-commercialization/preview`；视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 文案预览建议传 `productImageUrl/productFields`；视频执行必填 `productImageUrl` | 文案：`productFields`、`outputLanguage`、`marketRegion`、`commercePlatform`、`copyTone`、`targetAudience`、`sellingAngle`、`forbiddenClaims`、`copyScenarios`、`visualSupportMode`；视频：`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId` | 文案预览返回 `copyGeneration`、`contentPackage`、`copyPackage`、`visualAssetPlan`；视频执行返回 `runId`，终态查询返回 `videoUrls/resultPayload.videoResult` | 产品设计后的商业化能力拆为两个心智：产品文案内容包和产品视频。文案必须优先走大模型/VL 生成结构化电商内容包；模板兜底只用于排障，不能作为验收通过。配图/视频都是显式后续动作。 |
+| 产品商业化 | 文案预览 `POST /api/business/product-commercialization/preview`；配图/视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 文案预览建议传 `productImageUrl/productFields`；配图/视频执行必填 `productImageUrl` | 文案：`productFields`、`outputLanguage`、`marketRegion`、`commercePlatform`、`copyTone`、`targetAudience`、`sellingAngle`、`forbiddenClaims`、`copyScenarios`、`visualSupportMode`；配图：`action=visual_generate`、`visualScenes`；视频：`action=video_generate`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId` | 文案预览返回 `copyGeneration`、`contentPackage`、`copyPackage`、`resolvedProductFacts`、`visualAssetPlan`；配图/视频执行返回 `runId`，终态查询返回 `imageUrls` 或 `videoUrls/resultPayload` | 产品设计后的商业化能力拆为两个心智：产品文案内容包和产品视频。文案必须优先走大模型/VL 生成结构化电商内容包；模板兜底只用于排障，不能作为验收通过。配图/视频都是显式后续动作，统一走产品商业化 runId 查询口径。 |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
@@ -1531,13 +1531,13 @@ X-PODI-API-Key: podi_xxx
 
 第一版文案输出“商品商业化内容包”：产品理解卡、模型生成证据、文案包、配图 brief、渠道使用建议和审核提示。预览接口不会隐式生成图片或视频；任何图片/视频生成都必须走显式执行动作并保留成本、任务和 OSS 证据。`copyGeneration.method=template_fallback` 只表示模型不可用时的排障兜底，不得作为文案能力验收通过。
 
-当前测评端配图生成的最小安全实现是：先调用 `preview` 得到文案和配图计划，再由用户显式点击配图生成按钮，前端提交 `POST /api/business/product-design/runs`，用返回的 `runId` 轮询 `/api/business/runs/get`，最终展示自有 OSS 图片。也就是说，`visualSupportMode=generate` 不等于预览接口自动生图，它只表示“本次计划允许后续显式生成配图”。
+当前测评端配图生成的最小安全实现是：先调用 `preview` 得到文案和配图计划，再由用户显式点击配图生成按钮，前端提交 `POST /api/business/product-commercialization/runs` 且传 `action=visual_generate`，用返回的 `runId` 轮询 `/api/business/runs/get`，最终展示自有 OSS 图片。也就是说，`visualSupportMode=generate` 不等于预览接口自动生图，它只表示“本次计划允许后续显式生成配图”。
 
 统一任务口径：
 
 - 文案预览：`POST /api/business/product-commercialization/preview`，同步返回大模型/VL 文案内容包、配图建议和风险；模型不可用时会返回 `template_fallback` 证据。
-- 执行视频：`POST /api/business/product-commercialization/runs`，立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。
-- 执行配图：当前测评端复用 `POST /api/business/product-design/runs`，立即返回 `runId`，再通过 `/api/business/runs/get` 查询 `imageUrls`。后续若独立出 `product_image_set`，仍沿用同一 runId 查询口径。
+- 执行配图：`POST /api/business/product-commercialization/runs` 且 `action=visual_generate`，立即返回 `runId`/`status`，再通过 `/api/business/runs/get` 查询 `imageUrls/resultPayload.imageResult`。
+- 执行视频：`POST /api/business/product-commercialization/runs` 且 `action=video_generate` 或不传 `action`，立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。
 - 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。视频成功标准是查询到 `status=succeeded` 且 `videoUrls` 非空；配图成功标准是查询到 `status=succeeded` 且 `imageUrls` 非空；失败原因看 `errorMessage/errorCode`。
 - 计费口径：MVP 阶段按生成片段计量，每个视频片段记 `quotaUnits=1`。`billingUnit` 会按真实供应商成本动作派生，例如 `kie_veo3_fast_video_segment` 或 `vidu_viduq3_turbo_video_segment`；当前先记录 quota 和成本证据，不虚构第三方货币单价，正式价格表后续接入模型成本策略。
 - 兼容调试：`/video` 与 `/video-compose` 暂时保留给内部联调，不作为正式业务方接入口径。
@@ -1598,15 +1598,18 @@ X-PODI-API-Key: podi_xxx
 | `forbiddenClaims` | 否 | 空 | 禁用或谨慎使用的声明，支持字符串或数组，例如环保认证、医疗功效、品牌词、物流时效承诺。 |
 | `copyScenarios` | 否 | 全部 | `listing_title/bullet_points/detail_description/ad_short_copy/keyword_pack`。 |
 | `visualSupportMode` | 否 | `recommendation` | `none/recommendation/generate`。`generate` 只表示允许后续显式生成配图，预览接口不自动生图。 |
+| `action` | 执行接口否 | `video_generate` | 仅 `/runs` 使用。允许空值/`video_generate`/`compose_video`/`visual_generate`；非法值返回 `PRODUCT_COMMERCIALIZATION_ACTION_INVALID`，不会静默回退。 |
+| `visualScenes` | 否 | 空 | 仅 `action=visual_generate` 使用。可传 `listing-main/social-ad-cover/detail-closeup` 等配图场景 ID；不传时按模型产出的前三个配图 brief 执行。 |
+| `videoPromptOverride` | 否 | 空 | 仅视频执行使用。测评端生成规划后允许用户编辑执行脚本；如果传入该字段，视频模型按用户编辑后的脚本生成，原始规划只作为参考。 |
 | `videoScenario` | 否 | `product_showcase_short` | `product_showcase_short/social_ad_short/detail_explainer`。 |
-| `durationSeconds` | 否 | `8` | 单段视频执行时长，当前固定 8 秒；传其他值会被接口校验拒绝。 |
-| `targetDurationSeconds` | 否 | `8` | 产品视频目标成片时长，允许 8-60。文案入口可忽略该字段；产品视频预览会为 15 秒这类目标生成多段分镜、裁剪和合成计划；`/video` 只执行 8 秒单段，超过 8 秒应调用 `/video-compose` 或正式异步 runs 入口。 |
-| `aspectRatio` | 否 | `16:9` | 视频画幅。 |
+| `durationSeconds` | 否 | 模型默认 | 期望单段视频执行时长。合法值由所选 `executorId` 的模型画像决定，例如 KIE Veo3.1 Fast 当前按 8 秒片段执行，Vidu viduq3-turbo 当前按 3/5/8 秒片段规划。 |
+| `targetDurationSeconds` | 否 | 模型默认 | 产品视频目标成片时长，允许 1-60，但还会受模型画像二次校验。预览会根据模型支持片段生成分镜、裁剪和合成计划；正式 `/runs` 会按该分镜执行单段或多段合成。 |
+| `aspectRatio` | 否 | `16:9` | 视频目标画幅。KIE 当前作为厂商执行参数传入；Vidu `img2video` 不接受独立画幅参数，实际画幅跟随上传产品图/首帧，若必须稳定输出 16:9/9:16，需要先生成或补边对应比例首帧再执行。响应中的 `videoPlan.aspectPolicy` 会说明真实执行策略。 |
 | `executorId` | 否 | 默认 KIE | 视频供应商执行节点。当前可执行：`executor_kie_market_default`（KIE Veo3.1 Fast）、`executor_vidu_default`（Vidu viduq3-turbo）。 |
 
 产品导出字段建议至少包含：模板名称/编号/主体编码/产品型号、英文名称、一级/二级分类、工厂、重量、生产工艺、材质、成分、包装尺寸、包装重量、关键词和其他描述。字段缺失不阻塞预览，但会降低 `productCard.confidence` 并进入 `missingFields`。
 
-图片和 JSON 一致性：中台当前不自动识别图片内容是否与 JSON 完全一致。测评端在触发配图或视频这类成本动作前要求用户确认“图片与导出 JSON 属于同一商品”；后续如接入 VL 自动比对，应将比对结果写入 `review.issues`，但仍不能绕过人工确认。
+图片和 JSON 一致性：产品图是最高优先级视觉事实源，导出 JSON 是对产品图的结构化说明。VL 会在 `contentPackage.imageFactAssessment` 输出图像主判断、字段冲突、缺失字段推断、采用口径和置信度。若图片与 JSON 冲突，响应会写入 `review.issues[].code=PRODUCT_IMAGE_FIELD_CONFLICT`，并生成 `resolvedProductFacts` 作为配图和视频的下游事实源；原始导出字段仍保留在 `productCard.sourceFacts` 供人工复核。测评端在触发配图或视频这类成本动作前必须让用户确认“按产品图识别结果继续”。
 
 响应重点字段：
 
@@ -1618,15 +1621,28 @@ X-PODI-API-Key: podi_xxx
   "status": "previewed",
   "outputLanguage": "en-US",
   "marketRegion": "US",
-  "productCard": {
+	  "productCard": {
     "sourceFacts": {
       "productNameEn": "Women's knitted woolen socks",
       "material": "包纱、涤纶、尼龙、橡筋"
     },
     "inferredFacts": {},
     "missingFields": [],
-    "confidence": 0.82
-  },
+	    "confidence": 0.82
+	  },
+	  "resolvedProductFacts": {
+	    "source": "product_image_primary",
+	    "summary": "Floral hooded lightweight jacket",
+	    "confidence": "low",
+	    "fieldConflicts": [
+	      "Exported JSON says Women's knitted woolen socks, but the uploaded product image appears to show a floral hooded jacket."
+	    ],
+	    "facts": {
+	      "productNameEn": "Floral hooded lightweight jacket",
+	      "visualFeatures": ["floral all-over print", "hooded outerwear silhouette"],
+	      "keywords": ["floral hooded jacket", "lightweight outerwear", "POD apparel"]
+	    }
+	  },
   "copyPackage": {
     "listingTitle": "Women's knitted woolen socks - Custom POD Design, Comfortable Everyday Style",
     "bulletPoints": ["..."],
@@ -1667,7 +1683,7 @@ X-PODI-API-Key: podi_xxx
       }
     ]
   },
-  "visualAssetPlan": {
+	  "visualAssetPlan": {
     "mode": "recommendation",
     "hasProductImage": true,
     "recommendedScenes": [
@@ -1677,11 +1693,12 @@ X-PODI-API-Key: podi_xxx
         "generateByDefault": false
       }
     ],
-    "generationPolicy": {
-      "requiresExplicitAction": true,
-      "candidateRoute": "business.product_design_or_gpt_image2"
-    }
-  },
+	    "generationPolicy": {
+	      "requiresExplicitAction": true,
+	      "candidateRoute": "business.product_commercialization.visual_generate",
+	      "factSource": "resolvedProductFacts"
+	    }
+	  },
   "videoPlan": {
     "provider": "kie",
     "model": "veo3_fast",
@@ -1728,16 +1745,16 @@ X-PODI-API-Key: podi_xxx
 
 ### POST /api/business/product-commercialization/runs
 
-用途：显式提交产品商业化视频任务，并将生成结果保存到自有 OSS。该接口会复用同一套产品理解和分镜规划，但属于成本动作，必须由业务方明确触发。
+用途：显式提交产品商业化成本动作，并将生成结果保存到自有 OSS。该接口会复用同一套产品理解、文案和规划逻辑，但属于成本动作，必须由业务方明确触发。
 
-请求体与 `preview` 相同，但必须提供 `productImageUrl`。`targetDurationSeconds=8` 时执行单段视频；目标超过 8 秒时自动按 `preview.videoPlan.storyboard` 多段生成，再用 ffmpeg 裁剪拼接。可选 `executorId` 指定 KIE 或 Vidu 节点；不传使用默认 KIE 执行节点。Vidu/KIE 返回的临时外链都必须先沉淀到自有 OSS，对外结果以 `videoUrls` 中的自有 OSS URL 为准。
+请求体与 `preview` 相同，但必须提供 `productImageUrl`。`action=visual_generate` 时执行产品商业化配图，支持 `visualScenes` 指定 `listing-main/social-ad-cover/detail-closeup` 等场景，结果通过 `imageUrls/resultPayload.imageResult` 返回。配图默认走中台 GPT Image 2 图片编辑能力 `openai_gpt_image_2_edit`，以商品图作为事实锚点，默认 `size=auto`；只有后续显式指定低成本、批量或特定模型策略时才分流到其他图片能力。`action=video_generate` 或不传 `action` 时执行视频；后端先按 `executorId` 解析模型画像，再用模型支持的片段时长规划 storyboard。目标成片如果属于模型单段时长，直接执行；否则按 `preview.videoPlan.storyboard` 多段生成，再用 ffmpeg 裁剪拼接。用户如在测评端编辑了视频脚本，前端会把当前脚本写入 `videoPromptOverride`，后端必须按该脚本调用 KIE/Vidu。可选 `executorId` 指定 KIE 或 Vidu 节点；不传使用默认 KIE 执行节点。第三方返回的临时外链都必须先沉淀到自有 OSS，对外结果以自有 OSS URL 为准。注意：Vidu 单参考图生视频的实际比例由输入图/首帧决定；`aspectRatio` 在该路径下是目标规划字段，不是直接下发给 Vidu 的执行参数。
 
 当前视频供应商和模型口径：
 
 | `executorId` | 当前模型 | 状态 | 说明 |
 | --- | --- | --- | --- |
-| `executor_kie_market_default` | Veo3.1 Fast | 可执行 | 默认视频路径，适合单段商品展示和多段合成。 |
-| `executor_vidu_default` | viduq3-turbo | 可执行 | 已完成线上实跑和 OSS 回填验证。 |
+| `executor_kie_market_default` | Veo3.1 Fast | 可执行 | 当前按 8 秒片段规划；长视频通过 8 秒片段多段合成。首尾帧控制属于待接入模式，不在当前按钮中伪装成可执行。 |
+| `executor_vidu_default` | viduq3-turbo | 可执行 | 当前按 3/5/8 秒片段规划。Vidu 图生视频比例跟随输入图/首帧，若要固定 16:9/9:16，需要先做首帧归一化或首尾帧模式；当前不会把 `aspectRatio` 作为无效厂商参数下发。 |
 | 待定 | Vidu 一键营销成片 Agent | 待接入 | 需要单独接口/参数，不混入当前单段视频按钮。 |
 | 待定 | Vidu 视频复刻 Agent | 待接入 | 需要参考视频输入、复刻策略和版权/风格风险提示。 |
 | 待定 | viduq3-ad / reference2video | 待接入 | 需要多参考图和广告模型参数，不伪装为当前已完成能力。 |
@@ -1785,6 +1802,29 @@ X-PODI-API-Key: podi_xxx
       "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-video.mp4"]
     }
   }
+	}
+	```
+
+配图任务成功查询示例：
+
+```json
+{
+  "runId": "pc-visual-001",
+  "taskId": "pc-visual-001",
+  "status": "succeeded",
+  "billingStatus": "billable",
+  "billingUnit": "openai.gpt_image_2.image",
+  "quotaUnits": 1,
+  "imageUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-social-cover.png"],
+  "resultPayload": {
+    "businessKey": "product_commercialization",
+    "status": "succeeded",
+    "imageResult": {
+      "provider": "openai",
+      "model": "gpt-image-2",
+      "imageUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/result/product-social-cover.png"]
+    }
+  }
 }
 ```
 
@@ -1799,6 +1839,7 @@ X-PODI-API-Key: podi_xxx
 常见错误：
 
 - `PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID`
+- `PRODUCT_COMMERCIALIZATION_ACTION_INVALID`
 - `PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID`
 - `PRODUCT_COMMERCIALIZATION_MARKET_INVALID`
 - `PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID`
@@ -1806,6 +1847,9 @@ X-PODI-API-Key: podi_xxx
 - `PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID`
 - `PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID`
 - `PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED`
+- `PRODUCT_COMMERCIALIZATION_IMAGE_BRIEF_MISSING`
+- `PRODUCT_COMMERCIALIZATION_VISUAL_PROMPT_EMPTY`
+- `PRODUCT_COMMERCIALIZATION_VISUAL_GENERATION_FAILED`
 - `PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED`
 - `PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY`
 - `PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED`

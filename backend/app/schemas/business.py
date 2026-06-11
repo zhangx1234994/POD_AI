@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -413,6 +413,11 @@ class BusinessRoutePreviewResponse(BaseModel):
 class ProductCommercializationRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    action: str | None = Field(
+        default=None,
+        description="业务动作：video_generate（默认）、compose_video、visual_generate（配图）。",
+    )
+
     productImageUrl: str | None = Field(
         default=None,
         alias="product_image_url",
@@ -467,22 +472,34 @@ class ProductCommercializationRequest(BaseModel):
         alias="video_scenario",
         description="视频场景：product_showcase_short / social_ad_short / detail_explainer",
     )
-    durationSeconds: Literal[8] | None = Field(
-        default=8,
+    durationSeconds: int | None = Field(
+        default=None,
+        ge=1,
+        le=60,
         alias="duration_seconds",
-        description="单段视频执行时长，当前固定 8 秒。",
+        description="期望单段视频执行时长。实际合法值由所选视频模型决定，例如 KIE Veo3.1 Fast 当前为 8 秒，Vidu 可按模型画像选择 3/5/8 秒。",
     )
     targetDurationSeconds: int | None = Field(
-        default=8,
-        ge=8,
+        default=None,
+        ge=1,
         le=60,
         alias="target_duration_seconds",
-        description="用户目标成片时长。8 秒直接生成；超过 8 秒按分镜多段生成并合成。",
+        description="用户目标成片时长。后端按所选模型的片段时长画像规划分镜，必要时多段生成并合成。",
     )
     aspectRatio: str | None = Field(default="16:9", alias="aspect_ratio")
     strategyProfile: str | None = Field(default="default_pod_profile", alias="strategy_profile")
     executorId: str | None = Field(default=None, alias="executor_id", description="视频生成使用的 executor，可选 KIE/Vidu；不传使用默认 KIE")
     pollTimeout: float | None = Field(default=None, alias="poll_timeout", description="视频生成轮询超时秒数")
+    videoPromptOverride: str | None = Field(
+        default=None,
+        alias="video_prompt_override",
+        description="用户编辑后的最终视频执行脚本。仅影响显式视频生成动作，预览规划仍由模型生成。",
+    )
+    visualScenes: list[str] | None = Field(
+        default=None,
+        alias="visual_scenes",
+        description="配图任务的场景ID清单，例如 listing-main / social-ad-cover / detail-closeup。",
+    )
     requestId: str | None = Field(default=None, alias="request_id")
     traceId: str | None = Field(default=None, alias="trace_id")
     source: str | None = None
@@ -501,6 +518,7 @@ class ProductCommercializationPreviewResponse(BaseModel):
     marketRegion: str = Field(alias="market_region")
     copyScenarios: list[str] = Field(alias="copy_scenarios")
     productCard: dict[str, Any] = Field(alias="product_card")
+    resolvedProductFacts: dict[str, Any] | None = Field(default=None, alias="resolved_product_facts")
     copyPackage: dict[str, Any] = Field(alias="copy_package")
     contentPackage: dict[str, Any] | None = Field(default=None, alias="content_package")
     copyGeneration: dict[str, Any] | None = Field(default=None, alias="copy_generation")

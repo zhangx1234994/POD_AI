@@ -172,15 +172,19 @@
 | PRODUCT_DESIGN_PRODUCT_TYPE_INVALID | 产品设计产品类型非法 | 400，允许 `apparel` / `home_textile` / `bag` / `shoe` / `stationery` / `packaging` / `generic` |
 | PRODUCT_DESIGN_SCENE_INVALID | 产品设计展示场景非法 | 400，允许 `studio_product` / `flat_lay` / `ecommerce` / `lifestyle` / `print_mockup` / `generic` |
 | PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID | 产品商业化上下文不是合法 JSON 对象 | 400，`productFields` 必须是对象；缺字段不报错，会进入 `missingFields/inferredFacts` |
+| PRODUCT_COMMERCIALIZATION_ACTION_INVALID | 产品商业化执行动作非法 | 400，`/api/business/product-commercialization/runs` 允许空值/`video_generate`/`compose_video`/`visual_generate`，不能静默回退 |
 | PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID | 产品商业化输出语言非法 | 400，允许 `en-US` / `zh-CN` / `bilingual` |
 | PRODUCT_COMMERCIALIZATION_MARKET_INVALID | 产品商业化目标市场非法 | 400，允许 `US` / `UK` / `EU` / `global` |
 | PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID | 产品商业化文案场景非法 | 400，允许 `listing_title` / `bullet_points` / `detail_description` / `ad_short_copy` / `keyword_pack` |
 | PRODUCT_COMMERCIALIZATION_VISUAL_MODE_INVALID | 产品商业化配图模式非法 | 400，允许 `none` / `recommendation` / `generate`；预览接口即使为 `generate` 也不隐式生图 |
 | PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID | 产品商业化视频场景非法 | 400，允许 `product_showcase_short` / `social_ad_short` / `detail_explainer` |
-| PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID | 产品商业化目标成片时长非法 | 400，`targetDurationSeconds` 当前允许 8-60；单段执行仍固定 `durationSeconds=8` |
-| PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED | 产品商业化视频生成缺少产品图 | 400，预览可缺图，`/api/business/product-commercialization/video` 必须传 `productImageUrl` |
+| PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID | 产品商业化目标成片时长非法 | 400，`targetDurationSeconds` 当前允许 1-60；实际片段时长由模型画像约束。KIE Veo3.1 Fast 当前按 8 秒片段规划，Vidu viduq3-turbo 当前按 3/5/8 秒片段规划。 |
+| PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED | 产品商业化成本动作缺少产品图 | 400，预览可缺图，配图/视频执行必须传 `productImageUrl` |
+| PRODUCT_COMMERCIALIZATION_IMAGE_BRIEF_MISSING | 产品商业化配图缺少可执行配图 brief | 400，`action=visual_generate` 时需要 preview/model 产出 `imageBriefs`，或请求传入有效 `visualScenes` |
+| PRODUCT_COMMERCIALIZATION_VISUAL_PROMPT_EMPTY | 产品商业化配图提示词为空 | 400，`resolvedProductFacts/imageBriefs` 不足以生成可执行配图 prompt |
+| PRODUCT_COMMERCIALIZATION_VISUAL_GENERATION_FAILED | 产品商业化配图生成失败 | 502/500，GPT Image 2 图片编辑、结果 URL 解析或 OSS 沉淀失败；除非显式指定低成本/批量/特定模型策略，商业化配图默认不路由到其他图片模型。 |
 | PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED | 产品商业化视频生成缺少可执行视频提示词 | 400，分镜规划异常或输入不足导致无法生成 prompt |
-| PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY | 产品商业化长视频调用了单段视频接口 | 400，`targetDurationSeconds>8` 时不能调用 `/video`，应改用 `/video-compose` |
+| PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY | 产品商业化长视频调用了单段视频接口 | 400，目标时长不属于所选模型单段合法时长时，不能调用旧单段兼容接口，应通过 `/api/business/product-commercialization/runs` 统一提交并由后端按模型画像多段生成/合成。 |
 | PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED | 产品商业化预览生成失败 | 500，产品理解卡、文案包、配图建议或分镜生成异常 |
 | PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED | 产品商业化视频生成失败 | 502/500，KIE/Vidu 创建、轮询或 OSS 沉淀失败 |
 | PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED | 产品商业化视频片段生成失败 | 502/500，长视频合成前的某个 Veo 片段未成功返回可用视频 |

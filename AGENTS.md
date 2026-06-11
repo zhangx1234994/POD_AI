@@ -3,6 +3,11 @@
 ## 项目结构与模块组织
 `backend/` 是 FastAPI 服务，`app/routers` 暴露任务、调度、管理端接口，`app/models`/`schemas` 定义任务、执行器、能力（`Ability`）等 ORM/DTO，`app/services`/`workers` 实现业务逻辑与 Celery 任务，数据库迁移位于 `backend/alembic/`。`podi-eval-web/` 为内部“能力评测”站点；`podi-admin-web/` 为独立管理端（端口 8199），负责执行节点、能力、密钥、评测配置的维护。历史客户端（`podi-design-web-dev/`）已移除，后续将以新的客户端形态重构。顶层 `docs/`、`架构实施计划.md`、`后端架构与业务模型.md` 记录决策与路线图。
 
+### 运行事实与回归防错（必须先看）
+- 处理服务器、端口、GPU、executor、ComfyUI 模型/插件、图片尺寸、DPI、OSS 前处理或发布门禁问题时，先阅读 `docs/standards/runtime-facts-and-regression-guardrails.md`。
+- 沟通和记录里禁止只写“117 服务器”；必须写清 `158/5090/117.50.80.158` 或 `233/4090/117.50.216.233`。
+- 图片尺寸相关改动必须同时核对请求参数、实际 ability payload、metadata、最终图片像素和页面展示；任务成功不代表尺寸正确。
+
 ### 客户端版本说明（重要）
 - 当前仓库已不再包含 `podi-client-web/`、`podi-client-v2/`、`podi-design-web-dev/` 等客户端目录。
 - `docs/client/` 与 `docs/handover/` 下的客户端资料仅作为历史参考，不再代表当前开发主线。
@@ -24,6 +29,7 @@ Python 代码遵循 Black + Ruff（4 空格、snake_case 模块、PascalCase Pyd
 - **功能做得好不是结束，而是开始**：交互必须顺滑、可预测，覆盖高频和极端输入场景。
 - **一次报错足以毁掉信任**：上线前必须做回归测试并输出报告，明确“已覆盖的错误场景清单”和“仍未覆盖的风险”。
 - 评测平台/管理端/文档/接口四处一致是硬性要求；任何参数变更必须同步。
+- 图片类能力的 `width/height/size/DPI/画布/后处理` 是高风险字段；显式目标尺寸不能静默回退原图尺寸，DPI 元数据不能替代像素尺寸验收。
 
 ## 错误契约与文档硬性规范（必须执行）
 - **所有新增/修改接口必须枚举错误**：至少包含缺参/依赖失败/超时/并发限制等路径。

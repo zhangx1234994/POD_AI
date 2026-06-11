@@ -159,6 +159,7 @@ def _volcengine_llm_schema() -> dict[str, Any]:
 DEFAULT_VOLCENGINE_VL_ABILITY_ID = "volcengine_doubao_seed_2_0_lite"
 DEFAULT_VOLCENGINE_VL_MODEL_ID = "doubao-seed-2-0-lite-260428"
 DEFAULT_VOLCENGINE_VL_DISPLAY_NAME = "火山 Doubao-Seed-2.0-lite VL"
+DEFAULT_VOLCENGINE_IMAGE_MODEL_ID = "doubao-seedream-4-5-251128"
 
 
 def _vl_analyze_image_schema() -> dict[str, Any]:

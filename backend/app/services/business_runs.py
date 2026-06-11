@@ -2596,16 +2596,18 @@ class BusinessRunService:
         user: User | None,
         source: str = "business-api",
     ) -> dict[str, Any]:
-        """Create a unified business run for the explicit product video cost action."""
-        if not getattr(self, "_background_workers_enabled", True):
-            raise HTTPException(status_code=503, detail="BACKGROUND_WORKERS_DISABLED")
+        """Create a unified business run for commercialization actions."""
         image_url = self._first_string(payload.productImageUrl)
         if not image_url:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED")
+        action = self._normalize_product_commercialization_action(payload.action, strict=True)
+        if not getattr(self, "_background_workers_enabled", True):
+            raise HTTPException(status_code=503, detail="BACKGROUND_WORKERS_DISABLED")
 
         request_payload = payload.model_dump(exclude_none=True, by_alias=False)
         run_id = uuid4().hex
         business_key = "product_commercialization"
+        step_name, step_type = self._product_commercialization_step_identity(action)
         business_payload = BusinessRunCreateRequest(
             imageUrl=image_url,
             inputs=request_payload,
@@ -2615,7 +2617,7 @@ class BusinessRunService:
             metadata={
                 "source": payload.source or source,
                 "productCommercialization": {
-                    "action": "video_generate",
+                    "action": action,
                     "contract": "business_run_v1",
                     "queryEndpoint": "/api/business/runs/get",
                 },
@@ -2629,8 +2631,9 @@ class BusinessRunService:
             user=user,
         )
         request_payload["_trace"] = trace_context
+        request_payload["action"] = action
         request_payload["_productCommercialization"] = {
-            "action": "video_generate",
+            "action": action,
             "contract": "business_run_v1",
             "queryEndpoint": "/api/business/runs/get",
         }
@@ -2667,10 +2670,10 @@ class BusinessRunService:
                     id=uuid4().hex,
                     run_id=run.id,
                     step_order=1,
-                    step_id="product_commercialization_video",
-                    step_type="product_commercialization_video",
+                    step_id=step_name,
+                    step_type=step_type,
                     role="primary",
-                    display_name="产品商业化视频生成",
+                    display_name="产品商业化配图生成" if action == "visual_generate" else "产品商业化视频生成",
                     enabled=True,
                     status="queued",
                     request_payload=self._omit_large_fields(request_payload),
@@ -2692,6 +2695,25 @@ class BusinessRunService:
 
         self._enqueue_product_commercialization_run(run_id=run_id, user_id=getattr(user, "id", None))
         return result
+
+    @staticmethod
+    def _normalize_product_commercialization_action(raw_action: str | None, *, strict: bool = False) -> str:
+        normalized = str(raw_action or "").strip().lower()
+        if normalized in {"", "video_generate", "video", "generate_video"}:
+            return "video_generate"
+        if normalized in {"compose_video", "video_compose"}:
+            return "compose_video"
+        if normalized in {"visual_generate", "image_generate", "visual"}:
+            return "visual_generate"
+        if strict:
+            raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_ACTION_INVALID")
+        return "video_generate"
+
+    @staticmethod
+    def _product_commercialization_step_identity(action: str) -> tuple[str, str]:
+        if action == "visual_generate":
+            return "product_commercialization_image", "product_commercialization_image"
+        return "product_commercialization_video", "product_commercialization_video"
 
     def create_run_for_capability(
         self,
@@ -3285,9 +3307,23 @@ class BusinessRunService:
             return
 
         try:
+            action = self._normalize_product_commercialization_action(payload.action, strict=True)
+            if action == "visual_generate":
+                result = product_commercialization_service.generate_visual(payload, user_id=user_id)
+                image_urls = self._extract_product_commercialization_image_urls(result)
+                self._finish_product_commercialization_run(
+                    run_id=run_id,
+                    status="succeeded",
+                    started_at=started_at,
+                    result_payload=result,
+                    image_urls=image_urls,
+                    texts=self._extract_product_commercialization_texts(result),
+                )
+                return
+
             target_duration = int(payload.targetDurationSeconds or payload.durationSeconds or 8)
             segment_duration = int(payload.durationSeconds or 8)
-            if target_duration > segment_duration:
+            if action == "compose_video" or target_duration > segment_duration:
                 result = product_commercialization_service.generate_composed_video(payload, user_id=user_id)
             else:
                 result = product_commercialization_service.generate_video(payload, user_id=user_id)
@@ -3325,6 +3361,7 @@ class BusinessRunService:
         started_at: datetime,
         result_payload: dict[str, Any] | None = None,
         video_urls: list[str] | None = None,
+        image_urls: list[str] | None = None,
         texts: list[str] | None = None,
         error_message: str | None = None,
     ) -> None:
@@ -3336,13 +3373,20 @@ class BusinessRunService:
             run.status = status
             run.result_payload = self._omit_large_fields(result_payload if isinstance(result_payload, dict) else {})
             run.video_urls = video_urls or None
+            run.image_urls = image_urls or None
             run.texts = texts or None
             run.error_message = error_message
             run.started_at = run.started_at or started_at
             run.finished_at = finished_at
             run.duration_ms = self._calculate_duration_ms(run.started_at, finished_at)
             if status == "succeeded":
-                billing = self._product_commercialization_billing(result_payload=run.result_payload)
+                request_action = None
+                if isinstance(run.request_payload, dict):
+                    request_action = self._first_string(run.request_payload.get("action"))
+                billing = self._product_commercialization_billing(
+                    result_payload=run.result_payload,
+                    action=self._normalize_product_commercialization_action(request_action),
+                )
                 run.billing_unit = billing["billing_unit"]
                 run.quota_units = billing["quota_units"]
                 run.cost_breakdown = billing["cost_breakdown"]
@@ -3367,12 +3411,13 @@ class BusinessRunService:
             self._deliver_callback(run_id)
 
     def _find_product_commercialization_step(self, *, session, run: BusinessRun) -> BusinessRunStep | None:
+        step_ids = ["product_commercialization_video", "product_commercialization_image"]
         return (
             session.execute(
                 select(BusinessRunStep)
                 .where(
                     BusinessRunStep.run_id == run.id,
-                    BusinessRunStep.step_id == "product_commercialization_video",
+                    BusinessRunStep.step_id.in_(step_ids),
                 )
                 .order_by(BusinessRunStep.step_order.asc())
             )
@@ -3414,11 +3459,88 @@ class BusinessRunService:
             out.append(url)
         return out
 
-    def _product_commercialization_billing(self, *, result_payload: dict[str, Any] | None) -> dict[str, Any]:
+    def _extract_product_commercialization_image_urls(self, result: dict[str, Any]) -> list[str]:
+        urls: list[str] = []
+
+        def add(value: Any) -> None:
+            if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
+                urls.append(value.strip())
+            elif isinstance(value, dict):
+                for key in ("ossUrl", "storedUrl", "url", "imageUrl", "imageUrls", "resultUrls", "result", "storedAssets"):
+                    candidate = value.get(key)
+                    if isinstance(candidate, str):
+                        add(candidate)
+                    elif isinstance(candidate, list):
+                        for item in candidate:
+                            if isinstance(item, str):
+                                add(item)
+                            elif isinstance(item, dict):
+                                add(item.get("imageUrl") or item.get("storedUrl") or item.get("url"))
+            elif isinstance(value, list):
+                for item in value:
+                    add(item)
+
+        if isinstance(result, dict):
+            image_result = result.get("imageResult")
+            if isinstance(image_result, dict):
+                add(image_result)
+            else:
+                add(result.get("imageUrls"))
+                add(result.get("image_urls"))
+                add(result.get("storedAssets"))
+                add(result.get("imageResults"))
+
+        seen: set[str] = set()
+        out: list[str] = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            out.append(url)
+        return out
+
+    def _product_commercialization_billing(
+        self,
+        *,
+        result_payload: dict[str, Any] | None,
+        action: str | None = None,
+    ) -> dict[str, Any]:
         payload = result_payload if isinstance(result_payload, dict) else {}
+        normalized_action = self._normalize_product_commercialization_action(action)
         video_plan = payload.get("videoPlan") if isinstance(payload.get("videoPlan"), dict) else {}
         video_result = payload.get("videoResult") if isinstance(payload.get("videoResult"), dict) else {}
         execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else {}
+
+        if normalized_action == "visual_generate":
+            image_result = payload.get("imageResult") if isinstance(payload.get("imageResult"), dict) else {}
+            image_count = self._first_int(len((self._extract_product_commercialization_image_urls(payload)) or []))
+            image_count = max(1, image_count or 1)
+            cost_actions = execution.get("costActions") or image_result.get("costActions")
+            if not isinstance(cost_actions, list) or not cost_actions:
+                image_model = self._first_string(image_result.get("model")) or "default"
+                image_provider = self._first_string(image_result.get("provider")) or "volcengine"
+                cost_actions = [f"{image_provider.replace('-', '_')}.{str(image_model).replace('-', '_')}.image"]
+            primary_cost_action = self._first_string(*(str(item).strip() for item in cost_actions if str(item).strip()))
+            if not primary_cost_action:
+                primary_cost_action = "volcengine.default.image"
+            return {
+                "billing_unit": primary_cost_action,
+                "quota_units": image_count,
+                "cost_breakdown": self._omit_large_fields(
+                    {
+                        "pricingVersion": "product-commercialization-mvp-v1",
+                        "pricingStatus": "quota_only_mvp",
+                        "billingMode": "billable",
+                        "billingUnit": primary_cost_action,
+                        "quotaUnits": image_count,
+                        "segmentCount": image_count,
+                        "policy": "one_quota_per_generated_image",
+                        "primaryCostAction": primary_cost_action,
+                        "costActions": cost_actions,
+                        "monetaryPriceStatus": "pending_vendor_cost_policy",
+                    }
+                ),
+            }
 
         segments = video_result.get("segments")
         segment_count = self._first_int(

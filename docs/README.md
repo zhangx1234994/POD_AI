@@ -5,21 +5,22 @@
 ## 5 分钟阅读顺序
 
 1. `docs/strategy/todo-master-2026q2.md`
-2. `docs/strategy/v0.7-ability-productization-agent-orchestration-plan.md`
-3. `docs/strategy/v0.7-kickoff-meeting-2026-06-09.md`
-4. `docs/standards/version-acceptance-template.md`
-5. `docs/standards/agent-runtime-regression-matrix.md`
-6. `docs/standards/eval-ability-interaction-state-model.md`
-7. `docs/strategy/ability-definition-v0.6.md`
-8. `docs/strategy/business-agent-runtime-v0.6.md`
-9. `docs/strategy/ability-governance-operating-model-v0.6.md`
-10. `docs/strategy/ability-api-gap-v0.6.md`
-11. `docs/strategy/client-parallel-preview-v0.6-handoff.md`
-12. `docs/strategy/v0.6-closure-inventory-2026-06-07.md`
-13. `docs/strategy/v0.6-closure-standardization-plan.md`
-14. `docs/strategy/v0.6.3-control-plane-hardening-plan.md`
-15. `docs/standards/release-sop.md`
-16. `docs/api/INDEX.md`
+2. `docs/standards/runtime-facts-and-regression-guardrails.md`
+3. `docs/strategy/v0.7-ability-productization-agent-orchestration-plan.md`
+4. `docs/strategy/v0.7-kickoff-meeting-2026-06-09.md`
+5. `docs/standards/version-acceptance-template.md`
+6. `docs/standards/agent-runtime-regression-matrix.md`
+7. `docs/standards/eval-ability-interaction-state-model.md`
+8. `docs/strategy/ability-definition-v0.6.md`
+9. `docs/strategy/business-agent-runtime-v0.6.md`
+10. `docs/strategy/ability-governance-operating-model-v0.6.md`
+11. `docs/strategy/ability-api-gap-v0.6.md`
+12. `docs/strategy/client-parallel-preview-v0.6-handoff.md`
+13. `docs/strategy/v0.6-closure-inventory-2026-06-07.md`
+14. `docs/strategy/v0.6-closure-standardization-plan.md`
+15. `docs/strategy/v0.6.3-control-plane-hardening-plan.md`
+16. `docs/standards/release-sop.md`
+17. `docs/api/INDEX.md`
 
 ## 当前真源
 
@@ -27,6 +28,7 @@
 | --- | --- | --- |
 | 唯一 TODO | `docs/strategy/todo-master-2026q2.md` | 当前任务池 |
 | 当前方案 | `docs/strategy/v0.7-ability-productization-agent-orchestration-plan.md` | v0.7 能力产品化、Agent 编排、交互治理和质量迭代规划 |
+| 运行事实 | `docs/standards/runtime-facts-and-regression-guardrails.md` | 114/158/233、端口、executor、模型依赖、图片尺寸和 DPI 的固定口径 |
 | 会议决策包 | `docs/strategy/v0.7-kickoff-meeting-2026-06-09.md` | 2026-06-09 v0.7 kickoff 的目标选择、P0 范围、非目标、角色视角和拍板事项 |
 | 上阶段封版方案 | `docs/strategy/v0.6-closure-standardization-plan.md` | v0.6 收口、缺失补齐、交互纠偏、接口文档和机制标准化 |
 | 上阶段盘点 | `docs/strategy/v0.6-closure-inventory-2026-06-07.md` | v0.6 收口 P0/P1/P2 缺口、证据和整改批次 |
@@ -71,6 +73,7 @@
 ## 当前阶段口径
 
 - 当前阶段是 `v0.7 中台能力产品化与 Agent 编排版` 的正式规划期；先完成任务拆分、边界确认和验收标准，再进入代码实现。
+- 运行事实先看 `docs/standards/runtime-facts-and-regression-guardrails.md`；服务器、端口、executor、模型依赖和图片尺寸/DPI 口径不靠记忆判断。
 - `origin/main` 是唯一发版真源；本地完成不代表可以更新服务器。
 - 当前仓库不包含客户端代码；`docs/client/` 只保留历史资料。客户端从 v0.6 开始并行重启，但由独立团队或 agent 执行，必须遵守中台侧输出的业务 API 和边界。
 - Coze 保留为接入层和快速实验入口；中台逐步承载业务版本、灰度、统计、回滚和排障。
@@ -78,7 +81,7 @@
 - v0.6 已以 `516ba656` 作为封版基线；v0.6/v0.6.3/v0.5 文档保留为阶段记录，不再作为当前执行入口。
 - v0.7 优先做全局交互治理、Agent Runtime v2、能力产品化首批、质量迭代和控制面预聚合。业务流程由客户端组装，中台负责能力治理和证据沉淀。项目/工作单不是中台主视角，现有 `projectId` 只作为兼容上下文字段。
 - 对话式 Agent 是中台高级能力试点：Agent 负责讨论、方案、确认和工具调用审计，确认后仍调用 `/api/business/*` 标准业务 run。它可以暂时放在图编辑分类下用于发现，但长期归宿是 Agent Runtime，不等同于可视化/画布式图编辑。
-- 114 是控制面；158 和 233 是执行面，不为单台机器写业务特判。
+- 114 是控制面；158 和 233 是执行面，不为单台机器写业务特判。沟通和复盘必须写清 `158/5090/117.50.80.158` 或 `233/4090/117.50.216.233`，禁止只写“117 服务器”。
 
 ## 历史资料
 
@@ -101,4 +104,4 @@
 4. 页面交互或业务动线变化，必须同步当前回顾或对应模块入口。
 5. 过期 TODO、WIP 草稿和重复索引应删除或归档，不能继续进入阅读路径。
 
-最后更新：2026-06-08
+最后更新：2026-06-10
