@@ -71,6 +71,42 @@ def test_product_commercialization_openai_planner_can_use_key_pool(monkeypatch) 
     }
 
 
+def test_product_commercialization_volcengine_copy_uses_ability_router(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    captured: dict[str, object] = {}
+
+    class FakeAbilityInvocationService:
+        def invoke(self, *, ability_id, payload, user, source):
+            captured["ability_id"] = ability_id
+            captured["payload"] = payload
+            captured["user"] = user
+            captured["source"] = source
+            return SimpleNamespace(
+                status="succeeded",
+                texts=['{"commercePositioning":{},"copyPackage":{},"imageFactAssessment":{}}'],
+                metadata={"executorId": "executor_vendor_api"},
+            )
+
+    monkeypatch.setattr(
+        "app.services.product_commercialization.ability_invocation_service",
+        FakeAbilityInvocationService(),
+    )
+
+    result = service._call_volcengine_copy_model(
+        prompt="describe product",
+        image_url="https://example.com/product.png",
+        temperature=0.5,
+    )
+
+    payload = captured["payload"]
+    assert captured["ability_id"] == "volcengine_doubao_seed_2_0_lite"
+    assert captured["source"] == "product-commercialization-copy"
+    assert payload.inputs["prompt"] == "describe product"
+    assert payload.inputs["temperature"] == 0.5
+    assert payload.imageUrl == "https://example.com/product.png"
+    assert result["text"].startswith('{"commercePositioning"')
+
+
 def test_product_commercialization_preview_builds_english_copy_and_visual_plan() -> None:
     service = ProductCommercializationService()
 

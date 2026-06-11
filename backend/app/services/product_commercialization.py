@@ -94,6 +94,7 @@ DEFAULT_VIDU_VIDEO_MODEL = "viduq3-turbo"
 DEFAULT_VISUAL_ABILITY_ID = "openai_gpt_image_2_edit"
 DEFAULT_VISUAL_PROVIDER = "openai"
 DEFAULT_VISUAL_MODEL = "gpt-image-2"
+DEFAULT_VOLCENGINE_COPY_ABILITY_ID = "volcengine_doubao_seed_2_0_lite"
 VIDEO_MODEL_PROFILES: dict[str, dict[str, Any]] = {
     "kie": {
         "provider": "kie",
@@ -1744,12 +1745,10 @@ class ProductCommercializationService:
 
         try:
             prompt = self._build_copy_model_prompt(context_payload=context_payload)
-            result = integration_test_service.run_volcengine_chat_completion(
-                executor_id="executor_volcengine_default",
-                model=DEFAULT_VOLCENGINE_VL_MODEL_ID,
+            result = self._call_volcengine_copy_model(
                 prompt=prompt,
-                image_url=image_url or None,
-                params={"temperature": 0.72},
+                image_url=image_url,
+                temperature=0.72,
             )
             content = self._normalize_model_content_package(
                 self._parse_model_json_text(_clean_text(result.get("text"))),
@@ -1767,6 +1766,38 @@ class ProductCommercializationService:
             provider_errors.append(f"volcengine:{str(exc)[:240]}")
 
         raise RuntimeError("; ".join(provider_errors) or "COPY_MODEL_NOT_CONFIGURED")
+
+    def _call_volcengine_copy_model(self, *, prompt: str, image_url: str, temperature: float = 0.72) -> dict[str, Any]:
+        response = ability_invocation_service.invoke(
+            ability_id=DEFAULT_VOLCENGINE_COPY_ABILITY_ID,
+            payload=AbilityInvokeRequest(
+                inputs={
+                    "prompt": prompt,
+                    "model": DEFAULT_VOLCENGINE_VL_MODEL_ID,
+                    "temperature": temperature,
+                },
+                imageUrl=image_url or None,
+                metadata={
+                    "source": "product_commercialization_copy_planner",
+                    "routeType": "vendor_api_first",
+                },
+            ),
+            user=None,
+            source="product-commercialization-copy",
+        )
+        status = _clean_text(getattr(response, "status", None)).lower()
+        if status and status not in {"succeeded", "success"}:
+            raise RuntimeError(f"VOLCENGINE_ABILITY_STATUS:{status}")
+        texts = getattr(response, "texts", None) or []
+        text = _clean_text(texts[0] if texts else "")
+        if not text:
+            raise RuntimeError("VOLCENGINE_ABILITY_EMPTY_TEXT")
+        metadata = getattr(response, "metadata", None) if isinstance(getattr(response, "metadata", None), dict) else {}
+        return {
+            "text": text,
+            "model": metadata.get("model") or DEFAULT_VOLCENGINE_VL_MODEL_ID,
+            "metadata": metadata,
+        }
 
     def _resolve_openai_planner_credentials(self, settings: Any) -> dict[str, str]:
         env_key = _clean_text(getattr(settings, "business_agent_openai_api_key", None))
