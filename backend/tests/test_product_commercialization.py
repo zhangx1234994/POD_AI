@@ -1447,6 +1447,29 @@ def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> N
     assert result["videoResult"]["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/vidu-video.mp4"]
 
 
+def test_product_commercialization_first_frame_prompt_blocks_framed_layout() -> None:
+    service = ProductCommercializationService()
+
+    prompt = service._build_normalized_first_frame_prompt(
+        video_plan={"directorBrief": {"productUnderstanding": "a printed cotton tote bag"}},
+        shot={
+            "scene": "coastal lifestyle tabletop",
+            "goal": "show the full product and print",
+            "composition": "wide hero shot",
+            "firstFramePrompt": "Open on the tote bag standing upright on a table.",
+        },
+        prompt="Create a clean product video opening frame.",
+        aspect_ratio="16:9",
+        segment_index=1,
+    )
+
+    assert "edge-to-edge commercial scene" in prompt
+    assert "smaller framed picture" in prompt
+    assert "white mat" in prompt
+    assert "inset image" in prompt
+    assert "Avoid large empty padding" in prompt
+
+
 def test_product_commercialization_first_frame_canvas_normalizes_to_target_ratio(monkeypatch) -> None:
     service = ProductCommercializationService()
     source = Image.new("RGB", (600, 1000), (220, 120, 60))

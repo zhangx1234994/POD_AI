@@ -2081,6 +2081,7 @@ class ProductCommercializationService:
                 prompt=first_frame_prompt,
                 negative_prompt=(
                     "text, watermark, logo, price tag, black bars, letterbox, pillarbox, border, frame, "
+                    "white mat, white border, photo frame, picture-in-picture, inset image, empty padding, "
                     "cropped product, deformed product, wrong product category"
                 ),
                 user_id=user_id,
@@ -2162,7 +2163,10 @@ class ProductCommercializationService:
             f"Frame direction: {first_frame}. Use the supplied product image as the highest-priority factual anchor. "
             "Preserve the visible product shape, pattern, color, material, and category. "
             "Keep the whole product readable and suitable as the first frame for image-to-video generation. "
-            "Fill the entire canvas; no letterboxing, pillarboxing, black bars, borders, text, watermark, logo, or price tag."
+            "Use one edge-to-edge commercial scene that fills the entire canvas. "
+            "Do not place the product inside a smaller framed picture, white mat, card, mockup sheet, or inset image. "
+            "Avoid large empty padding around the product; keep the product prominent while still fully visible. "
+            "No letterboxing, pillarboxing, black bars, borders, text, watermark, logo, or price tag."
         )
 
     def _normalize_first_frame_canvas(

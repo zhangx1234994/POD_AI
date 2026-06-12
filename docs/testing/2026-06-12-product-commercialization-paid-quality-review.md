@@ -5,7 +5,7 @@
 本轮收费链路不是只验“能不能调用”，而是同时检查功能、结果质量、提示词污染和流程稳定性。
 
 - GPT Image 2 配图：功能跑通，OSS 回填正常；社媒封面商业感可用，但不适合作为严格商品证明图。发现提示词曾混入旧商品身份，已修复并补回归测试。
-- Vidu 视频：功能跑通，OSS 回填正常；画面稳定性尚可，但实际输出为竖版 `692x1328`，与用户选择/分镜文案中的 `16:9` 不一致。该问题不应靠提示词硬写比例解决，下一步应增加首帧归一化或把“跟随参考图比例”作为明确执行策略。
+- Vidu 视频：旧链路功能跑通但暴露比例缺陷，实际输出为竖版 `692x1328`；已改为“GPT Image 2 生成商业首帧 -> 后端确定性归一到目标画幅 -> Vidu 使用归一化首帧生成视频”。修复后真实 run 输出 `1280x720`、`8.041667s`，与 `16:9` 目标一致。
 
 ## 真实运行证据
 
@@ -14,6 +14,7 @@
 | GPT Image 2 配图 | `6afeae4282434df2b00eed723fa54021` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/system/20260612/b02f8a99-1781240355.png` |
 | Vidu 单段视频 | `888b187fed8e45709c7ab4ab54b9f0bd` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260612/b6f31a6a-1781234483.mp4` |
 | GPT Image 2 配图修复后复测 | `cf049080925d42bea578037d276a90b3` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/system/20260612/b047cb51-1781242404.png` |
+| Vidu 首帧归一化修复后复测 | `22ee421e56704a6db851f4fb677360d2` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260612/a23688d2-1781245503.mp4` |
 
 本地证据：
 
@@ -25,20 +26,37 @@
 - `output/quality/product-commercialization-20260612/assets/video_result_videoUrls.mp4`
 - `output/quality/product-commercialization-20260612/video-contact-sheet.jpg`
 - `output/quality/product-commercialization-20260612/video-ffprobe.json`
+- `output/quality/product-commercialization-20260612/live-video-after-first-frame-normalization.json`
+- `output/quality/product-commercialization-20260612/live-video-after-first-frame-normalization-run-get.json`
+- `output/quality/product-commercialization-20260612/live-video-after-first-frame-normalization-summary.json`
+- `output/quality/product-commercialization-20260612/normalized-first-frame-1.png`
+- `output/quality/product-commercialization-20260612/normalized-vidu-segment-1.mp4`
+- `output/quality/product-commercialization-20260612/normalized-video-contact-sheet.jpg`
 
-视频媒体信息：
+旧视频媒体信息：
 
 - codec：`h264`
 - 分辨率：`692x1328`
 - 时长：`8.041667s`
 - 文件大小：`11560747 bytes`
 
+首帧归一化后视频媒体信息：
+
+- 首帧：`1280x720`
+- 视频分辨率：`1280x720`
+- 视频帧率：`24 fps`
+- 视频时长：`8.041667s`
+- 视频文件大小：`7924721 bytes`
+- `resultPayload.videoPlan.aspectPolicy.mode`：`normalized_first_frame`
+- `resultPayload.videoPlan.aspectPolicy.generatedFirstFrameUrls[0]`：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260612/4da9664b-1781245405.png`
+- `resultPayload.execution.costActions`：`openai.gpt_image_2.image`、`vidu.viduq3_turbo.video`
+
 ## 质量评估
 
 | 项目 | 功能 | 质量 | 一致性 | 结论 |
 | --- | --- | --- | --- | --- |
 | GPT Image 2 社媒封面 | 5/5 | 4/5 | 3.5/5 | 可作为营销封面样例；不能当作商品证明图。 |
-| Vidu 单段视频 | 5/5 | 3.5/5 | 3.5/5 | 可作为短视频素材；比例策略和首帧控制需要整改。 |
+| Vidu 单段视频 | 5/5 | 3.8/5 | 4.5/5 | 修复后可作为横版短视频素材；比例策略已闭环，首帧商业构图仍需继续优化。 |
 
 配图质量观察：
 
@@ -49,8 +67,9 @@
 视频质量观察：
 
 - 优点：主体稳定，运镜平滑，产品材质和图案有一定展示价值。
-- 风险：输出比例为竖版，和脚本中的 `16:9` 不一致；局部花纹在后段镜头有重绘感。
-- 流程问题：Vidu 单参考图生视频更接近“跟随首帧/参考图比例”，不能把 `aspectRatio` 当成已强执行的模型参数。
+- 已修复风险：Vidu 单参考图生视频会跟随参考图/首帧比例，旧链路不能把 `aspectRatio` 当成已强执行的模型参数。当前改为固定画幅先生成并归一化首帧，再把该首帧作为 Vidu 输入图。
+- 当前质量观察：修复后视频为横版 `1280x720`，没有黑边或竖版漂移；运镜包含商品展示、近景和使用动作。仍有局部花纹重绘和手部动作引入，适合作为营销短视频素材，不应作为严格商品证明视频。
+- 首帧观察：归一化首帧比例正确，但 GPT Image 2 原始构图有时会出现类似白色画框/留白。已继续收紧首帧 prompt，要求全画幅商业场景、禁止 smaller framed picture / white mat / inset image / large empty padding。
 
 ## 已完成修复
 
@@ -75,13 +94,20 @@
    - 结果图 `679x679`，视觉检查未见上下黑边；主体填满画布，适合作为社媒营销封面样例。
    - 质量仍需标注为“营销封面可用”，不是严格商品证明图；花纹细节仍可能存在模型重绘。
 
+6. 2026-06-12 Vidu 首帧归一化复测 runId `22ee421e56704a6db851f4fb677360d2`
+   - `videoPlan.aspectPolicy.mode=normalized_first_frame`，说明执行层没有继续使用原始竖图直接提交 Vidu。
+   - GPT Image 2 生成并归一化首帧 `1280x720`，OSS：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260612/4da9664b-1781245405.png`。
+   - Vidu 输出视频 `1280x720`、`8.041667s`，OSS：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260612/a23688d2-1781245503.mp4`。
+   - `execution.costActions` 同时记录 `openai.gpt_image_2.image` 和 `vidu.viduq3_turbo.video`，成本证据完整。
+   - 继续补充首帧 prompt 约束，避免白色画框、画中画、留白和边框布局。
+
 ## 后续优化项
 
 P0：
 
-- 视频执行前增加首帧策略：
-  - 用户需要固定 `16:9` / `9:16` / `1:1` 时，先生成或裁切归一化首帧，再把首帧交给 Vidu/KIE。
-  - 如果不生成首帧，页面和 API 必须明确展示 `aspectPolicy=input_image_ratio`，不能让用户以为模型会强制输出目标比例。
+- 视频首帧策略已落地到 Vidu 固定画幅链路：
+  - 用户需要固定 `16:9` / `9:16` / `1:1` 且选择 Vidu 时，先生成归一化首帧，再把首帧交给 Vidu。
+  - 后续需要把同样策略抽象到正式 `promo_video` 能力契约，并决定 KIE / 其他供应商是否也统一使用首尾帧模式。
 - 付费提交前增加 prompt 质量门禁：
   - 检查 prompt 内是否出现冲突商品名。
   - 检查 prompt 是否包含“填满画布、禁止黑边/边框”约束。
