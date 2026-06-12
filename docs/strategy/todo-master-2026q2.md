@@ -20,6 +20,11 @@
 - 2026-06-09 会议决策包见 `docs/strategy/v0.7-kickoff-meeting-2026-06-09.md`，用于会前收敛目标选择、P0 范围、非目标、验收门槛和会后动作；最终版本内容仍需会议确认。
 - 2026-06-10：Vidu 飞书资料已通过浏览器读取，方法论吸收方向为“产品展示短视频 / 一键营销成片 / 参考视频复刻 / Ad 广告模型”四类视频路径；同时把“出组图/营销套图”升级为 `product_image_set` 待办能力，不再只作为客户端后续流程里的泛称。
 - 2026-06-10：产品商业化测评端暴露 P0 交互和业务口径问题，整改记录见 `docs/strategy/product-commercialization-remediation-2026-06-10.md`。截至 `564e6006`，产品文案入口已完成线上可用整改：真实接口走 `volcengine_chat`、`fallback=false`，页面能展示模型证据、文案结果、配图建议、渠道建议和结构化审核提示；视频只作为后续可联动能力，不再混入文案交付。下一步进入质量打磨：平台文案策略、VL 图片/JSON 一致性提示、真实配图质量闭环、下载包交付形态和产品视频独立验收。
+- 2026-06-11：参考旧项目 `/Volumes/MAC 1/shipin/` 的 AI 摄影棚方法论，新增市场端 AI 能力规划 `docs/strategy/market-side-ai-capability-plan-2026-06-11.md`。后续产品生产后的商业化能力按“文案 / 组图 / 模特图 / 多角度 / 视频 / 营销 Agent”能力族推进，明确生产端素材能力与市场端商业化能力的边界。
+- 2026-06-11：新增市场端 AI 技术方案 `docs/strategy/market-side-ai-technical-plan-2026-06-11.md`。关键修正：产品导出 JSON 改为可选说明材料，产品图/设计图是最高优先级事实源；产品视频改为视频素材包能力，脚本、分镜、首尾帧、分段视频和可选合成片都要作为可追踪资产保存，合成失败不能废掉已成功素材。
+- 2026-06-11：从旧 AI 摄影棚项目补充吸收“AI 中间稿、确认门、素材包、统一轮询、单主 CTA、分段素材不作废”规则；这些规则已经写入市场端能力规划和技术方案，后续不能继续把脚本/分镜/配图建议做成只读展示后直接生成。
+- 2026-06-11：新增市场端正式能力契约草案 `docs/strategy/market-side-ai-ability-contracts-2026-06-11.md`，明确 `product_image_set`、`model_scene_image`、`promo_video` 的待实现接口、输入输出、错误、成功口径和 golden cases；业务 API 文档已标注这些路径尚未开放，避免误接入。
+- 2026-06-12：推进两条视频路线并拆清边界：`product_commercialization` 大模型视频支持 `productImages` 图组输入、每段参考图选择和统一 runId 查询；新增 `product_3d_render_video` 方案预览能力，记录 1660 杯子、2551 笔记本电脑背包模型资产、材质槽、UV、镜头预设和渲染 worker 待接入状态。两者不能混为一个按钮或一个接口。
 - 当前不直接开写新功能代码；先完成 v0.7 子版本拆分、范围边界、验收标准、交互治理计划、Agent Runtime v2 schema 和首批能力产品化决策。
 - 中台主语保持不变：只有能力、能力版本、路由、调用、结果、质量、成本、错误、证据和审计。项目/工作单仍属于客户端业务组装概念，不进入中台当前主线。
 - 对话式改图继续暂放在图编辑分类下用于发现，但它的长期归宿是 Agent Runtime；可视化/画布式图编辑和对话式 Agent 改图必须在命名、交互、API 边界和能力定义上保持拆分。
@@ -79,11 +84,16 @@
 - 进展（2026-06-10）：新增 `product_image_set` 明确待办：输入为产品设计图/商品图、可选多角度/细节图、产品导出字段、目标市场和平台场景；输出为主图、细节图、场景图、多角度图、营销图等成组资产，并保留 prompt、模型/版本、质量标签和 OSS 证据。
 - 进展（2026-06-10）：产品商业化入口先进入整改而非继续扩张，P0 关闭项包括：测评端可滚动、产品导出 JSON 扩展、图片/字段一致性确认、大模型商品内容包、文案场景选择、显式生成配图、图文包下载、KIE/Vidu 供应商选择和 Vidu 待接入模型说明。
 - 进展（2026-06-10）：产品文案内容包完成线上试点修复并发布到 `564e6006`。验收证据：`copyGeneration.method=volcengine_chat`、`fallback=false`、`keywordPack` 已归一化为字符串数组，页面审核区不再裸显 JSON，文案/视频边界已在页面和文档中拆清。
-- 进展（2026-06-10）：纠正产品文案事实优先级：产品图是最高优先级视觉事实源，导出 JSON 是说明材料；后端 schema/prompt 新增 `imageFactAssessment`，测评端展示图像主判断、字段冲突、缺失字段推断和置信度。
+- 进展（2026-06-10）：纠正产品文案事实优先级：产品图是最高优先级视觉事实源，导出 JSON 是可选说明材料；后端 schema/prompt 新增 `imageFactAssessment`，测评端展示图像主判断、字段冲突、缺失字段推断和置信度。
 - 进展（2026-06-10）：线上错配样例复盘后修正事实守卫：模型无依据改变商品类型仍回退，模型明确报告图片/JSON 冲突时以产品图为准放行，并输出 `PRODUCT_IMAGE_FIELD_CONFLICT` 人工复核提示；同时兼容火山模型常见的 `fieldConflicts` 字符串、`confidenceScore` 和 `[{en, zh}]` 文案数组输出。
 - 进展（2026-06-11）：产品商业化配图默认路由纠正为 GPT Image 2，测评端视觉走查完成一轮降噪：移除内部版本词、接口说明默认折叠、配图区明确 `GPT Image 2 配图`、桌面/移动端无横向溢出。新增验收门禁 `docs/testing/2026-06-11-product-commercialization-acceptance-gate.md`。
 - 进展（2026-06-11）：真实 Vidu 5 秒链路已生成并回填 OSS，但发现单参考图生视频比例跟随输入图/首帧，不能把 `aspectRatio` 当成 Vidu 直接执行参数。后端新增 `videoPlan.aspectPolicy`，测评端和 API 文档同步标明“Vidu 跟随首帧比例”；固定画幅进入首帧归一化/首尾帧控制待办。
-- 下一步：产品文案不再按“接口可跑通”继续判定，而按商家可用内容质量打磨。优先补平台策略 golden cases、图片/JSON 错配样例线上验证、配图生成真实质量闭环、下载包交付形态；产品视频继续作为独立能力做 KIE/Vidu 和多段合成验收。
+- 进展（2026-06-11 追加）：市场端技术方案已固化：`productFields`/导出 JSON 不再作为核心入口，缺失或冲突都不能阻断主流程；视频能力从“最终片生成”改为“视频素材包”，默认先产出脚本、分镜、首尾帧/关键帧和分段素材，最终合成为可选动作。
+- 进展（2026-06-11 追加）：补充 `backend/scripts/patrol_product_commercialization.py` 专项门禁脚本。默认只跑非成本预览校验；线上验收窗口可显式打开 `--include-live-visual/--include-live-video` 触发 GPT Image 2 配图和视频素材包真实链路。本机默认巡检因 vendor-api-ops allowlist 拒绝而失败，不能作为线上能力结论。
+- 进展（2026-06-11 追加）：`product_image_set`、`model_scene_image`、`promo_video` 三个正式市场端能力契约草案已完成。注意：这是待实现契约，不代表接口已上线；短期线上仍通过 `product_commercialization` 聚合入口试验。
+- 进展（2026-06-11 追加）：产品视频测评端补齐脚本/分镜确认门。AI 规划稿可编辑，编辑脚本、切换产品图或修改参数后确认状态失效；未确认不得触发视频素材包成本任务，避免把旧规划直接提交给 KIE/Vidu。
+- 进展（2026-06-11 追加）：114 控制面已部署 `c59fa6f4+workspace-product-commercialization-20260611` 产品商业化试验补丁；默认预览巡检 `/srv/pod/reports/product-commercialization-preview-patrol-20260611-fixed2.json` 通过 `total=3 passed=3 failed=0`。真实 GPT Image 2 配图 runId `83f4dd35a8e44d02b946e8a090ae49fd`、真实 Vidu 8 秒单段素材包 runId `24858339ccd94e588866018ab2c49963` 均已回填 OSS。同步修复兜底时图片/字段未完成视觉核验却不提示冲突的问题，后续凡有产品图 + 导出字段但 VL/LLM 兜底，必须输出人工复核风险。
+- 下一步：先按 `docs/strategy/market-side-ai-technical-plan-2026-06-11.md` 改当前 `product_commercialization`，再拆正式能力。P0 顺序：① schema 和文档把 `productFields` 明确为可选；② 后端事实解析图片优先；③ `preview` 输出 `videoAssetPackagePlan`；④ `/runs` 保存 `videoAssetPackage` 分段素材和可选合成结果；⑤ 测评端视频页面改成脚本/分镜/关键帧/分段视频/合成的分阶段交互；⑥ 补错误码、测试和真实链路证据；⑦ 在线上 114 或已加白后端环境执行产品商业化专项门禁。
 - 验收：每个候选能力至少有一页能力契约和固定样例计划；是否实现由样例质量和业务优先级决定。`product_commercialization` 先验证大模型文案证据、语言、海外文案、详情介绍、配图策略、KIE/Vidu 单段视频和 OSS 沉淀；`product_image_set` 至少准备 3 类固定样例：服饰/配件、家居软装、节日营销图。
 
 5. `todo` 质量迭代与观测方案

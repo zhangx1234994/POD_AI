@@ -8,19 +8,22 @@
 2. `docs/standards/runtime-facts-and-regression-guardrails.md`
 3. `docs/strategy/v0.7-ability-productization-agent-orchestration-plan.md`
 4. `docs/strategy/v0.7-kickoff-meeting-2026-06-09.md`
-5. `docs/standards/version-acceptance-template.md`
-6. `docs/standards/agent-runtime-regression-matrix.md`
-7. `docs/standards/eval-ability-interaction-state-model.md`
-8. `docs/strategy/ability-definition-v0.6.md`
-9. `docs/strategy/business-agent-runtime-v0.6.md`
-10. `docs/strategy/ability-governance-operating-model-v0.6.md`
-11. `docs/strategy/ability-api-gap-v0.6.md`
-12. `docs/strategy/client-parallel-preview-v0.6-handoff.md`
-13. `docs/strategy/v0.6-closure-inventory-2026-06-07.md`
-14. `docs/strategy/v0.6-closure-standardization-plan.md`
-15. `docs/strategy/v0.6.3-control-plane-hardening-plan.md`
-16. `docs/standards/release-sop.md`
-17. `docs/api/INDEX.md`
+5. `docs/strategy/market-side-ai-capability-plan-2026-06-11.md`
+6. `docs/strategy/market-side-ai-technical-plan-2026-06-11.md`
+7. `docs/strategy/market-side-ai-ability-contracts-2026-06-11.md`
+8. `docs/standards/version-acceptance-template.md`
+9. `docs/standards/agent-runtime-regression-matrix.md`
+10. `docs/standards/eval-ability-interaction-state-model.md`
+11. `docs/strategy/ability-definition-v0.6.md`
+12. `docs/strategy/business-agent-runtime-v0.6.md`
+13. `docs/strategy/ability-governance-operating-model-v0.6.md`
+14. `docs/strategy/ability-api-gap-v0.6.md`
+15. `docs/strategy/client-parallel-preview-v0.6-handoff.md`
+16. `docs/strategy/v0.6-closure-inventory-2026-06-07.md`
+17. `docs/strategy/v0.6-closure-standardization-plan.md`
+18. `docs/strategy/v0.6.3-control-plane-hardening-plan.md`
+19. `docs/standards/release-sop.md`
+20. `docs/api/INDEX.md`
 
 ## 当前真源
 
@@ -28,6 +31,9 @@
 | --- | --- | --- |
 | 唯一 TODO | `docs/strategy/todo-master-2026q2.md` | 当前任务池 |
 | 当前方案 | `docs/strategy/v0.7-ability-productization-agent-orchestration-plan.md` | v0.7 能力产品化、Agent 编排、交互治理和质量迭代规划 |
+| 市场端能力规划 | `docs/strategy/market-side-ai-capability-plan-2026-06-11.md` | 产品生产后的文案、组图、模特图、多角度、视频和营销 Agent 能力边界 |
+| 市场端技术方案 | `docs/strategy/market-side-ai-technical-plan-2026-06-11.md` | 产品图优先、JSON 可选、视频素材包、接口、状态、错误和开发顺序 |
+| 市场端能力契约 | `docs/strategy/market-side-ai-ability-contracts-2026-06-11.md` | `product_image_set`、`model_scene_image`、`promo_video` 的待实现接口契约、错误和 golden cases |
 | 运行事实 | `docs/standards/runtime-facts-and-regression-guardrails.md` | 114/158/233、端口、executor、模型依赖、图片尺寸和 DPI 的固定口径 |
 | 会议决策包 | `docs/strategy/v0.7-kickoff-meeting-2026-06-09.md` | 2026-06-09 v0.7 kickoff 的目标选择、P0 范围、非目标、角色视角和拍板事项 |
 | 上阶段封版方案 | `docs/strategy/v0.6-closure-standardization-plan.md` | v0.6 收口、缺失补齐、交互纠偏、接口文档和机制标准化 |
@@ -73,6 +79,8 @@
 ## 当前阶段口径
 
 - 当前阶段是 `v0.7 中台能力产品化与 Agent 编排版` 的正式规划期；先完成任务拆分、边界确认和验收标准，再进入代码实现。
+- 市场端能力当前新口径：产品图 / 设计图是最高优先级事实源，产品导出 JSON 只是可选说明材料；产品视频按“脚本、分镜、首尾帧、分段视频、可选合成片”的素材包能力建设，最终合成片不是唯一交付物。
+- `product_image_set`、`model_scene_image`、`promo_video` 当前是待实现正式能力契约，不是已上线接口；线上试验仍通过 `product_commercialization` 聚合入口完成。
 - 运行事实先看 `docs/standards/runtime-facts-and-regression-guardrails.md`；服务器、端口、executor、模型依赖和图片尺寸/DPI 口径不靠记忆判断。
 - `origin/main` 是唯一发版真源；本地完成不代表可以更新服务器。
 - 当前仓库不包含客户端代码；`docs/client/` 只保留历史资料。客户端从 v0.6 开始并行重启，但由独立团队或 agent 执行，必须遵守中台侧输出的业务 API 和边界。
@@ -104,4 +112,4 @@
 4. 页面交互或业务动线变化，必须同步当前回顾或对应模块入口。
 5. 过期 TODO、WIP 草稿和重复索引应删除或归档，不能继续进入阅读路径。
 
-最后更新：2026-06-10
+最后更新：2026-06-11

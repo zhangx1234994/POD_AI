@@ -410,6 +410,20 @@ class BusinessRoutePreviewResponse(BaseModel):
     activeVersions: list[dict[str, Any]] = Field(default_factory=list, alias="active_versions")
 
 
+class ProductCommercializationImage(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    url: str = Field(description="产品图 URL。")
+    role: str | None = Field(
+        default=None,
+        description="图片角色：primary/front/back/side/detail/texture/lifestyle/reference 等。",
+    )
+    label: str | None = Field(default=None, description="给运营人员看的图片标签。")
+    isPrimary: bool = Field(default=False, alias="is_primary", description="是否作为本次视频执行的主参考图。")
+    source: str | None = Field(default=None, description="图片来源，例如 upload/exported/manual。")
+    weight: float | None = Field(default=None, ge=0, le=1, description="可选权重，用于后续路由或排序。")
+
+
 class ProductCommercializationRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -423,6 +437,11 @@ class ProductCommercializationRequest(BaseModel):
         alias="product_image_url",
         description="产品设计完成后的商品图 URL；预览可为空，视频生成必填",
     )
+    productImages: list[ProductCommercializationImage] | None = Field(
+        default=None,
+        alias="product_images",
+        description="可选产品图组；主图、正面、背面、侧面、细节、场景图等。旧字段 productImageUrl 仍作为主图兼容入口。",
+    )
     designImageUrl: str | None = Field(
         default=None,
         alias="design_image_url",
@@ -431,7 +450,7 @@ class ProductCommercializationRequest(BaseModel):
     productFields: dict[str, Any] = Field(
         default_factory=dict,
         alias="product_fields",
-        description="产品导出字段 JSON；有则使用，没有则推断并标记 missing/inferred",
+        description="可选产品导出字段 JSON；有则作为说明材料使用，没有则继续执行，图片事实优先",
     )
     extraPrompt: str | None = Field(default=None, alias="extra_prompt", description="业务方补充要求")
     outputLanguage: str = Field(
@@ -524,6 +543,7 @@ class ProductCommercializationPreviewResponse(BaseModel):
     copyGeneration: dict[str, Any] | None = Field(default=None, alias="copy_generation")
     visualAssetPlan: dict[str, Any] = Field(alias="visual_asset_plan")
     videoPlan: dict[str, Any] = Field(alias="video_plan")
+    videoAssetPackagePlan: dict[str, Any] | None = Field(default=None, alias="video_asset_package_plan")
     review: dict[str, Any]
     execution: dict[str, Any]
     audit: dict[str, Any] | None = None
@@ -531,6 +551,57 @@ class ProductCommercializationPreviewResponse(BaseModel):
 
 class ProductCommercializationVideoResponse(ProductCommercializationPreviewResponse):
     videoResult: dict[str, Any] | None = Field(default=None, alias="video_result")
+    videoAssetPackage: dict[str, Any] | None = Field(default=None, alias="video_asset_package")
+
+
+class Product3DRenderVideoRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    modelKey: str = Field(
+        default="cup_1660",
+        alias="model_key",
+        description="3D 模型 key：cup_1660 / backpack_2551。",
+    )
+    textureImageUrl: str | None = Field(
+        default=None,
+        alias="texture_image_url",
+        description="要贴到模型上的主图或花纹图 URL。预览可为空，但会降低可执行度。",
+    )
+    textureImageUrls: list[str] | None = Field(
+        default=None,
+        alias="texture_image_urls",
+        description="可选多贴图 URL，后续用于多材质/多面贴图。",
+    )
+    materialSlot: str | None = Field(default=None, alias="material_slot", description="目标材质槽；为空使用推荐槽。")
+    cameraPreset: str = Field(default="orbit_360", alias="camera_preset", description="镜头预设。")
+    scenePreset: str = Field(default="clean_studio", alias="scene_preset", description="场景预设。")
+    durationSeconds: int = Field(default=6, ge=1, le=30, alias="duration_seconds", description="目标渲染视频秒数。")
+    aspectRatio: str = Field(default="16:9", alias="aspect_ratio", description="目标画幅比例。")
+    outputMode: str = Field(
+        default="plan_only",
+        alias="output_mode",
+        description="输出模式。当前仅开放 plan_only；render_video 为后续渲染服务能力。",
+    )
+    extraPrompt: str | None = Field(default=None, alias="extra_prompt", description="补充镜头或场景要求。")
+    requestId: str | None = Field(default=None, alias="request_id")
+    traceId: str | None = Field(default=None, alias="trace_id")
+    source: str | None = None
+
+
+class Product3DRenderVideoPreviewResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    requestId: str = Field(alias="request_id")
+    businessKey: str = Field(alias="business_key")
+    version: str
+    status: str
+    generatedAt: str = Field(alias="generated_at")
+    model: dict[str, Any]
+    assetReadiness: dict[str, Any] = Field(alias="asset_readiness")
+    renderPlan: dict[str, Any] = Field(alias="render_plan")
+    review: dict[str, Any]
+    execution: dict[str, Any]
+    audit: dict[str, Any] | None = None
 
 
 class BusinessProjectCreateRequest(BaseModel):

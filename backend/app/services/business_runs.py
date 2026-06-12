@@ -91,6 +91,7 @@ from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
 from app.services.business_projects import get_business_project_service
 from app.services.product_commercialization import product_commercialization_service
+from app.services.product_commercialization import _normalize_product_image_inputs, _primary_product_image_url
 from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
 from app.services.fission_control_prompt import compile_comfyui_v4_prompt
 from app.services.fission_control_prompt import extract_fission_control_card
@@ -2597,7 +2598,9 @@ class BusinessRunService:
         source: str = "business-api",
     ) -> dict[str, Any]:
         """Create a unified business run for commercialization actions."""
-        image_url = self._first_string(payload.productImageUrl)
+        image_url = self._first_string(payload.productImageUrl) or _primary_product_image_url(
+            _normalize_product_image_inputs(payload)
+        )
         if not image_url:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED")
         action = self._normalize_product_commercialization_action(payload.action, strict=True)
@@ -3432,10 +3435,12 @@ class BusinessRunService:
             if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
                 urls.append(value.strip())
             elif isinstance(value, dict):
-                for key in ("ossUrl", "storedUrl", "url"):
+                for key in ("ossUrl", "storedUrl", "url", "videoUrl", "videoUrls"):
                     candidate = value.get(key)
                     if isinstance(candidate, str) and candidate.strip().startswith(("http://", "https://")):
                         urls.append(candidate.strip())
+                    elif isinstance(candidate, list):
+                        add(candidate)
             elif isinstance(value, list):
                 for item in value:
                     add(item)
@@ -3447,6 +3452,10 @@ class BusinessRunService:
                 add(video_result.get("video_urls"))
                 add(video_result.get("storedAssets"))
                 add(video_result.get("stored_assets"))
+            video_asset_package = result.get("videoAssetPackage")
+            if isinstance(video_asset_package, dict):
+                add(video_asset_package.get("segmentVideos"))
+                add(video_asset_package.get("composition"))
             if not urls:
                 add(result.get("videoUrls"))
                 add(result.get("video_urls"))
@@ -3509,6 +3518,7 @@ class BusinessRunService:
         normalized_action = self._normalize_product_commercialization_action(action)
         video_plan = payload.get("videoPlan") if isinstance(payload.get("videoPlan"), dict) else {}
         video_result = payload.get("videoResult") if isinstance(payload.get("videoResult"), dict) else {}
+        video_asset_package = payload.get("videoAssetPackage") if isinstance(payload.get("videoAssetPackage"), dict) else {}
         execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else {}
 
         if normalized_action == "visual_generate":
@@ -3543,12 +3553,16 @@ class BusinessRunService:
             }
 
         segments = video_result.get("segments")
+        package_segments = video_asset_package.get("segmentVideos")
         segment_count = self._first_int(
             video_plan.get("segmentCount"),
             video_plan.get("segment_count"),
             video_result.get("segmentCount"),
             video_result.get("segment_count"),
             len(segments) if isinstance(segments, list) and segments else None,
+            len([item for item in package_segments if isinstance(item, dict) and item.get("status") == "succeeded"])
+            if isinstance(package_segments, list)
+            else None,
         )
         if segment_count is None:
             video_urls = self._extract_product_commercialization_video_urls(payload)

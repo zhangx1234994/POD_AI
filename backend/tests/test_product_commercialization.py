@@ -9,8 +9,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models.integration import BusinessRun
 from app.schemas.abilities import AbilityInvokeResponse, AbilityOutputAsset
-from app.schemas.business import ProductCommercializationRequest
+from app.schemas.business import Product3DRenderVideoRequest, ProductCommercializationRequest
 from app.services.business_runs import BusinessRunService
+from app.services.product_3d_render_video import Product3DRenderVideoService
 from app.services.product_commercialization import ProductCommercializationService
 
 
@@ -368,6 +369,48 @@ def test_product_commercialization_fact_guard_falls_back_when_model_changes_prod
     assert "Women's knitted woolen socks" in result["copyPackage"]["listingTitle"]
     assert "Tote Bag" not in result["copyPackage"]["listingTitle"]
     assert any(issue["code"] == "PRODUCT_COPY_FACT_GUARD_FALLBACK" for issue in result["review"]["issues"])
+
+
+def test_product_commercialization_template_fallback_requires_image_field_review() -> None:
+    service = ProductCommercializationService()
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/floral-jacket.png",
+            productFields={
+                "英文名称": "Women's knitted woolen socks",
+                "产品材质": "包纱、涤纶、尼龙、橡筋",
+                "生产工艺": "3D印花",
+                "二级分类": "穿搭配件",
+            },
+            outputLanguage="en-US",
+            marketRegion="US",
+        )
+    )
+
+    assert result["copyGeneration"]["fallback"] is True
+    assert result["contentPackage"]["imageFactAssessment"]["fieldConflicts"]
+    assert result["resolvedProductFacts"]["source"] == "product_image_primary"
+    assert result["resolvedProductFacts"]["hasFieldConflicts"] is True
+    assert any(issue["code"] == "PRODUCT_IMAGE_FIELD_CONFLICT" for issue in result["review"]["issues"])
+
+
+def test_product_commercialization_template_fallback_does_not_flag_image_only_payload() -> None:
+    service = ProductCommercializationService()
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/floral-jacket.png",
+            productFields={},
+            outputLanguage="en-US",
+            marketRegion="US",
+        )
+    )
+
+    assert result["copyGeneration"]["fallback"] is True
+    assert result["contentPackage"]["imageFactAssessment"]["fieldConflicts"] == []
+    assert result["resolvedProductFacts"]["hasFieldConflicts"] is False
+    assert not any(issue["code"] == "PRODUCT_IMAGE_FIELD_CONFLICT" for issue in result["review"]["issues"])
 
 
 def test_product_commercialization_keeps_image_primary_copy_when_model_reports_field_conflict(monkeypatch) -> None:
@@ -747,6 +790,116 @@ def test_product_commercialization_preview_uses_vidu_duration_profile() -> None:
     assert any(item["asset"] == "normalized_first_frame" for item in video_plan["assetNeeds"])
 
 
+def test_product_commercialization_preview_accepts_multi_product_images() -> None:
+    service = ProductCommercializationService()
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/front.png",
+            productImages=[
+                {"url": "https://example.com/back.png", "role": "back", "label": "背面"},
+                {"url": "https://example.com/detail.png", "role": "detail", "label": "材质细节"},
+            ],
+            productFields={"productNameEn": "Floral ceramic mug", "material": "ceramic"},
+            targetDurationSeconds=16,
+        )
+    )
+
+    image_set = result["videoPlan"]["referenceImageSet"]
+    assert result["productCard"]["sourceFacts"]["productImageUrl"] == "https://example.com/front.png"
+    assert len(result["productCard"]["sourceFacts"]["productImages"]) == 3
+    assert result["videoPlan"]["generationMode"] == "multi_reference_planned"
+    assert image_set["primaryImageUrl"] == "https://example.com/front.png"
+    assert image_set["count"] == 3
+    assert [shot["referenceImage"]["role"] for shot in result["videoPlan"]["storyboard"]] == ["primary", "back"]
+    assert next(item for item in result["videoPlan"]["assetNeeds"] if item["asset"] == "multi_angle_images")["available"] is True
+
+
+def test_product_commercialization_video_uses_primary_image_from_image_set(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    captured = {}
+
+    def fake_run_kie_market_task(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "succeeded",
+            "taskId": "veo_from_image_set",
+            "state": "success",
+            "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/video.mp4"],
+            "storedAssets": [{"ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/video.mp4", "type": "video"}],
+        }
+
+    monkeypatch.setattr(
+        "app.services.product_commercialization.integration_test_service",
+        SimpleNamespace(run_kie_market_task=fake_run_kie_market_task),
+    )
+
+    result = service.generate_video(
+        ProductCommercializationRequest(
+            productImages=[
+                {"url": "https://example.com/front.png", "role": "front", "label": "正面", "isPrimary": True},
+                {"url": "https://example.com/back.png", "role": "back", "label": "背面"},
+            ],
+            productFields={"productNameEn": "Floral ceramic mug"},
+        )
+    )
+
+    assert captured["input_payload"]["imageUrls"] == ["https://example.com/front.png"]
+    assert result["videoResult"]["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/video.mp4"]
+
+
+def test_product_3d_render_video_preview_returns_plan_without_video() -> None:
+    service = Product3DRenderVideoService()
+
+    result = service.preview(
+        Product3DRenderVideoRequest(
+            modelKey="cup_1660",
+            textureImageUrl="https://example.com/pattern.png",
+            materialSlot="front",
+            cameraPreset="orbit_360",
+            scenePreset="clean_studio",
+            durationSeconds=6,
+        )
+    )
+
+    assert result["businessKey"] == "product_3d_render_video"
+    assert result["model"]["preferredFile"] == "1660.glb"
+    assert result["assetReadiness"]["uvReady"] is True
+    assert result["assetReadiness"]["renderWorkerReady"] is False
+    assert result["renderPlan"]["executionStatus"] == "preview_only"
+    assert result["execution"]["videoGenerated"] is False
+
+
+def test_product_3d_render_video_preview_marks_missing_texture() -> None:
+    service = Product3DRenderVideoService()
+
+    result = service.preview(Product3DRenderVideoRequest(modelKey="cup_1660", materialSlot="front"))
+
+    issue_codes = [item.get("code") for item in result["assetReadiness"]["warnings"]]
+    assert result["assetReadiness"]["textureProvided"] is False
+    assert "PRODUCT_3D_RENDER_VIDEO_TEXTURE_MISSING" in issue_codes
+
+
+def test_product_3d_render_video_rejects_invalid_material_slot() -> None:
+    service = Product3DRenderVideoService()
+
+    with pytest.raises(HTTPException) as excinfo:
+        service.preview(Product3DRenderVideoRequest(modelKey="cup_1660", materialSlot="backpack-front"))
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID"
+
+
+def test_product_3d_render_video_rejects_render_mode_until_worker_exists() -> None:
+    service = Product3DRenderVideoService()
+
+    with pytest.raises(HTTPException) as excinfo:
+        service.preview(Product3DRenderVideoRequest(modelKey="cup_1660", outputMode="render_video"))
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY"
+
+
 def test_product_commercialization_video_rejects_long_target_on_single_segment_endpoint() -> None:
     service = ProductCommercializationService()
 
@@ -761,6 +914,58 @@ def test_product_commercialization_video_rejects_long_target_on_single_segment_e
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY"
+
+
+def test_product_commercialization_long_video_defaults_to_segment_asset_package(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    captured_calls = []
+    compose_called = False
+
+    def fake_run_kie_market_task(**kwargs):
+        captured_calls.append(kwargs)
+        index = len(captured_calls)
+        return {
+            "status": "succeeded",
+            "taskId": f"veo_segment_{index}",
+            "state": "success",
+            "videoUrls": [f"https://podi.oss-cn-hangzhou.aliyuncs.com/segment-{index}.mp4"],
+            "storedAssets": [{"ossUrl": f"https://podi.oss-cn-hangzhou.aliyuncs.com/segment-{index}.mp4", "type": "video"}],
+        }
+
+    def fake_compose_segment_videos(**kwargs):
+        nonlocal compose_called
+        compose_called = True
+        return {}
+
+    monkeypatch.setattr(
+        "app.services.product_commercialization.integration_test_service",
+        SimpleNamespace(run_kie_market_task=fake_run_kie_market_task),
+    )
+    monkeypatch.setattr(service, "_compose_segment_videos", fake_compose_segment_videos)
+
+    result = service.generate_composed_video(
+        ProductCommercializationRequest(
+            productImageUrl="https://example.com/socks.png",
+            productFields={"productNameEn": "Women's knitted woolen socks"},
+            targetDurationSeconds=15,
+        )
+    )
+
+    assert len(captured_calls) == 2
+    assert compose_called is False
+    assert result["videoAssetPackage"]["deliveryStatus"] == "assets_ready"
+    assert result["videoAssetPackage"]["composition"]["status"] == "skipped"
+    assert result["videoAssetPackage"]["composition"]["enabled"] is False
+    assert [segment["videoUrl"] for segment in result["videoAssetPackage"]["segmentVideos"]] == [
+        "https://podi.oss-cn-hangzhou.aliyuncs.com/segment-1.mp4",
+        "https://podi.oss-cn-hangzhou.aliyuncs.com/segment-2.mp4",
+    ]
+    assert result["videoResult"]["provider"] == "kie"
+    assert result["videoResult"]["videoUrls"] == [
+        "https://podi.oss-cn-hangzhou.aliyuncs.com/segment-1.mp4",
+        "https://podi.oss-cn-hangzhou.aliyuncs.com/segment-2.mp4",
+    ]
+    assert result["execution"]["costActions"] == ["kie.veo3_fast.video", "kie.veo3_fast.video"]
 
 
 def test_product_commercialization_composed_video_calls_segments_and_compose(monkeypatch) -> None:
@@ -798,6 +1003,7 @@ def test_product_commercialization_composed_video_calls_segments_and_compose(mon
 
     result = service.generate_composed_video(
         ProductCommercializationRequest(
+            action="compose_video",
             productImageUrl="https://example.com/socks.png",
             productFields={"productNameEn": "Women's knitted woolen socks"},
             targetDurationSeconds=15,
@@ -866,6 +1072,7 @@ def test_product_commercialization_composed_video_retries_failed_segment(monkeyp
 
     result = service.generate_composed_video(
         ProductCommercializationRequest(
+            action="compose_video",
             productImageUrl="https://example.com/socks.png",
             productFields={"productNameEn": "Women's knitted woolen socks"},
             targetDurationSeconds=15,
@@ -1172,16 +1379,23 @@ def test_business_openapi_exposes_product_commercialization() -> None:
     assert "/api/business/product-commercialization/preview" in paths
     assert "/api/business/product-commercialization/video" in paths
     assert "/api/business/product-commercialization/video-compose" in paths
+    assert "/api/business/product-3d-render-video/preview" in paths
     runs_schema = paths["/api/business/product-commercialization/runs"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]
-    assert runs_schema["required"] == ["productImageUrl"]
+    assert runs_schema["x-podi-required-one-of"] == ["productImageUrl", "productImages"]
     preview_schema = paths["/api/business/product-commercialization/preview"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]
     assert preview_schema["properties"]["outputLanguage"]["enum"] == ["en-US", "zh-CN", "bilingual"]
     assert preview_schema["properties"]["visualSupportMode"]["enum"] == ["none", "recommendation", "generate"]
     assert preview_schema["properties"]["durationSeconds"]["minimum"] == 1
+    assert "productImages" in preview_schema["properties"]
     assert "enum" not in preview_schema["properties"]["durationSeconds"]
     assert preview_schema["properties"]["targetDurationSeconds"]["minimum"] == 1
     assert preview_schema["properties"]["targetDurationSeconds"]["maximum"] == 60
+    product_3d_schema = paths["/api/business/product-3d-render-video/preview"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert product_3d_schema["properties"]["modelKey"]["enum"] == ["cup_1660", "backpack_2551"]
+    assert product_3d_schema["properties"]["outputMode"]["enum"] == ["plan_only"]

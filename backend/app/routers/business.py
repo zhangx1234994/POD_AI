@@ -50,6 +50,7 @@ from app.services.business_agents import AGENT_BUSINESS_KEY, get_business_agent_
 from app.services.auth_service import auth_service
 from app.services.business_projects import get_business_project_service
 from app.services.business_runs import get_business_run_service
+from app.services.product_3d_render_video import product_3d_render_video_service
 from app.services.product_commercialization import product_commercialization_service
 from app.services.runtime_safety import suppress_background_threads_for_tests
 
@@ -1055,6 +1056,51 @@ def preview_product_commercialization(
             status_code=500,
             business_key=business_key,
             error_code="PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=business_key,
+        request_payload=request_payload,
+    )
+    return result
+
+
+@router.post(
+    "/product-3d-render-video/preview",
+    response_model=schemas.Product3DRenderVideoPreviewResponse,
+    response_model_by_alias=False,
+)
+def preview_product_3d_render_video(
+    payload: schemas.Product3DRenderVideoRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+    business_key = "product_3d_render_video"
+    _business_key_allowed_for_api_key(request, business_key)
+    try:
+        result = product_3d_render_video_service.preview(
+            payload,
+            user_id=getattr(user, "id", None),
+        )
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="PRODUCT_3D_RENDER_VIDEO_PREVIEW_FAILED",
             request_payload=request_payload,
         )
         raise
@@ -2237,6 +2283,22 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "nullable": True,
                 "description": "产品设计完成后的商品图 URL。预览可为空，视频生成必填。",
             },
+            "productImages": {
+                "type": "array",
+                "description": "可选产品图组；支持 primary/front/back/side/detail/texture/lifestyle/reference 等角色。旧 productImageUrl 仍作为主图兼容入口。",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "role": {"type": "string", "nullable": True},
+                        "label": {"type": "string", "nullable": True},
+                        "isPrimary": {"type": "boolean", "default": False},
+                        "source": {"type": "string", "nullable": True},
+                        "weight": {"type": "number", "nullable": True, "minimum": 0, "maximum": 1},
+                    },
+                    "required": ["url"],
+                },
+            },
             "designImageUrl": {
                 "type": "string",
                 "nullable": True,
@@ -2291,7 +2353,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "nullable": True,
                 "minimum": 1,
                 "maximum": 60,
-                "description": "用户目标成片时长。后端按所选模型支持的片段时长规划分镜，必要时多段生成并合成。",
+                "description": "用户目标素材包时长。后端按所选模型支持的片段时长规划分镜和分段视频；默认先交付可复用素材包，显式 compose_video 才要求合成片。",
             },
             "aspectRatio": {"type": "string", "nullable": True, "description": "视频比例，默认 16:9。", "default": "16:9"},
             "strategyProfile": {"type": "string", "nullable": True, "description": "审核/策略配置，默认 default_pod_profile。"},
@@ -2329,6 +2391,68 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "description": "本次是否触发成本动作。preview 不生成图片/视频；video 接口会记录 kie.veo3_fast.video。",
             },
             "videoResult": {"type": "object", "nullable": True, "description": "仅视频生成接口返回。"},
+        },
+    }
+    product_3d_render_video_submit_schema = {
+        "type": "object",
+        "properties": {
+            "modelKey": {
+                "type": "string",
+                "enum": ["cup_1660", "backpack_2551"],
+                "description": "3D 模型 key。当前试点来自用户提供的 1660 杯子和 2551 笔记本电脑背包模型。",
+                "default": "cup_1660",
+            },
+            "textureImageUrl": {
+                "type": "string",
+                "nullable": True,
+                "description": "要贴到模型上的主图或花纹图 URL。预览可为空，但不能验证最终贴图效果。",
+            },
+            "textureImageUrls": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "可选多贴图 URL，后续用于多材质/多面贴图。",
+            },
+            "materialSlot": {
+                "type": "string",
+                "nullable": True,
+                "description": "目标材质槽；为空使用模型推荐槽。",
+            },
+            "cameraPreset": {
+                "type": "string",
+                "enum": ["orbit_360", "slow_push_in", "detail_sweep"],
+                "default": "orbit_360",
+            },
+            "scenePreset": {
+                "type": "string",
+                "enum": ["clean_studio", "marketplace_white", "premium_dark"],
+                "default": "clean_studio",
+            },
+            "durationSeconds": {"type": "integer", "minimum": 1, "maximum": 30, "default": 6},
+            "aspectRatio": {"type": "string", "default": "16:9"},
+            "outputMode": {
+                "type": "string",
+                "enum": ["plan_only"],
+                "description": "当前只开放方案预览；真实渲染 worker 接入后再开放 render_video。",
+                "default": "plan_only",
+            },
+            "extraPrompt": {"type": "string", "nullable": True},
+            "source": {"type": "string", "nullable": True},
+            "traceId": {"type": "string", "nullable": True},
+            "requestId": {"type": "string", "nullable": True},
+        },
+    }
+    product_3d_render_video_response_schema = {
+        "type": "object",
+        "properties": {
+            "requestId": {"type": "string"},
+            "businessKey": {"type": "string", "enum": ["product_3d_render_video"]},
+            "version": {"type": "string"},
+            "status": {"type": "string", "enum": ["previewed"]},
+            "model": {"type": "object", "description": "模型资产信息、材质槽、UV 和当前可执行性。"},
+            "assetReadiness": {"type": "object", "description": "贴图、UV、渲染 worker 等准备度。"},
+            "renderPlan": {"type": "object", "description": "Three.js/Blender 渲染管线、镜头、场景、贴图和交付物计划。"},
+            "review": {"type": "object"},
+            "execution": {"type": "object"},
         },
     }
     image_edit_chat_create_schema = {
@@ -2791,6 +2915,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "summary": "产品设计后生成英文文案包 + 配图建议 + 视频分镜",
             "value": {
                 "productImageUrl": "https://example.com/product-export.png",
+                "productImages": [
+                    {"url": "https://example.com/product-front.png", "role": "front", "label": "正面", "isPrimary": True},
+                    {"url": "https://example.com/product-back.png", "role": "back", "label": "背面"},
+                    {"url": "https://example.com/product-detail.png", "role": "detail", "label": "材质细节"},
+                ],
                 "productFields": {
                     "模板名称": "女款长袜（3D打印）",
                     "英文名称": "Women's knitted woolen socks",
@@ -2819,6 +2948,33 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "copyScenarios": ["ad_short_copy", "keyword_pack"],
                 "visualSupportMode": "generate",
                 "extraPrompt": "偏节日礼品场景，但不要写平台不允许的绝对化承诺。",
+            },
+        },
+    }
+    product_3d_render_video_examples = {
+        "cup_turntable_plan": {
+            "summary": "杯子 3D 贴图转圈视频方案",
+            "value": {
+                "modelKey": "cup_1660",
+                "textureImageUrl": "https://example.com/floral-pattern.png",
+                "materialSlot": "front",
+                "cameraPreset": "orbit_360",
+                "scenePreset": "clean_studio",
+                "durationSeconds": 6,
+                "aspectRatio": "16:9",
+                "requestId": "biz-product-3d-video-001",
+            },
+        },
+        "backpack_detail_plan": {
+            "summary": "背包 3D 细节扫过视频方案",
+            "value": {
+                "modelKey": "backpack_2551",
+                "textureImageUrl": "https://example.com/backpack-pattern.png",
+                "materialSlot": "front",
+                "cameraPreset": "detail_sweep",
+                "scenePreset": "marketplace_white",
+                "durationSeconds": 5,
+                "aspectRatio": "1:1",
             },
         },
     }
@@ -3045,6 +3201,17 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             *submit_errors["500"],
         ],
     }
+    product_3d_render_video_errors = {
+        **submit_errors,
+        "400": [
+            "PRODUCT_3D_RENDER_VIDEO_MODEL_INVALID",
+            "PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID",
+            "PRODUCT_3D_RENDER_VIDEO_CAMERA_PRESET_INVALID",
+            "PRODUCT_3D_RENDER_VIDEO_SCENE_PRESET_INVALID",
+            "PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY",
+        ],
+        "500": ["PRODUCT_3D_RENDER_VIDEO_PREVIEW_FAILED", *submit_errors["500"]],
+    }
     agent_errors = {
         **submit_errors,
         "400": [
@@ -3183,14 +3350,14 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/product-commercialization/runs": {
                 "post": {
                     "operationId": "podi_business_product_commercialization_run_create",
-                    "summary": "PODI · 产品商业化 · 异步生成视频",
-                    "description": "正式异步成本动作：提交产品商业化视频生成任务，立即返回 runId；业务方必须使用 /api/business/runs/get 按 runId 或 taskId 查询状态和结果。后端会按所选模型的片段时长画像规划分镜；单段目标直接生成，多段目标按分镜生成后合成。executorId 可选择 KIE 或 Vidu 节点，查询口径不变。",
+                "summary": "PODI · 产品商业化 · 异步生成视频素材包",
+                "description": "正式异步成本动作：提交产品商业化视频素材包任务，立即返回 runId；业务方必须使用 /api/business/runs/get 按 runId 或 taskId 查询状态和结果。productImageUrl 或 productImages 中至少需要一个可用产品图。后端会按所选模型的片段时长画像规划脚本、分镜和分段视频；默认保留可复用分段素材，最终合成片是显式可选动作，不是唯一成功口径。executorId 可选择 KIE 或 Vidu 节点，查询口径不变。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
                         "content": {
                             "application/json": {
-                                "schema": {**product_commercialization_submit_schema, "required": ["productImageUrl"]},
+                                "schema": {**product_commercialization_submit_schema, "x-podi-required-one-of": ["productImageUrl", "productImages"]},
                                 "examples": product_commercialization_examples,
                             }
                         },
@@ -3205,8 +3372,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/product-commercialization/preview": {
                 "post": {
                     "operationId": "podi_business_product_commercialization_preview",
-                    "summary": "PODI · 产品商业化 · 文案与视频规划",
-                    "description": "产品设计完成后的商业化内容包预览。输入商品图、产品导出字段和目标市场，返回产品理解卡、文案包、配图建议、视频分镜和审核提示；不会隐式生成图片或视频。",
+                    "summary": "PODI · 产品商业化 · 文案与视频素材包规划",
+                    "description": "产品设计完成后的商业化内容包预览。商品图是最高优先级事实源，产品导出字段只是可选说明材料；返回产品理解卡、文案包、配图建议、视频素材包规划和审核提示；不会隐式生成图片或视频。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
@@ -3231,17 +3398,39 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     ),
                 }
             },
-            "/api/business/product-commercialization/video": {
+            "/api/business/product-3d-render-video/preview": {
                 "post": {
-                    "operationId": "podi_business_product_commercialization_video",
-                    "summary": "PODI · 产品商业化 · 生成视频（兼容调试）",
-                    "description": "兼容/内部调试同步入口。正式业务接入请调用 /api/business/product-commercialization/runs 提交任务，并使用 /api/business/runs/get 查询结果。",
+                    "operationId": "podi_business_product_3d_render_video_preview",
+                    "summary": "PODI · 3D 模型渲染视频 · 方案预览",
+                    "description": "独立于 KIE/Vidu 的 3D 渲染视频能力预览。输入 3D 模型 key、贴图、材质槽、场景和镜头预设，返回 Three.js/Blender 渲染计划和资产准备度；当前不触发真实渲染和成本动作。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
                         "content": {
                             "application/json": {
-                                "schema": {**product_commercialization_submit_schema, "required": ["productImageUrl"]},
+                                "schema": product_3d_render_video_submit_schema,
+                                "examples": product_3d_render_video_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="3D render-video plan prepared",
+                        errors_by_status=product_3d_render_video_errors,
+                        success_schema=product_3d_render_video_response_schema,
+                    ),
+                }
+            },
+            "/api/business/product-commercialization/video": {
+                "post": {
+                    "operationId": "podi_business_product_commercialization_video",
+                    "summary": "PODI · 产品商业化 · 生成视频（兼容调试）",
+                    "description": "兼容/内部调试同步入口。正式业务接入请调用 /api/business/product-commercialization/runs 提交任务，并使用 /api/business/runs/get 查询结果。productImageUrl 或 productImages 中至少需要一个可用产品图。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {**product_commercialization_submit_schema, "x-podi-required-one-of": ["productImageUrl", "productImages"]},
                                 "examples": product_commercialization_examples,
                             }
                         },
@@ -3256,14 +3445,14 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "/api/business/product-commercialization/video-compose": {
                 "post": {
                     "operationId": "podi_business_product_commercialization_video_compose",
-                    "summary": "PODI · 产品商业化 · 多段生成并合成视频（兼容调试）",
-                    "description": "兼容/内部调试同步入口。正式业务接入请调用 /api/business/product-commercialization/runs；该异步入口会自动判断单段生成或多段生成并合成。",
+                    "summary": "PODI · 产品商业化 · 多段视频素材包（兼容调试）",
+                    "description": "兼容/内部调试同步入口。正式业务接入请调用 /api/business/product-commercialization/runs；默认异步入口生成分段视频素材包，只有显式 action=compose_video 才要求合成片。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
                         "content": {
                             "application/json": {
-                                "schema": {**product_commercialization_submit_schema, "required": ["productImageUrl"]},
+                                "schema": {**product_commercialization_submit_schema, "x-podi-required-one-of": ["productImageUrl", "productImages"]},
                                 "examples": product_commercialization_examples,
                             }
                         },

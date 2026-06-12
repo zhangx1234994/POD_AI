@@ -305,6 +305,14 @@ export type BusinessRunPollResult = {
 export type ProductCommercializationRequest = {
   action?: 'video_generate' | 'compose_video' | 'visual_generate';
   productImageUrl?: string;
+  productImages?: Array<{
+    url: string;
+    role?: string;
+    label?: string;
+    isPrimary?: boolean;
+    source?: string;
+    weight?: number;
+  }>;
   designImageUrl?: string;
   productFields?: Record<string, unknown>;
   extraPrompt?: string;
@@ -361,11 +369,43 @@ export type ProductCommercializationResponse = {
   copyGeneration?: Record<string, unknown> | null;
   visualAssetPlan: Record<string, unknown>;
   videoPlan: Record<string, unknown>;
+  videoAssetPackagePlan?: Record<string, unknown> | null;
   review: Record<string, unknown>;
   execution: Record<string, unknown>;
   audit?: Record<string, unknown> | null;
   videoResult?: Record<string, unknown> | null;
+  videoAssetPackage?: Record<string, unknown> | null;
   imageResult?: Record<string, unknown> | null;
+};
+
+export type Product3DRenderVideoRequest = {
+  modelKey?: 'cup_1660' | 'backpack_2551';
+  textureImageUrl?: string;
+  textureImageUrls?: string[];
+  materialSlot?: string;
+  cameraPreset?: 'orbit_360' | 'slow_push_in' | 'detail_sweep';
+  scenePreset?: 'clean_studio' | 'marketplace_white' | 'premium_dark';
+  durationSeconds?: number;
+  aspectRatio?: string;
+  outputMode?: 'plan_only';
+  extraPrompt?: string;
+  requestId?: string;
+  traceId?: string;
+  source?: string;
+};
+
+export type Product3DRenderVideoResponse = {
+  requestId: string;
+  businessKey: string;
+  version: string;
+  status: string;
+  generatedAt?: string;
+  model: Record<string, unknown>;
+  assetReadiness: Record<string, unknown>;
+  renderPlan: Record<string, unknown>;
+  review: Record<string, unknown>;
+  execution: Record<string, unknown>;
+  audit?: Record<string, unknown> | null;
 };
 
 export const evalApi = {
@@ -843,6 +883,12 @@ export const evalApi = {
       '/api/business/product-commercialization/video-compose',
       { method: 'POST', body: JSON.stringify(payload) },
       900000,
+    ),
+  previewProduct3DRenderVideo: (payload: Product3DRenderVideoRequest) =>
+    request<Product3DRenderVideoResponse>(
+      '/api/business/product-3d-render-video/preview',
+      { method: 'POST', body: JSON.stringify(payload) },
+      30000,
     ),
   adminListWorkflowVersions: async (adminToken: string) =>
     request<EvalWorkflowVersion[]>(`/api/evals/admin/workflow-versions`, { headers: { 'X-Eval-Admin-Token': adminToken } }),
