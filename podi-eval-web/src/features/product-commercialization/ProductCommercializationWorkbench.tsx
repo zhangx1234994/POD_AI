@@ -1162,15 +1162,20 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const videoPlan = asRecord(result?.videoPlan);
   const videoAssetPackagePlan = asRecord(result?.videoAssetPackagePlan);
   const videoAssetPackage = asRecord(result?.videoAssetPackage);
+  const videoPackageKeyframes = asArray(videoAssetPackage.keyframes).map((item) => asRecord(item));
   const videoPackageSegments = asArray(videoAssetPackage.segmentVideos).map((item) => asRecord(item));
   const videoPackageComposition = asRecord(videoAssetPackage.composition);
   const videoAspectPolicy = asRecord(videoPlan.aspectPolicy);
   const videoReferenceImageSet = asRecord(videoPlan.referenceImageSet);
   const isViduVideoProvider = videoProvider === 'vidu_viduq3_turbo';
   const videoAspectExecutionLabel =
-    String(videoAspectPolicy.mode || '') === 'input_image_ratio'
-      ? '实际比例随首帧'
-      : String(videoAspectPolicy.executionAspectRatio || videoPlan.aspectRatio || aspectRatio);
+    String(videoAspectPolicy.mode || '') === 'normalized_first_frame'
+      ? `已归一首帧 ${String(videoAspectPolicy.executionAspectRatio || videoPlan.aspectRatio || aspectRatio)}`
+      : videoAspectPolicy.requiresFirstFrameNormalization
+        ? `执行前归一到 ${String(videoAspectPolicy.requestedAspectRatio || videoPlan.aspectRatio || aspectRatio)}`
+        : String(videoAspectPolicy.mode || '') === 'input_image_ratio'
+          ? '实际比例随首帧'
+          : String(videoAspectPolicy.executionAspectRatio || videoPlan.aspectRatio || aspectRatio);
   const review = asRecord(result?.review);
   const requiresComposition = videoSegmentPlan.length > 1 || !selectedVideoProfile.segmentDurationOptions.includes(targetDurationSeconds);
   const selectedScenario = VIDEO_SCENARIOS.find((item) => item.key === videoScenario);
@@ -1183,7 +1188,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   );
   const factsStepReady = hasProductImage && hasParsedFields && (!shouldConfirmMatch || fieldsConfirmed);
   const strategyStepReady = isVideoMode ? factsStepReady : hasProductImage && hasParsedFields && copyScenarios.length > 0;
-  const deliverReady = generatedVisuals.some((item) => item.urls.length > 0) || videoUrls.length > 0 || Boolean(videoRun);
+  const deliverReady =
+    generatedVisuals.some((item) => item.urls.length > 0) ||
+    videoUrls.length > 0 ||
+    Boolean(videoRun) ||
+    Object.keys(videoAssetPackage).length > 0;
   const visibleStages = useMemo(
     () =>
       (isVideoMode
@@ -1592,7 +1601,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         placeholder="例如 15"
                       />
                       <Input
-                        label={isViduVideoProvider ? '目标比例（Vidu 跟随首帧）' : '目标比例'}
+                        label={isViduVideoProvider ? '目标比例（执行前归一首帧）' : '目标比例'}
                         value={aspectRatio}
                         onChange={(v) => setAspectRatio(String(v))}
                       />
@@ -1660,7 +1669,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         ))}
                       </Space>
                       {isViduVideoProvider ? (
-                        <Alert theme="info" message="Vidu 图生视频当前按上传产品图/首帧比例出片；固定画幅需要先处理首帧。" />
+                        <Alert theme="info" message="Vidu 图生视频会跟随输入首帧比例；提交视频前系统会先生成并归一目标画幅首帧，再把该首帧作为视频参考图。" />
                       ) : null}
                     </div>
                     <div className="podi-product-commercialization__planning-fields">
@@ -1812,7 +1821,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         >
                           {hasGeneratedVisuals ? '重新生成全部组图' : '生成全部组图'}
                         </Button>
-                        <Button theme="primary" onClick={() => setActiveStage('deliver')}>查看交付</Button>
+                        <Button theme="primary" disabled={!deliverReady} onClick={() => setActiveStage('deliver')}>
+                          {deliverReady ? '查看交付' : '等待素材包结果'}
+                        </Button>
                       </Space>
                     </>
                   ) : (
@@ -1948,7 +1959,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         >
                           {requiresComposition ? `生成 ${targetDurationSeconds}s 分段视频素材包` : `生成 ${targetDurationSeconds}s 单段视频素材`}
                         </Button>
-                        <Button theme="primary" onClick={() => setActiveStage('deliver')}>查看交付</Button>
+                        <Button theme="primary" disabled={!deliverReady} onClick={() => setActiveStage('deliver')}>
+                          {deliverReady ? '查看交付' : '等待素材包结果'}
+                        </Button>
                       </Space>
                     </>
                   )}
@@ -2018,6 +2031,21 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         <span>分段 {videoPackageSegments.length}</span>
                         <span>合成 {String(videoPackageComposition.status || '未执行')}</span>
                       </div>
+                      {videoPackageKeyframes.length > 0 ? (
+                        <div className="podi-product-commercialization__keyframes">
+                          {videoPackageKeyframes.map((frame, index) => (
+                            <div key={`${String(frame.role || 'frame')}-${String(frame.segmentIndex || index)}`}>
+                              {frame.imageUrl ? <img src={String(frame.imageUrl)} alt={`视频首帧 ${index + 1}`} /> : null}
+                              <Typography.Text strong>
+                                {String(frame.role || '关键帧')} · 分段 {String(frame.segmentIndex || frame.shot || index + 1)}
+                              </Typography.Text>
+                              <Typography.Text theme="secondary">
+                                {String(frame.aspectRatio || '-')} · {String(frame.width || '-')}×{String(frame.height || '-')}
+                              </Typography.Text>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       {videoUrls.map((url, index) => (
                         <div key={`${url}-${index}`} className="podi-product-commercialization__video">
                           <video src={url} controls />
@@ -2030,6 +2058,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                             <div key={`${String(segment.segmentIndex || index)}-${String(segment.status || '')}`}>
                               <strong>分段 {String(segment.segmentIndex || index + 1)} · {String(segment.status || '-')}</strong>
                               <span>{String(segment.durationSeconds || '-')}s · {String(segment.provider || '-')} · {String(segment.model || '-')}</span>
+                              {segment.referenceImageUrl ? <small>执行参考图：{String(segment.referenceImageUrl)}</small> : null}
                             </div>
                           ))}
                         </div>
@@ -2265,7 +2294,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
               )}
               {isVideoMode ? (
                 <Input
-                  label={isViduVideoProvider ? '目标比例（Vidu 跟随首帧）' : '目标比例'}
+                  label={isViduVideoProvider ? '目标比例（执行前归一首帧）' : '目标比例'}
                   value={aspectRatio}
                   onChange={(v) => setAspectRatio(String(v))}
                 />
@@ -2361,7 +2390,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   {isViduVideoProvider ? (
                     <Alert
                       theme="info"
-                      message="Vidu 图生视频当前按上传产品图/首帧比例出片；要稳定输出 16:9 或 9:16，需要先生成或补边对应比例首帧后再执行。"
+                      message="Vidu 图生视频会跟随输入首帧比例；提交视频前系统会先生成并归一目标画幅首帧，再把该首帧作为视频参考图。"
                     />
                   ) : null}
                   <Typography.Text theme="secondary">待接入 Vidu 场景</Typography.Text>
@@ -2831,6 +2860,21 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         <span>分段 {videoPackageSegments.length}</span>
                         <span>合成 {String(videoPackageComposition.status || '未执行')}</span>
                       </div>
+                      {videoPackageKeyframes.length > 0 ? (
+                        <div className="podi-product-commercialization__keyframes">
+                          {videoPackageKeyframes.map((frame, index) => (
+                            <div key={`${String(frame.role || 'frame')}-${String(frame.segmentIndex || index)}`}>
+                              {frame.imageUrl ? <img src={String(frame.imageUrl)} alt={`视频首帧 ${index + 1}`} /> : null}
+                              <Typography.Text strong>
+                                {String(frame.role || '关键帧')} · 分段 {String(frame.segmentIndex || frame.shot || index + 1)}
+                              </Typography.Text>
+                              <Typography.Text theme="secondary">
+                                {String(frame.aspectRatio || '-')} · {String(frame.width || '-')}×{String(frame.height || '-')}
+                              </Typography.Text>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       {videoPackageSegments.length > 0 ? (
                         <div className="podi-product-commercialization__channel-list">
                           {videoPackageSegments.map((segment, index) => (
@@ -2841,6 +2885,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                               <Typography.Text theme="secondary">
                                 {String(segment.durationSeconds || '-')}s · {String(segment.provider || '-')} · {String(segment.model || '-')}
                               </Typography.Text>
+                              {segment.referenceImageUrl ? (
+                                <Typography.Text theme="secondary">执行参考图：{String(segment.referenceImageUrl)}</Typography.Text>
+                              ) : null}
                               {segment.errorCode || segment.errorMessage ? (
                                 <Typography.Text theme="error">
                                   {String(segment.errorCode || '')} {String(segment.errorMessage || '')}

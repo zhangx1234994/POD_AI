@@ -187,6 +187,7 @@
 | PRODUCT_COMMERCIALIZATION_VIDEO_ASSET_PLAN_FAILED | 产品商业化视频素材包规划失败 | 500，脚本、分镜、首尾帧/关键帧需求或分段策略无法生成；不得继续触发视频成本动作 |
 | PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED | 产品商业化视频关键帧生成失败 | 502/500，首帧、尾帧或关键帧生成失败；默认保留已成功脚本/分镜，不直接抹掉素材包 |
 | PRODUCT_COMMERCIALIZATION_VIDEO_ASPECT_REQUIRES_KEYFRAME | 产品商业化固定画幅需要先生成归一化首帧 | 400，Vidu 等跟随输入图比例的模型不能直接承诺 `aspectRatio`，必须先走首帧归一化或首尾帧模式 |
+| PRODUCT_COMMERCIALIZATION_FIRST_FRAME_GENERATION_FAILED | 产品商业化视频首帧生成或画布归一化失败 | 502/500，Vidu 固定画幅执行前会先用 GPT Image 2 生成首帧并归一到目标画布；该步骤失败时必须在视频扣费前停止，不能静默用原始产品图提交 |
 | PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY | 产品商业化长视频调用了单段视频接口 | 400，目标时长不属于所选模型单段合法时长时，不能调用旧单段兼容接口，应通过 `/api/business/product-commercialization/runs` 统一提交并由后端按模型画像多段生成/合成。 |
 | PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED | 产品商业化预览生成失败 | 500，产品理解卡、文案包、配图建议或分镜生成异常 |
 | PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED | 产品商业化视频生成失败 | 502/500，KIE/Vidu 创建、轮询或 OSS 沉淀失败 |

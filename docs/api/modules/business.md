@@ -1798,14 +1798,14 @@ X-PODI-API-Key: podi_xxx
 
 请求体与 `preview` 相同，但必须提供 `productImageUrl`，或在 `productImages` 中提供至少一张可用产品图。`action=visual_generate` 时执行产品商业化配图，支持 `visualScenes` 指定 `listing-main/social-ad-cover/detail-closeup` 等场景，结果通过 `imageUrls/resultPayload.imageResult` 返回。配图默认走中台 GPT Image 2 图片编辑能力 `openai_gpt_image_2_edit`，以商品图作为事实锚点，默认 `size=auto`；只有后续显式指定低成本、批量或特定模型策略时才分流到其他图片能力。
 
-`action=video_generate` 或不传 `action` 时执行视频素材包；后端先按 `executorId` 解析模型画像，再围绕 `targetDurationSeconds` 规划脚本、分镜、首尾帧/关键帧需求和分段视频。客户目标时长不是供应商单段枚举：例如客户要求 15 秒，规划层必须规划 15 秒脚本，执行层再按 KIE 8 秒或 Vidu 3/5/8 秒片段拆解、保留和可选合成。默认交付目标是 `segment_package`：先保留脚本、关键帧和分段视频素材，最终合成是可选动作，不是唯一成功口径。用户如在测评端编辑了视频脚本，前端会把当前脚本写入 `videoPromptOverride`，后端必须按该脚本调用 KIE/Vidu。可选 `executorId` 指定 KIE 或 Vidu 节点；不传使用默认 KIE 执行节点。第三方返回的临时外链都必须先沉淀到自有 OSS，对外结果以自有 OSS URL 为准。注意：Vidu 单参考图生视频的实际比例由输入图/首帧决定；`aspectRatio` 在该路径下是目标规划字段，不是直接下发给 Vidu 的执行参数。
+`action=video_generate` 或不传 `action` 时执行视频素材包；后端先按 `executorId` 解析模型画像，再围绕 `targetDurationSeconds` 规划脚本、分镜、首尾帧/关键帧需求和分段视频。客户目标时长不是供应商单段枚举：例如客户要求 15 秒，规划层必须规划 15 秒脚本，执行层再按 KIE 8 秒或 Vidu 3/5/8 秒片段拆解、保留和可选合成。默认交付目标是 `segment_package`：先保留脚本、关键帧和分段视频素材，最终合成是可选动作，不是唯一成功口径。用户如在测评端编辑了视频脚本，前端会把当前脚本写入 `videoPromptOverride`，后端必须按该脚本调用 KIE/Vidu。可选 `executorId` 指定 KIE 或 Vidu 节点；不传使用默认 KIE 执行节点。第三方返回的临时外链都必须先沉淀到自有 OSS，对外结果以自有 OSS URL 为准。注意：Vidu 单参考图生视频的实际比例由输入图/首帧决定；`aspectRatio` 不会作为无效厂商参数直接下发。若使用 Vidu 且目标画幅为固定比例，后端会先调用 GPT Image 2 生成商业首帧，再用确定性画布处理归一到目标比例并上传 OSS，最后把归一化首帧作为 Vidu 输入图。首帧生成或归一化失败时会在视频扣费前失败，不会静默提交原图导致比例错误。
 
 当前视频供应商和模型口径：
 
 | `executorId` | 当前模型 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | `executor_kie_market_default` | Veo3.1 Fast | 可执行 | 当前按 8 秒片段规划；长视频默认通过多个 8 秒片段形成素材包。首尾帧控制属于待接入模式，不在当前按钮中伪装成可执行。 |
-| `executor_vidu_default` | viduq3-turbo | 可执行 | 当前按 3/5/8 秒片段规划。Vidu 图生视频比例跟随输入图/首帧，若要固定 16:9/9:16，需要先做首帧归一化或首尾帧模式；当前不会把 `aspectRatio` 作为无效厂商参数下发。 |
+| `executor_vidu_default` | viduq3-turbo | 可执行 | 当前按 3/5/8 秒片段规划。Vidu 图生视频比例跟随输入图/首帧；中台会在固定画幅执行前自动生成并归一化首帧，再把该首帧作为视频参考图。`aspectRatio` 不会作为无效厂商参数下发。 |
 | 待定 | Vidu 一键营销成片 Agent | 待接入 | 需要单独接口/参数，不混入当前单段视频按钮。 |
 | 待定 | Vidu 视频复刻 Agent | 待接入 | 需要参考视频输入、复刻策略和版权/风格风险提示。 |
 | 待定 | viduq3-ad / reference2video | 待接入 | 需要多参考图和广告模型参数，不伪装为当前已完成能力。 |
@@ -1820,6 +1820,15 @@ X-PODI-API-Key: podi_xxx
 | `resultPayload.videoAssetPackage.segmentVideos` | 分段视频素材，单段成功和失败必须分别记录。 |
 | `resultPayload.videoAssetPackage.composition` | 可选合成片状态。合成失败不得覆盖已成功的分段素材。 |
 | `videoUrls` | 兼容字段，包含已成功的视频素材或合成片 URL；业务方需要完整结构时读取 `resultPayload.videoAssetPackage`。 |
+
+Vidu 固定画幅执行补充字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `resultPayload.videoPlan.aspectPolicy.mode` | 执行后为 `normalized_first_frame`，表示已用归一化首帧驱动视频生成。 |
+| `resultPayload.videoPlan.aspectPolicy.generatedFirstFrameUrls` | 本次执行生成并上传 OSS 的首帧 URL。 |
+| `resultPayload.videoAssetPackage.keyframes[].source` | 当前为 `gpt_image_2_plus_canvas_normalization`，表示 GPT Image 2 生成后又经过画布归一化。 |
+| `resultPayload.videoAssetPackage.segmentVideos[].referenceImageUrl` | 实际提交给视频供应商的参考图。Vidu 固定画幅时应为归一化首帧 URL，而不是原始产品图。 |
 
 提交成功响应只代表任务已进入中台统一运行表：
 
@@ -1944,6 +1953,7 @@ X-PODI-API-Key: podi_xxx
 - `PRODUCT_COMMERCIALIZATION_VIDEO_ASSET_PLAN_FAILED`
 - `PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED`
 - `PRODUCT_COMMERCIALIZATION_VIDEO_ASPECT_REQUIRES_KEYFRAME`
+- `PRODUCT_COMMERCIALIZATION_FIRST_FRAME_GENERATION_FAILED`
 - `PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY`
 - `PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED`
 - `PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED`

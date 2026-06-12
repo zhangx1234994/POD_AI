@@ -1,10 +1,12 @@
 import json
 import time
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.main import app
 from app.models.integration import BusinessRun
@@ -969,7 +971,9 @@ def test_product_commercialization_preview_uses_vidu_duration_profile() -> None:
     assert [shot["durationSeconds"] for shot in video_plan["storyboard"]] == [8, 5]
     assert [shot["keepSeconds"] for shot in video_plan["storyboard"]] == [8, 5]
     assert video_plan["compositionPlan"]["segmentDurations"] == [8, 5]
-    assert any(item["asset"] == "normalized_first_frame" for item in video_plan["assetNeeds"])
+    normalized_need = next(item for item in video_plan["assetNeeds"] if item["asset"] == "normalized_first_frame")
+    assert normalized_need["required"] is True
+    assert normalized_need["available"] is False
 
 
 def test_product_commercialization_preview_accepts_multi_product_images() -> None:
@@ -1371,6 +1375,7 @@ def test_product_commercialization_video_uses_user_edited_prompt(monkeypatch) ->
 def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> None:
     service = ProductCommercializationService()
     captured = {}
+    frame_calls = []
 
     def fake_run_vidu_video_task(**kwargs):
         captured.update(kwargs)
@@ -1389,6 +1394,26 @@ def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> N
         SimpleNamespace(run_vidu_video_task=fake_run_vidu_video_task),
     )
 
+    def fake_generate_normalized_first_frame(**kwargs):
+        frame_calls.append(kwargs)
+        return {
+            "role": "normalized_first_frame",
+            "status": "succeeded",
+            "shot": kwargs["segment_index"],
+            "segmentIndex": kwargs["segment_index"],
+            "source": "gpt_image_2_plus_canvas_normalization",
+            "provider": "openai",
+            "model": "gpt-image-2",
+            "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/first-frame-16x9.png",
+            "rawImageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/raw-first-frame.png",
+            "sourceImageUrl": kwargs["source_image_url"],
+            "aspectRatio": kwargs["aspect_ratio"],
+            "width": 1280,
+            "height": 720,
+        }
+
+    monkeypatch.setattr(service, "_generate_normalized_first_frame", fake_generate_normalized_first_frame)
+
     result = service.generate_video(
         ProductCommercializationRequest(
             productImageUrl="https://example.com/socks.png",
@@ -1400,19 +1425,69 @@ def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> N
     assert captured["endpoint"] == "/ent/v2/img2video"
     assert captured["status_endpoint"] == "/ent/v2/tasks/{task_id}/creations"
     assert captured["model"] == "viduq3-turbo"
-    assert captured["input_payload"]["images"] == ["https://example.com/socks.png"]
+    assert frame_calls[0]["source_image_url"] == "https://example.com/socks.png"
+    assert frame_calls[0]["aspect_ratio"] == "16:9"
+    assert captured["input_payload"]["images"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/first-frame-16x9.png"]
     assert captured["input_payload"]["duration"] == 5
     assert "aspectRatio" not in captured["input_payload"]
     assert captured["input_payload"]["audio"] is False
     assert captured["input_payload"]["bgm"] is False
     assert result["videoPlan"]["provider"] == "vidu"
     assert result["videoPlan"]["model"] == "viduq3-turbo"
-    assert result["videoPlan"]["aspectPolicy"]["mode"] == "input_image_ratio"
+    assert result["videoPlan"]["aspectPolicy"]["mode"] == "normalized_first_frame"
+    assert result["videoPlan"]["aspectPolicy"]["executionAspectRatio"] == "16:9"
     assert result["videoPlan"]["targetDurationSeconds"] == 5
     assert result["videoResult"]["provider"] == "vidu"
     assert result["videoResult"]["model"] == "viduq3-turbo"
-    assert result["execution"]["costActions"] == ["vidu.viduq3_turbo.video"]
+    assert result["execution"]["imageGenerated"] is True
+    assert result["execution"]["costActions"] == ["openai.gpt_image_2.image", "vidu.viduq3_turbo.video"]
+    assert result["videoAssetPackage"]["keyframes"][0]["imageUrl"].endswith("first-frame-16x9.png")
+    assert result["videoResult"]["segments"][0]["referenceImageUrl"].endswith("first-frame-16x9.png")
+    assert result["videoResult"]["segments"][0]["normalizedFirstFrame"]["width"] == 1280
     assert result["videoResult"]["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/vidu-video.mp4"]
+
+
+def test_product_commercialization_first_frame_canvas_normalizes_to_target_ratio(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    source = Image.new("RGB", (600, 1000), (220, 120, 60))
+    buffer = BytesIO()
+    source.save(buffer, format="PNG")
+    uploads: list[dict[str, object]] = []
+
+    class FakeResponse:
+        content = buffer.getvalue()
+        headers = {"Content-Type": "image/png"}
+
+        def raise_for_status(self):
+            return None
+
+    def fake_upload_generated_image_bytes(**kwargs):
+        uploads.append(kwargs)
+        return {
+            "ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/normalized.png",
+            "ossKey": "normalized.png",
+            "contentType": kwargs["content_type"],
+        }
+
+    monkeypatch.setattr("app.services.product_commercialization.httpx.get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(
+        "app.services.product_commercialization.media_ingest_service.upload_generated_image_bytes",
+        fake_upload_generated_image_bytes,
+    )
+
+    result = service._normalize_first_frame_canvas(
+        image_url="https://example.com/generated-first-frame.png",
+        aspect_ratio="16:9",
+        request_id="req-test",
+        segment_index=1,
+        user_id="tester",
+    )
+
+    uploaded = Image.open(BytesIO(uploads[0]["data"]))
+    assert uploaded.size == (1280, 720)
+    assert result["width"] == 1280
+    assert result["height"] == 720
+    assert result["ossUrl"].endswith("normalized.png")
 
 
 def test_product_commercialization_visual_generation_defaults_to_gpt_image2(monkeypatch) -> None:

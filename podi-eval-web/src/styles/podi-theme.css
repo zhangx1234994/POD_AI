@@ -1100,6 +1100,29 @@ html.t-theme-dark {
   font-size: 12px;
 }
 
+.podi-product-commercialization__keyframes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.podi-product-commercialization__keyframes > div {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+}
+
+.podi-product-commercialization__keyframes img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
 .podi-product-commercialization__video {
   display: grid;
   gap: 10px;

@@ -9,12 +9,14 @@ import shutil
 import subprocess
 import tempfile
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import httpx
 from fastapi import HTTPException
+from PIL import Image, ImageFilter, ImageOps
 
 from app.constants.abilities import DEFAULT_VOLCENGINE_VL_MODEL_ID
 from app.core.config import get_settings
@@ -95,6 +97,8 @@ DEFAULT_VISUAL_ABILITY_ID = "openai_gpt_image_2_edit"
 DEFAULT_VISUAL_PROVIDER = "openai"
 DEFAULT_VISUAL_MODEL = "gpt-image-2"
 DEFAULT_VOLCENGINE_COPY_ABILITY_ID = "volcengine_doubao_seed_2_0_lite"
+FIRST_FRAME_CANVAS_LONG_EDGE = 1280
+FIRST_FRAME_CANVAS_SQUARE = 1024
 VIDEO_MODEL_PROFILES: dict[str, dict[str, Any]] = {
     "kie": {
         "provider": "kie",
@@ -832,10 +836,31 @@ class ProductCommercializationService:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
         if video_plan.get("requiresComposition"):
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY")
+        executor_id = _clean_text(getattr(payload, "executorId", None)) or DEFAULT_KIE_VIDEO_EXECUTOR_ID
+        provider_hint = self._resolve_video_provider(executor_id)
+        reference_image_url = image_url
+        generated_keyframes: list[dict[str, Any]] = []
+        normalized_first_frame: dict[str, Any] | None = None
+        if self._should_generate_normalized_first_frame(provider=provider_hint, video_plan=video_plan):
+            normalized_first_frame = self._generate_normalized_first_frame(
+                source_image_url=image_url,
+                video_plan=video_plan,
+                shot=(video_plan.get("storyboard") or [{}])[0] if isinstance(video_plan.get("storyboard"), list) else {},
+                prompt=prompt,
+                aspect_ratio=video_plan.get("aspectRatio") or "16:9",
+                segment_index=1,
+                request_id=_clean_text(preview.get("requestId")) or f"pcp_{uuid4().hex[:12]}",
+                user_id=user_id or "product-commercialization",
+            )
+            generated_keyframes.append(normalized_first_frame)
+            reference_image_url = _clean_text(normalized_first_frame.get("imageUrl")) or image_url
+            video_plan = self._attach_generated_video_keyframes(video_plan, generated_keyframes)
+            preview["videoPlan"] = video_plan
+            preview["videoAssetPackagePlan"] = self._build_video_asset_package_plan(video_plan)
         result, video_urls = self._generate_segment_with_retry(
-            executor_id=_clean_text(getattr(payload, "executorId", None)) or DEFAULT_KIE_VIDEO_EXECUTOR_ID,
+            executor_id=executor_id,
             prompt=prompt,
-            image_url=image_url,
+            image_url=reference_image_url,
             aspect_ratio=video_plan.get("aspectRatio") or "16:9",
             duration_seconds=int(video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
             poll_timeout=float(getattr(payload, "pollTimeout", None) or 180),
@@ -851,13 +876,18 @@ class ProductCommercializationService:
             video_urls=video_urls,
             prompt=prompt,
             duration_seconds=int(video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
+            reference_image_url=reference_image_url,
+            normalized_first_frame=normalized_first_frame,
         )
         video_asset_package = self._build_video_asset_package(
             video_plan=video_plan,
             segments=[segment],
             composition=None,
             compose_enabled=False,
+            keyframes=generated_keyframes,
         )
+        cost_actions = [self._visual_cost_action(provider=DEFAULT_VISUAL_PROVIDER, model=DEFAULT_VISUAL_MODEL) for _ in generated_keyframes]
+        cost_actions.append(self._video_cost_action(provider=provider, model=model))
         return {
             **preview,
             "status": "succeeded" if status == "succeeded" and video_urls else status,
@@ -877,9 +907,9 @@ class ProductCommercializationService:
             "execution": {
                 "copyGenerated": not bool(preview.get("copyGeneration", {}).get("fallback")),
                 "copyGenerationMethod": preview.get("copyGeneration", {}).get("method"),
-                "imageGenerated": False,
+                "imageGenerated": bool(generated_keyframes),
                 "videoGenerated": bool(video_urls),
-                "costActions": [self._video_cost_action(provider=provider, model=model)],
+                "costActions": cost_actions,
                 "note": "Video generation is an explicit cost action and result assets are persisted to PODI OSS.",
             },
         }
@@ -904,8 +934,10 @@ class ProductCommercializationService:
         compose_requested = _clean_text(getattr(payload, "action", None)).lower() in {"compose_video", "video_compose"}
         default_poll_timeout = max(float(get_settings().kie_task_timeout_seconds), 300.0)
         poll_timeout = float(getattr(payload, "pollTimeout", None) or default_poll_timeout)
+        provider_hint = self._resolve_video_provider(executor_id)
         segment_results: list[dict[str, Any]] = []
         failed_segments: list[dict[str, Any]] = []
+        generated_keyframes: list[dict[str, Any]] = []
         for index, shot in enumerate(storyboard, start=1):
             if not isinstance(shot, dict):
                 continue
@@ -914,11 +946,26 @@ class ProductCommercializationService:
                 raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
             duration = int(shot.get("durationSeconds") or video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS)
             shot_reference_image = _clean_text(_as_record(shot.get("referenceImage")).get("url")) or image_url
+            execution_reference_image = shot_reference_image
+            normalized_first_frame: dict[str, Any] | None = None
+            if self._should_generate_normalized_first_frame(provider=provider_hint, video_plan=video_plan):
+                normalized_first_frame = self._generate_normalized_first_frame(
+                    source_image_url=shot_reference_image,
+                    video_plan=video_plan,
+                    shot=shot,
+                    prompt=prompt,
+                    aspect_ratio=video_plan.get("aspectRatio") or "16:9",
+                    segment_index=index,
+                    request_id=_clean_text(preview.get("requestId")) or f"pcp_{uuid4().hex[:12]}",
+                    user_id=user_id or "product-commercialization",
+                )
+                generated_keyframes.append(normalized_first_frame)
+                execution_reference_image = _clean_text(normalized_first_frame.get("imageUrl")) or shot_reference_image
             try:
                 result, video_urls = self._generate_segment_with_retry(
                     executor_id=executor_id,
                     prompt=prompt,
-                    image_url=shot_reference_image,
+                    image_url=execution_reference_image,
                     aspect_ratio=video_plan.get("aspectRatio") or "16:9",
                     duration_seconds=duration,
                     poll_timeout=poll_timeout,
@@ -963,11 +1010,17 @@ class ProductCommercializationService:
                     video_urls=video_urls,
                     prompt=prompt,
                     duration_seconds=duration,
+                    reference_image_url=execution_reference_image,
+                    normalized_first_frame=normalized_first_frame,
                 )
             )
 
         if not segment_results:
             raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED")
+        if generated_keyframes:
+            video_plan = self._attach_generated_video_keyframes(video_plan, generated_keyframes)
+            preview["videoPlan"] = video_plan
+            preview["videoAssetPackagePlan"] = self._build_video_asset_package_plan(video_plan)
 
         composition: dict[str, Any] | None = None
         composition_error: Any = None
@@ -989,6 +1042,11 @@ class ProductCommercializationService:
         cost_actions = [
             self._video_cost_action(provider=provider, model=model) for provider, model in zip(providers, models)
         ]
+        if generated_keyframes:
+            cost_actions = [
+                self._visual_cost_action(provider=DEFAULT_VISUAL_PROVIDER, model=DEFAULT_VISUAL_MODEL)
+                for _ in generated_keyframes
+            ] + cost_actions
         if compose_requested:
             cost_actions.append("ffmpeg.compose")
         video_asset_package = self._build_video_asset_package(
@@ -997,6 +1055,7 @@ class ProductCommercializationService:
             composition=composition,
             compose_enabled=compose_requested,
             composition_error=composition_error,
+            keyframes=generated_keyframes,
         )
         return {
             **preview,
@@ -1029,7 +1088,7 @@ class ProductCommercializationService:
             "execution": {
                 "copyGenerated": not bool(preview.get("copyGeneration", {}).get("fallback")),
                 "copyGenerationMethod": preview.get("copyGeneration", {}).get("method"),
-                "imageGenerated": False,
+                "imageGenerated": bool(generated_keyframes),
                 "videoGenerated": bool(video_url or segment_results),
                 "costActions": cost_actions,
                 "note": (
@@ -1585,6 +1644,8 @@ class ProductCommercializationService:
         video_urls: list[str],
         prompt: str,
         duration_seconds: int,
+        reference_image_url: str | None = None,
+        normalized_first_frame: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         provider = self._normalize_video_provider(result.get("provider"))
         model = _clean_text(result.get("model")) or _clean_text(shot.get("model")) or (
@@ -1603,6 +1664,8 @@ class ProductCommercializationService:
             "storedAssets": result.get("storedAssets") or [],
             "prompt": prompt,
             "durationSeconds": duration_seconds,
+            "referenceImageUrl": _clean_text(reference_image_url) or None,
+            "normalizedFirstFrame": normalized_first_frame,
             "provider": provider,
             "model": model,
         }
@@ -1640,6 +1703,7 @@ class ProductCommercializationService:
         composition: dict[str, Any] | None,
         compose_enabled: bool,
         composition_error: Any = None,
+        keyframes: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         succeeded_segments = [
             item for item in segments if _clean_text(item.get("status")) == "succeeded" and _clean_text(item.get("videoUrl"))
@@ -1664,7 +1728,7 @@ class ProductCommercializationService:
                 "text": prompt,
             },
             "storyboard": storyboard,
-            "keyframes": [],
+            "keyframes": keyframes or [],
             "segmentVideos": segments,
             "composition": {
                 "enabled": compose_enabled,
@@ -1677,6 +1741,11 @@ class ProductCommercializationService:
             "qualityReview": {
                 "labels": labels,
                 "notes": [
+                    *(
+                        ["Vidu fixed-aspect execution used generated normalized first frames before video submission."]
+                        if keyframes
+                        else []
+                    ),
                     "Generated segment assets are reusable even when final composition is skipped or failed.",
                 ],
             },
@@ -1921,6 +1990,269 @@ class ProductCommercializationService:
             if url.startswith(("http://", "https://")):
                 urls.append(url)
         return urls
+
+    def _should_generate_normalized_first_frame(self, *, provider: str, video_plan: dict[str, Any]) -> bool:
+        if self._normalize_video_provider(provider) != "vidu":
+            return False
+        aspect_policy = _as_record(video_plan.get("aspectPolicy"))
+        return bool(aspect_policy.get("requiresFirstFrameNormalization"))
+
+    def _attach_generated_video_keyframes(
+        self,
+        video_plan: dict[str, Any],
+        keyframes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if not keyframes:
+            return video_plan
+        updated = dict(video_plan)
+        aspect_policy = dict(_as_record(updated.get("aspectPolicy")))
+        generated_urls = [_clean_text(item.get("imageUrl")) for item in keyframes if _clean_text(item.get("imageUrl"))]
+        if aspect_policy:
+            aspect_policy.update(
+                {
+                    "mode": "normalized_first_frame",
+                    "executionAspectRatio": _clean_text(updated.get("aspectRatio")) or aspect_policy.get("requestedAspectRatio"),
+                    "requiresFirstFrameNormalization": True,
+                    "normalizedFirstFrameGenerated": True,
+                    "generatedFirstFrameUrls": generated_urls,
+                    "reason": (
+                        "Vidu execution used generated, canvas-normalized first-frame assets so the submitted "
+                        "reference image matches the target aspect ratio."
+                    ),
+                }
+            )
+            updated["aspectPolicy"] = aspect_policy
+
+        asset_needs: list[dict[str, Any]] = []
+        has_normalized_need = False
+        for item in _as_list(updated.get("assetNeeds")):
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            if _clean_text(normalized.get("asset")) == "normalized_first_frame":
+                has_normalized_need = True
+                normalized.update(
+                    {
+                        "required": True,
+                        "available": True,
+                        "generated": True,
+                        "assetUrls": generated_urls,
+                        "reason": "Generated and normalized before Vidu video execution.",
+                    }
+                )
+            asset_needs.append(normalized)
+        if not has_normalized_need:
+            asset_needs.append(
+                {
+                    "asset": "normalized_first_frame",
+                    "required": True,
+                    "available": True,
+                    "generated": True,
+                    "assetUrls": generated_urls,
+                    "reason": "Generated and normalized before Vidu video execution.",
+                }
+            )
+        updated["assetNeeds"] = asset_needs
+        updated["generatedKeyframes"] = keyframes
+        return updated
+
+    def _generate_normalized_first_frame(
+        self,
+        *,
+        source_image_url: str,
+        video_plan: dict[str, Any],
+        shot: dict[str, Any],
+        prompt: str,
+        aspect_ratio: str,
+        segment_index: int,
+        request_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        first_frame_prompt = self._build_normalized_first_frame_prompt(
+            video_plan=video_plan,
+            shot=shot,
+            prompt=prompt,
+            aspect_ratio=aspect_ratio,
+            segment_index=segment_index,
+        )
+        try:
+            result = self._generate_visual_image(
+                product_image_url=source_image_url,
+                prompt=first_frame_prompt,
+                negative_prompt=(
+                    "text, watermark, logo, price tag, black bars, letterbox, pillarbox, border, frame, "
+                    "cropped product, deformed product, wrong product category"
+                ),
+                user_id=user_id,
+                metadata={
+                    "businessKey": "product_commercialization",
+                    "source": "product_commercialization.video_normalized_first_frame",
+                    "visualRoute": "image2_video_first_frame",
+                    "segmentIndex": segment_index,
+                    "aspectRatio": aspect_ratio,
+                    "executionProvider": "vidu",
+                },
+            )
+            raw_urls = self._extract_image_urls(result)
+            raw_url = raw_urls[0] if raw_urls else ""
+            if not raw_url:
+                raise RuntimeError("GPT Image 2 did not return a usable first-frame URL")
+            normalized = self._normalize_first_frame_canvas(
+                image_url=raw_url,
+                aspect_ratio=aspect_ratio,
+                request_id=request_id,
+                segment_index=segment_index,
+                user_id=user_id,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 - fail closed before paid video execution
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "PRODUCT_COMMERCIALIZATION_FIRST_FRAME_GENERATION_FAILED",
+                    "segment": segment_index,
+                    "error": str(exc),
+                },
+            ) from exc
+        image_url = _clean_text(normalized.get("ossUrl") or normalized.get("url"))
+        return {
+            "role": "normalized_first_frame",
+            "status": "succeeded",
+            "shot": segment_index,
+            "segmentIndex": segment_index,
+            "source": "gpt_image_2_plus_canvas_normalization",
+            "provider": DEFAULT_VISUAL_PROVIDER,
+            "model": DEFAULT_VISUAL_MODEL,
+            "taskId": result.get("taskId"),
+            "imageUrl": image_url,
+            "ossUrl": image_url,
+            "rawImageUrl": raw_url,
+            "sourceImageUrl": source_image_url,
+            "aspectRatio": aspect_ratio,
+            "width": normalized.get("width"),
+            "height": normalized.get("height"),
+            "prompt": first_frame_prompt,
+            "normalization": {
+                "mode": "cover_blur_background_contain_product",
+                "contentType": normalized.get("contentType"),
+                "ossKey": normalized.get("ossKey") or normalized.get("objectKey"),
+            },
+        }
+
+    def _build_normalized_first_frame_prompt(
+        self,
+        *,
+        video_plan: dict[str, Any],
+        shot: dict[str, Any],
+        prompt: str,
+        aspect_ratio: str,
+        segment_index: int,
+    ) -> str:
+        director_brief = _as_record(video_plan.get("directorBrief"))
+        subject = _clean_text(shot.get("subject") or director_brief.get("productUnderstanding")) or "the supplied product"
+        scene = _clean_text(shot.get("scene")) or "clean ecommerce video opening frame"
+        goal = _clean_text(shot.get("goal")) or _clean_text(director_brief.get("commercialGoal"))
+        composition = _clean_text(shot.get("composition")) or "product centered with the full item visible"
+        first_frame = _clean_text(shot.get("firstFramePrompt")) or prompt
+        return (
+            f"Create the exact first frame for segment {segment_index} of a POD ecommerce product video. "
+            f"Target aspect ratio: {aspect_ratio}. Subject: {subject}. Scene: {scene}. "
+            f"Goal: {goal or 'show the product clearly for commercial use'}. Composition: {composition}. "
+            f"Frame direction: {first_frame}. Use the supplied product image as the highest-priority factual anchor. "
+            "Preserve the visible product shape, pattern, color, material, and category. "
+            "Keep the whole product readable and suitable as the first frame for image-to-video generation. "
+            "Fill the entire canvas; no letterboxing, pillarboxing, black bars, borders, text, watermark, logo, or price tag."
+        )
+
+    def _normalize_first_frame_canvas(
+        self,
+        *,
+        image_url: str,
+        aspect_ratio: str,
+        request_id: str,
+        segment_index: int,
+        user_id: str,
+    ) -> dict[str, Any]:
+        width, height = self._target_dimensions_for_aspect_ratio(aspect_ratio)
+        try:
+            response = httpx.get(image_url, timeout=60)
+            response.raise_for_status()
+            source = Image.open(BytesIO(response.content))
+            source = ImageOps.exif_transpose(source)
+            source_rgba = source.convert("RGBA")
+            white = Image.new("RGBA", source_rgba.size, (250, 250, 250, 255))
+            source_rgb = Image.alpha_composite(white, source_rgba).convert("RGB")
+            resample_filter = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+            background = ImageOps.fit(source_rgb, (width, height), method=resample_filter, centering=(0.5, 0.5))
+            blur_radius = max(12, int(max(width, height) / 80))
+            background = background.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+            foreground = ImageOps.contain(
+                source_rgb,
+                (int(width * 0.9), int(height * 0.9)),
+                method=resample_filter,
+            )
+            canvas = background.copy()
+            x = int((width - foreground.width) / 2)
+            y = int((height - foreground.height) / 2)
+            canvas.paste(foreground, (x, y))
+            output = BytesIO()
+            canvas.save(output, format="PNG", optimize=True)
+            data = output.getvalue()
+            filename_ratio = (_clean_text(aspect_ratio) or "16:9").replace(":", "x").replace("/", "x")
+            uploaded = media_ingest_service.upload_generated_image_bytes(
+                data=data,
+                user_id=user_id or "product-commercialization",
+                filename=f"{request_id}-segment-{segment_index:02d}-first-frame-{filename_ratio}.png",
+                content_type="image/png",
+                tag="product-commercialization-video-first-frame",
+            )
+        except Exception as exc:  # noqa: BLE001 - convert to stable API error
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "PRODUCT_COMMERCIALIZATION_FIRST_FRAME_GENERATION_FAILED",
+                    "segment": segment_index,
+                    "error": str(exc),
+                },
+            ) from exc
+        return {
+            **uploaded,
+            "width": width,
+            "height": height,
+            "aspectRatio": aspect_ratio,
+        }
+
+    @staticmethod
+    def _target_dimensions_for_aspect_ratio(aspect_ratio: str) -> tuple[int, int]:
+        ratio = _clean_text(aspect_ratio) or "16:9"
+        presets = {
+            "16:9": (1280, 720),
+            "9:16": (720, 1280),
+            "1:1": (FIRST_FRAME_CANVAS_SQUARE, FIRST_FRAME_CANVAS_SQUARE),
+            "4:5": (1024, 1280),
+            "5:4": (1280, 1024),
+            "3:4": (960, 1280),
+            "4:3": (1280, 960),
+        }
+        if ratio in presets:
+            return presets[ratio]
+        match = re.match(r"^\s*(\d+(?:\.\d+)?)\s*[:x/]\s*(\d+(?:\.\d+)?)\s*$", ratio)
+        if not match:
+            return presets["16:9"]
+        width_part = float(match.group(1))
+        height_part = float(match.group(2))
+        if width_part <= 0 or height_part <= 0:
+            return presets["16:9"]
+        if width_part >= height_part:
+            width = FIRST_FRAME_CANVAS_LONG_EDGE
+            height = int(round(width * height_part / width_part))
+        else:
+            height = FIRST_FRAME_CANVAS_LONG_EDGE
+            width = int(round(height * width_part / height_part))
+        width = max(2, int(round(width / 2) * 2))
+        height = max(2, int(round(height / 2) * 2))
+        return width, height
 
 
     def _generate_segment_with_retry(
@@ -3523,9 +3855,9 @@ class ProductCommercializationService:
             asset_needs.append(
                 {
                     "asset": "normalized_first_frame",
-                    "required": False,
+                    "required": True,
                     "available": False,
-                    "reason": "Required when the final video must strictly match a target aspect ratio; Vidu single-reference generation otherwise follows the uploaded image ratio.",
+                    "reason": "Required before Vidu execution when the final video must match the requested aspect ratio; the generated first frame is normalized to the target canvas.",
                 }
             )
         return {
