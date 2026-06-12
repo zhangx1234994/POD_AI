@@ -388,8 +388,8 @@ export type Product3DRenderVideoRequest = {
     label?: string;
   }>;
   materialSlot?: string;
-  cameraPreset?: 'orbit_360' | 'slow_push_in' | 'detail_sweep';
-  scenePreset?: 'clean_studio' | 'marketplace_white' | 'premium_dark';
+  cameraPreset?: 'orbit_360' | 'slow_push_in' | 'detail_sweep' | 'hero_turntable' | 'top_reveal' | 'social_arc';
+  scenePreset?: 'clean_studio' | 'marketplace_white' | 'premium_dark' | 'desktop_lifestyle' | 'gift_table' | 'retail_shelf';
   durationSeconds?: number;
   aspectRatio?: string;
   outputMode?: 'plan_only';

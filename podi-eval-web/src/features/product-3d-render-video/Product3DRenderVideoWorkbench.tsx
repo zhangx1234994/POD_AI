@@ -9,8 +9,8 @@ import type { Product3DRenderVideoRequest, Product3DRenderVideoResponse } from '
 
 type WorkStatus = 'idle' | 'uploading' | 'previewing';
 type ModelKey = 'cup_1660' | 'backpack_2551';
-type CameraPreset = 'orbit_360' | 'slow_push_in' | 'detail_sweep';
-type ScenePreset = 'clean_studio' | 'marketplace_white' | 'premium_dark';
+type CameraPreset = 'orbit_360' | 'slow_push_in' | 'detail_sweep' | 'hero_turntable' | 'top_reveal' | 'social_arc';
+type ScenePreset = 'clean_studio' | 'marketplace_white' | 'premium_dark' | 'desktop_lifestyle' | 'gift_table' | 'retail_shelf';
 type SlotTextureState = Record<string, string>;
 type TextureSlotEntry = { materialSlot: string; imageUrl: string; label: string };
 type PreviewStatus = { state: 'loading' | 'ready' | 'error'; message: string };
@@ -100,17 +100,25 @@ const SLOT_LABELS: Record<string, string> = {
   else1: '其他材质 2',
 };
 
-const CAMERA_OPTIONS = [
-  { label: '360 环绕', value: 'orbit_360' },
-  { label: '慢速推进', value: 'slow_push_in' },
-  { label: '细节扫过', value: 'detail_sweep' },
+const CAMERA_OPTIONS: Array<{ label: string; value: CameraPreset; desc: string }> = [
+  { label: '360 环绕', value: 'orbit_360', desc: '商品完整转一圈，验证轮廓和贴图连续性。' },
+  { label: '主视觉转台', value: 'hero_turntable', desc: '更稳的商品页首屏动效，适合主视觉视频。' },
+  { label: '慢速推进', value: 'slow_push_in', desc: '从全景推进到主贴图区，突出商品主体。' },
+  { label: '细节扫过', value: 'detail_sweep', desc: '横向扫过材质和贴图，适合细节展示。' },
+  { label: '俯拍揭示', value: 'top_reveal', desc: '从顶部结构过渡到正面，适合杯子和包袋。' },
+  { label: '社媒弧线', value: 'social_arc', desc: '节奏更快的弧形推拉，适合短视频素材。' },
 ];
 
-const SCENE_OPTIONS = [
-  { label: '干净摄影棚', value: 'clean_studio' },
-  { label: '电商白底', value: 'marketplace_white' },
-  { label: '深色质感棚', value: 'premium_dark' },
+const SCENE_OPTIONS: Array<{ label: string; value: ScenePreset; desc: string }> = [
+  { label: '干净摄影棚', value: 'clean_studio', desc: '中性背景，适合通用质检和展示。' },
+  { label: '电商白底', value: 'marketplace_white', desc: '平台商品图风格，不加道具。' },
+  { label: '深色质感棚', value: 'premium_dark', desc: '轮廓光和深色背景，强调质感。' },
+  { label: '桌面生活场景', value: 'desktop_lifestyle', desc: '产品放到桌面场景，适合杯子/办公用品。' },
+  { label: '礼品桌面场景', value: 'gift_table', desc: '轻道具礼品氛围，不遮挡商品。' },
+  { label: '货架陈列场景', value: 'retail_shelf', desc: '模拟市场端陈列素材，避免虚假包装信息。' },
 ];
+const CAMERA_OPTION_MAP = Object.fromEntries(CAMERA_OPTIONS.map((item) => [item.value, item]));
+const SCENE_OPTION_MAP = Object.fromEntries(SCENE_OPTIONS.map((item) => [item.value, item]));
 
 const DURATION_OPTIONS = [3, 5, 6, 8, 12].map((seconds) => ({ label: `${seconds} 秒`, value: String(seconds) }));
 
@@ -200,6 +208,29 @@ function applyCameraMotion(
       Math.max(1.9, originalPosition.z - 0.25),
     );
     controls.target.set(originalTarget.x + Math.cos(eased * Math.PI * 2) * 0.08, originalTarget.y + 0.04, originalTarget.z);
+    return;
+  }
+  if (preset === 'hero_turntable') {
+    const radius = Math.max(2.65, originalPosition.length());
+    const angle = -0.55 + eased * 1.1;
+    camera.position.set(Math.sin(angle) * radius * 0.52, originalPosition.y + 0.08, Math.cos(angle) * radius * 0.78);
+    controls.target.copy(originalTarget);
+    return;
+  }
+  if (preset === 'top_reveal') {
+    camera.position.set(
+      originalPosition.x * (1 - eased),
+      originalPosition.y + (1 - eased) * 1.05 + eased * 0.12,
+      Math.max(2.15, originalPosition.z - eased * 0.45),
+    );
+    controls.target.set(originalTarget.x, originalTarget.y + (1 - eased) * 0.28, originalTarget.z);
+    return;
+  }
+  if (preset === 'social_arc') {
+    const radius = Math.max(2.35, originalPosition.length());
+    const angle = -0.85 + eased * 1.7;
+    camera.position.set(Math.sin(angle) * radius * 0.64, originalPosition.y + Math.sin(eased * Math.PI) * 0.16, Math.cos(angle) * radius * 0.72);
+    controls.target.set(originalTarget.x, originalTarget.y + 0.03, originalTarget.z);
     return;
   }
   const radius = Math.max(2.25, originalPosition.length());
@@ -853,8 +884,8 @@ export function Product3DRenderVideoWorkbench() {
           <section className="podi-product-commercialization__stage-panel">
             <div className="podi-product-commercialization__stage-title">
               <span>STEP 4</span>
-              <Typography.Title level="h4">选择渲染预设</Typography.Title>
-              <Typography.Text theme="secondary">这些是确定性参数，不是大模型提示词。</Typography.Text>
+              <Typography.Title level="h4">选择拍摄模板并生成视频</Typography.Title>
+              <Typography.Text theme="secondary">这些是确定性拍摄参数，不是大模型提示词；选完即可录制当前 3D 画面。</Typography.Text>
             </div>
             <div className="podi-product-commercialization__controls">
               <Select label="镜头" value={cameraPreset} onChange={(v) => setCameraPreset(String(v) as CameraPreset)} options={CAMERA_OPTIONS} />
@@ -867,9 +898,19 @@ export function Product3DRenderVideoWorkbench() {
               />
               <Input label="比例" value={aspectRatio} onChange={(v) => setAspectRatio(String(v))} />
             </div>
+            <div className="podi-product-3d-render__preset-summary">
+              <div>
+                <Typography.Text strong>镜头模板 · {CAMERA_OPTION_MAP[cameraPreset]?.label || cameraPreset}</Typography.Text>
+                <Typography.Text theme="secondary">{CAMERA_OPTION_MAP[cameraPreset]?.desc || '按当前镜头路径录制。'}</Typography.Text>
+              </div>
+              <div>
+                <Typography.Text strong>场景模型 · {SCENE_OPTION_MAP[scenePreset]?.label || scenePreset}</Typography.Text>
+                <Typography.Text theme="secondary">{SCENE_OPTION_MAP[scenePreset]?.desc || '按当前场景摆放商品。'}</Typography.Text>
+              </div>
+            </div>
             <div className="podi-product-3d-render__video-actions">
               <Button theme="primary" loading={status === 'previewing'} onClick={() => void previewPlan()}>
-                检查 3D 贴图方案
+                1. 检查 3D 贴图方案
               </Button>
               <Button
                 theme="success"
@@ -877,17 +918,13 @@ export function Product3DRenderVideoWorkbench() {
                 disabled={!previewHandle || videoExportStatus === 'recording'}
                 onClick={() => void exportLocalPreviewVideo()}
               >
-                生成 {durationSeconds}s 本地预览视频
+                2. 生成并预览 {durationSeconds}s WebM
               </Button>
-              {localVideo ? (
-                <Button variant="outline" onClick={() => window.open(localVideo.url, '_blank', 'noreferrer')}>
-                  打开视频
-                </Button>
-              ) : null}
             </div>
             <Typography.Text theme="secondary">
               “检查方案”只校验资产和参数；“生成本地预览视频”会直接录制当前 Three.js 画面，生成可下载 WebM。
             </Typography.Text>
+            {localVideoPanel}
           </section>
 
           <section className="podi-product-commercialization__stage-panel">
@@ -898,7 +935,6 @@ export function Product3DRenderVideoWorkbench() {
             </div>
             {!result ? (
               <Space direction="vertical" size="medium" style={{ width: '100%' }}>
-                {localVideoPanel}
                 <div className="podi-product-commercialization__empty">
                   <Typography.Text theme="secondary">还没有方案检查结果。完成模型、贴图区域和贴图输入后点击检查。</Typography.Text>
                 </div>
@@ -950,7 +986,6 @@ export function Product3DRenderVideoWorkbench() {
                     <small>{durationSeconds}s · {aspectRatio}</small>
                   </div>
                 </div>
-                {localVideoPanel}
                 {issues.length > 0 ? (
                   <div className="podi-product-commercialization__review-list">
                     {issues.map((issue, index) => (

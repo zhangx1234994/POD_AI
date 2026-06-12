@@ -1246,6 +1246,21 @@ html.t-theme-dark {
   align-items: center;
 }
 
+.podi-product-3d-render__preset-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.podi-product-3d-render__preset-summary > div {
+  display: grid;
+  gap: 4px;
+  min-height: 82px;
+  padding: 12px;
+  border-left: 3px solid var(--td-brand-color);
+  background: var(--td-bg-color-secondarycontainer);
+}
+
 .podi-product-3d-render__video-output {
   display: grid;
   gap: 12px;
@@ -1289,6 +1304,46 @@ html.t-theme-dark {
   color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.podi-product-commercialization__planner-evidence {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.podi-product-commercialization__planner-evidence > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.podi-product-commercialization__planner-evidence .t-alert {
+  grid-column: 1 / -1;
+}
+
+.podi-product-commercialization__director-brief {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.podi-product-commercialization__director-brief > div,
+.podi-product-commercialization__keyframe-list > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-left: 3px solid var(--td-brand-color);
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.podi-product-commercialization__keyframe-list {
+  display: grid;
+  gap: 8px;
 }
 
 .podi-product-commercialization__copy-list {
@@ -1552,8 +1607,11 @@ html.t-theme-dark {
 
   .podi-product-commercialization__execution-plan,
   .podi-product-commercialization__planning-field-meta,
+  .podi-product-commercialization__planner-evidence,
+  .podi-product-commercialization__director-brief,
   .podi-product-3d-render__active-texture,
-  .podi-product-3d-render__texture-table > div {
+  .podi-product-3d-render__texture-table > div,
+  .podi-product-3d-render__preset-summary {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -1783,6 +1783,44 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                           <span>参考图 {String(videoReferenceImageSet.count || productImagesForPayload.length || 0)}</span>
                           <span>{asArray(videoPlan.storyboard).length || 1} 个镜头</span>
                         </div>
+                        {(() => {
+                          const planner = asRecord(videoPlan.planner);
+                          const fallback = planner.fallback === true;
+                          return (
+                            <div className="podi-product-commercialization__planner-evidence">
+                              <div>
+                                <Typography.Text strong>规划器证据</Typography.Text>
+                                <Typography.Text theme="secondary">
+                                  {String(planner.provider || 'internal')} · {String(planner.model || '-')} · {String(planner.method || '-')}
+                                </Typography.Text>
+                              </div>
+                              <Tag theme={fallback ? 'warning' : 'success'} variant="light">
+                                {fallback ? '模板兜底' : '模型规划'}
+                              </Tag>
+                              {fallback ? (
+                                <Alert theme="warning" message="当前没有成功调用 LLM/VL 规划器；该结果只能用于排障和交互验证，不能作为最终视频方法论验收。" />
+                              ) : null}
+                            </div>
+                          );
+                        })()}
+                        {(() => {
+                          const brief = asRecord(videoPlan.directorBrief);
+                          return Object.keys(brief).length > 0 ? (
+                            <div className="podi-product-commercialization__director-brief">
+                              {[
+                                { label: '商品理解', value: brief.productUnderstanding },
+                                { label: '商业目标', value: brief.commercialGoal },
+                                { label: '视觉风格', value: brief.visualStyle },
+                                { label: '连续性规则', value: brief.continuityRule },
+                              ].map((item) => (
+                                <div key={item.label}>
+                                  <Typography.Text theme="secondary">{item.label}</Typography.Text>
+                                  <Typography.Text>{String(item.value || '-')}</Typography.Text>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
                         {Object.keys(videoAssetPackagePlan).length > 0 ? (
                           <div className="podi-product-commercialization__package-flow" aria-label="视频素材包阶段">
                             {[
@@ -1806,15 +1844,37 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                             return (
                               <div key={`${String(shot.label || 'shot')}-${index}`}>
                                 <strong>镜头 {String(shot.shot || index + 1)} · {String(shot.label || '商品镜头')}</strong>
-                                <span>{String(shot.goal || shot.camera || '')}</span>
+                                <span>{String(shot.goal || '')}</span>
+                                <span>场景：{String(shot.scene || '-')} · 镜头：{String(shot.cameraMovement || shot.camera || '-')}</span>
                                 <small>
                                   {String(shot.keepSeconds || shot.durationSeconds || SEGMENT_SECONDS)}s · {String(shot.subject || '产品主体')}
                                   {referenceImage.role ? ` · 参考 ${String(referenceImage.role)}` : ''}
                                 </small>
+                                {shot.firstFramePrompt || shot.lastFramePrompt ? (
+                                  <small>
+                                    首帧：{String(shot.firstFramePrompt || '-')} / 尾帧：{String(shot.lastFramePrompt || '-')}
+                                  </small>
+                                ) : null}
                               </div>
                             );
                           })}
                         </div>
+                        {asArray(videoAssetPackagePlan.keyframeNeeds).length > 0 ? (
+                          <div className="podi-product-commercialization__keyframe-list">
+                            <Typography.Text strong>首尾帧 / 关键帧计划</Typography.Text>
+                            {asArray(videoAssetPackagePlan.keyframeNeeds)
+                              .slice(0, 6)
+                              .map((item, index) => {
+                                const keyframe = asRecord(item);
+                                return (
+                                  <div key={`${String(keyframe.role || 'frame')}-${index}`}>
+                                    <Typography.Text>{String(keyframe.role || '关键帧')} · 镜头 {String(keyframe.shot || '-')}</Typography.Text>
+                                    <Typography.Text theme="secondary">{String(keyframe.prompt || keyframe.reason || '-')}</Typography.Text>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        ) : null}
                         <Textarea
                           value={videoPromptDraft || String(videoPlan.videoPrompt || '')}
                           onChange={(value) => {

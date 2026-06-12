@@ -69,6 +69,18 @@ test('product video workbench previews a material package without triggering pai
           videoPlan: {
             provider: 'vidu',
             model: 'viduq3-turbo',
+            planner: {
+              method: 'openai_responses',
+              provider: 'openai',
+              model: 'gpt-5.5',
+              fallback: false,
+            },
+            directorBrief: {
+              productUnderstanding: 'A floral ceramic travel mug with visible handle and wraparound print.',
+              commercialGoal: 'Create reusable marketplace and social video material for overseas gift buyers.',
+              visualStyle: 'Clean ecommerce lighting with soft lifestyle cues.',
+              continuityRule: 'Keep mug shape, handle position, floral print and ceramic material consistent across shots.',
+            },
             targetDurationSeconds: 15,
             aspectRatio: '16:9',
             aspectPolicy: { mode: 'input_image_ratio', executionAspectRatio: 'input_image_ratio' },
@@ -80,6 +92,11 @@ test('product video workbench previews a material package without triggering pai
                 goal: 'Show the complete mug silhouette and floral print.',
                 keepSeconds: 8,
                 subject: 'Floral ceramic travel mug',
+                scene: 'bright kitchen tabletop with clean commercial background',
+                cameraMovement: 'slow clockwise tabletop orbit',
+                firstFramePrompt: 'Front hero frame of the floral ceramic travel mug on a clean tabletop.',
+                lastFramePrompt: 'Three-quarter view that keeps the handle and wraparound floral print visible.',
+                negativePrompt: 'no text, no watermark, no logo, no product deformation',
                 referenceImage: { role: 'primary', url: FRONT_IMAGE },
               },
               {
@@ -88,6 +105,11 @@ test('product video workbench previews a material package without triggering pai
                 goal: 'Show the handle and wraparound pattern continuity.',
                 keepSeconds: 5,
                 subject: 'Mug handle and back print',
+                scene: 'same tabletop, closer crop around handle',
+                cameraMovement: 'slow push from back angle to handle detail',
+                firstFramePrompt: 'Back-side frame showing mug handle and floral print continuity.',
+                lastFramePrompt: 'Close frame on ceramic handle and print edge.',
+                negativePrompt: 'no text, no watermark, no logo, no unrealistic liquid',
                 referenceImage: { role: 'back', url: BACK_IMAGE },
               },
               {
@@ -96,6 +118,11 @@ test('product video workbench previews a material package without triggering pai
                 goal: 'Close-up on ceramic surface and printed detail.',
                 keepSeconds: 3,
                 subject: 'Ceramic texture',
+                scene: 'macro commercial detail scene with neutral light',
+                cameraMovement: 'micro lateral slide across printed surface',
+                firstFramePrompt: 'Macro frame of ceramic surface and printed floral detail.',
+                lastFramePrompt: 'Final clean macro frame with print texture still sharp.',
+                negativePrompt: 'no text, no watermark, no logo, no blur',
                 referenceImage: { role: 'detail', url: DETAIL_IMAGE },
               },
             ],
@@ -103,9 +130,16 @@ test('product video workbench previews a material package without triggering pai
               'Create a 15-second POD product showcase video for a floral ceramic travel mug. Preserve product shape, color, and print. No text, watermark, logo, or price tag.',
           },
           videoAssetPackagePlan: {
-            script: { status: 'draft' },
+            script: { status: 'draft', planner: { method: 'openai_responses', fallback: false } },
             storyboard: [{ shot: 1 }, { shot: 2 }, { shot: 3 }],
-            keyframeNeeds: [{ role: 'first_frame', reason: 'Anchor the first product view.' }],
+            keyframeNeeds: [
+              {
+                role: 'first_frame',
+                shot: 1,
+                prompt: 'Front hero keyframe of the floral ceramic travel mug, clean ecommerce lighting.',
+                reason: 'Anchor the first product view.',
+              },
+            ],
             compositionPlan: { availableAsOptionalAction: true },
           },
           review: {
@@ -138,6 +172,8 @@ test('product video workbench previews a material package without triggering pai
   await expect(page.getByRole('heading', { name: '产品视频素材包' })).toBeVisible();
   await expect(page.getByText('产品文案内容包')).toHaveCount(0);
   await expect(page.getByText('预览只生成视频脚本、分镜和执行参数')).toBeVisible();
+  await expect(page.getByRole('button', { name: /核对商品与视频策略/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /确认商品事实/ })).toHaveCount(0);
 
   const stageMain = page.locator('.podi-product-commercialization__stage-main');
   await stageMain.getByPlaceholder('https://...').fill(FRONT_IMAGE);
@@ -158,12 +194,17 @@ test('product video workbench previews a material package without triggering pai
 
   await expect(stageMain.getByText('确认脚本与分镜')).toBeVisible();
   await expect(stageMain.getByText('视频规划')).toBeVisible();
+  await expect(stageMain.getByText('规划器证据')).toBeVisible();
+  await expect(stageMain.getByText('模型规划')).toBeVisible();
+  await expect(stageMain.getByText('商品理解')).toBeVisible();
   await expect(stageMain.getByText('脚本', { exact: true })).toBeVisible();
   await expect(stageMain.getByText('分镜', { exact: true })).toBeVisible();
   await expect(stageMain.getByText('关键帧', { exact: true })).toBeVisible();
   await expect(stageMain.getByText('分段视频', { exact: true })).toBeVisible();
   await expect(stageMain.getByText('合成片', { exact: true })).toBeVisible();
   await expect(stageMain.getByText('镜头 1 · Hero rotation')).toBeVisible();
+  await expect(stageMain.getByText(/首帧：Front hero frame/)).toBeVisible();
+  await expect(stageMain.getByText('首尾帧 / 关键帧计划')).toBeVisible();
 
   await expect(stageMain.getByText('生成 15s 分段视频素材包', { exact: true })).toBeVisible();
   await stageMain.getByLabel('我已核对当前脚本和分镜；按当前稿提交视频素材包任务。').check();

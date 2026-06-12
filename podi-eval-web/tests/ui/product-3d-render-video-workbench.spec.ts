@@ -115,7 +115,10 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await expect(stageMain.getByText('准备度', { exact: true })).toBeVisible();
   await expect(stageMain.getByText('渲染 worker', { exact: true })).toBeVisible();
 
-  await stageMain.getByRole('button', { name: '生成 6s 本地预览视频' }).click();
+  await expect(stageMain.getByText('选择拍摄模板并生成视频')).toBeVisible();
+  await expect(stageMain.getByText(/镜头模板/)).toBeVisible();
+  await expect(stageMain.getByText(/场景模型/)).toBeVisible();
+  await stageMain.getByRole('button', { name: '2. 生成并预览 6s WebM' }).click();
   await expect(stageMain.getByText(/KB · WebM/)).toBeVisible({ timeout: 15_000 });
   await expect(stageMain.locator('video')).toBeVisible();
   await expect(stageMain.getByRole('button', { name: '下载 WebM' })).toBeVisible();

@@ -755,6 +755,19 @@ def test_product_commercialization_preview_plans_long_video_segments() -> None:
     assert video_plan["totalGeneratedSeconds"] == 16
     assert video_plan["requiresComposition"] is True
     assert [shot["keepSeconds"] for shot in video_plan["storyboard"]] == [8, 7]
+    assert video_plan["planner"]["method"]
+    assert video_plan["planner"]["provider"]
+    assert video_plan["directorBrief"]["productUnderstanding"]
+    assert video_plan["directorBrief"]["commercialGoal"]
+    assert video_plan["negativePrompt"]
+    assert video_plan["vendorExecutionNotes"]
+    assert video_plan["riskChecks"]
+    for shot in video_plan["storyboard"]:
+        assert shot["scene"]
+        assert shot["cameraMovement"]
+        assert shot["firstFramePrompt"]
+        assert shot["lastFramePrompt"]
+        assert shot["negativePrompt"]
     assert video_plan["compositionPlan"]["status"] == "planned_ready_for_compose_endpoint"
     assert video_plan["compositionPlan"]["executionReady"] is True
     assert video_plan["compositionPlan"]["costActionPreview"] == [
@@ -762,6 +775,10 @@ def test_product_commercialization_preview_plans_long_video_segments() -> None:
         "kie.veo3_fast.video",
         "ffmpeg.compose",
     ]
+    keyframe_needs = result["videoAssetPackagePlan"]["keyframeNeeds"]
+    assert keyframe_needs
+    assert keyframe_needs[0]["role"] in {"first_frame", "last_frame"}
+    assert keyframe_needs[0]["prompt"]
 
 
 def test_product_commercialization_video_preview_skips_copy_model(monkeypatch) -> None:
@@ -906,8 +923,8 @@ def test_product_3d_render_video_preview_returns_plan_without_video() -> None:
             modelKey="cup_1660",
             textureImageUrl="https://example.com/pattern.png",
             materialSlot="front",
-            cameraPreset="orbit_360",
-            scenePreset="clean_studio",
+            cameraPreset="hero_turntable",
+            scenePreset="desktop_lifestyle",
             durationSeconds=6,
         )
     )
@@ -917,6 +934,10 @@ def test_product_3d_render_video_preview_returns_plan_without_video() -> None:
     assert result["assetReadiness"]["uvReady"] is True
     assert result["assetReadiness"]["renderWorkerReady"] is False
     assert result["renderPlan"]["executionStatus"] == "preview_only"
+    assert result["renderPlan"]["camera"]["key"] == "hero_turntable"
+    assert result["renderPlan"]["camera"]["motionTemplate"] == "slow_turntable_hero"
+    assert result["renderPlan"]["scene"]["key"] == "desktop_lifestyle"
+    assert result["renderPlan"]["scene"]["placement"]["anchor"] == "front center on tabletop"
     assert result["execution"]["videoGenerated"] is False
 
 

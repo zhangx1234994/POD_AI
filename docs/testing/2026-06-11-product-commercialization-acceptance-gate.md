@@ -28,7 +28,7 @@
 | PCG-03 | 无 JSON 主流程 | 只传产品图，不传 `productFields`，生成文案和视频规划 | 不阻断；结果含 `resolvedProductFacts`、缺失字段/推断来源和置信度；不要求用户必须补 JSON | 114 预览巡检通过 |
 | PCG-04 | 图片/JSON 错配 | 用明显不匹配的产品图和 JSON 生成文案 | 结果区展示冲突；`resolvedProductFacts` 以产品图为准；配图/视频提示需要人工确认风险 | 114 预览巡检通过；兜底冲突提示已补 |
 | PCG-05 | 配图闭环 | 文案结果后点击单张配图和全部组图 | 走 `action=visual_generate`；默认能力为 GPT Image 2；页面展示 runId、状态、OSS 图和错误原因 | 114 真实单张 GPT Image 2 已通过，组图质量待业务样例复测 |
-| PCG-06 | 视频规划 | 分别选择 KIE 和 Vidu，生成 8 秒、13/15 秒规划 | 页面和接口返回所选模型画像；KIE 按 8 秒片段，Vidu 按 3/5/8 秒片段；Vidu 必须返回 `aspectPolicy=input_image_ratio`，不伪装成直接支持固定比例；规划结果含 `videoAssetPackagePlan.script/storyboard/keyframeNeeds/compositionPlan`；脚本可编辑，编辑后确认状态失效 | 后端测试通过，页面阶段展示和确认门已补，待真实页面复测 |
+| PCG-06 | 视频规划 | 分别选择 KIE 和 Vidu，生成 8 秒、13/15 秒规划 | 页面和接口返回所选模型画像；KIE 按 8 秒片段，Vidu 按 3/5/8 秒片段；Vidu 必须返回 `aspectPolicy=input_image_ratio`，不伪装成直接支持固定比例；规划结果含 `planner/directorBrief/videoAssetPackagePlan.script/storyboard/keyframeNeeds/compositionPlan`；每个分镜必须含 `scene/cameraMovement/firstFramePrompt/lastFramePrompt/negativePrompt`；脚本可编辑，编辑后确认状态失效 | 本地通过，待线上真实页面复测 |
 | PCG-07 | 视频素材包执行 | 提交 KIE 单段、Vidu 单段、多段素材包任务 | 未确认脚本/分镜时不能提交；确认后提交成功返回统一 runId；查询口径仍是 `/api/business/runs/get`；成功后 `resultPayload.videoAssetPackage` 展示脚本、关键帧、分段视频、可选合成片；Vidu 出片比例按首帧策略验收 | 114 Vidu 8 秒单段真实 runId 通过；KIE/多段仍待复测 |
 | PCG-08 | 合成失败保留素材 | 模拟或构造合成失败，但分段视频已成功 | 顶层状态按模式判断；`composition.status=failed`，已成功 `segmentVideos` 仍可下载、可复用、可追踪 | 后端结构已补，待构造线上故障复测 |
 | PCG-09 | 状态与失败 | 模拟缺产品图、非法 JSON、旧结果过期、上游失败 | 按错误码返回；按钮禁用或提示原因明确；不暴露异常栈和密钥；可重新提交 | 部分通过，待专项复测 |
@@ -104,6 +104,9 @@ python3 backend/scripts/patrol_product_commercialization.py \
 - 2026-06-11：产品视频页面按钮与阶段展示已从“分镜合成视频 / 多段合成”改为“单段视频素材 / 分段视频素材包”，并展示脚本、分镜、关键帧、分段视频、合成片五个阶段。
 - 2026-06-11：补充 `backend/scripts/patrol_product_commercialization.py`，后续封版前必须至少跑默认预览门禁；线上验收窗口再打开 `--include-live-visual/--include-live-video` 做真实成本链路。
 - 2026-06-11：本机执行默认预览巡检生成 `output/product-commercialization-patrol-local.json`，3 个用例均未通过。直接原因是本地请求超时；后端日志显示上游商品理解链路访问 vendor-api-ops 被拒绝：`VENDOR_API_CLIENT_FORBIDDEN`。该结果不能作为能力失败结论，只能说明当前本机不具备完整 vendor-api allowlist 条件；真实门禁必须在 114 或已加白的后端环境重跑。
+- 2026-06-12：产品视频测评端修正为 4 步：`上传产品图组 -> 核对商品并规划视频素材包 -> 确认脚本分镜 -> 素材结果`，不再把“确认商品”和“设置视频策略”拆成两个页面。产品视频规划结果必须展示 `planner` 证据、`directorBrief`、分镜场景/镜头运动、首尾帧提示词和关键帧计划。
+- 2026-06-12：3D 渲染视频测评端补齐本地闭环：STEP 4 主动作变为“生成并预览 WebM”，结果区显示播放器、大小和下载入口；`/preview` 返回 `renderPlan.camera.key` 与 `renderPlan.scene.key`，便于追踪选中的镜头和场景模板。
+- 2026-06-12：本地验证通过：`python3 -m pytest backend/tests/test_product_commercialization.py -q` 为 38 passed；`podi-eval-web` `npm run lint`、`npm run build` 通过；`PODI_EVAL_USE_SYSTEM_CHROME=1 npm run test:ui -- tests/ui/product-video-workbench.spec.ts tests/ui/product-3d-render-video-workbench.spec.ts` 为 2 passed。截图证据目录：`podi-eval-web/output/playwright/product-commercialization-2026-06-12/`。
 
 ## 114 线上复测记录
 
@@ -113,6 +116,8 @@ python3 backend/scripts/patrol_product_commercialization.py \
 - 2026-06-11：114 真实 GPT Image 2 配图链路已通过，runId `83f4dd35a8e44d02b946e8a090ae49fd`，结果已回填 OSS：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/system/20260611/96d9da72-1781154570.png`。
 - 2026-06-11：114 真实 Vidu 单段视频素材包链路已通过，runId `24858339ccd94e588866018ab2c49963`，结果已回填 OSS：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260611/750a0574-1781154747.mp4`，`videoAssetPackage.deliveryStatus=assets_ready`。
 - 2026-06-11：测评端产品文案 / 产品视频交互改为 AI 摄影棚式渐进工作台：`上传产品图 -> 确认商品事实 -> 设置文案/视频策略 -> 审核内容包/脚本分镜 -> 配图与下载/视频素材包结果`。旧左右堆叠表单已隐藏，产品图常驻右侧摘要；视频执行前必须在第 4 步确认脚本和分镜。线上 114 截图已留存：`output/product-commercialization-progressive-ui/copy-online-114-desktop.png`。
+- 2026-06-12：产品视频规划门禁升级：`planner.fallback=true` 只能作为排障/交互验证，不允许作为最终验收；页面必须展示规划器证据、导演 brief、每个镜头的场景/镜头运动/首尾帧提示词。`product_3d_render_video` 当前只验收 Three.js 本地 WebM 预览和下载路径，服务端 MP4/OSS worker 仍为后续项。
+- 2026-06-12：待下一次发布后复测 114 页面是否同步 4 步产品视频流程和 3D WebM 结果态；发布前不要再以 2026-06-11 的 5 步产品视频截图作为最新交互口径。
 
 ## 暂不封版项
 

@@ -269,6 +269,116 @@ COPY_MODEL_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
+VIDEO_DIRECTOR_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "directorBrief": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "productUnderstanding": {"type": "string"},
+                "commercialGoal": {"type": "string"},
+                "targetAudience": {"type": "string"},
+                "visualStyle": {"type": "string"},
+                "continuityRule": {"type": "string"},
+            },
+            "required": [
+                "productUnderstanding",
+                "commercialGoal",
+                "targetAudience",
+                "visualStyle",
+                "continuityRule",
+            ],
+        },
+        "videoPrompt": {"type": "string"},
+        "negativePrompt": {"type": "string"},
+        "storyboard": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "shot": {"type": "integer"},
+                    "label": {"type": "string"},
+                    "durationSeconds": {"type": "integer"},
+                    "keepSeconds": {"type": "integer"},
+                    "scene": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "goal": {"type": "string"},
+                    "cameraMovement": {"type": "string"},
+                    "composition": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "firstFramePrompt": {"type": "string"},
+                    "lastFramePrompt": {"type": "string"},
+                    "negativePrompt": {"type": "string"},
+                    "transition": {"type": "string"},
+                    "referenceImageRole": {"type": "string"},
+                },
+                "required": [
+                    "shot",
+                    "label",
+                    "durationSeconds",
+                    "keepSeconds",
+                    "scene",
+                    "subject",
+                    "goal",
+                    "cameraMovement",
+                    "composition",
+                    "prompt",
+                    "firstFramePrompt",
+                    "lastFramePrompt",
+                    "negativePrompt",
+                    "transition",
+                    "referenceImageRole",
+                ],
+            },
+        },
+        "keyframePlan": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 24,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "role": {"type": "string"},
+                    "shot": {"type": "integer"},
+                    "required": {"type": "boolean"},
+                    "source": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["role", "shot", "required", "source", "prompt", "reason"],
+            },
+        },
+        "vendorExecutionNotes": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 2,
+            "maxItems": 8,
+        },
+        "riskChecks": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 2,
+            "maxItems": 8,
+        },
+    },
+    "required": [
+        "directorBrief",
+        "videoPrompt",
+        "negativePrompt",
+        "storyboard",
+        "keyframePlan",
+        "vendorExecutionNotes",
+        "riskChecks",
+    ],
+}
+
+
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "templateName": ("templateName", "template_name", "模板名称", "中文名称", "productNameCn", "product_name_cn", "name"),
     "templateCode": ("templateCode", "template_code", "模板编号", "模板号"),
@@ -930,12 +1040,16 @@ class ProductCommercializationService:
                     continue
                 segment_prompt = prompt
                 if segment_count > 1:
+                    motion = _clean_text(shot.get("cameraMovement") or shot.get("camera"))
+                    scene = _clean_text(shot.get("scene"))
                     segment_prompt = (
                         f"{prompt} Segment {index} of {segment_count}: "
                         f"{_clean_text(shot.get('goal') or shot.get('camera')) or 'continue the planned visual story'}. "
+                        f"{f'Scene: {scene}. ' if scene else ''}"
+                        f"{f'Camera movement: {motion}. ' if motion else ''}"
                         "Keep visual continuity with the previous segment when provided."
                     )
-                updated_storyboard.append({**shot, "prompt": segment_prompt})
+                updated_storyboard.append({**shot, "prompt": segment_prompt, "vendorPrompt": segment_prompt})
             updated["storyboard"] = updated_storyboard
         return updated
 
@@ -945,28 +1059,57 @@ class ProductCommercializationService:
         requires_composition = bool(video_plan.get("requiresComposition"))
         asset_needs = [item for item in _as_list(video_plan.get("assetNeeds")) if isinstance(item, dict)]
         keyframe_needs: list[dict[str, Any]] = []
-        if any(_clean_text(item.get("asset")) in {"first_last_frames", "normalized_first_frame"} for item in asset_needs):
+        for item in _as_list(video_plan.get("keyframePlan")):
+            if not isinstance(item, dict):
+                continue
+            prompt_text = _clean_text(item.get("prompt"))
+            if not prompt_text:
+                continue
             keyframe_needs.append(
                 {
-                    "role": "first_frame",
-                    "required": True,
+                    "role": _clean_text(item.get("role")) or "key_frame",
+                    "shot": item.get("shot"),
+                    "required": bool(item.get("required")),
                     "available": False,
-                    "reason": "Anchor the product image and aspect ratio before video generation.",
+                    "source": _clean_text(item.get("source")) or "gpt_image_2_planned",
+                    "prompt": prompt_text,
+                    "reason": _clean_text(item.get("reason")) or "Improve controlled video generation.",
                 }
             )
+        if any(_clean_text(item.get("asset")) in {"first_last_frames", "normalized_first_frame"} for item in asset_needs):
+            if not keyframe_needs:
+                keyframe_needs.append(
+                    {
+                        "role": "first_frame",
+                        "required": True,
+                        "available": False,
+                        "source": "gpt_image_2_planned",
+                        "prompt": "Generate a factual first frame from the product image before video generation.",
+                        "reason": "Anchor the product image and aspect ratio before video generation.",
+                    }
+                )
         return {
             "deliveryMode": "segment_package",
             "script": {
                 "editable": True,
                 "status": "planned",
                 "text": prompt,
+                "planner": video_plan.get("planner") if isinstance(video_plan.get("planner"), dict) else {},
             },
             "storyboard": [
                 {
                     "segmentIndex": int(item.get("shot") or index + 1),
                     "durationSeconds": item.get("durationSeconds"),
+                    "keepSeconds": item.get("keepSeconds"),
+                    "label": item.get("label"),
+                    "scene": item.get("scene"),
                     "goal": item.get("goal"),
+                    "cameraMovement": item.get("cameraMovement") or item.get("camera"),
+                    "composition": item.get("composition"),
                     "prompt": item.get("prompt"),
+                    "firstFramePrompt": item.get("firstFramePrompt"),
+                    "lastFramePrompt": item.get("lastFramePrompt"),
+                    "negativePrompt": item.get("negativePrompt"),
                     "referenceImage": item.get("referenceImage"),
                     "requiredAssets": ["product_image", *([need.get("role") for need in keyframe_needs if need.get("role")])],
                 }
@@ -992,6 +1135,431 @@ class ProductCommercializationService:
                 ],
             },
         }
+
+    def _build_video_director_context(
+        self,
+        *,
+        facts: dict[str, Any],
+        name: str,
+        material: str,
+        scenario: str,
+        provider: str,
+        model: str,
+        profile: dict[str, Any],
+        reference_images: list[dict[str, Any]],
+        primary_reference_url: str,
+        target_duration: int,
+        segment_durations: list[int],
+        aspect_ratio: str,
+        aspect_policy: dict[str, Any],
+        output_language: str,
+        market_region: str,
+        user_planning_requirements: str,
+    ) -> dict[str, Any]:
+        return {
+            "task": "Plan a POD ecommerce product video material package.",
+            "product": {
+                "name": name,
+                "material": material,
+                "facts": facts,
+                "primaryProductImageUrl": primary_reference_url or None,
+                "referenceImages": reference_images,
+            },
+            "videoRequest": {
+                "scenario": scenario,
+                "targetDurationSeconds": target_duration,
+                "segmentDurations": segment_durations,
+                "aspectRatio": aspect_ratio,
+                "outputLanguage": output_language,
+                "marketRegion": market_region,
+                "userPlanningRequirements": user_planning_requirements or None,
+            },
+            "providerProfile": {
+                "provider": provider,
+                "model": model,
+                "segmentDurationOptions": profile.get("segmentDurationOptions") or [],
+                "defaultSegmentSeconds": profile.get("defaultSegmentSeconds"),
+                "aspectPolicy": aspect_policy,
+                "modes": profile.get("modes") or [],
+            },
+            "rules": [
+                "The product image is the highest-priority visual fact source.",
+                "Use exported fields only as explanation when they match the image.",
+                "Plan exactly one storyboard item per provided segment duration.",
+                "Each shot must contain concrete camera movement, scene, first-frame prompt, last-frame prompt, and vendor prompt.",
+                "If first/last frames are useful, mark them as keyframePlan items. Default image generation route is GPT Image 2, but do not trigger image generation in preview.",
+                "Do not include subtitles, embedded text, logos, watermarks, price tags, or unsupported claims.",
+                "Return JSON only.",
+            ],
+        }
+
+    def _generate_video_director_plan(
+        self,
+        *,
+        context_payload: dict[str, Any],
+        product_images: list[dict[str, Any]],
+        image_url: str,
+        fallback_plan: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        settings = get_settings()
+        provider_errors: list[str] = []
+        planner_credentials = self._resolve_openai_planner_credentials(settings)
+        if settings.business_agent_planner_enabled and planner_credentials.get("apiKey"):
+            try:
+                data = self._call_openai_video_director_model(
+                    settings=settings,
+                    context_payload=context_payload,
+                    image_url=image_url,
+                    product_images=product_images,
+                    api_key=str(planner_credentials["apiKey"]),
+                    base_url=str(planner_credentials["baseUrl"]),
+                )
+                return self._normalize_video_director_plan(data["content"], fallback_plan=fallback_plan), {
+                    "method": "openai_responses",
+                    "provider": "openai",
+                    "model": settings.business_agent_planner_model,
+                    "fallback": False,
+                    "keySource": planner_credentials.get("source"),
+                    "responseId": data.get("responseId"),
+                    "usage": data.get("usage"),
+                    "evidence": "LLM/VL generated structured video director plan.",
+                }
+            except Exception as exc:
+                provider_errors.append(f"openai:{str(exc)[:240]}")
+
+        if settings.business_agent_planner_enabled and _clean_text(getattr(settings, "volcengine_api_key", None)):
+            try:
+                prompt = self._build_video_director_prompt(context_payload=context_payload)
+                result = self._call_volcengine_copy_model(
+                    prompt=prompt,
+                    image_url=image_url,
+                    temperature=0.55,
+                    source="product-commercialization-video-planner",
+                    route_source="product_commercialization_video_director",
+                )
+                return self._normalize_video_director_plan(
+                    self._parse_model_json_text(_clean_text(result.get("text"))),
+                    fallback_plan=fallback_plan,
+                ), {
+                    "method": "volcengine_chat",
+                    "provider": "volcengine",
+                    "model": _clean_text(result.get("model")) or DEFAULT_VOLCENGINE_VL_MODEL_ID,
+                    "fallback": False,
+                    "usage": None,
+                    "evidence": "Volcengine VL generated structured video director plan.",
+                }
+            except Exception as exc:
+                provider_errors.append(f"volcengine:{str(exc)[:240]}")
+
+        fallback = dict(fallback_plan)
+        fallback["plannerErrors"] = provider_errors
+        return fallback, {
+            "method": "template_fallback",
+            "provider": "internal",
+            "model": "rule_video_director_v2",
+            "fallback": True,
+            "errors": provider_errors,
+            "evidence": "No configured planner succeeded; deterministic fallback kept the workflow usable.",
+        }
+
+    def _call_openai_video_director_model(
+        self,
+        *,
+        settings: Any,
+        context_payload: dict[str, Any],
+        image_url: str,
+        product_images: list[dict[str, Any]] | None,
+        api_key: str,
+        base_url: str,
+    ) -> dict[str, Any]:
+        content: list[dict[str, Any]] = [
+            {"type": "input_text", "text": json.dumps(context_payload, ensure_ascii=False)}
+        ]
+        images = product_images or ([{"url": image_url}] if image_url else [])
+        for image in images[:6]:
+            url = _clean_text(image.get("url") if isinstance(image, dict) else image)
+            if url:
+                content.append({"type": "input_image", "image_url": url})
+        request_payload = {
+            "model": settings.business_agent_planner_model,
+            "instructions": (
+                "You are PODI's ecommerce video director. Plan a practical post-design product-video material "
+                "package for a POD merchant. Product images are the source of truth. Use the selected vendor model "
+                "profile and segment duration constraints. Return only JSON matching the schema; include concrete "
+                "camera movements, first/last frame prompts, and execution prompts."
+            ),
+            "input": [{"role": "user", "content": content}],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "podi_product_video_director_plan",
+                    "strict": True,
+                    "schema": VIDEO_DIRECTOR_JSON_SCHEMA,
+                }
+            },
+            "store": False,
+        }
+        resolved_base_url = str(base_url or "https://api.openai.com").rstrip("/")
+        with httpx.Client(timeout=float(settings.business_agent_planner_timeout_seconds or 30)) as client:
+            response = client.post(
+                f"{resolved_base_url}/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=request_payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+        return {
+            "content": self._parse_model_json_text(self._extract_openai_output_text(data)),
+            "responseId": data.get("id"),
+            "usage": data.get("usage"),
+        }
+
+    def _build_video_director_prompt(self, *, context_payload: dict[str, Any]) -> str:
+        return (
+            "你是 PODI 的电商视频导演。请基于产品图组、商品字段和厂商模型画像，规划一个可执行的视频素材包。\n"
+            "必须先理解产品图，产品图优先于导出字段；不要把字段里和图片不一致的商品写进脚本。\n"
+            "必须严格按照 videoRequest.segmentDurations 输出同数量分镜，每个分镜必须写清：scene、goal、cameraMovement、composition、"
+            "prompt、firstFramePrompt、lastFramePrompt、negativePrompt、transition、referenceImageRole。\n"
+            "videoPrompt 是整体供应商执行脚本；每个 storyboard.prompt 是对应片段的执行提示词。\n"
+            "keyframePlan 只描述需要生成/确认的首帧、尾帧或细节帧，默认生成路线是 GPT Image 2，但当前只规划不触发生成。\n"
+            "不要字幕、内嵌文字、水印、Logo、价格标签，不要改变商品形状、图案、颜色和材质。\n"
+            "只返回 JSON，字段必须匹配 schema：directorBrief、videoPrompt、negativePrompt、storyboard、keyframePlan、vendorExecutionNotes、riskChecks。\n"
+            f"输入上下文：{json.dumps(context_payload, ensure_ascii=False)}"
+        )
+
+    def _build_template_video_director_plan(
+        self,
+        *,
+        name: str,
+        material: str,
+        market_region: str,
+        user_planning_requirements: str,
+        scenario: str,
+        target_duration: int,
+        segment_durations: list[int],
+        segment_roles: list[dict[str, str]],
+        reference_images: list[dict[str, Any]],
+        primary_reference_url: str,
+    ) -> dict[str, Any]:
+        base_prompt_parts = [
+            f"Create a {target_duration}-second POD product video material package for {name}.",
+            "Use the selected product image as the exact visual reference and preserve product identity.",
+            "Plan concrete camera movement, scene, first frame, ending frame, and vendor-ready prompts.",
+            "Clean ecommerce lighting, stable product geometry, no extra text, no watermarks, no logos, no price tags.",
+        ]
+        if material:
+            base_prompt_parts.append(f"Material cue: {material}.")
+        if market_region:
+            base_prompt_parts.append(f"Target marketplace region: {market_region}.")
+        if user_planning_requirements:
+            base_prompt_parts.append(f"User planning requirements: {user_planning_requirements}.")
+        negative_prompt = "No embedded text, watermark, logo, price tag, unrealistic deformation, wrong product category, extra hands, or changed print pattern."
+        storyboard: list[dict[str, Any]] = []
+        keyframe_plan: list[dict[str, Any]] = []
+        consumed_seconds = 0
+        reference_cycle = reference_images or ([{"url": primary_reference_url, "role": "primary", "label": "主图"}] if primary_reference_url else [])
+        segment_count = len(segment_durations)
+        for index, segment_duration in enumerate(segment_durations, start=1):
+            keep_seconds = min(segment_duration, max(1, target_duration - consumed_seconds))
+            consumed_seconds += keep_seconds
+            role = segment_roles[index - 1]
+            reference_image = reference_cycle[(index - 1) % len(reference_cycle)] if reference_cycle else {}
+            reference_role = _clean_text(reference_image.get("role")) or "primary"
+            scene = self._video_scene_for_scenario(scenario=scenario, shot_index=index)
+            camera_movement = role["camera"]
+            shot_prompt = " ".join(
+                [
+                    *base_prompt_parts,
+                    f"Generate this segment as {segment_duration} seconds and keep {keep_seconds} seconds in the final edit.",
+                    f"Segment {index} of {segment_count}: {role['direction']}.",
+                    f"Scene: {scene}. Camera movement: {camera_movement}.",
+                    f"Reference image role for this segment: {reference_role}.",
+                    "Keep visual continuity with the previous segment when provided.",
+                    f"Negative: {negative_prompt}",
+                ]
+            )
+            first_frame_prompt = (
+                f"Create the opening frame for segment {index}: {name} in {scene}, "
+                f"composition should show {role['goal']}. Preserve exact product shape, color, pattern, and material."
+            )
+            last_frame_prompt = (
+                f"Create the ending frame for segment {index}: stable product-focused frame after {camera_movement}. "
+                "Preserve the same product and keep the frame usable as an editing handle."
+            )
+            storyboard.append(
+                {
+                    "shot": index,
+                    "durationSeconds": segment_duration,
+                    "keepSeconds": keep_seconds,
+                    "label": role["label"],
+                    "camera": camera_movement,
+                    "cameraMovement": camera_movement,
+                    "scene": scene,
+                    "composition": self._video_composition_for_scenario(scenario=scenario, shot_index=index),
+                    "subject": name,
+                    "goal": role["goal"],
+                    "prompt": shot_prompt,
+                    "vendorPrompt": shot_prompt,
+                    "firstFramePrompt": first_frame_prompt,
+                    "lastFramePrompt": last_frame_prompt,
+                    "negativePrompt": negative_prompt,
+                    "transition": "cut" if segment_count > 1 else "none",
+                    "referenceImageRole": reference_role,
+                    "referenceImage": {
+                        "url": _clean_text(reference_image.get("url")) or primary_reference_url or None,
+                        "role": reference_role,
+                        "label": _clean_text(reference_image.get("label")) or reference_role,
+                    },
+                }
+            )
+            keyframe_plan.extend(
+                [
+                    {
+                        "role": "first_frame",
+                        "shot": index,
+                        "required": False,
+                        "source": "gpt_image_2_planned",
+                        "prompt": first_frame_prompt,
+                        "reason": "Use when the selected provider needs a controlled opening frame or target aspect normalization.",
+                    },
+                    {
+                        "role": "last_frame",
+                        "shot": index,
+                        "required": False,
+                        "source": "gpt_image_2_planned",
+                        "prompt": last_frame_prompt,
+                        "reason": "Use when the video should transition cleanly into the next segment or a final cover frame.",
+                    },
+                ]
+            )
+        return {
+            "directorBrief": {
+                "productUnderstanding": f"{name} based on uploaded product image facts.",
+                "commercialGoal": self._video_commercial_goal_for_scenario(scenario),
+                "targetAudience": "Overseas ecommerce shoppers.",
+                "visualStyle": "Clean commercial product footage with restrained camera movement.",
+                "continuityRule": "Every segment must preserve the same product shape, pattern, color, and material.",
+            },
+            "videoPrompt": " ".join(base_prompt_parts),
+            "negativePrompt": negative_prompt,
+            "storyboard": storyboard,
+            "keyframePlan": keyframe_plan,
+            "vendorExecutionNotes": [
+                "Submit one reference image per segment until provider-native multi-reference video is enabled.",
+                "Use generated first/last frames only after explicit user review; preview never triggers paid image generation.",
+            ],
+            "riskChecks": [
+                "Check product deformation.",
+                "Check wrong product category.",
+                "Check unwanted text, watermark, logo, or price tag.",
+            ],
+        }
+
+    def _normalize_video_director_plan(self, raw: Any, *, fallback_plan: dict[str, Any]) -> dict[str, Any]:
+        data = raw if isinstance(raw, dict) else {}
+        fallback_storyboard = [item for item in _as_list(fallback_plan.get("storyboard")) if isinstance(item, dict)]
+        raw_storyboard = [item for item in _as_list(data.get("storyboard")) if isinstance(item, dict)]
+        normalized_storyboard: list[dict[str, Any]] = []
+        for index, fallback in enumerate(fallback_storyboard):
+            item = raw_storyboard[index] if index < len(raw_storyboard) else {}
+            duration = int(fallback.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS)
+            keep = int(fallback.get("keepSeconds") or duration)
+            prompt = _clean_text(item.get("prompt")) or _clean_text(fallback.get("prompt"))
+            first_frame = _clean_text(item.get("firstFramePrompt")) or _clean_text(fallback.get("firstFramePrompt"))
+            last_frame = _clean_text(item.get("lastFramePrompt")) or _clean_text(fallback.get("lastFramePrompt"))
+            negative = _clean_text(item.get("negativePrompt")) or _clean_text(data.get("negativePrompt")) or _clean_text(fallback.get("negativePrompt"))
+            camera = _clean_text(item.get("cameraMovement")) or _clean_text(item.get("camera")) or _clean_text(fallback.get("camera"))
+            normalized_storyboard.append(
+                {
+                    **fallback,
+                    "shot": int(item.get("shot") or fallback.get("shot") or index + 1),
+                    "label": _clean_text(item.get("label")) or _clean_text(fallback.get("label")) or f"Shot {index + 1}",
+                    "durationSeconds": duration,
+                    "keepSeconds": keep,
+                    "scene": _clean_text(item.get("scene")) or _clean_text(fallback.get("scene")),
+                    "subject": _clean_text(item.get("subject")) or _clean_text(fallback.get("subject")),
+                    "goal": _clean_text(item.get("goal")) or _clean_text(fallback.get("goal")),
+                    "camera": camera,
+                    "cameraMovement": camera,
+                    "composition": _clean_text(item.get("composition")) or _clean_text(fallback.get("composition")),
+                    "prompt": prompt,
+                    "vendorPrompt": _clean_text(item.get("vendorPrompt")) or prompt,
+                    "firstFramePrompt": first_frame,
+                    "lastFramePrompt": last_frame,
+                    "negativePrompt": negative,
+                    "transition": _clean_text(item.get("transition")) or _clean_text(fallback.get("transition")) or "cut",
+                    "referenceImageRole": _clean_text(item.get("referenceImageRole")) or _clean_text(fallback.get("referenceImageRole")) or "primary",
+                }
+            )
+        keyframes = []
+        for item in _as_list(data.get("keyframePlan")):
+            if not isinstance(item, dict):
+                continue
+            prompt = _clean_text(item.get("prompt"))
+            if not prompt:
+                continue
+            keyframes.append(
+                {
+                    "role": _clean_text(item.get("role")) or "key_frame",
+                    "shot": int(item.get("shot") or 1),
+                    "required": bool(item.get("required")),
+                    "source": _clean_text(item.get("source")) or "gpt_image_2_planned",
+                    "prompt": prompt,
+                    "reason": _clean_text(item.get("reason")) or "Improve controlled video generation.",
+                }
+            )
+        if not keyframes:
+            keyframes = [item for item in _as_list(fallback_plan.get("keyframePlan")) if isinstance(item, dict)]
+        director_brief = data.get("directorBrief") if isinstance(data.get("directorBrief"), dict) else {}
+        fallback_brief = fallback_plan.get("directorBrief") if isinstance(fallback_plan.get("directorBrief"), dict) else {}
+        return {
+            "directorBrief": {
+                "productUnderstanding": _clean_text(director_brief.get("productUnderstanding")) or _clean_text(fallback_brief.get("productUnderstanding")),
+                "commercialGoal": _clean_text(director_brief.get("commercialGoal")) or _clean_text(fallback_brief.get("commercialGoal")),
+                "targetAudience": _clean_text(director_brief.get("targetAudience")) or _clean_text(fallback_brief.get("targetAudience")),
+                "visualStyle": _clean_text(director_brief.get("visualStyle")) or _clean_text(fallback_brief.get("visualStyle")),
+                "continuityRule": _clean_text(director_brief.get("continuityRule")) or _clean_text(fallback_brief.get("continuityRule")),
+            },
+            "videoPrompt": _clean_text(data.get("videoPrompt")) or _clean_text(fallback_plan.get("videoPrompt")),
+            "negativePrompt": _clean_text(data.get("negativePrompt")) or _clean_text(fallback_plan.get("negativePrompt")),
+            "storyboard": normalized_storyboard,
+            "keyframePlan": keyframes[:24],
+            "vendorExecutionNotes": self._normalize_string_list(
+                data.get("vendorExecutionNotes"),
+                fallback_plan.get("vendorExecutionNotes"),
+                min_items=2,
+            )[:8],
+            "riskChecks": self._normalize_string_list(data.get("riskChecks"), fallback_plan.get("riskChecks"), min_items=2)[:8],
+        }
+
+    @staticmethod
+    def _video_scene_for_scenario(*, scenario: str, shot_index: int) -> str:
+        if scenario == "social_ad_short":
+            return "minimal social commerce set with clean movement and no embedded text"
+        if scenario == "detail_explainer":
+            return "detail-page product inspection set with close material lighting"
+        if shot_index >= 3:
+            return "simple lifestyle ecommerce scene with product still dominant"
+        return "clean studio ecommerce set"
+
+    @staticmethod
+    def _video_composition_for_scenario(*, scenario: str, shot_index: int) -> str:
+        if scenario == "detail_explainer" or shot_index == 2:
+            return "medium close-up with product texture and construction visible"
+        if scenario == "social_ad_short":
+            return "center product with fast-readable silhouette and strong negative space"
+        return "full product hero framing with the entire item visible"
+
+    @staticmethod
+    def _video_commercial_goal_for_scenario(scenario: str) -> str:
+        if scenario == "social_ad_short":
+            return "Create short social-ad material with a clear product hook."
+        if scenario == "detail_explainer":
+            return "Create detail-page explainer material that clarifies texture and construction."
+        return "Create ecommerce product-showcase material for listing and marketing use."
 
     def _build_video_segment_result(
         self,
@@ -2126,7 +2694,15 @@ class ProductCommercializationService:
 
         raise RuntimeError("; ".join(provider_errors) or "COPY_MODEL_NOT_CONFIGURED")
 
-    def _call_volcengine_copy_model(self, *, prompt: str, image_url: str, temperature: float = 0.72) -> dict[str, Any]:
+    def _call_volcengine_copy_model(
+        self,
+        *,
+        prompt: str,
+        image_url: str,
+        temperature: float = 0.72,
+        source: str = "product-commercialization-copy",
+        route_source: str = "product_commercialization_copy_planner",
+    ) -> dict[str, Any]:
         response = ability_invocation_service.invoke(
             ability_id=DEFAULT_VOLCENGINE_COPY_ABILITY_ID,
             payload=AbilityInvokeRequest(
@@ -2137,12 +2713,12 @@ class ProductCommercializationService:
                 },
                 imageUrl=image_url or None,
                 metadata={
-                    "source": "product_commercialization_copy_planner",
+                    "source": route_source,
                     "routeType": "vendor_api_first",
                 },
             ),
             user=None,
-            source="product-commercialization-copy",
+            source=source,
         )
         status = _clean_text(getattr(response, "status", None)).lower()
         if status and status not in {"succeeded", "success"}:
@@ -2854,63 +3430,51 @@ class ProductCommercializationService:
                 "requiresFirstFrameNormalization": False,
                 "reason": "This provider accepts aspect ratio as an execution parameter.",
             }
-        prompt_parts = [
-            f"Create a {target_duration}-second POD product showcase video for {name}.",
-            "Use the selected primary product image as the exact visual reference.",
-            "Slow camera movement, clean studio lighting, premium ecommerce presentation.",
-            "Keep product shape, pattern, color, and material consistent.",
-            "No extra text, no watermarks, no logos, no unrealistic deformation.",
-        ]
-        if len(reference_images) > 1:
-            prompt_parts.append(
-                "Use the additional product images only to understand shape, back/side/detail views, material, and pattern continuity."
-            )
-        if material:
-            prompt_parts.append(f"Material cue: {material}.")
-        if market_region:
-            prompt_parts.append(f"Target marketplace region: {market_region}.")
-        if user_planning_requirements:
-            prompt_parts.append(f"User planning requirements: {user_planning_requirements}.")
         segment_roles = self._build_video_segment_roles(
             scenario=scenario,
             segment_count=segment_count,
         )
-        storyboard: list[dict[str, Any]] = []
+        fallback_director_plan = self._build_template_video_director_plan(
+            name=name,
+            material=material,
+            market_region=market_region,
+            user_planning_requirements=user_planning_requirements,
+            scenario=scenario,
+            target_duration=target_duration,
+            segment_durations=segment_durations,
+            segment_roles=segment_roles,
+            reference_images=reference_images,
+            primary_reference_url=primary_reference_url,
+        )
+        director_context = self._build_video_director_context(
+            facts=facts,
+            name=name,
+            material=material,
+            scenario=scenario,
+            provider=provider,
+            model=model,
+            profile=profile,
+            reference_images=reference_images,
+            primary_reference_url=primary_reference_url,
+            target_duration=target_duration,
+            segment_durations=segment_durations,
+            aspect_ratio=ratio,
+            aspect_policy=aspect_policy,
+            output_language=output_language,
+            market_region=market_region,
+            user_planning_requirements=user_planning_requirements,
+        )
+        director_plan, planner = self._generate_video_director_plan(
+            context_payload=director_context,
+            product_images=reference_images,
+            image_url=primary_reference_url,
+            fallback_plan=fallback_director_plan,
+        )
+        storyboard = [item for item in _as_list(director_plan.get("storyboard")) if isinstance(item, dict)]
         trim_plan: list[dict[str, Any]] = []
-        consumed_seconds = 0
-        reference_cycle = reference_images or ([{"url": primary_reference_url, "role": "primary", "label": "主图"}] if primary_reference_url else [])
-        for index, segment_duration in enumerate(segment_durations, start=1):
-            keep_seconds = min(segment_duration, max(1, target_duration - consumed_seconds))
-            consumed_seconds += keep_seconds
-            role = segment_roles[index - 1]
-            reference_image = reference_cycle[(index - 1) % len(reference_cycle)] if reference_cycle else {}
-            reference_role = _clean_text(reference_image.get("role")) or "primary"
-            segment_prompt = " ".join(
-                [
-                    *prompt_parts,
-                    f"Generate this segment as {segment_duration} seconds.",
-                    f"Segment {index} of {segment_count}: {role['direction']}.",
-                    f"Reference image role for this segment: {reference_role}.",
-                    "Keep visual continuity with the previous segment when provided.",
-                ]
-            )
-            storyboard.append(
-                {
-                    "shot": index,
-                    "durationSeconds": segment_duration,
-                    "keepSeconds": keep_seconds,
-                    "label": role["label"],
-                    "camera": role["camera"],
-                    "subject": name,
-                    "goal": role["goal"],
-                    "prompt": segment_prompt,
-                    "referenceImage": {
-                        "url": _clean_text(reference_image.get("url")) or primary_reference_url or None,
-                        "role": reference_role,
-                        "label": _clean_text(reference_image.get("label")) or reference_role,
-                    },
-                }
-            )
+        for index, shot in enumerate(storyboard, start=1):
+            segment_duration = int(shot.get("durationSeconds") or segment_durations[min(index - 1, len(segment_durations) - 1)])
+            keep_seconds = int(shot.get("keepSeconds") or segment_duration)
             trim_plan.append(
                 {
                     "segment": index,
@@ -2937,7 +3501,7 @@ class ProductCommercializationService:
                 "asset": "first_last_frames",
                 "required": False,
                 "available": False,
-                "reason": "Optional controlled-frame mode; generate and confirm opening/ending frames before video execution once enabled.",
+                "reason": "Optional controlled-frame mode; GPT Image 2 can generate first/last frames after user review.",
             },
         ]
         if provider == "vidu":
@@ -2983,9 +3547,15 @@ class ProductCommercializationService:
             "requiresComposition": requires_composition,
             "aspectRatio": ratio,
             "aspectPolicy": aspect_policy,
+            "planner": planner,
+            "directorBrief": director_plan.get("directorBrief") if isinstance(director_plan.get("directorBrief"), dict) else {},
             "storyboard": storyboard,
             "assetNeeds": asset_needs,
-            "videoPrompt": " ".join(prompt_parts),
+            "keyframePlan": [item for item in _as_list(director_plan.get("keyframePlan")) if isinstance(item, dict)],
+            "negativePrompt": _clean_text(director_plan.get("negativePrompt")) or None,
+            "vendorExecutionNotes": self._normalize_string_list(director_plan.get("vendorExecutionNotes"), [], min_items=0),
+            "riskChecks": self._normalize_string_list(director_plan.get("riskChecks"), [], min_items=0),
+            "videoPrompt": _clean_text(director_plan.get("videoPrompt")) or _clean_text(fallback_director_plan.get("videoPrompt")),
             "compositionPlan": {
                 "status": "planned_ready_for_compose_endpoint" if requires_composition else "not_required",
                 "composeEngine": "ffmpeg",
@@ -3004,7 +3574,7 @@ class ProductCommercializationService:
                     self._video_cost_action(provider=provider, model=model) for _ in range(segment_count)
                 ]
                 + (["ffmpeg.compose"] if requires_composition else []),
-                "plannerRole": "llm_storyboard_planner",
+                "plannerRole": "llm_storyboard_planner" if not planner.get("fallback") else "template_fallback_storyboard_planner",
                 "nextEndpoint": "/api/business/product-commercialization/video-compose" if requires_composition else None,
                 "guardrails": [
                     "Backend validates target duration and segment count before execution.",
@@ -3119,6 +3689,15 @@ class ProductCommercializationService:
                         if is_video_only
                         else "Copy preview can continue, but image/video generation should wait for a product image."
                     ),
+                }
+            )
+        planner = video_plan.get("planner") if isinstance(video_plan.get("planner"), dict) else {}
+        if is_video_only and planner.get("fallback"):
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "PRODUCT_VIDEO_PLANNER_FALLBACK",
+                    "message": "Video plan used deterministic fallback instead of LLM/VL planning; it is usable for UI review but should not be treated as final methodology quality.",
                 }
             )
         if not is_video_only and any("gift" in str(item).lower() for item in copy_package.get("adShortCopy", []) if isinstance(item, str)):

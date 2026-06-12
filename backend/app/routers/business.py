@@ -2438,12 +2438,19 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             },
             "cameraPreset": {
                 "type": "string",
-                "enum": ["orbit_360", "slow_push_in", "detail_sweep"],
+                "enum": ["orbit_360", "hero_turntable", "slow_push_in", "detail_sweep", "top_reveal", "social_arc"],
                 "default": "orbit_360",
             },
             "scenePreset": {
                 "type": "string",
-                "enum": ["clean_studio", "marketplace_white", "premium_dark"],
+                "enum": [
+                    "clean_studio",
+                    "marketplace_white",
+                    "premium_dark",
+                    "desktop_lifestyle",
+                    "gift_table",
+                    "retail_shelf",
+                ],
                 "default": "clean_studio",
             },
             "durationSeconds": {"type": "integer", "minimum": 1, "maximum": 30, "default": 6},

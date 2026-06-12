@@ -298,6 +298,8 @@ POST /api/business/runs/get
 - `targetDurationSeconds` 是目标素材包时长，不等于每个供应商都能直接执行。
 - 后端根据模型画像拆分分镜，例如 Vidu 3/5/8 秒，KIE 8 秒。
 - `productImageUrl` 是兼容主图字段；`productImages` 用于多角度、细节、材质和场景图输入。规划层可以使用图组，但当前 KIE/Vidu 执行仍按每段一张参考图调用。
+- `plan` 必须返回 `planner.method/provider/model/fallback/evidence`，不能把模板兜底伪装成大模型规划。`fallback=true` 时只允许用于排障和交互验证，不作为最终方法论验收。
+- 每个分镜必须包含 `scene/cameraMovement/composition/prompt/firstFramePrompt/lastFramePrompt/negativePrompt/referenceImage`，否则不允许触发视频成本动作。
 - 固定画幅如果供应商跟随输入图比例，必须先生成或归一化首帧。
 - `generationMode=compose_required` 才把合成片作为顶层成功条件；默认是 `segment_package`。
 
@@ -314,6 +316,18 @@ POST /api/business/runs/get
       "supportedSegmentDurations": [3, 5, 8],
       "aspectPolicy": "input_image_ratio"
     },
+    "planner": {
+      "method": "openai_responses",
+      "provider": "openai",
+      "model": "gpt-5.5",
+      "fallback": false,
+      "evidence": "LLM/VL generated structured video director plan."
+    },
+    "directorBrief": {
+      "productUnderstanding": "Use visible product image facts as the source of truth.",
+      "commercialGoal": "Create ecommerce product-showcase material.",
+      "visualStyle": "Clean commercial product footage."
+    },
     "script": {
       "editable": true,
       "text": "Open with a clean product reveal..."
@@ -323,7 +337,11 @@ POST /api/business/runs/get
         "segmentIndex": 1,
         "durationSeconds": 5,
         "goal": "product reveal",
+        "scene": "clean studio ecommerce set",
+        "cameraMovement": "slow push-in with a slight side movement",
         "prompt": "Slow camera push-in...",
+        "firstFramePrompt": "Create the opening product hero frame...",
+        "lastFramePrompt": "Create the stable ending product frame...",
         "requiredAssets": ["first_frame"]
       }
     ],
@@ -403,7 +421,7 @@ POST /api/business/runs/get
 
 ### 定位
 
-面向有 3D 模型的 POD 商品，通过固定模型、材质槽 / UV 贴图、预设场景、灯光和相机路径生成可控商品动效。它不是 KIE/Vidu 大模型视频生成的子模式，也不是“文字描述生成视频”；不能混在 `promo_video` 的供应商选择里。当前先开放方案预览，后续接 Three.js 画布和渲染 worker 后再开放异步 `/runs`。
+面向有 3D 模型的 POD 商品，通过固定模型、材质槽 / UV 贴图、预设场景、灯光和相机路径生成可控商品动效。它不是 KIE/Vidu 大模型视频生成的子模式，也不是“文字描述生成视频”；不能混在 `promo_video` 的供应商选择里。当前开放方案预览和测评端浏览器 Three.js WebM 录制；服务端 Blender/MP4/OSS 异步渲染 worker 接入后再开放 `/runs`。
 
 ### 建议入口
 
@@ -420,8 +438,8 @@ POST /api/business/runs/get
   "modelKey": "cup_1660",
   "textureImageUrl": "https://example.com/pattern.png",
   "materialSlot": "front",
-  "cameraPreset": "orbit_360",
-  "scenePreset": "clean_studio",
+  "cameraPreset": "hero_turntable",
+  "scenePreset": "desktop_lifestyle",
   "durationSeconds": 6,
   "aspectRatio": "16:9",
   "outputMode": "plan_only",
@@ -435,8 +453,9 @@ POST /api/business/runs/get
 - 模型必须先进入受控模型目录；测评端上传 zip 只是资产检查，不代表生产可执行。
 - `textureImageUrl` 是主贴图，必须贴到 `materialSlot` 对应的固定区域；`textureImageUrls` 用于后续多材质/多面贴图。
 - `materialSlot` 是模型内真实材质槽 / UV 区域，不是自然语言区域描述。用户侧应该通过可视化区域选择，不应该让用户写一段文字描述要贴哪里。
-- 当前 `preview` 只能验证模型、UV、材质槽和参数计划；在 Three.js 画布接入前，不能验收“贴图与 3D 模型是否真实重合”。
+- 当前 `preview` 只能验证模型、UV、材质槽和参数计划；测评端 Three.js 画布负责所见即所得预览和本地 WebM 录制，但这仍不是服务端生产渲染。
 - 当前只允许 `outputMode=plan_only`；真实渲染必须等 worker 接入并统一走 runId 查询。
+- 镜头预设包括 `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`；场景预设包括 `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`，每个场景必须定义商品摆放位置、比例、安全区和阴影规则。
 
 ### 错误码
 
