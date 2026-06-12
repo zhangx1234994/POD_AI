@@ -171,7 +171,7 @@ class Product3DRenderVideoService:
         texture_urls = texture_urls[:6]
         duration_seconds = int(getattr(payload, "durationSeconds", None) or 6)
         aspect_ratio = _clean_text(getattr(payload, "aspectRatio", None)) or "16:9"
-        extra_prompt = _clean_text(getattr(payload, "extraPrompt", None))
+        render_note = _clean_text(getattr(payload, "extraPrompt", None))
 
         warnings: list[dict[str, str]] = []
         if not texture_urls:
@@ -221,7 +221,7 @@ class Product3DRenderVideoService:
                 "Create studio scene, lights, camera path, and turntable controls.",
                 "Render or capture frames to MP4, then upload final assets to PODI OSS.",
             ],
-            "extraPrompt": extra_prompt or None,
+            "renderNote": render_note or None,
         }
         readiness_score = 92 if texture_urls and model.get("hasUv") else 72
         return {

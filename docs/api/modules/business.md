@@ -1976,13 +1976,14 @@ X-PODI-API-Key: podi_xxx
 
 ## 3.5) 3D 模型渲染视频预览能力
 
-业务名：3D 渲染视频。业务标识固定为 `product_3d_render_video`。它和 `product_commercialization` 的 KIE/Vidu 大模型视频生成是两条路线：这里不调用视频生成模型，而是通过 3D 模型、贴图、场景、灯光和相机路径生成可控商品动效。
+业务名：3D 渲染视频。业务标识固定为 `product_3d_render_video`。它和 `product_commercialization` 的 KIE/Vidu 大模型视频生成是两条路线：这里不调用视频生成模型，也不通过文字提示词生成画面，而是把用户上传的贴图应用到 3D 模型的固定材质槽 / UV 区域，再通过场景、灯光和相机路径生成可控商品动效。
 
 当前版本只开放方案预览：
 
 - 接口：`POST /api/business/product-3d-render-video/preview`
 - 当前模型：`cup_1660`（1660 杯子）、`backpack_2551`（2551 笔记本电脑背包）
-- 当前状态：只返回 `model/assetReadiness/renderPlan/review`，不触发渲染 worker，不返回 MP4，不产生第三方成本。
+- 当前状态：只返回 `model/assetReadiness/renderPlan/review`，不触发渲染 worker，不返回 MP4，不产生第三方成本，也还不能展示贴图与 3D 模型重合后的真实画布预览。
+- 当前验收口径：只能验证模型是否进入受控目录、材质槽是否合法、UV 是否存在、贴图 URL 是否齐备、渲染参数是否可解释；不能把它当作正式视频生成能力。
 - 后续执行形态：接入 Three.js 或 Blender 渲染 worker 后，再按统一异步任务口径开放 `/runs`，返回 `runId` 并通过 `/api/business/runs/get` 查询 OSS 视频。
 
 最小请求：
@@ -2006,15 +2007,15 @@ X-PODI-API-Key: podi_xxx
 | 参数 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `modelKey` | 是 | `cup_1660` | `cup_1660/backpack_2551`。 |
-| `textureImageUrl` | 建议 | 空 | 主贴图或花纹图 URL。为空时只能验证模型和镜头方案，不能判断最终商品效果。 |
-| `textureImageUrls` | 否 | 空 | 多贴图 URL，后续用于多材质/多面贴图。 |
-| `materialSlot` | 否 | 模型推荐槽 | 1660 杯子推荐 `front`；2551 背包推荐 `front`。非法槽返回 `PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID`。 |
+| `textureImageUrl` | 建议 | 空 | 主贴图、花纹图或 Logo URL。后续会按 `materialSlot` 贴到模型固定区域；为空时只能验证模型和镜头方案。 |
+| `textureImageUrls` | 否 | 空 | 多贴图 URL，后续用于多材质/多面贴图；首版建议只验证主贴图。 |
+| `materialSlot` | 否 | 模型推荐槽 | 3D 模型的固定材质槽 / UV 区域。1660 杯子推荐 `front`；2551 背包推荐 `front`。非法槽返回 `PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID`。 |
 | `cameraPreset` | 否 | `orbit_360` | `orbit_360/slow_push_in/detail_sweep`。 |
 | `scenePreset` | 否 | `clean_studio` | `clean_studio/marketplace_white/premium_dark`。 |
 | `durationSeconds` | 否 | `6` | 1-30 秒；当前只用于方案，不触发真实渲染。 |
 | `aspectRatio` | 否 | `16:9` | 目标画幅。 |
 | `outputMode` | 否 | `plan_only` | 当前只允许 `plan_only`。传 `render_video` 会返回 `PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY`。 |
-| `extraPrompt` | 否 | 空 | 补充镜头或场景要求。 |
+| `extraPrompt` | 否 | 空 | 内部渲染备注；不作为大模型提示词，不决定贴图槽或视频内容。测评端默认不展示。 |
 
 响应摘要：
 
@@ -2040,7 +2041,8 @@ X-PODI-API-Key: podi_xxx
     "executionStatus": "preview_only",
     "textureApplication": {
       "materialSlot": "front",
-      "textureImageUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/demo/floral-pattern.png"]
+      "textureImageUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/demo/floral-pattern.png"],
+      "preserveUv": true
     },
     "camera": {
       "preset": "orbit_360"

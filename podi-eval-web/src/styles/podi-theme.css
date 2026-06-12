@@ -593,6 +593,141 @@ html.t-theme-dark {
   line-height: 1.6;
 }
 
+.podi-product-3d-render .podi-product-commercialization__studio {
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+
+.podi-product-3d-render__model-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.5fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.podi-product-3d-render__model-meta {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.podi-product-3d-render__model-meta span {
+  color: var(--td-text-color-secondary);
+  line-height: 1.55;
+}
+
+.podi-product-3d-render__slot-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.podi-product-3d-render__slot-layout > .t-select {
+  grid-column: 1 / -1;
+}
+
+.podi-product-3d-render__slot-map {
+  display: grid;
+  gap: 10px;
+}
+
+.podi-product-3d-render__slot-map p {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.podi-product-3d-render__slot-shape {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 28%, var(--td-border-level-1-color));
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--td-brand-color) 12%, transparent), transparent 42%),
+    repeating-linear-gradient(0deg, transparent 0 21px, color-mix(in srgb, var(--td-border-level-1-color) 55%, transparent) 22px),
+    var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-primary);
+  text-align: center;
+}
+
+.podi-product-3d-render__slot-shape::before {
+  content: "";
+  position: absolute;
+  width: 42%;
+  height: 64%;
+  border: 2px solid color-mix(in srgb, var(--td-brand-color) 62%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--td-brand-color) 12%, var(--td-bg-color-container));
+}
+
+.podi-product-3d-render__slot-shape--cup_1660::before {
+  border-radius: 42% 42% 48% 48% / 18% 18% 72% 72%;
+}
+
+.podi-product-3d-render__slot-shape--backpack_2551::before {
+  width: 54%;
+  height: 66%;
+  border-radius: 18px 18px 12px 12px;
+}
+
+.podi-product-3d-render__slot-shape span,
+.podi-product-3d-render__slot-shape small {
+  position: relative;
+  z-index: 1;
+  display: block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 88%, transparent);
+}
+
+.podi-product-3d-render__slot-shape span {
+  font-weight: 750;
+}
+
+.podi-product-3d-render__slot-shape small {
+  margin-top: 6px;
+  color: var(--td-text-color-secondary);
+}
+
+.podi-product-3d-render__slot-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.podi-product-3d-render__slot {
+  display: grid;
+  gap: 4px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.podi-product-3d-render__slot:hover,
+.podi-product-3d-render__slot.is-active {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--td-brand-color) 46%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--td-brand-color) 5%, var(--td-bg-color-container));
+}
+
+.podi-product-3d-render__slot span {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
 .podi-product-commercialization__shot-list {
   display: grid;
   gap: 8px;
@@ -1054,6 +1189,10 @@ html.t-theme-dark {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .podi-product-3d-render .podi-product-commercialization__studio {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .podi-product-commercialization__stage-rail,
   .podi-product-commercialization__studio-side {
     position: static;
@@ -1100,7 +1239,13 @@ html.t-theme-dark {
   }
 
   .podi-product-commercialization__asset-layout,
-  .podi-product-commercialization__fact-layout {
+  .podi-product-commercialization__fact-layout,
+  .podi-product-3d-render__model-row,
+  .podi-product-3d-render__slot-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .podi-product-3d-render__slot-list {
     grid-template-columns: minmax(0, 1fr);
   }
 

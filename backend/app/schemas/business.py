@@ -582,7 +582,11 @@ class Product3DRenderVideoRequest(BaseModel):
         alias="output_mode",
         description="输出模式。当前仅开放 plan_only；render_video 为后续渲染服务能力。",
     )
-    extraPrompt: str | None = Field(default=None, alias="extra_prompt", description="补充镜头或场景要求。")
+    extraPrompt: str | None = Field(
+        default=None,
+        alias="extra_prompt",
+        description="内部渲染备注；不作为大模型提示词，不决定贴图槽或视频内容。",
+    )
     requestId: str | None = Field(default=None, alias="request_id")
     traceId: str | None = Field(default=None, alias="trace_id")
     source: str | None = None

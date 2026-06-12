@@ -2435,7 +2435,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "description": "当前只开放方案预览；真实渲染 worker 接入后再开放 render_video。",
                 "default": "plan_only",
             },
-            "extraPrompt": {"type": "string", "nullable": True},
+            "extraPrompt": {
+                "type": "string",
+                "nullable": True,
+                "description": "内部渲染备注；不作为大模型提示词，不决定贴图槽或视频内容。",
+            },
             "source": {"type": "string", "nullable": True},
             "traceId": {"type": "string", "nullable": True},
             "requestId": {"type": "string", "nullable": True},

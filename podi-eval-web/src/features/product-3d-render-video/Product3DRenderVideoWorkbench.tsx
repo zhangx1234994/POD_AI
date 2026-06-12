@@ -4,35 +4,86 @@ import { evalApi } from '../../api';
 import type { Product3DRenderVideoRequest, Product3DRenderVideoResponse } from '../../api';
 
 type WorkStatus = 'idle' | 'uploading' | 'previewing';
+type ModelKey = 'cup_1660' | 'backpack_2551';
+type CameraPreset = 'orbit_360' | 'slow_push_in' | 'detail_sweep';
+type ScenePreset = 'clean_studio' | 'marketplace_white' | 'premium_dark';
 
 const MODEL_OPTIONS = [
   { label: '1660 杯子', value: 'cup_1660' },
   { label: '2551 笔记本电脑背包', value: 'backpack_2551' },
 ];
 
-const MATERIAL_SLOTS: Record<string, string[]> = {
-  cup_1660: ['front', 'mouth', 'cover', 'bottom', 'handshank', 'else', 'else1'],
-  backpack_2551: [
-    'front',
-    'bottom',
-    'back',
-    'top',
-    'left',
-    'right',
-    'sideleft',
-    'sideright',
-    'qitaDZ',
-    'qitaBD',
-    'zipper',
-    'zipper02',
-    'zipperB',
-    'qitaSL',
-    'stitch',
-    'qitaWGBB',
-    'qitaWG',
-    'qitaWG001',
-    'inside',
-  ],
+const MODEL_PROFILES: Record<
+  ModelKey,
+  {
+    title: string;
+    file: string;
+    summary: string;
+    firstSlot: string;
+    materialSlots: string[];
+  }
+> = {
+  cup_1660: {
+    title: '1660 杯子',
+    file: '1660.glb',
+    summary: '适合杯身正面贴图、360 环绕和慢速推进。模型已有 UV；当前没有内置相机和动画。',
+    firstSlot: 'front',
+    materialSlots: ['front', 'mouth', 'cover', 'bottom', 'handshank', 'else', 'else1'],
+  },
+  backpack_2551: {
+    title: '2551 笔记本电脑背包',
+    file: '2551.glb',
+    summary: '适合背包正面贴图、细节扫过和白底展示。材质槽较多，首版建议只验证 front。',
+    firstSlot: 'front',
+    materialSlots: [
+      'front',
+      'bottom',
+      'back',
+      'top',
+      'left',
+      'right',
+      'sideleft',
+      'sideright',
+      'qitaDZ',
+      'qitaBD',
+      'zipper',
+      'zipper02',
+      'zipperB',
+      'qitaSL',
+      'stitch',
+      'qitaWGBB',
+      'qitaWG',
+      'qitaWG001',
+      'inside',
+    ],
+  },
+};
+
+const SLOT_LABELS: Record<string, string> = {
+  front: '正面主贴图区',
+  mouth: '杯口',
+  cover: '杯盖',
+  bottom: '底部',
+  handshank: '把手',
+  back: '背面',
+  top: '顶部',
+  left: '左侧',
+  right: '右侧',
+  sideleft: '左侧面',
+  sideright: '右侧面',
+  inside: '内里',
+  zipper: '拉链',
+  zipper02: '拉链 02',
+  zipperB: '拉链 B',
+  stitch: '缝线',
+  qitaDZ: '其他底座',
+  qitaBD: '其他包带',
+  qitaSL: '其他塑料件',
+  qitaWGBB: '其他外观包边',
+  qitaWG: '其他外观',
+  qitaWG001: '其他外观 001',
+  else: '其他材质 1',
+  else1: '其他材质 2',
 };
 
 const CAMERA_OPTIONS = [
@@ -57,6 +108,10 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function asBool(value: unknown): boolean {
+  return value === true;
+}
+
 function splitLines(value: string): string[] {
   return value
     .split(/[\n,，;；|]+/)
@@ -64,29 +119,34 @@ function splitLines(value: string): string[] {
     .filter(Boolean);
 }
 
+function slotLabel(slot: string): string {
+  return SLOT_LABELS[slot] || slot;
+}
+
 export function Product3DRenderVideoWorkbench() {
   const uploadRef = useRef<HTMLInputElement | null>(null);
-  const [modelKey, setModelKey] = useState<'cup_1660' | 'backpack_2551'>('cup_1660');
+  const [modelKey, setModelKey] = useState<ModelKey>('cup_1660');
   const [textureImageUrl, setTextureImageUrl] = useState('');
   const [textureImageUrlsText, setTextureImageUrlsText] = useState('');
   const [materialSlot, setMaterialSlot] = useState('front');
-  const [cameraPreset, setCameraPreset] = useState<'orbit_360' | 'slow_push_in' | 'detail_sweep'>('orbit_360');
-  const [scenePreset, setScenePreset] = useState<'clean_studio' | 'marketplace_white' | 'premium_dark'>('clean_studio');
+  const [cameraPreset, setCameraPreset] = useState<CameraPreset>('orbit_360');
+  const [scenePreset, setScenePreset] = useState<ScenePreset>('clean_studio');
   const [durationSeconds, setDurationSeconds] = useState(6);
   const [aspectRatio, setAspectRatio] = useState('16:9');
-  const [extraPrompt, setExtraPrompt] = useState('');
   const [result, setResult] = useState<Product3DRenderVideoResponse | null>(null);
   const [status, setStatus] = useState<WorkStatus>('idle');
   const [error, setError] = useState('');
 
+  const modelProfile = MODEL_PROFILES[modelKey];
   const materialOptions = useMemo(
-    () => (MATERIAL_SLOTS[modelKey] || ['front']).map((slot) => ({ label: slot, value: slot })),
-    [modelKey],
+    () => modelProfile.materialSlots.map((slot) => ({ label: `${slotLabel(slot)} · ${slot}`, value: slot })),
+    [modelProfile],
   );
 
   const textureImageUrls = useMemo(() => {
     const urls = splitLines(textureImageUrlsText);
-    if (textureImageUrl.trim() && !urls.includes(textureImageUrl.trim())) urls.unshift(textureImageUrl.trim());
+    const mainUrl = textureImageUrl.trim();
+    if (mainUrl && !urls.includes(mainUrl)) urls.unshift(mainUrl);
     return urls.slice(0, 6);
   }, [textureImageUrl, textureImageUrlsText]);
 
@@ -120,7 +180,6 @@ export function Product3DRenderVideoWorkbench() {
         durationSeconds,
         aspectRatio,
         outputMode: 'plan_only',
-        extraPrompt: extraPrompt.trim() || undefined,
         source: 'eval-product-3d-render-video',
         requestId: `eval-p3d-${Date.now()}`,
       };
@@ -136,64 +195,108 @@ export function Product3DRenderVideoWorkbench() {
   const model = asRecord(result?.model);
   const readiness = asRecord(result?.assetReadiness);
   const renderPlan = asRecord(result?.renderPlan);
+  const textureApplication = asRecord(renderPlan.textureApplication);
   const camera = asRecord(renderPlan.camera);
   const scene = asRecord(renderPlan.scene);
   const review = asRecord(result?.review);
   const issues = asArray(review.issues).map((item) => asRecord(item));
+  const activeSlot = String(textureApplication.materialSlot || materialSlot);
 
   return (
     <section className="podi-product-commercialization podi-product-3d-render">
       <div className="podi-product-commercialization__head">
         <div>
-          <Typography.Text theme="primary">3D 渲染视频能力</Typography.Text>
+          <Typography.Text theme="primary">3D 贴图渲染 · 技术预览</Typography.Text>
           <Typography.Title level="h3" style={{ margin: '4px 0' }}>
-            3D 模型贴图与镜头方案
+            固定模型区域贴图与渲染方案
           </Typography.Title>
-          <Typography.Text theme="secondary">不用 KIE/Vidu 生视频；通过 3D 模型、贴图、场景和相机路径产出可控商品动效。</Typography.Text>
+          <Typography.Text theme="secondary">
+            这不是 KIE/Vidu 大模型视频。当前只验证模型、UV、材质槽和镜头方案，后续接 Three.js/Blender 预览与渲染 worker。
+          </Typography.Text>
         </div>
         <Space align="center">
-          <Tag theme="primary" variant="light">独立能力</Tag>
-          <Tag theme="success" variant="light">Three.js / Blender</Tag>
-          <Tag theme="warning" variant="light">预览阶段</Tag>
+          <Tag theme="primary" variant="light">确定性渲染</Tag>
+          <Tag theme="success" variant="light">材质槽 / UV</Tag>
+          <Tag theme="warning" variant="light">不生成 MP4</Tag>
         </Space>
       </div>
 
       {error ? <Alert theme="error" message={error} /> : null}
-      <Alert theme="info" message="当前只生成渲染方案和资产准备度，不触发成本动作，也不会返回 MP4。真实渲染 worker 接入后再开放异步任务。" />
+      <Alert
+        theme="warning"
+        message="当前页面不是正式可交付视频能力：还没有 3D 画布贴图预览，也不会触发付费视频生成。它只用于确认贴图应该落在哪个固定区域。"
+      />
 
       <div className="podi-product-commercialization__studio">
         <main className="podi-product-commercialization__stage-main">
           <section className="podi-product-commercialization__stage-panel">
             <div className="podi-product-commercialization__stage-title">
               <span>STEP 1</span>
-              <Typography.Title level="h4">选择模型与贴图</Typography.Title>
-              <Typography.Text theme="secondary">先验证模型、材质槽、UV 和贴图输入，不急于生成视频。</Typography.Text>
+              <Typography.Title level="h4">选择受控 3D 模型</Typography.Title>
+              <Typography.Text theme="secondary">模型决定可贴图区域。这里不输入“生成需求”，先选模型资产。</Typography.Text>
+            </div>
+            <div className="podi-product-3d-render__model-row">
+              <Select
+                label="模型"
+                value={modelKey}
+                onChange={(v) => {
+                  const key = String(v) as ModelKey;
+                  setModelKey(key);
+                  setMaterialSlot(MODEL_PROFILES[key].firstSlot);
+                  setResult(null);
+                }}
+                options={MODEL_OPTIONS}
+              />
+              <div className="podi-product-3d-render__model-meta">
+                <strong>{modelProfile.file}</strong>
+                <span>{modelProfile.summary}</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="podi-product-commercialization__stage-panel">
+            <div className="podi-product-commercialization__stage-title">
+              <span>STEP 2</span>
+              <Typography.Title level="h4">选择固定贴图区域</Typography.Title>
+              <Typography.Text theme="secondary">贴图会落到模型的材质槽上。首版先验证单区域贴图，避免多面贴图混乱。</Typography.Text>
+            </div>
+            <div className="podi-product-3d-render__slot-layout">
+              <div className="podi-product-3d-render__slot-map" aria-label="模型贴图区域示意">
+                <div className={`podi-product-3d-render__slot-shape podi-product-3d-render__slot-shape--${modelKey}`}>
+                  <span>{slotLabel(materialSlot)}</span>
+                  <small>{materialSlot}</small>
+                </div>
+                <p>示意图只表达区域归属，不代表最终贴图重合效果。真实重合预览需要接 Three.js 画布。</p>
+              </div>
+              <div className="podi-product-3d-render__slot-list">
+                {modelProfile.materialSlots.map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    className={`podi-product-3d-render__slot ${slot === materialSlot ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setMaterialSlot(slot);
+                      setResult(null);
+                    }}
+                  >
+                    <strong>{slotLabel(slot)}</strong>
+                    <span>{slot}</span>
+                  </button>
+                ))}
+              </div>
+              <Select label="材质槽精确值" value={materialSlot} onChange={(v) => setMaterialSlot(String(v))} options={materialOptions} />
+            </div>
+          </section>
+
+          <section className="podi-product-commercialization__stage-panel">
+            <div className="podi-product-commercialization__stage-title">
+              <span>STEP 3</span>
+              <Typography.Title level="h4">上传贴图</Typography.Title>
+              <Typography.Text theme="secondary">贴图是花纹、Logo 或设计图。它会按选中的材质槽贴到模型固定区域。</Typography.Text>
             </div>
             <div className="podi-product-commercialization__strategy-workbench">
-              <div className="podi-product-commercialization__controls">
-                <Select
-                  label="3D 模型"
-                  value={modelKey}
-                  onChange={(v) => {
-                    const key = String(v) as 'cup_1660' | 'backpack_2551';
-                    setModelKey(key);
-                    setMaterialSlot('front');
-                  }}
-                  options={MODEL_OPTIONS}
-                />
-                <Select label="贴图材质槽" value={materialSlot} onChange={(v) => setMaterialSlot(String(v))} options={materialOptions} />
-                <Select label="镜头预设" value={cameraPreset} onChange={(v) => setCameraPreset(String(v) as any)} options={CAMERA_OPTIONS} />
-                <Select label="场景预设" value={scenePreset} onChange={(v) => setScenePreset(String(v) as any)} options={SCENE_OPTIONS} />
-                <Select
-                  label="时长"
-                  value={String(durationSeconds)}
-                  onChange={(v) => setDurationSeconds(Number(v) || 6)}
-                  options={DURATION_OPTIONS}
-                />
-                <Input label="比例" value={aspectRatio} onChange={(v) => setAspectRatio(String(v))} />
-              </div>
               <div className="podi-field-stack">
-                <Typography.Text>贴图 URL</Typography.Text>
+                <Typography.Text>主贴图 URL</Typography.Text>
                 <Space align="center">
                   <Input value={textureImageUrl} onChange={(v) => setTextureImageUrl(String(v))} placeholder="https://..." clearable />
                   <input
@@ -208,62 +311,76 @@ export function Product3DRenderVideoWorkbench() {
                   </Button>
                 </Space>
               </div>
-              <div className="podi-field-stack">
-                <Typography.Text>更多贴图 URL（可选）</Typography.Text>
+              <details className="podi-product-commercialization__interface-note">
+                <summary>
+                  <span>多贴图预留</span>
+                  <small>当前只建议验证主贴图</small>
+                </summary>
                 <Textarea
                   value={textureImageUrlsText}
                   onChange={(v) => setTextureImageUrlsText(String(v))}
-                  placeholder="每行一个 URL；后续用于多面/多材质贴图。"
+                  placeholder="每行一个 URL；后续用于多材质/多面贴图。"
                   autosize={{ minRows: 3, maxRows: 6 }}
                 />
-              </div>
-              <div className="podi-field-stack">
-                <Typography.Text>补充镜头要求</Typography.Text>
-                <Textarea
-                  value={extraPrompt}
-                  onChange={(v) => setExtraPrompt(String(v))}
-                  placeholder="例如：杯子慢速转一圈，开头给正面花纹，结尾停在把手侧。"
-                  autosize={{ minRows: 3, maxRows: 6 }}
-                />
-              </div>
-              <Button theme="primary" loading={status === 'previewing'} onClick={() => void previewPlan()}>
-                生成 3D 渲染方案
-              </Button>
+              </details>
             </div>
           </section>
 
           <section className="podi-product-commercialization__stage-panel">
             <div className="podi-product-commercialization__stage-title">
-              <span>STEP 2</span>
-              <Typography.Title level="h4">方案与可执行度</Typography.Title>
-              <Typography.Text theme="secondary">这里确认模型资产和渲染管线，不把计划当成视频结果。</Typography.Text>
+              <span>STEP 4</span>
+              <Typography.Title level="h4">选择渲染预设</Typography.Title>
+              <Typography.Text theme="secondary">这些是确定性参数，不是大模型提示词。</Typography.Text>
+            </div>
+            <div className="podi-product-commercialization__controls">
+              <Select label="镜头" value={cameraPreset} onChange={(v) => setCameraPreset(String(v) as CameraPreset)} options={CAMERA_OPTIONS} />
+              <Select label="场景" value={scenePreset} onChange={(v) => setScenePreset(String(v) as ScenePreset)} options={SCENE_OPTIONS} />
+              <Select
+                label="时长"
+                value={String(durationSeconds)}
+                onChange={(v) => setDurationSeconds(Number(v) || 6)}
+                options={DURATION_OPTIONS}
+              />
+              <Input label="比例" value={aspectRatio} onChange={(v) => setAspectRatio(String(v))} />
+            </div>
+            <Button theme="primary" loading={status === 'previewing'} onClick={() => void previewPlan()}>
+              检查 3D 贴图方案
+            </Button>
+          </section>
+
+          <section className="podi-product-commercialization__stage-panel">
+            <div className="podi-product-commercialization__stage-title">
+              <span>RESULT</span>
+              <Typography.Title level="h4">资产准备度与下一步</Typography.Title>
+              <Typography.Text theme="secondary">这里只看可执行条件，不把方案当成视频结果。</Typography.Text>
             </div>
             {!result ? (
               <div className="podi-product-commercialization__empty">
-                <Typography.Text theme="secondary">还没有方案。请选择模型和贴图后生成预览。</Typography.Text>
+                <Typography.Text theme="secondary">还没有检查结果。完成模型、贴图区域和贴图输入后点击检查。</Typography.Text>
               </div>
             ) : (
               <Space direction="vertical" size="medium" style={{ width: '100%' }}>
                 <div className="podi-product-commercialization__strategy-summary">
                   <div>
-                    <Typography.Text theme="secondary">模型</Typography.Text>
-                    <Typography.Text>{String(model.displayName || modelKey)}</Typography.Text>
+                    <Typography.Text theme="secondary">模型文件</Typography.Text>
+                    <Typography.Text>{String(model.preferredFile || modelProfile.file)}</Typography.Text>
                   </div>
                   <div>
                     <Typography.Text theme="secondary">准备度</Typography.Text>
                     <Typography.Text>{String(readiness.score ?? '-')}</Typography.Text>
                   </div>
                   <div>
-                    <Typography.Text theme="secondary">材质槽</Typography.Text>
-                    <Typography.Text>{String(asRecord(renderPlan.textureApplication).materialSlot || materialSlot)}</Typography.Text>
+                    <Typography.Text theme="secondary">贴图区域</Typography.Text>
+                    <Typography.Text>{slotLabel(activeSlot)}</Typography.Text>
                   </div>
                 </div>
                 <div className="podi-product-commercialization__package-flow">
                   {[
-                    { label: '模型', value: readiness.modelReady ? '已识别' : '待确认' },
-                    { label: 'UV', value: readiness.uvReady ? '可贴图' : '需处理' },
-                    { label: '贴图', value: readiness.textureProvided ? `${textureImageUrls.length} 张` : '缺失' },
-                    { label: '渲染服务', value: readiness.renderWorkerReady ? '可执行' : '待接入' },
+                    { label: '模型目录', value: asBool(readiness.modelReady) ? '已识别' : '待归档' },
+                    { label: 'UV', value: asBool(readiness.uvReady) ? '可贴图' : '需修复' },
+                    { label: '贴图', value: asBool(readiness.textureProvided) ? `${textureImageUrls.length} 张` : '缺失' },
+                    { label: '3D 画布', value: '待接入' },
+                    { label: '渲染 worker', value: asBool(readiness.renderWorkerReady) ? '可执行' : '待接入' },
                   ].map((item) => (
                     <div key={item.label}>
                       <strong>{item.label}</strong>
@@ -272,6 +389,11 @@ export function Product3DRenderVideoWorkbench() {
                   ))}
                 </div>
                 <div className="podi-product-commercialization__shot-list">
+                  <div>
+                    <strong>贴图动作</strong>
+                    <span>把主贴图应用到 {slotLabel(activeSlot)}，保持模型 UV，不做大模型重绘。</span>
+                    <small>{String(textureApplication.mode || 'single_slot_texture')}</small>
+                  </div>
                   <div>
                     <strong>场景 · {String(scene.label || scenePreset)}</strong>
                     <span>{String(scene.lighting || '')}</span>
@@ -307,25 +429,23 @@ export function Product3DRenderVideoWorkbench() {
 
         <aside className="podi-product-commercialization__studio-side">
           <div className="podi-product-commercialization__side-card">
-            <Typography.Text strong>当前模型</Typography.Text>
+            <Typography.Text strong>贴图预览</Typography.Text>
+            <div className="podi-product-commercialization__side-image">
+              {textureImageUrl ? <img src={textureImageUrl} alt="当前贴图" /> : <span>等待贴图</span>}
+            </div>
             <div className="podi-product-commercialization__facts">
-              <span>{modelKey === 'cup_1660' ? '杯子' : '背包'}</span>
-              <span>{materialSlot}</span>
+              <span>{modelProfile.title}</span>
+              <span>{slotLabel(materialSlot)}</span>
               <span>{textureImageUrls.length} 张贴图</span>
             </div>
-            {textureImageUrl ? (
-              <div className="podi-product-commercialization__side-image">
-                <img src={textureImageUrl} alt="当前贴图" />
-              </div>
-            ) : (
-              <div className="podi-product-commercialization__side-image">
-                <span>等待贴图</span>
-              </div>
-            )}
           </div>
           <div className="podi-product-commercialization__side-card">
             <Typography.Text strong>能力边界</Typography.Text>
-            <p>这条能力是 3D 渲染链路，后续接渲染 worker；不走大模型视频生成，不占用 KIE/Vidu 成本。</p>
+            <p>3D 渲染视频是确定性渲染路线：模型、材质槽、UV、相机和灯光决定结果。它不调用 GPT Image 2、KIE 或 Vidu。</p>
+          </div>
+          <div className="podi-product-commercialization__side-card">
+            <Typography.Text strong>下一步才是真验收</Typography.Text>
+            <p>接入 Three.js 画布后，需要能看到贴图与模型区域是否重合；接入渲染 worker 后，再输出 MP4、封面帧和 manifest。</p>
           </div>
         </aside>
       </div>
