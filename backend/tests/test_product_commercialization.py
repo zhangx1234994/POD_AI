@@ -781,6 +781,122 @@ def test_product_commercialization_preview_plans_long_video_segments() -> None:
     assert keyframe_needs[0]["prompt"]
 
 
+def test_product_commercialization_video_director_uses_volcengine_router_without_env(monkeypatch) -> None:
+    service = ProductCommercializationService()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "app.services.product_commercialization.get_settings",
+        lambda: SimpleNamespace(
+            business_agent_planner_enabled=True,
+            business_agent_planner_model="gpt-5.5",
+            business_agent_openai_api_key=None,
+            business_agent_openai_base_url="https://api.openai.com",
+            business_agent_planner_timeout_seconds=30,
+            volcengine_api_key=None,
+        ),
+    )
+    monkeypatch.setattr(
+        ProductCommercializationService,
+        "_resolve_openai_planner_credentials",
+        lambda self, settings: {},
+    )
+
+    def fake_call_volcengine_copy_model(self, **kwargs):
+        captured.update(kwargs)
+        return {
+            "model": "doubao-video-director-test",
+            "text": json.dumps(
+                {
+                    "directorBrief": {
+                        "productUnderstanding": "Visible floral mug with ceramic body.",
+                        "commercialGoal": "Create a concise marketplace product showcase.",
+                        "targetAudience": "US gift buyers.",
+                        "visualStyle": "Clean tabletop commercial video.",
+                        "continuityRule": "Keep the same mug shape, print and color in every segment.",
+                    },
+                    "videoPrompt": "Model-planned 15 second ceramic mug showcase with controlled camera movement.",
+                    "negativePrompt": "No text, watermark, logo, price tag, deformation, or wrong product category.",
+                    "storyboard": [
+                        {
+                            "shot": 1,
+                            "scene": "bright tabletop hero setup",
+                            "subject": "Floral ceramic mug",
+                            "goal": "show full product silhouette",
+                            "cameraMovement": "slow 30 degree orbit from front-left to center",
+                            "composition": "full mug visible, centered, clean negative space",
+                            "prompt": "Generate an 8 second tabletop hero orbit of the floral ceramic mug.",
+                            "firstFramePrompt": "Opening frame: floral ceramic mug centered on a clean tabletop.",
+                            "lastFramePrompt": "Ending frame: mug still centered after a slow orbit.",
+                            "negativePrompt": "No text, watermark, logo, price tag, deformation.",
+                            "transition": "cut",
+                            "referenceImageRole": "primary",
+                        },
+                        {
+                            "shot": 2,
+                            "scene": "close material detail setup",
+                            "subject": "Floral ceramic mug",
+                            "goal": "show print and handle detail",
+                            "cameraMovement": "gentle push-in toward the printed surface and handle",
+                            "composition": "medium close-up with handle and print visible",
+                            "prompt": "Generate a 7 second close detail push-in for the floral ceramic mug.",
+                            "firstFramePrompt": "Opening detail frame: mug print and handle visible.",
+                            "lastFramePrompt": "Ending detail frame: clean close-up of ceramic surface and print.",
+                            "negativePrompt": "No text, watermark, logo, price tag, deformation.",
+                            "transition": "cut",
+                            "referenceImageRole": "primary",
+                        },
+                    ],
+                    "keyframePlan": [
+                        {
+                            "role": "first_frame",
+                            "shot": 1,
+                            "required": False,
+                            "source": "gpt_image_2_planned",
+                            "prompt": "Create a controlled opening tabletop hero frame for the floral mug.",
+                            "reason": "Stabilize the first video segment.",
+                        }
+                    ],
+                    "vendorExecutionNotes": [
+                        "Use one reference image per generated segment.",
+                        "Preserve product identity and avoid extra props unless requested.",
+                    ],
+                    "riskChecks": [
+                        "Check mug shape deformation.",
+                        "Check unexpected text or watermark.",
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+        }
+
+    monkeypatch.setattr(
+        ProductCommercializationService,
+        "_call_volcengine_copy_model",
+        fake_call_volcengine_copy_model,
+    )
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            action="video_preview",
+            productImageUrl="https://example.com/mug.png",
+            productFields={"productNameEn": "Floral ceramic mug", "material": "ceramic"},
+            targetDurationSeconds=15,
+        )
+    )
+
+    assert captured["source"] == "product-commercialization-video-planner"
+    assert captured["route_source"] == "product_commercialization_video_director"
+    assert captured["image_url"] == "https://example.com/mug.png"
+    assert result["videoPlan"]["planner"]["provider"] == "volcengine"
+    assert result["videoPlan"]["planner"]["fallback"] is False
+    assert result["videoPlan"]["planner"]["model"] == "doubao-video-director-test"
+    assert result["videoPlan"]["videoPrompt"].startswith("Model-planned 15 second")
+    assert result["videoPlan"]["storyboard"][0]["cameraMovement"].startswith("slow 30 degree orbit")
+    assert result["videoAssetPackagePlan"]["keyframeNeeds"][0]["source"] == "gpt_image_2_planned"
+    assert not any(issue["code"] == "PRODUCT_VIDEO_PLANNER_FALLBACK" for issue in result["review"]["issues"])
+
+
 def test_product_commercialization_video_preview_skips_copy_model(monkeypatch) -> None:
     service = ProductCommercializationService()
 

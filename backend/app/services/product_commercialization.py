@@ -1227,7 +1227,7 @@ class ProductCommercializationService:
             except Exception as exc:
                 provider_errors.append(f"openai:{str(exc)[:240]}")
 
-        if settings.business_agent_planner_enabled and _clean_text(getattr(settings, "volcengine_api_key", None)):
+        if settings.business_agent_planner_enabled:
             try:
                 prompt = self._build_video_director_prompt(context_payload=context_payload)
                 result = self._call_volcengine_copy_model(
