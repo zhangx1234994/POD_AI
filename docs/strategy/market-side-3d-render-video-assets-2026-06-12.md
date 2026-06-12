@@ -7,7 +7,7 @@
 - 大模型视频：产品图组 -> VL/LLM 脚本与分镜 -> 关键帧/首尾帧 -> KIE/Vidu 分段视频 -> 可选合成。
 - 3D 渲染视频：3D 模型 -> 贴图槽/UV 验证 -> 预设场景/灯光/相机路径 -> Three.js 或 Blender 渲染 -> OSS 视频。
 
-当前只开放 `POST /api/business/product-3d-render-video/preview` 方案预览，不触发服务端渲染，不返回 MP4。测评端已接入客户端 Three.js 预览，可用 GLB/UV 验证贴图是否落到正确材质槽；接口仍只确认“模型是否可用、UV 是否存在、贴图槽和镜头/场景参数是否清晰”，不能代表已经完成服务端视频输出。
+当前只开放 `POST /api/business/product-3d-render-video/preview` 方案预览，不触发服务端渲染，不返回 MP4/OSS 视频。测评端已接入客户端 Three.js 预览和浏览器本地 WebM 录制，可用 GLB/UV 验证贴图是否落到正确材质槽，并导出一个本地可预览视频；接口仍只确认“模型是否可用、UV 是否存在、贴图槽和镜头/场景参数是否清晰”，不能代表已经完成服务端视频输出。
 
 2026-06-12 追加验收口径：
 
@@ -15,6 +15,7 @@
 - `textureImageUrl/textureImageUrls` 只保留为兼容字段；新交互和后续渲染 worker 以 `textureSlots` 为主。
 - 当前测评端已接入客户端 Three.js 预览：读取 `public/models/product-3d/1660.glb`、`public/models/product-3d/2551.glb`，并按材质名把用户贴图应用到真实模型表面。
 - 所见即所得预览在客户端完成：Three.js 读取 GLB、材质槽、UV 和用户贴图，实时展示贴图位置、比例和方向；用户可拖拽旋转检查。
+- 测评端先补本地 WebM 导出：用浏览器 `canvas.captureStream + MediaRecorder` 录制当前 Three.js 画面，生成可预览/下载的视频样片；这不是服务端 MP4，也不回填 OSS。
 - 服务端只负责可复用渲染：异步 worker 加载同一套模型/贴图/相机/灯光配置，导出 MP4、封面帧和 manifest，并统一回填 OSS。
 - 扩容判断：客户端预览主要消耗浏览器；批量导出/高质量视频会消耗服务端渲染 worker，应独立建 executor 池，不能混到 KIE/Vidu 视频队列里。
 
@@ -91,6 +92,6 @@
 1. 把试点 GLB 放入受控模型目录，建立 `modelKey -> assetPath -> materialSlots` 的配置。（测评端已归档到 `podi-eval-web/public/models/product-3d/`）
 2. 接入 Three.js 预览，读取真实 GLB/UV，先验证贴图方向、UV 覆盖、模型缩放和相机 framing。（已完成客户端 MVP）
 3. 建立按材质槽绑定贴图的配置结构：`modelKey + textureSlots + cameraPreset + scenePreset + durationSeconds + aspectRatio`。（已进入接口和测评端主交互）
-4. 建立渲染 worker：Three.js headless 录制或 Blender CLI 渲染二选一；输出 MP4、首帧 PNG 和 manifest。
+4. 建立渲染 worker：Three.js headless 录制或 Blender CLI 渲染二选一；输出 MP4、首帧 PNG 和 manifest。（测评端本地 WebM 仅用于快速验收镜头和贴图，不替代该 worker）
 5. 接入统一异步业务 run：`POST /api/business/product-3d-render-video/runs` -> `runId` -> `/api/business/runs/get`。
 6. 建立验收样例：1660 杯子 6 秒环绕、2551 背包 5 秒细节扫过、白底/棚拍两种场景。

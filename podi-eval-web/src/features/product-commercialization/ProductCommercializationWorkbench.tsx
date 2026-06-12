@@ -980,7 +980,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     try {
       const uploaded = await evalApi.uploadImage(file);
       setProductImageUrl(uploaded.url);
-      setActiveStage('facts');
+      setActiveStage(isVideoMode ? 'strategy' : 'facts');
       MessagePlugin.success('产品图已上传');
     } catch (err) {
       setError(String((err as any)?.message || err || '上传失败'));
@@ -1157,13 +1157,29 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const hasParsedFields = parsedFields !== null;
   const exportedFieldCount = parsedFields ? Object.keys(parsedFields).length : 0;
   const factsStepReady = hasProductImage && hasParsedFields && (!shouldConfirmMatch || fieldsConfirmed);
-  const strategyStepReady = isVideoMode ? hasProductImage && hasParsedFields : hasProductImage && hasParsedFields && copyScenarios.length > 0;
+  const strategyStepReady = isVideoMode ? factsStepReady : hasProductImage && hasParsedFields && copyScenarios.length > 0;
   const deliverReady = generatedVisuals.some((item) => item.urls.length > 0) || videoUrls.length > 0 || Boolean(videoRun);
-  const activeStageIndex = COMMERCIALIZATION_STAGES.findIndex((stage) => stage.key === activeStage);
+  const visibleStages = useMemo(
+    () =>
+      (isVideoMode
+        ? COMMERCIALIZATION_STAGES.filter((stage) => stage.key !== 'facts').map((stage) =>
+            stage.key === 'strategy'
+              ? {
+                  ...stage,
+                  videoLabel: '核对商品与视频策略',
+                  desc: 'JSON 可选，设置场景、供应商、时长',
+                }
+              : stage,
+          )
+        : COMMERCIALIZATION_STAGES),
+    [isVideoMode],
+  );
+  const activeStageIndex = visibleStages.findIndex((stage) => stage.key === activeStage);
   const canOpenStage = (stage: ProductCommercializationStage) => {
     if (stage === 'asset') return true;
+    if (isVideoMode && stage === 'facts') return false;
     if (stage === 'facts') return hasProductImage;
-    if (stage === 'strategy') return factsStepReady;
+    if (stage === 'strategy') return isVideoMode ? hasProductImage && hasParsedFields : factsStepReady;
     if (stage === 'review') return hasFreshResult || strategyStepReady;
     if (stage === 'deliver') return hasFreshResult || deliverReady;
     return true;
@@ -1182,6 +1198,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     if (!canOpenStage(stage)) return;
     setActiveStage(stage);
   };
+
+  useEffect(() => {
+    if (!isVideoMode || activeStage !== 'facts') return;
+    setActiveStage(hasProductImage ? 'strategy' : 'asset');
+  }, [activeStage, hasProductImage, isVideoMode]);
 
   return (
     <section className="podi-product-commercialization">
@@ -1252,7 +1273,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
 
       <div className="podi-product-commercialization__studio">
         <aside className="podi-product-commercialization__stage-rail" aria-label="产品商业化流程">
-          {COMMERCIALIZATION_STAGES.map((stage, index) => {
+          {visibleStages.map((stage, index) => {
             const state = stageState(stage.key);
             const isActive = activeStage === stage.key;
             return (
@@ -1334,8 +1355,8 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   ) : null}
                   <Alert theme="info" message="导出 JSON 不是必填项；如果 JSON 与图片不一致，后续默认以产品图为准并要求人工复核。" />
                   <Space>
-                    <Button theme="primary" disabled={!hasProductImage} onClick={() => setActiveStage('facts')}>
-                      下一步：核对商品事实
+                    <Button theme="primary" disabled={!hasProductImage} onClick={() => setActiveStage(isVideoMode ? 'strategy' : 'facts')}>
+                      {isVideoMode ? '下一步：核对并设置视频策略' : '下一步：核对商品事实'}
                     </Button>
                   </Space>
                 </div>
@@ -1343,7 +1364,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
             </section>
           ) : null}
 
-          {activeStage === 'facts' ? (
+          {activeStage === 'facts' && !isVideoMode ? (
             <section className="podi-product-commercialization__stage-panel">
               <div className="podi-product-commercialization__stage-title">
                 <span>STEP 2</span>
@@ -1413,12 +1434,63 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           {activeStage === 'strategy' ? (
             <section className="podi-product-commercialization__stage-panel">
               <div className="podi-product-commercialization__stage-title">
-                <span>STEP 3</span>
-                <Typography.Title level="h4">{isVideoMode ? '规划视频素材包' : '规划文案与配图'}</Typography.Title>
+                <span>{isVideoMode ? 'STEP 2' : 'STEP 3'}</span>
+                <Typography.Title level="h4">{isVideoMode ? '核对商品并规划视频素材包' : '规划文案与配图'}</Typography.Title>
                 <Typography.Text theme="secondary">
-                  {isVideoMode ? '先让模型规划脚本和分镜；视频按钮不会在这一步触发。' : '先生成结构化内容包；配图仍需后续显式点击。'}
+                  {isVideoMode ? '字段只是辅助说明，产品图优先；同一屏设置场景、供应商、时长和镜头约束。' : '先生成结构化内容包；配图仍需后续显式点击。'}
                 </Typography.Text>
               </div>
+              {isVideoMode ? (
+                <div className="podi-product-commercialization__merged-facts">
+                  <div className="podi-field-stack">
+                    <div className="podi-product-commercialization__panel-head">
+                      <Typography.Text>产品导出字段 JSON（可选）</Typography.Text>
+                      <Typography.Text theme={parsedFields === null ? 'error' : 'secondary'}>
+                        {parsedFields === null
+                          ? 'JSON 格式错误'
+                          : exportedFieldCount > 0
+                            ? `${exportedFieldCount} 个补充字段`
+                            : '未填写，按产品图推断'}
+                      </Typography.Text>
+                    </div>
+                    <Space size="small" breakLine>
+                      <Button size="small" variant="outline" onClick={() => setProductFieldsText(prettyJson(DEFAULT_PRODUCT_FIELDS))}>
+                        填入示例字段
+                      </Button>
+                      <Button size="small" variant="outline" onClick={() => setProductFieldsText('{}')}>
+                        清空字段，仅用产品图
+                      </Button>
+                    </Space>
+                    <Textarea
+                      value={productFieldsText}
+                      onChange={(v) => setProductFieldsText(String(v))}
+                      autosize={{ minRows: 5, maxRows: 10 }}
+                      status={parsedFields === null ? 'error' : 'default'}
+                    />
+                  </div>
+                  <div className="podi-product-commercialization__fact-card">
+                    <Typography.Text strong>当前商品摘要</Typography.Text>
+                    <div className="podi-product-commercialization__facts">
+                      <span>商品：{productSummary.name}</span>
+                      <span>分类：{productSummary.category}</span>
+                      <span>材质：{productSummary.material}</span>
+                      <span>型号：{productSummary.model}</span>
+                    </div>
+                    {shouldConfirmMatch ? (
+                      <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
+                        <input
+                          type="checkbox"
+                          checked={fieldsConfirmed}
+                          onChange={(event) => setFieldsConfirmed(event.currentTarget.checked)}
+                        />
+                        <span>我已核对：这批字段与当前产品图属于同一商品。若只是乱填测试，请清空字段或接受后续冲突复核。</span>
+                      </label>
+                    ) : (
+                      <Alert theme="success" message="当前按产品图主流程继续；缺失字段会由模型推断并降低置信度。" />
+                    )}
+                  </div>
+                </div>
+              ) : null}
               <div className="podi-product-commercialization__strategy-workbench">
                 <div className="podi-product-commercialization__controls">
                   <Select
@@ -1596,7 +1668,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                 </div>
 
                 <Space breakLine>
-                  <Button variant="outline" onClick={() => setActiveStage('facts')}>返回核对</Button>
+                  <Button variant="outline" onClick={() => setActiveStage(isVideoMode ? 'asset' : 'facts')}>
+                    {isVideoMode ? '返回素材' : '返回核对'}
+                  </Button>
                   <Button theme="primary" loading={status === 'previewing'} disabled={!strategyStepReady || (!isVideoMode && copyScenarios.length === 0)} onClick={() => void runPreview()}>
                     {meta.previewButton}
                   </Button>
@@ -1608,7 +1682,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           {activeStage === 'review' ? (
             <section className="podi-product-commercialization__stage-panel">
               <div className="podi-product-commercialization__stage-title">
-                <span>STEP 4</span>
+                <span>{isVideoMode ? 'STEP 3' : 'STEP 4'}</span>
                 <Typography.Title level="h4">{isVideoMode ? '确认脚本与分镜' : '审核内容包'}</Typography.Title>
                 <Typography.Text theme="secondary">这一屏只做人工确认和成本动作入口，不再混入前置表单。</Typography.Text>
               </div>
@@ -1782,7 +1856,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           {activeStage === 'deliver' ? (
             <section className="podi-product-commercialization__stage-panel">
               <div className="podi-product-commercialization__stage-title">
-                <span>STEP 5</span>
+                <span>{isVideoMode ? 'STEP 4' : 'STEP 5'}</span>
                 <Typography.Title level="h4">交付与追踪</Typography.Title>
                 <Typography.Text theme="secondary">集中查看 runId、OSS 链接、视频素材包和审核提示。</Typography.Text>
               </div>
@@ -1918,7 +1992,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           </div>
           <div className="podi-product-commercialization__side-card">
             <Typography.Text strong>当前阶段</Typography.Text>
-            <p>{COMMERCIALIZATION_STAGES[activeStageIndex]?.desc || '-'}</p>
+            <p>{visibleStages[activeStageIndex]?.desc || '-'}</p>
             {isVideoMode ? <p>{PRODUCT_COPY_PAUSED_MESSAGE}</p> : null}
             <Space size="small" breakLine>
               {meta.tags.map((tag) => (

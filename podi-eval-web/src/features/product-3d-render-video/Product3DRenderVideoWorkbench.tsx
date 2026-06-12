@@ -14,6 +14,10 @@ type ScenePreset = 'clean_studio' | 'marketplace_white' | 'premium_dark';
 type SlotTextureState = Record<string, string>;
 type TextureSlotEntry = { materialSlot: string; imageUrl: string; label: string };
 type PreviewStatus = { state: 'loading' | 'ready' | 'error'; message: string };
+type VideoExportStatus = 'idle' | 'recording' | 'ready' | 'error';
+type Product3DPreviewHandle = {
+  exportVideo: (durationSeconds: number, cameraPreset: CameraPreset) => Promise<Blob>;
+};
 
 const MODEL_OPTIONS = [
   { label: '1660 杯子', value: 'cup_1660' },
@@ -160,6 +164,50 @@ function fitModelToView(root: THREE.Object3D, modelKey: ModelKey) {
   root.scale.setScalar(targetSize / maxDimension);
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function getMediaRecorderMimeType(): string {
+  if (typeof MediaRecorder === 'undefined') return '';
+  return (
+    ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((type) => MediaRecorder.isTypeSupported(type)) || ''
+  );
+}
+
+function applyCameraMotion(
+  camera: THREE.PerspectiveCamera,
+  controls: OrbitControls,
+  preset: CameraPreset,
+  originalPosition: THREE.Vector3,
+  originalTarget: THREE.Vector3,
+  progress: number,
+) {
+  const eased = 0.5 - Math.cos(Math.min(1, Math.max(0, progress)) * Math.PI) / 2;
+  if (preset === 'slow_push_in') {
+    camera.position.set(
+      originalPosition.x * (1 - eased * 0.28),
+      originalPosition.y + eased * 0.08,
+      Math.max(1.85, originalPosition.z - eased * 0.85),
+    );
+    controls.target.copy(originalTarget);
+    return;
+  }
+  if (preset === 'detail_sweep') {
+    camera.position.set(
+      originalPosition.x + Math.sin(eased * Math.PI * 2) * 0.42,
+      originalPosition.y + Math.sin(eased * Math.PI) * 0.14,
+      Math.max(1.9, originalPosition.z - 0.25),
+    );
+    controls.target.set(originalTarget.x + Math.cos(eased * Math.PI * 2) * 0.08, originalTarget.y + 0.04, originalTarget.z);
+    return;
+  }
+  const radius = Math.max(2.25, originalPosition.length());
+  const angle = eased * Math.PI * 2;
+  camera.position.set(Math.sin(angle) * radius * 0.68, originalPosition.y, Math.cos(angle) * radius * 0.68);
+  controls.target.copy(originalTarget);
+}
+
 async function loadTexture(url: string, loader: THREE.TextureLoader): Promise<THREE.Texture> {
   return new Promise((resolve, reject) => {
     loader.load(
@@ -252,11 +300,13 @@ function Product3DModelPreview({
   modelProfile,
   materialSlot,
   textureSlotEntries,
+  onExportHandle,
 }: {
   modelKey: ModelKey;
   modelProfile: (typeof MODEL_PROFILES)[ModelKey];
   materialSlot: string;
   textureSlotEntries: TextureSlotEntry[];
+  onExportHandle?: (handle: Product3DPreviewHandle | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>({
@@ -271,6 +321,15 @@ function Product3DModelPreview({
     let disposed = false;
     let animationFrame = 0;
     let modelRoot: THREE.Object3D | null = null;
+    let recording:
+      | {
+          startAt: number;
+          durationMs: number;
+          preset: CameraPreset;
+          originalPosition: THREE.Vector3;
+          originalTarget: THREE.Vector3;
+        }
+      | null = null;
 
     host.replaceChildren();
     setPreviewStatus({ state: 'loading', message: '正在加载真实 3D 模型' });
@@ -349,7 +408,61 @@ function Product3DModelPreview({
       },
     );
 
+    const exportVideo = async (seconds: number, preset: CameraPreset) => {
+      if (!modelRoot) throw new Error('3D 模型还没有加载完成，请等待预览显示“已应用贴图”后再生成视频。');
+      if (typeof MediaRecorder === 'undefined') throw new Error('当前浏览器不支持 MediaRecorder，无法本地录制 3D 预览视频。');
+      if (!('captureStream' in renderer.domElement)) throw new Error('当前浏览器不支持 canvas.captureStream，无法导出 3D 预览视频。');
+
+      const stream = renderer.domElement.captureStream(30);
+      const mimeType = getMediaRecorderMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const chunks: BlobPart[] = [];
+      const stopped = new Promise<Blob>((resolve, reject) => {
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) chunks.push(event.data);
+        };
+        recorder.onerror = () => reject(new Error('本地视频录制失败，请刷新页面后重试。'));
+        recorder.onstop = () => {
+          stream.getTracks().forEach((track) => track.stop());
+          resolve(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }));
+        };
+      });
+
+      const originalPosition = camera.position.clone();
+      const originalTarget = controls.target.clone();
+      const originalAutoRotate = controls.autoRotate;
+      const originalAutoRotateSpeed = controls.autoRotateSpeed;
+      recording = {
+        startAt: performance.now(),
+        durationMs: Math.max(1, seconds) * 1000,
+        preset,
+        originalPosition,
+        originalTarget,
+      };
+      controls.autoRotate = false;
+      controls.autoRotateSpeed = 0;
+      recorder.start(100);
+      try {
+        await delay(Math.max(1, seconds) * 1000 + 160);
+        if (recorder.state !== 'inactive') recorder.stop();
+        return await stopped;
+      } finally {
+        recording = null;
+        camera.position.copy(originalPosition);
+        controls.target.copy(originalTarget);
+        controls.autoRotate = originalAutoRotate;
+        controls.autoRotateSpeed = originalAutoRotateSpeed;
+        controls.update();
+      }
+    };
+
+    onExportHandle?.({ exportVideo });
+
     const animate = () => {
+      if (recording) {
+        const progress = (performance.now() - recording.startAt) / recording.durationMs;
+        applyCameraMotion(camera, controls, recording.preset, recording.originalPosition, recording.originalTarget, progress);
+      }
       controls.update();
       renderer.render(scene, camera);
       animationFrame = window.requestAnimationFrame(animate);
@@ -364,9 +477,10 @@ function Product3DModelPreview({
       dracoLoader.dispose();
       if (modelRoot) disposeObject(modelRoot);
       renderer.dispose();
+      onExportHandle?.(null);
       host.replaceChildren();
     };
-  }, [materialSlot, modelKey, modelProfile, textureSlotEntries]);
+  }, [materialSlot, modelKey, modelProfile, onExportHandle, textureSlotEntries]);
 
   return (
     <div className="podi-product-3d-render__model-preview">
@@ -396,6 +510,10 @@ export function Product3DRenderVideoWorkbench() {
   const [result, setResult] = useState<Product3DRenderVideoResponse | null>(null);
   const [status, setStatus] = useState<WorkStatus>('idle');
   const [error, setError] = useState('');
+  const [previewHandle, setPreviewHandle] = useState<Product3DPreviewHandle | null>(null);
+  const [videoExportStatus, setVideoExportStatus] = useState<VideoExportStatus>('idle');
+  const [videoExportError, setVideoExportError] = useState('');
+  const [localVideo, setLocalVideo] = useState<{ url: string; name: string; size: number } | null>(null);
 
   const modelProfile = MODEL_PROFILES[modelKey];
   const materialOptions = useMemo(
@@ -420,6 +538,16 @@ export function Product3DRenderVideoWorkbench() {
   );
   const activeTextureImageUrl = String(slotTextureUrls[materialSlot] || '').trim();
   const primaryTextureImageUrl = activeTextureImageUrl || textureImageUrls[0] || '';
+
+  const clearLocalVideo = () => {
+    setLocalVideo((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+    setVideoExportStatus('idle');
+    setVideoExportError('');
+  };
+
   const updateSlotTexture = (slot: string, url: string) => {
     setSlotTextureUrls((prev) => {
       const next = { ...prev };
@@ -429,7 +557,15 @@ export function Product3DRenderVideoWorkbench() {
       return next;
     });
     setResult(null);
+    clearLocalVideo();
   };
+
+  useEffect(
+    () => () => {
+      if (localVideo?.url) URL.revokeObjectURL(localVideo.url);
+    },
+    [localVideo],
+  );
 
   const uploadTexture = async (slot: string, file: File | null | undefined) => {
     if (!file) return;
@@ -476,6 +612,35 @@ export function Product3DRenderVideoWorkbench() {
     }
   };
 
+  const exportLocalPreviewVideo = async () => {
+    setError('');
+    setVideoExportError('');
+    if (!previewHandle) {
+      setVideoExportStatus('error');
+      setVideoExportError('3D 预览还没有准备好，请等待模型加载完成后再生成本地视频。');
+      return;
+    }
+    setVideoExportStatus('recording');
+    try {
+      const blob = await previewHandle.exportVideo(durationSeconds, cameraPreset);
+      if (blob.size <= 0) throw new Error('本地视频导出为空，请重新录制。');
+      const url = URL.createObjectURL(blob);
+      setLocalVideo((prev) => {
+        if (prev?.url) URL.revokeObjectURL(prev.url);
+        return {
+          url,
+          name: `podi-3d-${modelKey}-${durationSeconds}s-${Date.now()}.webm`,
+          size: blob.size,
+        };
+      });
+      setVideoExportStatus('ready');
+      MessagePlugin.success('本地 3D 预览视频已生成');
+    } catch (err) {
+      setVideoExportStatus('error');
+      setVideoExportError(String((err as any)?.message || err || '本地视频生成失败'));
+    }
+  };
+
   const model = asRecord(result?.model);
   const readiness = asRecord(result?.assetReadiness);
   const renderPlan = asRecord(result?.renderPlan);
@@ -485,6 +650,52 @@ export function Product3DRenderVideoWorkbench() {
   const review = asRecord(result?.review);
   const issues = asArray(review.issues).map((item) => asRecord(item));
   const activeSlot = String(textureApplication.materialSlot || materialSlot);
+  const localVideoPanel = (
+    <div className="podi-product-3d-render__video-output">
+      <div className="podi-product-commercialization__panel-head">
+        <Typography.Text strong>本地预览视频</Typography.Text>
+        <Typography.Text theme="secondary">
+          {videoExportStatus === 'recording'
+            ? '正在录制当前 3D 画面'
+            : localVideo
+              ? `${Math.max(1, Math.round(localVideo.size / 1024))} KB · WebM`
+              : '尚未生成'}
+        </Typography.Text>
+      </div>
+      {localVideo ? (
+        <>
+          <video src={localVideo.url} controls />
+          <Space>
+            <Button variant="outline" onClick={() => window.open(localVideo.url, '_blank', 'noreferrer')}>
+              打开视频
+            </Button>
+            <Button
+              theme="primary"
+              onClick={() => {
+                const anchor = document.createElement('a');
+                anchor.href = localVideo.url;
+                anchor.download = localVideo.name;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+              }}
+            >
+              下载 WebM
+            </Button>
+          </Space>
+        </>
+      ) : (
+        <Alert
+          theme={videoExportStatus === 'recording' ? 'info' : 'warning'}
+          message={
+            videoExportStatus === 'recording'
+              ? '正在按当前镜头预设录制，请保持页面打开。'
+              : '还没有视频结果。点击“生成本地预览视频”后会在这里回放和下载。'
+          }
+        />
+      )}
+    </div>
+  );
 
   return (
     <section className="podi-product-commercialization podi-product-3d-render">
@@ -501,14 +712,15 @@ export function Product3DRenderVideoWorkbench() {
         <Space align="center">
           <Tag theme="primary" variant="light">确定性渲染</Tag>
           <Tag theme="success" variant="light">材质槽 / UV</Tag>
-          <Tag theme="warning" variant="light">不生成 MP4</Tag>
+          <Tag theme="warning" variant="light">本地 WebM</Tag>
         </Space>
       </div>
 
       {error ? <Alert theme="error" message={error} /> : null}
+      {videoExportError ? <Alert theme="error" message={videoExportError} /> : null}
       <Alert
-        theme="warning"
-        message="当前页面不是正式可交付视频能力：现在已接入客户端真实 3D 预览，但不会触发付费视频生成；服务端渲染 worker 和 MP4 回填仍待接入。"
+        theme="info"
+        message="当前可在浏览器内按真实 3D 预览录制 WebM 并下载；服务端 Blender/MP4/OSS 异步渲染 worker 后续独立接入。"
       />
 
       <div className="podi-product-commercialization__studio">
@@ -552,6 +764,7 @@ export function Product3DRenderVideoWorkbench() {
                   modelProfile={modelProfile}
                   materialSlot={materialSlot}
                   textureSlotEntries={textureSlotEntries}
+                  onExportHandle={setPreviewHandle}
                 />
                 <p>当前是真实 GLB/UV 客户端预览：贴图按材质名应用到模型表面，可拖拽检查位置和方向。后续服务端渲染 worker 会复用同一组槽位参数输出 MP4。</p>
               </div>
@@ -654,21 +867,42 @@ export function Product3DRenderVideoWorkbench() {
               />
               <Input label="比例" value={aspectRatio} onChange={(v) => setAspectRatio(String(v))} />
             </div>
-            <Button theme="primary" loading={status === 'previewing'} onClick={() => void previewPlan()}>
-              检查 3D 贴图方案
-            </Button>
+            <div className="podi-product-3d-render__video-actions">
+              <Button theme="primary" loading={status === 'previewing'} onClick={() => void previewPlan()}>
+                检查 3D 贴图方案
+              </Button>
+              <Button
+                theme="success"
+                loading={videoExportStatus === 'recording'}
+                disabled={!previewHandle || videoExportStatus === 'recording'}
+                onClick={() => void exportLocalPreviewVideo()}
+              >
+                生成 {durationSeconds}s 本地预览视频
+              </Button>
+              {localVideo ? (
+                <Button variant="outline" onClick={() => window.open(localVideo.url, '_blank', 'noreferrer')}>
+                  打开视频
+                </Button>
+              ) : null}
+            </div>
+            <Typography.Text theme="secondary">
+              “检查方案”只校验资产和参数；“生成本地预览视频”会直接录制当前 Three.js 画面，生成可下载 WebM。
+            </Typography.Text>
           </section>
 
           <section className="podi-product-commercialization__stage-panel">
             <div className="podi-product-commercialization__stage-title">
               <span>RESULT</span>
               <Typography.Title level="h4">资产准备度与下一步</Typography.Title>
-              <Typography.Text theme="secondary">这里只看可执行条件，不把方案当成视频结果。</Typography.Text>
+              <Typography.Text theme="secondary">这里同时展示方案检查和本地 WebM 视频输出；服务端 MP4/OSS 仍待 worker 接入。</Typography.Text>
             </div>
             {!result ? (
-              <div className="podi-product-commercialization__empty">
-                <Typography.Text theme="secondary">还没有检查结果。完成模型、贴图区域和贴图输入后点击检查。</Typography.Text>
-              </div>
+              <Space direction="vertical" size="medium" style={{ width: '100%' }}>
+                {localVideoPanel}
+                <div className="podi-product-commercialization__empty">
+                  <Typography.Text theme="secondary">还没有方案检查结果。完成模型、贴图区域和贴图输入后点击检查。</Typography.Text>
+                </div>
+              </Space>
             ) : (
               <Space direction="vertical" size="medium" style={{ width: '100%' }}>
                 <div className="podi-product-commercialization__strategy-summary">
@@ -716,6 +950,7 @@ export function Product3DRenderVideoWorkbench() {
                     <small>{durationSeconds}s · {aspectRatio}</small>
                   </div>
                 </div>
+                {localVideoPanel}
                 {issues.length > 0 ? (
                   <div className="podi-product-commercialization__review-list">
                     {issues.map((issue, index) => (
@@ -752,7 +987,17 @@ export function Product3DRenderVideoWorkbench() {
           </div>
           <div className="podi-product-commercialization__side-card">
             <Typography.Text strong>能力边界</Typography.Text>
-            <p>3D 渲染视频是确定性渲染路线：当前客户端已负责 Three.js 所见即所得预览，服务端后续负责异步渲染、MP4、封面帧和 OSS 回填。它不调用 GPT Image 2、KIE 或 Vidu。</p>
+            <p>3D 渲染视频是确定性渲染路线：当前客户端已负责 Three.js 所见即所得预览和 WebM 导出，服务端后续负责异步渲染、MP4、封面帧和 OSS 回填。它不调用 GPT Image 2、KIE 或 Vidu。</p>
+          </div>
+          <div className="podi-product-commercialization__side-card">
+            <Typography.Text strong>当前视频</Typography.Text>
+            <p>
+              {videoExportStatus === 'recording'
+                ? `正在录制 ${durationSeconds}s`
+                : localVideo
+                  ? `已生成 ${durationSeconds}s WebM，可预览下载`
+                  : '待生成本地预览视频'}
+            </p>
           </div>
           <div className="podi-product-commercialization__side-card">
             <Typography.Text strong>扩容判断</Typography.Text>

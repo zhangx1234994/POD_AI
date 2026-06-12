@@ -147,13 +147,10 @@ test('product video workbench previews a material package without triggering pai
 
   await expect(stageMain.getByAltText('产品图预览')).toBeVisible();
   await expect(page.getByText('图组 3')).toBeVisible();
-  await stageMain.getByRole('button', { name: '下一步：核对商品事实' }).click();
+  await stageMain.getByRole('button', { name: '下一步：核对并设置视频策略' }).click();
 
-  await expect(stageMain.getByText('核对图片与字段')).toBeVisible();
+  await expect(stageMain.getByText('核对商品并规划视频素材包')).toBeVisible();
   await stageMain.getByRole('button', { name: '清空字段，仅用产品图' }).click();
-  await stageMain.getByRole('button', { name: '下一步：设置生成方案' }).click();
-
-  await expect(stageMain.getByText('规划视频素材包')).toBeVisible();
   await stageMain.locator('input[placeholder="例如 15"]').fill('15');
   await expect(stageMain.getByText('8 + 5 + 3s')).toBeVisible();
   await stageMain.getByPlaceholder('例如：突出材质纹理和商品轮廓，不要出现文字和水印。').fill('强调杯身花纹和杯柄轮廓，适合海外礼品场景。');

@@ -48,8 +48,8 @@
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
-| 产品商业化 | 视频预览 `POST /api/business/product-commercialization/preview` 且 `action=video_preview`；视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 核心输入为 `productImageUrl` 或 `productImages`；`productFields` 是可选说明材料，不是必填事实源；视频执行必须至少有一张产品图 | 视频：`action=video_preview/video_generate`、`productImages`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId`、`extraPrompt`；文案入口已从测评端撤下，后续按 `product_copy_package` 独立重做 | 视频预览返回 `videoPlan`、`videoAssetPackagePlan`、`resolvedProductFacts`、`review`；执行返回 `runId`，终态查询返回 `videoUrls` 或 `resultPayload.videoAssetPackage` | 产品设计后的商业化能力先集中验证视频素材包。视频不是只交付最终合成片，脚本、分镜、首尾帧、分段视频都是可复用资产。多角度图会进入视频分镜参考图选择，但当前厂商执行仍按每段一张参考图调用。视频是显式后续动作，统一走产品商业化 runId 查询口径。 |
-| 3D 渲染视频 | 方案预览 `POST /api/business/product-3d-render-video/preview` | `modelKey`；贴图 `textureImageUrl` 建议传 | `materialSlot`、`cameraPreset`、`scenePreset`、`durationSeconds`、`aspectRatio`、`extraPrompt` | `model`、`assetReadiness`、`renderPlan`、`review` | 独立于 KIE/Vidu 的 3D 模型渲染视频能力。当前测评端已接入客户端 GLB/UV 预览，但接口只开放方案预览，不触发渲染 worker，不返回 MP4；用于验证模型、UV、贴图槽、场景和镜头方案。 |
+| 产品商业化 | 视频预览 `POST /api/business/product-commercialization/preview` 且 `action=video_preview`；视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 核心输入为 `productImageUrl` 或 `productImages`；`productFields` 是可选说明材料，不是必填事实源；视频执行必须至少有一张产品图 | 视频：`action=video_preview/video_generate`、`productImages`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId`、`extraPrompt`；文案入口已从测评端撤下，后续按 `product_copy_package` 独立重做 | 视频预览返回 `videoPlan`、`videoAssetPackagePlan`、`resolvedProductFacts`、`review`；执行返回 `runId`，终态查询返回 `videoUrls` 或 `resultPayload.videoAssetPackage` | 产品设计后的商业化能力先集中验证视频素材包。测评端主流程是“上传产品图组 -> 核对商品事实并设置视频策略 -> 确认脚本分镜 -> 交付追踪”，不再把商品确认和策略设置拆成两个独立步骤。视频不是只交付最终合成片，脚本、分镜、首尾帧、分段视频都是可复用资产。 |
+| 3D 渲染视频 | 方案预览 `POST /api/business/product-3d-render-video/preview` | `modelKey`；贴图 `textureImageUrl` 建议传 | `materialSlot`、`cameraPreset`、`scenePreset`、`durationSeconds`、`aspectRatio`、`extraPrompt` | `model`、`assetReadiness`、`renderPlan`、`review`；测评端可本地导出 WebM 预览 | 独立于 KIE/Vidu 的 3D 模型渲染视频能力。当前测评端已接入客户端 GLB/UV 预览和浏览器本地 WebM 录制；接口仍只开放方案预览，不触发服务端渲染 worker，不返回 MP4/OSS 视频。 |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
@@ -1538,7 +1538,7 @@ X-PODI-API-Key: podi_xxx
 
 它是产品设计之后的试验入口，不负责花纹提取、裂变或产品设计本身。当前测评端先撤下产品文案入口，集中验证**产品视频素材包**；产品文案后续按 `product_copy_package` 独立能力重新设计。历史接口仍可能返回 `copyGeneration/contentPackage/copyPackage`，但这些字段暂不作为当前测评端交付面。
 
-当前测评端先集中验证“产品视频素材包”：产品理解卡、客户目标时长、可选规划要素、模型画像、分镜、首尾帧/关键帧需求和执行策略。`action=video_preview` 会跳过文案生成，响应中的 `copyGeneration.method=skipped_for_video_preview` 只用于兼容旧响应结构，不代表文案能力已完成。产品文案后续按 `product_copy_package` 独立能力重做。
+当前测评端先集中验证“产品视频素材包”：主流程为“上传产品图组 -> 核对商品事实并设置视频策略 -> 确认脚本分镜 -> 交付追踪”。商品事实核对和视频策略设置必须在同一屏完成：`productFields`/导出 JSON 只是可选说明材料，产品图仍是最高优先级事实源；用户在同一步选择视频场景、供应商、目标时长和补充规划要素。`action=video_preview` 会跳过文案生成，响应中的 `copyGeneration.method=skipped_for_video_preview` 只用于兼容旧响应结构，不代表文案能力已完成。产品文案后续按 `product_copy_package` 独立能力重做。
 
 当前测评端配图生成的最小安全实现是：先调用 `preview` 得到文案和配图计划，再由用户显式点击配图生成按钮，前端提交 `POST /api/business/product-commercialization/runs` 且传 `action=visual_generate`，用返回的 `runId` 轮询 `/api/business/runs/get`，最终展示自有 OSS 图片。也就是说，`visualSupportMode=generate` 不等于预览接口自动生图，它只表示“本次计划允许后续显式生成配图”。
 
@@ -1975,7 +1975,7 @@ X-PODI-API-Key: podi_xxx
 
 - 接口：`POST /api/business/product-3d-render-video/preview`
 - 当前模型：`cup_1660`（1660 杯子）、`backpack_2551`（2551 笔记本电脑背包）
-- 当前状态：只返回 `model/assetReadiness/renderPlan/review`，不触发渲染 worker，不返回 MP4，不产生第三方成本。测评端已接入客户端 Three.js 画布，可读取 GLB/UV 并按材质名应用贴图。
+- 当前状态：接口只返回 `model/assetReadiness/renderPlan/review`，不触发渲染 worker，不返回 MP4，不产生第三方成本。测评端已接入客户端 Three.js 画布，可读取 GLB/UV 并按材质名应用贴图，同时支持在浏览器内录制当前预览并导出 WebM。
 - 边界：客户端负责 GLB/UV/材质槽的实时 WYSIWYG 预览；服务端负责异步渲染 worker、MP4、封面帧、manifest 和 OSS 回填。批量导出时应独立扩容渲染 executor 池，不能混入 KIE/Vidu 队列。
 - 当前验收口径：可以验证模型是否进入受控目录、材质槽是否合法、UV 是否存在、贴图 URL 是否齐备、客户端贴图方向是否可接受、渲染参数是否可解释；不能把它当作正式视频生成能力。
 - 后续执行形态：接入 Three.js headless 或 Blender 渲染 worker 后，再按统一异步任务口径开放 `/runs`，返回 `runId` 并通过 `/api/business/runs/get` 查询 OSS 视频。

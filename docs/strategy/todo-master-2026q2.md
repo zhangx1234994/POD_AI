@@ -97,6 +97,7 @@
 - 进展（2026-06-11 追加）：114 控制面已部署 `c59fa6f4+workspace-product-commercialization-20260611` 产品商业化试验补丁；默认预览巡检 `/srv/pod/reports/product-commercialization-preview-patrol-20260611-fixed2.json` 通过 `total=3 passed=3 failed=0`。真实 GPT Image 2 配图 runId `83f4dd35a8e44d02b946e8a090ae49fd`、真实 Vidu 8 秒单段素材包 runId `24858339ccd94e588866018ab2c49963` 均已回填 OSS。同步修复兜底时图片/字段未完成视觉核验却不提示冲突的问题，后续凡有产品图 + 导出字段但 VL/LLM 兜底，必须输出人工复核风险。
 - 下一步：先按 `docs/strategy/market-side-ai-technical-plan-2026-06-11.md` 改当前 `product_commercialization`，再拆正式能力。P0 顺序：① schema 和文档把 `productFields` 明确为可选；② 后端事实解析图片优先；③ `preview` 输出 `videoAssetPackagePlan`；④ `/runs` 保存 `videoAssetPackage` 分段素材和可选合成结果；⑤ 测评端视频页面改成脚本/分镜/关键帧/分段视频/合成的分阶段交互；⑥ 补错误码、测试和真实链路证据；⑦ 在线上 114 或已加白后端环境执行产品商业化专项门禁。
 - 进展（2026-06-12 追加）：测评端从当前主导航撤下 `产品文案`，后续作为 `product_copy_package` 独立能力重做，不继续混在产品视频试点里；产品视频规划区改为表单化关键要素，允许“添加更多”可选内容；3D 试点新增 `textureSlots[]` 契约，支持一个材质槽一张贴图。
+- 进展（2026-06-12 追加）：产品视频测评端主流程收敛为 4 步：“上传产品图组 -> 核对商品事实并设置视频策略 -> 确认脚本分镜 -> 交付追踪”，不再把商品确认和视频策略拆成两个页面；3D 渲染视频测评端新增浏览器本地 WebM 录制/预览/下载，用于快速验收贴图和镜头，服务端 MP4/OSS worker 仍作为后续任务。
 - 验收：每个候选能力至少有一页能力契约和固定样例计划；是否实现由样例质量和业务优先级决定。当前测评重点先放在 `product_commercialization` 产品视频素材包、KIE/Vidu 单段/多段视频和 OSS 沉淀；文案后续按 `product_copy_package` 独立能力重新设计和验收；`product_image_set` 至少准备 3 类固定样例：服饰/配件、家居软装、节日营销图。
 
 5. `todo` 质量迭代与观测方案

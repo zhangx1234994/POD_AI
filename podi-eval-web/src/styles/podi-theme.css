@@ -575,6 +575,16 @@ html.t-theme-dark {
   align-items: start;
 }
 
+.podi-product-commercialization__merged-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 18%, var(--td-border-level-1-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--td-brand-color) 3%, var(--td-bg-color-container));
+}
+
 .podi-product-commercialization__side-image {
   display: grid;
   min-height: 172px;
@@ -1229,6 +1239,31 @@ html.t-theme-dark {
   font-size: 12px;
 }
 
+.podi-product-3d-render__video-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.podi-product-3d-render__video-output {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+}
+
+.podi-product-3d-render__video-output video {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: #0f172a;
+}
+
 .podi-product-commercialization__package-flow {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1476,6 +1511,7 @@ html.t-theme-dark {
 
   .podi-product-commercialization__asset-layout,
   .podi-product-commercialization__fact-layout,
+  .podi-product-commercialization__merged-facts,
   .podi-product-3d-render__model-row,
   .podi-product-3d-render__slot-layout {
     grid-template-columns: minmax(0, 1fr);
