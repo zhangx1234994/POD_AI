@@ -1376,6 +1376,7 @@ def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> N
     service = ProductCommercializationService()
     captured = {}
     frame_calls = []
+    composition_calls = []
 
     def fake_run_vidu_video_task(**kwargs):
         captured.update(kwargs)
@@ -1414,6 +1415,18 @@ def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> N
 
     monkeypatch.setattr(service, "_generate_normalized_first_frame", fake_generate_normalized_first_frame)
 
+    def fake_compose_opening_hold_with_segment(**kwargs):
+        composition_calls.append(kwargs)
+        return {
+            "ossUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/hero-composed.mp4",
+            "contentType": "video/mp4",
+            "mode": "opening_hold_plus_vidu_segment",
+            "introHoldSeconds": 2.0,
+            "tailSeconds": 3.0,
+        }
+
+    monkeypatch.setattr(service, "_compose_opening_hold_with_segment", fake_compose_opening_hold_with_segment)
+
     result = service.generate_video(
         ProductCommercializationRequest(
             productImageUrl="https://example.com/socks.png",
@@ -1440,14 +1453,21 @@ def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> N
     assert result["videoPlan"]["aspectPolicy"]["mode"] == "normalized_first_frame"
     assert result["videoPlan"]["aspectPolicy"]["executionAspectRatio"] == "16:9"
     assert result["videoPlan"]["targetDurationSeconds"] == 5
-    assert result["videoResult"]["provider"] == "vidu"
+    assert composition_calls[0]["first_frame_url"].endswith("first-frame-16x9.png")
+    assert composition_calls[0]["segment_video_url"].endswith("vidu-video.mp4")
+    assert result["videoAssetPackage"]["deliveryStatus"] == "composed_ready"
+    assert result["videoAssetPackage"]["composition"]["videoUrl"].endswith("hero-composed.mp4")
+    assert result["videoResult"]["provider"] == "vidu+ffmpeg"
     assert result["videoResult"]["model"] == "viduq3-turbo"
     assert result["execution"]["imageGenerated"] is True
-    assert result["execution"]["costActions"] == ["openai.gpt_image_2.image", "vidu.viduq3_turbo.video"]
+    assert result["execution"]["costActions"] == ["openai.gpt_image_2.image", "vidu.viduq3_turbo.video", "ffmpeg.compose"]
     assert result["videoAssetPackage"]["keyframes"][0]["imageUrl"].endswith("first-frame-16x9.png")
     assert result["videoResult"]["segments"][0]["referenceImageUrl"].endswith("first-frame-16x9.png")
     assert result["videoResult"]["segments"][0]["normalizedFirstFrame"]["width"] == 1280
-    assert result["videoResult"]["videoUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/vidu-video.mp4"]
+    assert result["videoResult"]["videoUrls"] == [
+        "https://podi.oss-cn-hangzhou.aliyuncs.com/hero-composed.mp4",
+        "https://podi.oss-cn-hangzhou.aliyuncs.com/vidu-video.mp4",
+    ]
 
 
 def test_product_commercialization_first_frame_prompt_blocks_framed_layout() -> None:

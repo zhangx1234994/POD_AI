@@ -874,6 +874,26 @@ class ProductCommercializationService:
         status = _clean_text(result.get("status")) or "running"
         provider = self._normalize_video_provider(result.get("provider"))
         model = _clean_text(result.get("model")) or ("veo3_fast" if provider == "kie" else DEFAULT_VIDU_VIDEO_MODEL)
+        composition: dict[str, Any] | None = None
+        composition_error: Any = None
+        compose_enabled = False
+        if (
+            provider == "vidu"
+            and video_urls
+            and normalized_first_frame
+            and _clean_text(normalized_first_frame.get("imageUrl"))
+        ):
+            compose_enabled = True
+            try:
+                composition = self._compose_opening_hold_with_segment(
+                    first_frame_url=_clean_text(normalized_first_frame.get("imageUrl")),
+                    segment_video_url=video_urls[0],
+                    request_id=_clean_text(preview.get("requestId")) or f"pcp_{uuid4().hex[:12]}",
+                    user_id=user_id or "product-commercialization",
+                    target_duration_seconds=int(video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
+                )
+            except HTTPException as exc:
+                composition_error = exc.detail
         segment = self._build_video_segment_result(
             segment_index=1,
             shot=(video_plan.get("storyboard") or [{}])[0] if isinstance(video_plan.get("storyboard"), list) else {},
@@ -892,24 +912,31 @@ class ProductCommercializationService:
         video_asset_package = self._build_video_asset_package(
             video_plan=video_plan,
             segments=[segment],
-            composition=None,
-            compose_enabled=False,
+            composition=composition,
+            compose_enabled=compose_enabled,
+            composition_error=composition_error,
             keyframes=generated_keyframes,
         )
         cost_actions = [self._visual_cost_action(provider=DEFAULT_VISUAL_PROVIDER, model=DEFAULT_VISUAL_MODEL) for _ in generated_keyframes]
         cost_actions.append(self._video_cost_action(provider=provider, model=model))
+        if compose_enabled:
+            cost_actions.append("ffmpeg.compose")
+        final_video_urls = [
+            *([_clean_text(composition.get("ossUrl"))] if isinstance(composition, dict) and _clean_text(composition.get("ossUrl")) else []),
+            *video_urls,
+        ]
         return {
             **preview,
             "status": "succeeded" if status == "succeeded" and video_urls else status,
             "videoAssetPackage": video_asset_package,
             "videoResult": {
-                "provider": provider,
+                "provider": f"{provider}+ffmpeg" if composition else provider,
                 "model": model,
                 "taskId": result.get("taskId"),
                 "state": result.get("state"),
                 "status": status,
-                "videoUrls": video_urls,
-                "storedAssets": result.get("storedAssets") or [],
+                "videoUrls": final_video_urls,
+                "storedAssets": [*([composition] if composition else []), *(result.get("storedAssets") or [])],
                 "segments": [segment],
                 "composition": video_asset_package.get("composition"),
                 "raw": result.get("raw"),
@@ -2667,6 +2694,122 @@ class ProductCommercializationService:
             tag="product-commercialization-compose",
         )
 
+    def _compose_opening_hold_with_segment(
+        self,
+        *,
+        first_frame_url: str,
+        segment_video_url: str,
+        request_id: str,
+        user_id: str,
+        target_duration_seconds: int,
+    ) -> dict[str, Any]:
+        ffmpeg = self._resolve_ffmpeg_binary()
+        if not ffmpeg:
+            raise HTTPException(status_code=500, detail="PRODUCT_COMMERCIALIZATION_FFMPEG_MISSING")
+        target_duration = max(3.0, float(target_duration_seconds or DEFAULT_VIDEO_SEGMENT_SECONDS))
+        intro_seconds = min(2.0, max(1.0, target_duration * 0.25))
+        tail_seconds = max(0.8, target_duration - intro_seconds)
+        with tempfile.TemporaryDirectory(prefix="podi-video-hero-compose-") as temp_dir:
+            work_dir = Path(temp_dir)
+            first_frame_path = work_dir / "first-frame.png"
+            segment_source_path = work_dir / "vidu-segment-source.mp4"
+            intro_path = work_dir / "intro-hold.mp4"
+            tail_path = work_dir / "vidu-tail.mp4"
+            output_path = work_dir / "hero-composed.mp4"
+            self._download_remote_media(first_frame_url, first_frame_path)
+            self._download_video(segment_video_url, segment_source_path)
+            self._run_ffmpeg(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-loop",
+                    "1",
+                    "-t",
+                    f"{intro_seconds:.3f}",
+                    "-i",
+                    str(first_frame_path),
+                    "-vf",
+                    "scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=24,format=yuv420p,setsar=1",
+                    "-an",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "18",
+                    str(intro_path),
+                ]
+            )
+            self._run_ffmpeg(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-ss",
+                    "0.350",
+                    "-i",
+                    str(segment_source_path),
+                    "-t",
+                    f"{tail_seconds:.3f}",
+                    "-vf",
+                    "scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=24,format=yuv420p,setsar=1",
+                    "-an",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "20",
+                    str(tail_path),
+                ]
+            )
+            concat_file = work_dir / "concat.txt"
+            concat_lines = []
+            for path in (intro_path, tail_path):
+                escaped_path = str(path).replace("'", "'\\''")
+                concat_lines.append(f"file '{escaped_path}'")
+            concat_file.write_text("\n".join(concat_lines), encoding="utf-8")
+            self._run_ffmpeg(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(concat_file),
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "20",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    "-an",
+                    str(output_path),
+                ]
+            )
+            data = output_path.read_bytes()
+        uploaded = media_ingest_service.upload_generated_media_bytes(
+            data=data,
+            user_id=user_id or "product-commercialization",
+            filename=f"{request_id}-hero-composed.mp4",
+            content_type="video/mp4",
+            tag="product-commercialization-hero-compose",
+        )
+        return {
+            **uploaded,
+            "composeEngine": "ffmpeg",
+            "mode": "opening_hold_plus_vidu_segment",
+            "introHoldSeconds": intro_seconds,
+            "tailSeconds": tail_seconds,
+            "sourceFirstFrameUrl": first_frame_url,
+            "sourceSegmentVideoUrl": segment_video_url,
+        }
+
     def _resolve_ffmpeg_binary(self) -> str | None:
         ffmpeg = shutil.which("ffmpeg")
         if ffmpeg:
@@ -2680,6 +2823,9 @@ class ProductCommercializationService:
         return candidate or None
 
     def _download_video(self, url: str, target_path: Path) -> None:
+        self._download_remote_media(url, target_path)
+
+    def _download_remote_media(self, url: str, target_path: Path) -> None:
         try:
             with httpx.stream("GET", url, timeout=120) as response:
                 response.raise_for_status()
