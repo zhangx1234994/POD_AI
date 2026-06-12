@@ -297,7 +297,6 @@ const CATEGORY_ORDER = [
   '花纹提取',
   '图裂变',
   '产品设计',
-  '产品文案',
   '产品视频',
   '3D渲染视频',
   '图编辑',
@@ -312,8 +311,8 @@ const CATEGORY_ORDER = [
   '平台工具',
 ];
 const DEFAULT_CATEGORY = '图裂变';
-const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '产品设计', '产品文案', '产品视频', '3D渲染视频', '图编辑', '扩图', '连续图']);
-const PRIMARY_ABILITY_CATEGORIES = ['图裂变', '产品设计', '产品文案', '产品视频', '3D渲染视频', '图编辑', '扩图', '花纹提取', '文本与提示词'];
+const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '产品设计', '产品视频', '3D渲染视频', '图编辑', '扩图', '连续图']);
+const PRIMARY_ABILITY_CATEGORIES = ['图裂变', '产品设计', '产品视频', '3D渲染视频', '图编辑', '扩图', '花纹提取', '文本与提示词'];
 type EvalView = 'home' | 'tool' | 'tasks' | 'admin' | 'docs' | 'loraBatch';
 const EVAL_VIEW_SET = new Set<EvalView>(['home', 'tool', 'tasks', 'admin', 'docs', 'loraBatch']);
 
@@ -658,10 +657,10 @@ const normalizeCategory = (category: string | undefined | null): string => {
   if (c === '图延伸类' || c === 'image_extend' || c === 'image_extension' || c === '图扩展' || c === '图延伸') return '扩图';
   if (c === '四方/两方连续图类' || c === 'continuous_pattern' || c === 'continuous' || c === 'lianxu') return '连续图';
   if (c === '产品设计' || c === 'product_design' || c === 'product-design' || c === 'product') return '产品设计';
-  if (c === '产品文案' || c === 'product_copy' || c === 'product-copy' || c === 'listing_copy' || c === 'listing-copy') return '产品文案';
+  if (c === '产品文案' || c === 'product_copy' || c === 'product-copy' || c === 'listing_copy' || c === 'listing-copy') return '产品视频';
   if (c === '产品视频' || c === 'product_video' || c === 'product-video' || c === 'commercial_video' || c === 'commercial-video') return '产品视频';
   if (c === '3D渲染视频' || c === '3d_render_video' || c === '3d-render-video' || c === 'product_3d_render_video' || c === 'product-3d-render-video') return '3D渲染视频';
-  if (c === '产品商业化' || c === 'product_commercialization' || c === 'product-commercialization' || c === 'commercialization') return '产品文案';
+  if (c === '产品商业化' || c === 'product_commercialization' || c === 'product-commercialization' || c === 'commercialization') return '产品视频';
   if (c === 'image_edit' || c === 'image-editor' || c === 'image_editor' || c === '图像编辑' || c === '改图') return '图编辑';
   if (c === 'image_fission' || c === 'fission' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
   if (c === 'cutout' || c === 'background_remove' || c === 'matting') return '抠图';
@@ -956,16 +955,10 @@ const categoryVisualMeta: Record<string, { icon: ReactNode; accent: string; summ
     summary: '验证素材上品、产品结构、材质贴合和商业展示效果。',
     cover: 'linear-gradient(120deg, rgba(16,185,129,0.18), rgba(5,150,105,0.08))',
   },
-  产品文案: {
-    icon: <ChartBubbleIcon size="18px" />,
-    accent: '#0f766e',
-    summary: '验证产品设计后的海外上架文案、关键词和配图建议。',
-    cover: 'linear-gradient(120deg, rgba(15,118,110,0.16), rgba(13,148,136,0.08))',
-  },
   产品视频: {
     icon: <AiImageIcon size="18px" />,
     accent: '#c2410c',
-    summary: '验证产品设计后的商品视频分镜、Veo Fast 生成和 OSS 回填。',
+    summary: '验证产品设计后的商品视频脚本、分镜、KIE/Vidu 素材包和 OSS 回填。',
     cover: 'linear-gradient(120deg, rgba(194,65,12,0.16), rgba(37,99,235,0.08))',
   },
   '3D渲染视频': {
@@ -1190,7 +1183,6 @@ const getBusinessEntryLabel = (category: string): string => (category === '文�
 const BUSINESS_CATEGORY_KEY_MAP: Record<string, string> = {
   图裂变: 'fission',
   产品设计: 'product_design',
-  产品文案: 'product_commercialization',
   产品视频: 'product_commercialization',
   '3D渲染视频': 'product_3d_render_video',
   图编辑: 'image_edit',
@@ -7409,7 +7401,7 @@ export function App() {
           label: cat,
           shortLabel: String(cat || "评测").slice(0, 2),
           icon: getCategoryNavIcon(cat),
-          count: cat === '产品文案' || cat === '产品视频' || cat === '3D渲染视频' ? 1 : (grouped[cat] || []).length,
+          count: cat === '产品视频' || cat === '3D渲染视频' ? 1 : (grouped[cat] || []).length,
         }))}
         activeNav={activeCategory}
         onSelectNav={(next) => {
@@ -11112,7 +11104,7 @@ export function App() {
   const activeCategoryFirstSample = selectedCategorySummary?.firstSample || null;
   const activeImageEditChatTool = activeCategory === '图编辑' ? toolList.find((wf) => isImageEditChatWorkflow(wf)) || null : null;
   const activeImageEditDirectTool = activeCategory === '图编辑' ? toolList.find((wf) => isImageEditWorkflow(wf)) || null : null;
-  if (activeCategory === '产品文案' || activeCategory === '产品视频' || activeCategory === '3D渲染视频') {
+  if (activeCategory === '产品视频' || activeCategory === '3D渲染视频') {
     return shell(
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {bootstrapLoading || workflowListStatus === 'loading' ? <Alert theme="info" message="正在加载功能清单和评分数据…" /> : null}
@@ -11122,10 +11114,7 @@ export function App() {
         {activeCategory === '3D渲染视频' ? (
           <Product3DRenderVideoWorkbench key="product-3d-render-video" />
         ) : (
-          <ProductCommercializationWorkbench
-            key={`product-commercialization-${activeCategory}`}
-            mode={activeCategory === '产品视频' ? 'video' : 'copy'}
-          />
+          <ProductCommercializationWorkbench key="product-commercialization-video" mode="video" />
         )}
         <AuxiliaryAbilityNav
           items={auxiliaryCategorySummaries}

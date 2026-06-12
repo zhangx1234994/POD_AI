@@ -172,7 +172,7 @@
 | PRODUCT_DESIGN_PRODUCT_TYPE_INVALID | 产品设计产品类型非法 | 400，允许 `apparel` / `home_textile` / `bag` / `shoe` / `stationery` / `packaging` / `generic` |
 | PRODUCT_DESIGN_SCENE_INVALID | 产品设计展示场景非法 | 400，允许 `studio_product` / `flat_lay` / `ecommerce` / `lifestyle` / `print_mockup` / `generic` |
 | PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID | 产品商业化上下文不是合法 JSON 对象 | 400，`productFields` 必须是对象；缺字段不报错，会进入 `missingFields/inferredFacts` |
-| PRODUCT_COMMERCIALIZATION_ACTION_INVALID | 产品商业化执行动作非法 | 400，`/api/business/product-commercialization/runs` 允许空值/`video_generate`/`compose_video`/`visual_generate`，不能静默回退 |
+| PRODUCT_COMMERCIALIZATION_ACTION_INVALID | 产品商业化执行动作非法 | 400，预览允许 `video_preview/copy_preview`；`/api/business/product-commercialization/runs` 允许空值/`video_generate`/`compose_video`/`visual_generate`，不能静默回退 |
 | PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID | 产品商业化输出语言非法 | 400，允许 `en-US` / `zh-CN` / `bilingual` |
 | PRODUCT_COMMERCIALIZATION_MARKET_INVALID | 产品商业化目标市场非法 | 400，允许 `US` / `UK` / `EU` / `global` |
 | PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID | 产品商业化文案场景非法 | 400，允许 `listing_title` / `bullet_points` / `detail_description` / `ad_short_copy` / `keyword_pack` |

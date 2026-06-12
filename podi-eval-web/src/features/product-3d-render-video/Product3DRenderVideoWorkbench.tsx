@@ -1,4 +1,8 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Alert, Button, Input, Select, Space, Tag, Textarea, Typography, MessagePlugin } from 'tdesign-react';
 import { evalApi } from '../../api';
 import type { Product3DRenderVideoRequest, Product3DRenderVideoResponse } from '../../api';
@@ -7,6 +11,9 @@ type WorkStatus = 'idle' | 'uploading' | 'previewing';
 type ModelKey = 'cup_1660' | 'backpack_2551';
 type CameraPreset = 'orbit_360' | 'slow_push_in' | 'detail_sweep';
 type ScenePreset = 'clean_studio' | 'marketplace_white' | 'premium_dark';
+type SlotTextureState = Record<string, string>;
+type TextureSlotEntry = { materialSlot: string; imageUrl: string; label: string };
+type PreviewStatus = { state: 'loading' | 'ready' | 'error'; message: string };
 
 const MODEL_OPTIONS = [
   { label: '1660 杯子', value: 'cup_1660' },
@@ -18,6 +25,7 @@ const MODEL_PROFILES: Record<
   {
     title: string;
     file: string;
+    modelUrl: string;
     summary: string;
     firstSlot: string;
     materialSlots: string[];
@@ -26,6 +34,7 @@ const MODEL_PROFILES: Record<
   cup_1660: {
     title: '1660 杯子',
     file: '1660.glb',
+    modelUrl: '/models/product-3d/1660.glb',
     summary: '适合杯身正面贴图、360 环绕和慢速推进。模型已有 UV；当前没有内置相机和动画。',
     firstSlot: 'front',
     materialSlots: ['front', 'mouth', 'cover', 'bottom', 'handshank', 'else', 'else1'],
@@ -33,7 +42,8 @@ const MODEL_PROFILES: Record<
   backpack_2551: {
     title: '2551 笔记本电脑背包',
     file: '2551.glb',
-    summary: '适合背包正面贴图、细节扫过和白底展示。材质槽较多，首版建议只验证 front。',
+    modelUrl: '/models/product-3d/2551.glb',
+    summary: '适合背包正面贴图、细节扫过和白底展示。材质槽较多，建议先从 front 验证方向，再扩展多槽贴图。',
     firstSlot: 'front',
     materialSlots: [
       'front',
@@ -112,22 +122,272 @@ function asBool(value: unknown): boolean {
   return value === true;
 }
 
-function splitLines(value: string): string[] {
-  return value
-    .split(/[\n,，;；|]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function slotLabel(slot: string): string {
   return SLOT_LABELS[slot] || slot;
+}
+
+function disposeMaterial(material: THREE.Material) {
+  const maybeTextured = material as THREE.Material & {
+    map?: THREE.Texture | null;
+    normalMap?: THREE.Texture | null;
+    roughnessMap?: THREE.Texture | null;
+    metalnessMap?: THREE.Texture | null;
+  };
+  maybeTextured.map?.dispose();
+  maybeTextured.normalMap?.dispose();
+  maybeTextured.roughnessMap?.dispose();
+  maybeTextured.metalnessMap?.dispose();
+  material.dispose();
+}
+
+function disposeObject(object: THREE.Object3D) {
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry?.dispose();
+    if (Array.isArray(mesh.material)) mesh.material.forEach(disposeMaterial);
+    else if (mesh.material) disposeMaterial(mesh.material);
+  });
+}
+
+function fitModelToView(root: THREE.Object3D, modelKey: ModelKey) {
+  const box = new THREE.Box3().setFromObject(root);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDimension = Math.max(size.x, size.y, size.z) || 1;
+  const targetSize = modelKey === 'backpack_2551' ? 2.25 : 2;
+  root.position.sub(center);
+  root.scale.setScalar(targetSize / maxDimension);
+}
+
+async function loadTexture(url: string, loader: THREE.TextureLoader): Promise<THREE.Texture> {
+  return new Promise((resolve, reject) => {
+    loader.load(
+      url,
+      (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.flipY = false;
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+        texture.needsUpdate = true;
+        resolve(texture);
+      },
+      undefined,
+      reject,
+    );
+  });
+}
+
+function applyMaterialState(
+  material: THREE.Material,
+  texture: THREE.Texture | undefined,
+  materialSlot: string,
+  activeMaterialSlot: string,
+): THREE.Material {
+  const next = material.clone() as THREE.Material & {
+    color?: THREE.Color;
+    emissive?: THREE.Color;
+    emissiveIntensity?: number;
+    map?: THREE.Texture | null;
+    roughness?: number;
+    metalness?: number;
+  };
+
+  if (texture) {
+    next.map = texture;
+    if (next.color instanceof THREE.Color) next.color.set(0xffffff);
+    next.roughness = Math.max(0.42, Number(next.roughness ?? 0.7));
+    next.metalness = Math.min(0.08, Number(next.metalness ?? 0));
+  }
+
+  if (materialSlot === activeMaterialSlot && next.emissive instanceof THREE.Color) {
+    next.emissive.set(0x0f62fe);
+    next.emissiveIntensity = texture ? 0.1 : 0.18;
+  }
+
+  next.name = material.name;
+  next.needsUpdate = true;
+  return next;
+}
+
+async function applySlotTextures(
+  root: THREE.Object3D,
+  textureSlotEntries: TextureSlotEntry[],
+  activeMaterialSlot: string,
+): Promise<number> {
+  const textureLoader = new THREE.TextureLoader();
+  textureLoader.setCrossOrigin('anonymous');
+  const textureBySlot = new Map<string, THREE.Texture>();
+  let failedTextureCount = 0;
+
+  await Promise.all(
+    textureSlotEntries.map(async (entry) => {
+      try {
+        const texture = await loadTexture(entry.imageUrl, textureLoader);
+        textureBySlot.set(entry.materialSlot, texture);
+      } catch {
+        failedTextureCount += 1;
+      }
+    }),
+  );
+
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.material) return;
+
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const nextMaterials = materials.map((material) => {
+      const materialSlot = material.name || '';
+      return applyMaterialState(material, textureBySlot.get(materialSlot), materialSlot, activeMaterialSlot);
+    });
+
+    mesh.material = Array.isArray(mesh.material) ? nextMaterials : nextMaterials[0];
+  });
+
+  return failedTextureCount;
+}
+
+function Product3DModelPreview({
+  modelKey,
+  modelProfile,
+  materialSlot,
+  textureSlotEntries,
+}: {
+  modelKey: ModelKey;
+  modelProfile: (typeof MODEL_PROFILES)[ModelKey];
+  materialSlot: string;
+  textureSlotEntries: TextureSlotEntry[];
+}) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [previewStatus, setPreviewStatus] = useState<PreviewStatus>({
+    state: 'loading',
+    message: '正在加载真实 3D 模型',
+  });
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+
+    let disposed = false;
+    let animationFrame = 0;
+    let modelRoot: THREE.Object3D | null = null;
+
+    host.replaceChildren();
+    setPreviewStatus({ state: 'loading', message: '正在加载真实 3D 模型' });
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.domElement.setAttribute('aria-label', `${modelProfile.title} 真实 3D 预览`);
+    renderer.domElement.setAttribute('role', 'img');
+    host.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf6f8fb);
+
+    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+    camera.position.set(0.25, modelKey === 'backpack_2551' ? 0.25 : 0.36, 3.25);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.65;
+    controls.target.set(0, 0, 0);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xd7dde8, 2.2));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+    keyLight.position.set(3, 4, 5);
+    scene.add(keyLight);
+    const rimLight = new THREE.DirectionalLight(0xbfd7ff, 1.4);
+    rimLight.position.set(-3, 2.5, -4);
+    scene.add(rimLight);
+
+    const resize = () => {
+      const rect = host.getBoundingClientRect();
+      const width = Math.max(280, Math.floor(rect.width));
+      const height = Math.max(320, Math.floor(rect.height || 380));
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(host);
+    resize();
+
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('/libs/draco/');
+    const loader = new GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
+    loader.load(
+      modelProfile.modelUrl,
+      async (gltf) => {
+        if (disposed) return;
+        modelRoot = gltf.scene;
+        fitModelToView(modelRoot, modelKey);
+        scene.add(modelRoot);
+        controls.update();
+
+        const failedTextureCount = await applySlotTextures(modelRoot, textureSlotEntries, materialSlot);
+        if (disposed) return;
+        const appliedCount = Math.max(0, textureSlotEntries.length - failedTextureCount);
+        setPreviewStatus({
+          state: 'ready',
+          message:
+            failedTextureCount > 0
+              ? `${appliedCount} 个贴图已应用，${failedTextureCount} 个贴图加载失败`
+              : textureSlotEntries.length > 0
+                ? `已按材质名应用 ${textureSlotEntries.length} 个贴图`
+                : '模型已加载，等待贴图',
+        });
+      },
+      undefined,
+      (error) => {
+        const detail = error instanceof Error && error.message ? `：${error.message}` : '';
+        if (!disposed) setPreviewStatus({ state: 'error', message: `模型加载失败，请检查 GLB/Draco 文件${detail}` });
+      },
+    );
+
+    const animate = () => {
+      controls.update();
+      renderer.render(scene, camera);
+      animationFrame = window.requestAnimationFrame(animate);
+    };
+    animate();
+
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+      controls.dispose();
+      dracoLoader.dispose();
+      if (modelRoot) disposeObject(modelRoot);
+      renderer.dispose();
+      host.replaceChildren();
+    };
+  }, [materialSlot, modelKey, modelProfile, textureSlotEntries]);
+
+  return (
+    <div className="podi-product-3d-render__model-preview">
+      <div ref={hostRef} className="podi-product-3d-render__model-canvas" />
+      <div className="podi-product-3d-render__model-preview-head">
+        <strong>{modelProfile.title}</strong>
+        <span>{textureSlotEntries.length}/{modelProfile.materialSlots.length} 个贴图点已绑定</span>
+      </div>
+      <div className={`podi-product-3d-render__model-preview-status is-${previewStatus.state}`}>
+        <span>{previewStatus.message}</span>
+        <small>可拖拽旋转 · 自动慢转 · 材质名直连模型槽位</small>
+      </div>
+    </div>
+  );
 }
 
 export function Product3DRenderVideoWorkbench() {
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const [modelKey, setModelKey] = useState<ModelKey>('cup_1660');
-  const [textureImageUrl, setTextureImageUrl] = useState('');
-  const [textureImageUrlsText, setTextureImageUrlsText] = useState('');
+  const [slotTextureUrls, setSlotTextureUrls] = useState<SlotTextureState>({});
+  const [uploadingSlot, setUploadingSlot] = useState('');
   const [materialSlot, setMaterialSlot] = useState('front');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('orbit_360');
   const [scenePreset, setScenePreset] = useState<ScenePreset>('clean_studio');
@@ -143,25 +403,48 @@ export function Product3DRenderVideoWorkbench() {
     [modelProfile],
   );
 
-  const textureImageUrls = useMemo(() => {
-    const urls = splitLines(textureImageUrlsText);
-    const mainUrl = textureImageUrl.trim();
-    if (mainUrl && !urls.includes(mainUrl)) urls.unshift(mainUrl);
-    return urls.slice(0, 6);
-  }, [textureImageUrl, textureImageUrlsText]);
+  const textureSlotEntries = useMemo(
+    () =>
+      modelProfile.materialSlots
+        .map((slot) => ({
+          materialSlot: slot,
+          imageUrl: String(slotTextureUrls[slot] || '').trim(),
+          label: slotLabel(slot),
+        }))
+        .filter((item) => item.imageUrl),
+    [modelProfile.materialSlots, slotTextureUrls],
+  );
+  const textureImageUrls = useMemo(
+    () => textureSlotEntries.map((item) => item.imageUrl).filter(Boolean).slice(0, 12),
+    [textureSlotEntries],
+  );
+  const activeTextureImageUrl = String(slotTextureUrls[materialSlot] || '').trim();
+  const primaryTextureImageUrl = activeTextureImageUrl || textureImageUrls[0] || '';
+  const updateSlotTexture = (slot: string, url: string) => {
+    setSlotTextureUrls((prev) => {
+      const next = { ...prev };
+      const cleaned = url.trim();
+      if (cleaned) next[slot] = cleaned;
+      else delete next[slot];
+      return next;
+    });
+    setResult(null);
+  };
 
-  const uploadTexture = async (file: File | null | undefined) => {
+  const uploadTexture = async (slot: string, file: File | null | undefined) => {
     if (!file) return;
     setError('');
+    setUploadingSlot(slot);
     setStatus('uploading');
     try {
       const uploaded = await evalApi.uploadImage(file);
-      setTextureImageUrl(uploaded.url);
-      MessagePlugin.success('贴图已上传');
+      updateSlotTexture(slot, uploaded.url);
+      MessagePlugin.success(`${slotLabel(slot)}贴图已上传`);
     } catch (err) {
       setError(String((err as any)?.message || err || '上传失败'));
     } finally {
       setStatus('idle');
+      setUploadingSlot('');
       if (uploadRef.current) uploadRef.current.value = '';
     }
   };
@@ -172,8 +455,9 @@ export function Product3DRenderVideoWorkbench() {
     try {
       const payload: Product3DRenderVideoRequest = {
         modelKey,
-        textureImageUrl: textureImageUrl.trim() || undefined,
+        textureImageUrl: primaryTextureImageUrl || undefined,
         textureImageUrls,
+        textureSlots: textureSlotEntries,
         materialSlot,
         cameraPreset,
         scenePreset,
@@ -211,7 +495,7 @@ export function Product3DRenderVideoWorkbench() {
             固定模型区域贴图与渲染方案
           </Typography.Title>
           <Typography.Text theme="secondary">
-            这不是 KIE/Vidu 大模型视频。当前只验证模型、UV、材质槽和镜头方案，后续接 Three.js/Blender 预览与渲染 worker。
+            这不是 KIE/Vidu 大模型视频。当前用 Three.js 验证模型、UV、材质槽和镜头方案，后续接服务端 Blender 渲染 worker。
           </Typography.Text>
         </div>
         <Space align="center">
@@ -224,7 +508,7 @@ export function Product3DRenderVideoWorkbench() {
       {error ? <Alert theme="error" message={error} /> : null}
       <Alert
         theme="warning"
-        message="当前页面不是正式可交付视频能力：还没有 3D 画布贴图预览，也不会触发付费视频生成。它只用于确认贴图应该落在哪个固定区域。"
+        message="当前页面不是正式可交付视频能力：现在已接入客户端真实 3D 预览，但不会触发付费视频生成；服务端渲染 worker 和 MP4 回填仍待接入。"
       />
 
       <div className="podi-product-commercialization__studio">
@@ -243,6 +527,7 @@ export function Product3DRenderVideoWorkbench() {
                   const key = String(v) as ModelKey;
                   setModelKey(key);
                   setMaterialSlot(MODEL_PROFILES[key].firstSlot);
+                  setSlotTextureUrls({});
                   setResult(null);
                 }}
                 options={MODEL_OPTIONS}
@@ -258,15 +543,17 @@ export function Product3DRenderVideoWorkbench() {
             <div className="podi-product-commercialization__stage-title">
               <span>STEP 2</span>
               <Typography.Title level="h4">选择固定贴图区域</Typography.Title>
-              <Typography.Text theme="secondary">贴图会落到模型的材质槽上。首版先验证单区域贴图，避免多面贴图混乱。</Typography.Text>
+              <Typography.Text theme="secondary">贴图会落到模型的材质槽上。可逐个区域绑定贴图，并在左侧确认绑定关系。</Typography.Text>
             </div>
             <div className="podi-product-3d-render__slot-layout">
               <div className="podi-product-3d-render__slot-map" aria-label="模型贴图区域示意">
-                <div className={`podi-product-3d-render__slot-shape podi-product-3d-render__slot-shape--${modelKey}`}>
-                  <span>{slotLabel(materialSlot)}</span>
-                  <small>{materialSlot}</small>
-                </div>
-                <p>示意图只表达区域归属，不代表最终贴图重合效果。真实重合预览需要接 Three.js 画布。</p>
+                <Product3DModelPreview
+                  modelKey={modelKey}
+                  modelProfile={modelProfile}
+                  materialSlot={materialSlot}
+                  textureSlotEntries={textureSlotEntries}
+                />
+                <p>当前是真实 GLB/UV 客户端预览：贴图按材质名应用到模型表面，可拖拽检查位置和方向。后续服务端渲染 worker 会复用同一组槽位参数输出 MP4。</p>
               </div>
               <div className="podi-product-3d-render__slot-list">
                 {modelProfile.materialSlots.map((slot) => (
@@ -281,6 +568,7 @@ export function Product3DRenderVideoWorkbench() {
                   >
                     <strong>{slotLabel(slot)}</strong>
                     <span>{slot}</span>
+                    <small>{slotTextureUrls[slot] ? '已绑定贴图' : '未贴图'}</small>
                   </button>
                 ))}
               </div>
@@ -291,38 +579,61 @@ export function Product3DRenderVideoWorkbench() {
           <section className="podi-product-commercialization__stage-panel">
             <div className="podi-product-commercialization__stage-title">
               <span>STEP 3</span>
-              <Typography.Title level="h4">上传贴图</Typography.Title>
-              <Typography.Text theme="secondary">贴图是花纹、Logo 或设计图。它会按选中的材质槽贴到模型固定区域。</Typography.Text>
+              <Typography.Title level="h4">给材质槽绑定贴图</Typography.Title>
+              <Typography.Text theme="secondary">每个固定贴图点都可以单独绑定图片；不再用一张图代表所有区域。</Typography.Text>
             </div>
             <div className="podi-product-commercialization__strategy-workbench">
-              <div className="podi-field-stack">
-                <Typography.Text>主贴图 URL</Typography.Text>
-                <Space align="center">
-                  <Input value={textureImageUrl} onChange={(v) => setTextureImageUrl(String(v))} placeholder="https://..." clearable />
-                  <input
-                    ref={uploadRef}
-                    type="file"
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    onChange={(event) => void uploadTexture(event.currentTarget.files?.[0])}
-                  />
-                  <Button variant="outline" loading={status === 'uploading'} onClick={() => uploadRef.current?.click()}>
-                    上传
-                  </Button>
-                </Space>
+              <div className="podi-product-3d-render__active-texture">
+                <div className="podi-product-commercialization__side-image">
+                  {activeTextureImageUrl ? <img src={activeTextureImageUrl} alt={`${slotLabel(materialSlot)}贴图`} /> : <span>当前槽位未绑定贴图</span>}
+                </div>
+                <div className="podi-field-stack">
+                  <Typography.Text strong>
+                    当前贴图点：{slotLabel(materialSlot)} · {materialSlot}
+                  </Typography.Text>
+                  <Space align="center">
+                    <Input
+                      value={activeTextureImageUrl}
+                      onChange={(v) => updateSlotTexture(materialSlot, String(v))}
+                      placeholder="https://..."
+                      clearable
+                    />
+                    <input
+                      ref={uploadRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(event) => void uploadTexture(materialSlot, event.currentTarget.files?.[0])}
+                    />
+                    <Button
+                      variant="outline"
+                      loading={status === 'uploading' && uploadingSlot === materialSlot}
+                      onClick={() => uploadRef.current?.click()}
+                    >
+                      上传到当前点
+                    </Button>
+                  </Space>
+                  <Typography.Text theme="secondary">
+                    先选左侧材质槽，再上传图片。贴图会立即应用到左侧真实 3D 模型，可拖拽检查位置、缩放和方向。
+                  </Typography.Text>
+                </div>
               </div>
-              <details className="podi-product-commercialization__interface-note">
-                <summary>
-                  <span>多贴图预留</span>
-                  <small>当前只建议验证主贴图</small>
-                </summary>
-                <Textarea
-                  value={textureImageUrlsText}
-                  onChange={(v) => setTextureImageUrlsText(String(v))}
-                  placeholder="每行一个 URL；后续用于多材质/多面贴图。"
-                  autosize={{ minRows: 3, maxRows: 6 }}
-                />
-              </details>
+              <div className="podi-product-3d-render__texture-table">
+                {modelProfile.materialSlots.map((slot) => (
+                  <div key={slot} className={slot === materialSlot ? 'is-active' : ''}>
+                    <button type="button" onClick={() => setMaterialSlot(slot)}>
+                      <strong>{slotLabel(slot)}</strong>
+                      <span>{slot}</span>
+                    </button>
+                    <Input
+                      value={String(slotTextureUrls[slot] || '')}
+                      onChange={(v) => updateSlotTexture(slot, String(v))}
+                      placeholder="可选贴图 URL"
+                      clearable
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
 
@@ -378,8 +689,8 @@ export function Product3DRenderVideoWorkbench() {
                   {[
                     { label: '模型目录', value: asBool(readiness.modelReady) ? '已识别' : '待归档' },
                     { label: 'UV', value: asBool(readiness.uvReady) ? '可贴图' : '需修复' },
-                    { label: '贴图', value: asBool(readiness.textureProvided) ? `${textureImageUrls.length} 张` : '缺失' },
-                    { label: '3D 画布', value: '待接入' },
+                    { label: '贴图点', value: asBool(readiness.textureProvided) ? `${textureSlotEntries.length} 个已绑定` : '缺失' },
+                    { label: '3D 预览', value: '已接入 GLB/UV' },
                     { label: '渲染 worker', value: asBool(readiness.renderWorkerReady) ? '可执行' : '待接入' },
                   ].map((item) => (
                     <div key={item.label}>
@@ -391,8 +702,8 @@ export function Product3DRenderVideoWorkbench() {
                 <div className="podi-product-commercialization__shot-list">
                   <div>
                     <strong>贴图动作</strong>
-                    <span>把主贴图应用到 {slotLabel(activeSlot)}，保持模型 UV，不做大模型重绘。</span>
-                    <small>{String(textureApplication.mode || 'single_slot_texture')}</small>
+                    <span>按材质槽绑定贴图，保持模型 UV，不做大模型重绘。</span>
+                    <small>{String(textureApplication.mode || 'slot_texture_mapping')} · {textureSlotEntries.length} 个槽位</small>
                   </div>
                   <div>
                     <strong>场景 · {String(scene.label || scenePreset)}</strong>
@@ -429,23 +740,23 @@ export function Product3DRenderVideoWorkbench() {
 
         <aside className="podi-product-commercialization__studio-side">
           <div className="podi-product-commercialization__side-card">
-            <Typography.Text strong>贴图预览</Typography.Text>
+            <Typography.Text strong>当前贴图点</Typography.Text>
             <div className="podi-product-commercialization__side-image">
-              {textureImageUrl ? <img src={textureImageUrl} alt="当前贴图" /> : <span>等待贴图</span>}
+              {activeTextureImageUrl ? <img src={activeTextureImageUrl} alt="当前贴图" /> : <span>等待贴图</span>}
             </div>
             <div className="podi-product-commercialization__facts">
               <span>{modelProfile.title}</span>
               <span>{slotLabel(materialSlot)}</span>
-              <span>{textureImageUrls.length} 张贴图</span>
+              <span>{textureSlotEntries.length} 个槽位已贴图</span>
             </div>
           </div>
           <div className="podi-product-commercialization__side-card">
             <Typography.Text strong>能力边界</Typography.Text>
-            <p>3D 渲染视频是确定性渲染路线：模型、材质槽、UV、相机和灯光决定结果。它不调用 GPT Image 2、KIE 或 Vidu。</p>
+            <p>3D 渲染视频是确定性渲染路线：当前客户端已负责 Three.js 所见即所得预览，服务端后续负责异步渲染、MP4、封面帧和 OSS 回填。它不调用 GPT Image 2、KIE 或 Vidu。</p>
           </div>
           <div className="podi-product-commercialization__side-card">
-            <Typography.Text strong>下一步才是真验收</Typography.Text>
-            <p>接入 Three.js 画布后，需要能看到贴图与模型区域是否重合；接入渲染 worker 后，再输出 MP4、封面帧和 manifest。</p>
+            <Typography.Text strong>扩容判断</Typography.Text>
+            <p>单人预览主要消耗浏览器；批量导出视频会消耗服务端渲染 worker。后续应独立建渲染 executor 池，再评估 CPU/GPU 扩容。</p>
           </div>
         </aside>
       </div>

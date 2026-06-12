@@ -26,6 +26,7 @@
 - 2026-06-11：新增市场端正式能力契约草案 `docs/strategy/market-side-ai-ability-contracts-2026-06-11.md`，明确 `product_image_set`、`model_scene_image`、`promo_video` 的待实现接口、输入输出、错误、成功口径和 golden cases；业务 API 文档已标注这些路径尚未开放，避免误接入。
 - 2026-06-12：推进两条视频路线并拆清边界：`product_commercialization` 大模型视频支持 `productImages` 图组输入、每段参考图选择和统一 runId 查询；新增 `product_3d_render_video` 方案预览能力，记录 1660 杯子、2551 笔记本电脑背包模型资产、材质槽、UV、镜头预设和渲染 worker 待接入状态。两者不能混为一个按钮或一个接口。
 - 2026-06-12：根据验收反馈纠偏 `product_3d_render_video`：测评端改为“3D 贴图渲染 · 技术预览”，主流程调整为选模型、选固定材质槽、上传贴图、选镜头/场景、检查资产准备度；删除用户侧“文字描述生成视频”口径。当前不能验收贴图重合效果或 MP4 输出，下一步必须接 Three.js 画布预览与渲染 worker。
+- 2026-06-12：根据验收反馈进一步收敛市场端试点：产品文案测评入口先撤下，不再让业务方测试未打磨好的文案工作台；产品视频改为“客户目标时长 + 可选规划要素表单 + 模型画像执行策略”，`action=video_preview` 跳过文案生成链路，只返回视频规划和素材包策略；目标时长不再被 KIE/Vidu 单段枚举限制；`product_3d_render_video` 改为按材质槽绑定贴图，明确客户端 Three.js 负责 WYSIWYG 预览、服务端渲染 worker 负责 MP4/封面/OSS。
 - 当前不直接开写新功能代码；先完成 v0.7 子版本拆分、范围边界、验收标准、交互治理计划、Agent Runtime v2 schema 和首批能力产品化决策。
 - 中台主语保持不变：只有能力、能力版本、路由、调用、结果、质量、成本、错误、证据和审计。项目/工作单仍属于客户端业务组装概念，不进入中台当前主线。
 - 对话式改图继续暂放在图编辑分类下用于发现，但它的长期归宿是 Agent Runtime；可视化/画布式图编辑和对话式 Agent 改图必须在命名、交互、API 边界和能力定义上保持拆分。
@@ -95,7 +96,8 @@
 - 进展（2026-06-11 追加）：产品视频测评端补齐脚本/分镜确认门。AI 规划稿可编辑，编辑脚本、切换产品图或修改参数后确认状态失效；未确认不得触发视频素材包成本任务，避免把旧规划直接提交给 KIE/Vidu。
 - 进展（2026-06-11 追加）：114 控制面已部署 `c59fa6f4+workspace-product-commercialization-20260611` 产品商业化试验补丁；默认预览巡检 `/srv/pod/reports/product-commercialization-preview-patrol-20260611-fixed2.json` 通过 `total=3 passed=3 failed=0`。真实 GPT Image 2 配图 runId `83f4dd35a8e44d02b946e8a090ae49fd`、真实 Vidu 8 秒单段素材包 runId `24858339ccd94e588866018ab2c49963` 均已回填 OSS。同步修复兜底时图片/字段未完成视觉核验却不提示冲突的问题，后续凡有产品图 + 导出字段但 VL/LLM 兜底，必须输出人工复核风险。
 - 下一步：先按 `docs/strategy/market-side-ai-technical-plan-2026-06-11.md` 改当前 `product_commercialization`，再拆正式能力。P0 顺序：① schema 和文档把 `productFields` 明确为可选；② 后端事实解析图片优先；③ `preview` 输出 `videoAssetPackagePlan`；④ `/runs` 保存 `videoAssetPackage` 分段素材和可选合成结果；⑤ 测评端视频页面改成脚本/分镜/关键帧/分段视频/合成的分阶段交互；⑥ 补错误码、测试和真实链路证据；⑦ 在线上 114 或已加白后端环境执行产品商业化专项门禁。
-- 验收：每个候选能力至少有一页能力契约和固定样例计划；是否实现由样例质量和业务优先级决定。`product_commercialization` 先验证大模型文案证据、语言、海外文案、详情介绍、配图策略、KIE/Vidu 单段视频和 OSS 沉淀；`product_image_set` 至少准备 3 类固定样例：服饰/配件、家居软装、节日营销图。
+- 进展（2026-06-12 追加）：测评端从当前主导航撤下 `产品文案`，后续作为 `product_copy_package` 独立能力重做，不继续混在产品视频试点里；产品视频规划区改为表单化关键要素，允许“添加更多”可选内容；3D 试点新增 `textureSlots[]` 契约，支持一个材质槽一张贴图。
+- 验收：每个候选能力至少有一页能力契约和固定样例计划；是否实现由样例质量和业务优先级决定。当前测评重点先放在 `product_commercialization` 产品视频素材包、KIE/Vidu 单段/多段视频和 OSS 沉淀；文案后续按 `product_copy_package` 独立能力重新设计和验收；`product_image_set` 至少准备 3 类固定样例：服饰/配件、家居软装、节日营销图。
 
 5. `todo` 质量迭代与观测方案
 - 目标：把“效果不好/不稳定”转成可统计、可治理、可复盘的问题。

@@ -8,6 +8,13 @@ type WorkStatus = 'idle' | 'previewing' | 'video' | 'uploading' | 'visual';
 type VideoProvider = 'kie_veo3_fast' | 'vidu_viduq3_turbo';
 type ProductCommercializationStage = 'asset' | 'facts' | 'strategy' | 'review' | 'deliver';
 type ProductImageInput = NonNullable<ProductCommercializationRequest['productImages']>[number];
+type VideoPlanningField = {
+  id: string;
+  label: string;
+  description: string;
+  value: string;
+  removable?: boolean;
+};
 
 const MODE_COPY: ProductCommercializationMode = 'copy';
 const MODE_VIDEO: ProductCommercializationMode = 'video';
@@ -21,8 +28,7 @@ const VIDEO_MODEL_PROFILES: Record<
     label: string;
     executorId: string;
     segmentDurationOptions: number[];
-    targetDurationOptions: number[];
-    defaultTargetSeconds: number;
+    defaultSegmentSeconds: number;
     modes: Array<{ label: string; status: 'executable' | 'planned'; desc: string }>;
   }
 > = {
@@ -30,8 +36,7 @@ const VIDEO_MODEL_PROFILES: Record<
     label: 'Vidu · viduq3-turbo',
     executorId: VIDU_EXECUTOR_ID,
     segmentDurationOptions: [3, 5, 8],
-    targetDurationOptions: [3, 5, 8, 13, 16, 24, 32, 48, 60],
-    defaultTargetSeconds: 8,
+    defaultSegmentSeconds: 5,
     modes: [
       { label: '单参考图生视频', status: 'executable', desc: '直接用产品图生成单段或多段片段。' },
       { label: '首尾帧控制', status: 'planned', desc: '先生成并确认首尾帧，再调用对应视频接口。' },
@@ -41,14 +46,46 @@ const VIDEO_MODEL_PROFILES: Record<
     label: 'KIE · Veo3.1 Fast',
     executorId: KIE_EXECUTOR_ID,
     segmentDurationOptions: [8],
-    targetDurationOptions: [8, 16, 24, 32, 48, 60],
-    defaultTargetSeconds: 8,
+    defaultSegmentSeconds: 8,
     modes: [
       { label: '单参考图生视频', status: 'executable', desc: '当前稳定执行入口。' },
       { label: '首尾帧控制', status: 'planned', desc: '待完成首尾帧生成和接口适配后开放。' },
     ],
   },
 };
+
+const DEFAULT_VIDEO_PLANNING_FIELDS: VideoPlanningField[] = [
+  {
+    id: 'core_message',
+    label: '核心信息',
+    description: '这个视频最需要让用户记住什么',
+    value: '',
+  },
+  {
+    id: 'target_audience',
+    label: '目标人群',
+    description: '给谁看，例如礼品买家、通勤人群、家居用户',
+    value: '',
+  },
+  {
+    id: 'usage_scene',
+    label: '使用场景',
+    description: '希望出现的生活、货架、详情页或广告场景',
+    value: '',
+  },
+  {
+    id: 'shot_preference',
+    label: '镜头偏好',
+    description: '希望强调的镜头，例如转圈、推进、材质特写',
+    value: '',
+  },
+  {
+    id: 'avoid',
+    label: '禁止内容',
+    description: '不要出现的元素，例如文字、水印、夸张承诺、变形',
+    value: '不要出现文字、水印、Logo、价格标签，不要改变商品形状和图案。',
+  },
+];
 
 const DEFAULT_PRODUCT_FIELDS = {
   模板名称: '女款长袜（3D打印）',
@@ -171,7 +208,7 @@ const COMMERCIALIZATION_STAGES: Array<{
     label: '方案',
     copyLabel: '设置文案策略',
     videoLabel: '设置视频策略',
-    desc: '选择场景、平台和生成要求',
+    desc: '选择场景、供应商、时长和要求',
   },
   {
     key: 'review',
@@ -260,6 +297,9 @@ const MODE_META: Record<
     ],
   },
 };
+
+const PRODUCT_COPY_PAUSED_MESSAGE =
+  '文案入口已暂停，后续按 product_copy_package 独立能力重做。';
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
@@ -601,6 +641,46 @@ function videoProviderLabel(value: VideoProvider): string {
   return VIDEO_MODEL_PROFILES[value]?.label || value;
 }
 
+function normalizeTargetDuration(value: unknown): number {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return 8;
+  return Math.max(1, Math.min(60, parsed));
+}
+
+function buildVideoSegmentPlan(profile: (typeof VIDEO_MODEL_PROFILES)[VideoProvider], targetDurationSeconds: number): number[] {
+  const options = [...profile.segmentDurationOptions].filter((item) => item > 0).sort((a, b) => b - a);
+  if (options.length === 0) return [profile.defaultSegmentSeconds || SEGMENT_SECONDS];
+  const durations: number[] = [];
+  let remaining = normalizeTargetDuration(targetDurationSeconds);
+  while (remaining > 0 && durations.length < 12) {
+    const next = options.find((item) => item <= remaining) || options[options.length - 1];
+    durations.push(next);
+    remaining -= next;
+  }
+  return durations.length > 0 ? durations : [profile.defaultSegmentSeconds || options[0]];
+}
+
+function buildVideoPlanningText(fields: VideoPlanningField[], targetDurationSeconds: number, profile: (typeof VIDEO_MODEL_PROFILES)[VideoProvider]) {
+  const filled = fields
+    .map((field) => ({
+      label: field.label.trim(),
+      description: field.description.trim(),
+      value: field.value.trim(),
+    }))
+    .filter((field) => field.value);
+  const lines = [
+    `用户目标成片时长：${targetDurationSeconds} 秒。必须先围绕这个目标规划脚本和分镜，不要把供应商单段时长当成用户需求。`,
+    `当前视频模型单段画像：${profile.label}，可执行片段 ${profile.segmentDurationOptions.join('/')} 秒；执行策略应根据模型能力拆段或合成。`,
+  ];
+  if (filled.length > 0) {
+    lines.push('用户补充的视频规划要素：');
+    filled.forEach((field) => {
+      lines.push(`- ${field.label}${field.description ? `（${field.description}）` : ''}：${field.value}`);
+    });
+  }
+  return lines.join('\n');
+}
+
 function hasReviewIssue(result: ProductCommercializationResponse | null, code: string): boolean {
   const issues = asArray(asRecord(result?.review).issues).map((item) => asRecord(item));
   return issues.some((item) => String(item.code || '') === code);
@@ -625,6 +705,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const [videoProvider, setVideoProvider] = useState<VideoProvider>('vidu_viduq3_turbo');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [targetDurationSeconds, setTargetDurationSeconds] = useState(8);
+  const [videoPlanningFields, setVideoPlanningFields] = useState<VideoPlanningField[]>(() => DEFAULT_VIDEO_PLANNING_FIELDS);
   const [copyScenarios, setCopyScenarios] = useState<string[]>(COPY_SCENARIOS.map((item) => item.key));
   const [result, setResult] = useState<ProductCommercializationResponse | null>(null);
   const [status, setStatus] = useState<WorkStatus>('idle');
@@ -640,6 +721,10 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const [videoPlanConfirmed, setVideoPlanConfirmed] = useState(false);
   const [activeStage, setActiveStage] = useState<ProductCommercializationStage>('asset');
   const selectedVideoProfile = VIDEO_MODEL_PROFILES[videoProvider];
+  const videoSegmentPlan = useMemo(
+    () => buildVideoSegmentPlan(selectedVideoProfile, targetDurationSeconds),
+    [selectedVideoProfile, targetDurationSeconds],
+  );
 
   const parsedFields = useMemo(() => {
     try {
@@ -676,6 +761,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         videoProvider: isVideoMode ? videoProvider : undefined,
         aspectRatio: isVideoMode ? aspectRatio.trim() : undefined,
         targetDurationSeconds: isVideoMode ? targetDurationSeconds : undefined,
+        videoPlanningFields: isVideoMode ? videoPlanningFields.map(({ id, label, description, value }) => ({ id, label, description, value })) : undefined,
       }),
     [
       aspectRatio,
@@ -694,6 +780,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       sellingAngle,
       targetAudience,
       targetDurationSeconds,
+      videoPlanningFields,
       videoProvider,
       videoScenario,
       visualSupportMode,
@@ -724,29 +811,43 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     setVideoPlanConfirmed(false);
   }, [currentInputSignature]);
 
-  useEffect(() => {
-    if (!selectedVideoProfile.targetDurationOptions.includes(targetDurationSeconds)) {
-      setTargetDurationSeconds(selectedVideoProfile.defaultTargetSeconds);
-      setVideoPromptDraft('');
-      setVideoPlanConfirmed(false);
-    }
-  }, [selectedVideoProfile, targetDurationSeconds]);
-
   const buildPayload = (): ProductCommercializationRequest => {
     if (parsedFields === null) {
       throw new Error('产品字段 JSON 格式不正确');
     }
     const executorId = selectedVideoProfile.executorId;
-    const requestedSegmentSeconds = selectedVideoProfile.segmentDurationOptions.includes(targetDurationSeconds)
-      ? targetDurationSeconds
-      : selectedVideoProfile.defaultTargetSeconds;
-    return {
+    const requestedSegmentSeconds = videoSegmentPlan[0] || selectedVideoProfile.defaultSegmentSeconds;
+    const videoPlanningText = isVideoMode
+      ? buildVideoPlanningText(videoPlanningFields, targetDurationSeconds, selectedVideoProfile)
+      : '';
+    const mergedExtraPrompt = [extraPrompt.trim(), videoPlanningText].filter(Boolean).join('\n\n');
+
+    const basePayload: ProductCommercializationRequest = {
       productImageUrl: productImageUrl.trim() || undefined,
-      productImages: isVideoMode ? productImagesForPayload : undefined,
       productFields: parsedFields,
-      extraPrompt: extraPrompt.trim() || undefined,
+      extraPrompt: mergedExtraPrompt || undefined,
       outputLanguage,
       marketRegion,
+      source: 'eval-product-commercialization',
+      requestId: `eval-pc-${Date.now()}`,
+    };
+
+    if (isVideoMode) {
+      return {
+        ...basePayload,
+        action: 'video_preview',
+        productImages: productImagesForPayload,
+        videoScenario,
+        aspectRatio,
+        durationSeconds: requestedSegmentSeconds,
+        targetDurationSeconds,
+        executorId,
+      };
+    }
+
+    return {
+      ...basePayload,
+      action: 'copy_preview',
       commercePlatform,
       copyTone,
       targetAudience: targetAudience.trim() || undefined,
@@ -754,13 +855,6 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       forbiddenClaims: splitLines(forbiddenClaims),
       copyScenarios,
       visualSupportMode,
-      videoScenario,
-      aspectRatio,
-      durationSeconds: requestedSegmentSeconds,
-      targetDurationSeconds,
-      executorId,
-      source: 'eval-product-commercialization',
-      requestId: `eval-pc-${Date.now()}`,
     };
   };
 
@@ -903,6 +997,27 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     });
   };
 
+  const updateVideoPlanningField = (id: string, patch: Partial<VideoPlanningField>) => {
+    setVideoPlanningFields((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const addVideoPlanningField = () => {
+    setVideoPlanningFields((prev) => [
+      ...prev,
+      {
+        id: `custom_${Date.now()}`,
+        label: `自定义要素 ${prev.filter((item) => item.removable).length + 1}`,
+        description: '可选补充信息',
+        value: '',
+        removable: true,
+      },
+    ]);
+  };
+
+  const removeVideoPlanningField = (id: string) => {
+    setVideoPlanningFields((prev) => prev.filter((item) => item.id !== id || !item.removable));
+  };
+
   const findModelImageBrief = (sceneId: string): Record<string, unknown> | null => {
     const briefs = asArray(asRecord(result?.contentPackage).imageBriefs).map((item) => asRecord(item));
     return briefs.find((item) => String(item.id || '').trim() === sceneId) || null;
@@ -1036,7 +1151,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       ? '实际比例随首帧'
       : String(videoAspectPolicy.executionAspectRatio || videoPlan.aspectRatio || aspectRatio);
   const review = asRecord(result?.review);
-  const requiresComposition = !selectedVideoProfile.segmentDurationOptions.includes(targetDurationSeconds);
+  const requiresComposition = videoSegmentPlan.length > 1 || !selectedVideoProfile.segmentDurationOptions.includes(targetDurationSeconds);
   const selectedScenario = VIDEO_SCENARIOS.find((item) => item.key === videoScenario);
   const hasProductImage = Boolean(productImageUrl.trim());
   const hasParsedFields = parsedFields !== null;
@@ -1072,7 +1187,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     <section className="podi-product-commercialization">
       <div className="podi-product-commercialization__head">
         <div>
-          <Typography.Text theme="primary">产品商业化能力</Typography.Text>
+          <Typography.Text theme="primary">{isVideoMode ? '产品视频能力' : '产品商业化能力'}</Typography.Text>
           <Typography.Title level="h3" style={{ margin: '4px 0' }}>
             {meta.title}
           </Typography.Title>
@@ -1091,7 +1206,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         theme="info"
         message={
           isVideoMode
-            ? '预览只生成分镜和执行参数；生成视频需单独点击，并按所选模型的时长画像提交任务。'
+            ? `预览只生成视频脚本、分镜和执行参数；提交素材包任务需单独点击，并按所选模型的时长画像拆段。${PRODUCT_COPY_PAUSED_MESSAGE}`
             : '预览生成大模型文案包和配图方案；商业化配图需单独点击，默认走 GPT Image 2 并按 runId 回填。'
         }
       />
@@ -1126,7 +1241,10 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         />
       ) : null}
       {status === 'previewing' ? (
-        <Alert theme="info" message="正在生成内容包，通常需要 20-90 秒；完成后结果会出现在右侧输出区。" />
+        <Alert
+          theme="info"
+          message={isVideoMode ? '正在生成视频规划，通常需要 20-90 秒；完成后会进入脚本与分镜确认。' : '正在生成内容包，通常需要 20-90 秒；完成后结果会出现在右侧输出区。'}
+        />
       ) : null}
       {status === 'visual' ? (
         <Alert theme="info" message="正在生成配图，页面会按 runId 轮询任务状态；完成后图片会自动回填到结果区。" />
@@ -1351,16 +1469,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                           { label: 'KIE · Veo3.1 Fast', value: 'kie_veo3_fast' },
                         ]}
                       />
-                      <Select
-                        label="目标时长"
+                      <Input
+                        label="客户目标时长（秒）"
                         value={String(targetDurationSeconds)}
-                        onChange={(v) => setTargetDurationSeconds(Number(v) || selectedVideoProfile.defaultTargetSeconds)}
-                        options={selectedVideoProfile.targetDurationOptions.map((seconds) => ({
-                          label: selectedVideoProfile.segmentDurationOptions.includes(seconds)
-                            ? `${seconds} 秒 · 单段`
-                            : `${seconds} 秒 · 多段素材包`,
-                          value: String(seconds),
-                        }))}
+                        onChange={(v) => setTargetDurationSeconds(normalizeTargetDuration(v))}
+                        placeholder="例如 15"
                       />
                       <Input
                         label={isViduVideoProvider ? '目标比例（Vidu 跟随首帧）' : '目标比例'}
@@ -1412,6 +1525,17 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       ))}
                     </div>
                     <div className="podi-product-commercialization__pending">
+                      <Typography.Text theme="secondary">执行策略预估</Typography.Text>
+                      <div className="podi-product-commercialization__execution-plan">
+                        <div>
+                          <strong>{targetDurationSeconds}s</strong>
+                          <span>客户目标时长</span>
+                        </div>
+                        <div>
+                          <strong>{videoSegmentPlan.join(' + ')}s</strong>
+                          <span>{requiresComposition ? '规划为分段素材包' : '可走单段素材'}</span>
+                        </div>
+                      </div>
                       <Typography.Text theme="secondary">当前模型</Typography.Text>
                       <Space size="small" breakLine>
                         <Tag theme="success" variant="light">{selectedVideoProfile.label}</Tag>
@@ -1422,6 +1546,41 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       {isViduVideoProvider ? (
                         <Alert theme="info" message="Vidu 图生视频当前按上传产品图/首帧比例出片；固定画幅需要先处理首帧。" />
                       ) : null}
+                    </div>
+                    <div className="podi-product-commercialization__planning-fields">
+                      <div className="podi-product-commercialization__panel-head">
+                        <Typography.Text strong>视频规划要素</Typography.Text>
+                        <Button size="small" variant="outline" onClick={addVideoPlanningField}>
+                          添加更多
+                        </Button>
+                      </div>
+                      {videoPlanningFields.map((field) => (
+                        <div key={field.id} className="podi-product-commercialization__planning-field">
+                          <div className="podi-product-commercialization__planning-field-meta">
+                            <Input
+                              label="要素名称"
+                              value={field.label}
+                              onChange={(v) => updateVideoPlanningField(field.id, { label: String(v) })}
+                            />
+                            <Input
+                              label="说明"
+                              value={field.description}
+                              onChange={(v) => updateVideoPlanningField(field.id, { description: String(v) })}
+                            />
+                          </div>
+                          <Textarea
+                            value={field.value}
+                            onChange={(v) => updateVideoPlanningField(field.id, { value: String(v) })}
+                            placeholder="可选填写；留空不会阻塞规划。"
+                            autosize={{ minRows: 2, maxRows: 5 }}
+                          />
+                          {field.removable ? (
+                            <Button size="small" variant="text" theme="danger" onClick={() => removeVideoPlanningField(field.id)}>
+                              删除这个要素
+                            </Button>
+                          ) : null}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1455,7 +1614,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
               </div>
               {!result ? (
                 <div className="podi-product-commercialization__empty">
-                  <Typography.Text theme="secondary">还没有生成方案。请回到上一步生成内容包或视频规划。</Typography.Text>
+                  <Typography.Text theme="secondary">
+                    {isVideoMode ? '还没有生成视频规划。请回到上一步生成脚本和分镜。' : '还没有生成方案。请回到上一步生成内容包。'}
+                  </Typography.Text>
                   <Button theme="primary" onClick={() => setActiveStage('strategy')}>去生成方案</Button>
                 </div>
               ) : resultIsStale ? (
@@ -1758,6 +1919,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           <div className="podi-product-commercialization__side-card">
             <Typography.Text strong>当前阶段</Typography.Text>
             <p>{COMMERCIALIZATION_STAGES[activeStageIndex]?.desc || '-'}</p>
+            {isVideoMode ? <p>{PRODUCT_COPY_PAUSED_MESSAGE}</p> : null}
             <Space size="small" breakLine>
               {meta.tags.map((tag) => (
                 <Tag key={tag.label} theme={tag.theme} variant="light">{tag.label}</Tag>
@@ -1915,16 +2077,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       { label: 'KIE · Veo3.1 Fast', value: 'kie_veo3_fast' },
                     ]}
                   />
-                  <Select
-                    label="目标时长"
+                  <Input
+                    label="客户目标时长（秒）"
                     value={String(targetDurationSeconds)}
-                    onChange={(v) => setTargetDurationSeconds(Number(v) || selectedVideoProfile.defaultTargetSeconds)}
-                    options={selectedVideoProfile.targetDurationOptions.map((seconds) => ({
-                      label: selectedVideoProfile.segmentDurationOptions.includes(seconds)
-                        ? `${seconds} 秒 · 单段`
-                        : `${seconds} 秒 · 多段素材包`,
-                      value: String(seconds),
-                    }))}
+                    onChange={(v) => setTargetDurationSeconds(normalizeTargetDuration(v))}
+                    placeholder="例如 15"
                   />
                 </>
               )}
@@ -1990,6 +2147,17 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   ))}
                 </div>
                 <div className="podi-product-commercialization__pending">
+                  <Typography.Text theme="secondary">执行策略预估</Typography.Text>
+                  <div className="podi-product-commercialization__execution-plan">
+                    <div>
+                      <strong>{targetDurationSeconds}s</strong>
+                      <span>客户目标时长</span>
+                    </div>
+                    <div>
+                      <strong>{videoSegmentPlan.join(' + ')}s</strong>
+                      <span>{requiresComposition ? '规划为分段素材包' : '可走单段素材'}</span>
+                    </div>
+                  </div>
                   <Typography.Text theme="secondary">当前模型</Typography.Text>
                   <Space size="small" breakLine>
                     <Tag theme="success" variant="light">
@@ -2026,6 +2194,41 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       </Tag>
                     ))}
                   </Space>
+                </div>
+                <div className="podi-product-commercialization__planning-fields">
+                  <div className="podi-product-commercialization__panel-head">
+                    <Typography.Text strong>视频规划要素</Typography.Text>
+                    <Button size="small" variant="outline" onClick={addVideoPlanningField}>
+                      添加更多
+                    </Button>
+                  </div>
+                  {videoPlanningFields.map((field) => (
+                    <div key={field.id} className="podi-product-commercialization__planning-field">
+                      <div className="podi-product-commercialization__planning-field-meta">
+                        <Input
+                          label="要素名称"
+                          value={field.label}
+                          onChange={(v) => updateVideoPlanningField(field.id, { label: String(v) })}
+                        />
+                        <Input
+                          label="说明"
+                          value={field.description}
+                          onChange={(v) => updateVideoPlanningField(field.id, { description: String(v) })}
+                        />
+                      </div>
+                      <Textarea
+                        value={field.value}
+                        onChange={(v) => updateVideoPlanningField(field.id, { value: String(v) })}
+                        placeholder="可选填写；留空不会阻塞规划。"
+                        autosize={{ minRows: 2, maxRows: 5 }}
+                      />
+                      {field.removable ? (
+                        <Button size="small" variant="text" theme="danger" onClick={() => removeVideoPlanningField(field.id)}>
+                          删除这个要素
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -2106,7 +2309,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
               <Alert
                 theme="warning"
                 title="结果已过期"
-                message="当前产品图、JSON 或策略参数已经变化，旧结果已收起。请重新生成内容包后再下载或触发配图/视频成本动作。"
+                message={
+                  isVideoMode
+                    ? '当前产品图、JSON 或策略参数已经变化，旧结果已收起。请重新生成视频规划后再触发视频素材任务。'
+                    : '当前产品图、JSON 或策略参数已经变化，旧结果已收起。请重新生成内容包后再下载或触发配图成本动作。'
+                }
               />
             </div>
           ) : (
@@ -2535,7 +2742,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       <ol className="podi-product-commercialization__next-list">
                         {(asArray(review.nextActions).map((item) => String(item || '').trim()).filter(Boolean).length > 0
                           ? asArray(review.nextActions).map((item) => String(item || '').trim()).filter(Boolean)
-                          : ['核对事实后复制文案，按需要生成配图；视频请进入产品视频能力。']
+                          : isVideoMode
+                            ? ['核对脚本、分镜和执行参数后提交视频素材包任务；生成结果通过 runId 追踪。']
+                            : ['核对事实后复制文案，按需要生成配图；视频请进入产品视频能力。']
                         ).map((item, index) => (
                           <li key={`${item}-${index}`}>{item}</li>
                         ))}

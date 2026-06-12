@@ -429,7 +429,7 @@ class ProductCommercializationRequest(BaseModel):
 
     action: str | None = Field(
         default=None,
-        description="业务动作：video_generate（默认）、compose_video、visual_generate（配图）。",
+        description="业务动作：copy_preview、video_preview、video_generate（默认执行视频）、compose_video、visual_generate（配图）。",
     )
 
     productImageUrl: str | None = Field(
@@ -571,6 +571,11 @@ class Product3DRenderVideoRequest(BaseModel):
         default=None,
         alias="texture_image_urls",
         description="可选多贴图 URL，后续用于多材质/多面贴图。",
+    )
+    textureSlots: list[dict[str, Any]] | None = Field(
+        default=None,
+        alias="texture_slots",
+        description="按材质槽绑定的贴图清单：materialSlot/imageUrl/label。",
     )
     materialSlot: str | None = Field(default=None, alias="material_slot", description="目标材质槽；为空使用推荐槽。")
     cameraPreset: str = Field(default="orbit_360", alias="camera_preset", description="镜头预设。")

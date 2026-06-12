@@ -3327,7 +3327,7 @@ class BusinessRunService:
 
             target_duration = int(payload.targetDurationSeconds or payload.durationSeconds or 8)
             segment_duration = int(payload.durationSeconds or 8)
-            if action == "compose_video" or target_duration > segment_duration:
+            if action == "compose_video" or target_duration != segment_duration:
                 result = product_commercialization_service.generate_composed_video(payload, user_id=user_id)
             else:
                 result = product_commercialization_service.generate_video(payload, user_id=user_id)

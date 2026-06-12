@@ -2308,6 +2308,12 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "type": "object",
                 "description": "产品导出字段 JSON；有则使用，没有则推断并在 productCard.inferredFacts/missingFields 标记。",
             },
+            "action": {
+                "type": "string",
+                "nullable": True,
+                "description": "预览或执行动作。当前测评端产品视频预览传 video_preview；文案后续按 product_copy_package 独立重做。",
+                "enum": ["copy_preview", "video_preview", "video_generate", "compose_video", "visual_generate"],
+            },
             "extraPrompt": {"type": "string", "nullable": True, "description": "业务方补充要求。"},
             "outputLanguage": {
                 "type": "string",
@@ -2327,7 +2333,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "type": "string",
                     "enum": ["listing_title", "bullet_points", "detail_description", "ad_short_copy", "keyword_pack"],
                 },
-                "description": "文案场景；为空默认返回标题、五点、详情、广告短文案和关键词包。",
+                "description": "文案场景；仅 copy_preview/visual_generate 使用。video_preview 不传该字段，后端会跳过文案生成。",
             },
             "visualSupportMode": {
                 "type": "string",
@@ -2411,6 +2417,19 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "可选多贴图 URL，后续用于多材质/多面贴图。",
+            },
+            "textureSlots": {
+                "type": "array",
+                "description": "按材质槽绑定的贴图清单。用于客户端 WYSIWYG 预览和服务端渲染 worker 精确落点。",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "materialSlot": {"type": "string", "description": "目标材质槽，例如 front/back/bottom。"},
+                        "imageUrl": {"type": "string", "description": "贴图 URL。"},
+                        "label": {"type": "string", "nullable": True, "description": "运营可读标签。"},
+                    },
+                    "required": ["materialSlot", "imageUrl"],
+                },
             },
             "materialSlot": {
                 "type": "string",

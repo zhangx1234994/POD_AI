@@ -303,7 +303,7 @@ export type BusinessRunPollResult = {
 };
 
 export type ProductCommercializationRequest = {
-  action?: 'video_generate' | 'compose_video' | 'visual_generate';
+  action?: 'copy_preview' | 'video_preview' | 'video_generate' | 'compose_video' | 'visual_generate';
   productImageUrl?: string;
   productImages?: Array<{
     url: string;
@@ -382,6 +382,11 @@ export type Product3DRenderVideoRequest = {
   modelKey?: 'cup_1660' | 'backpack_2551';
   textureImageUrl?: string;
   textureImageUrls?: string[];
+  textureSlots?: Array<{
+    materialSlot: string;
+    imageUrl: string;
+    label?: string;
+  }>;
   materialSlot?: string;
   cameraPreset?: 'orbit_360' | 'slow_push_in' | 'detail_sweep';
   scenePreset?: 'clean_studio' | 'marketplace_white' | 'premium_dark';

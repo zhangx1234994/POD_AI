@@ -4,7 +4,7 @@
 
 本文定义 `product_image_set`、`model_scene_image`、`promo_video` 三个正式市场端能力的契约草案。它们当前是 v0.7 待实现能力，不代表线上接口已经开放。
 
-短期试验仍可通过 `product_commercialization` 聚合入口验证文案、配图和视频素材包，但长期业务方、客户端和 Agent Runtime 应调用独立能力，避免把文案、组图、模特图和视频混成一个大接口。
+短期试验仍可通过 `product_commercialization` 聚合入口验证产品视频素材包；产品文案入口已暂停，只保留历史试验记录，后续按 `product_copy_package` 独立能力重新设计。长期业务方、客户端和 Agent Runtime 应调用独立能力，避免把文案、组图、模特图和视频混成一个大接口。
 
 共同原则：
 

@@ -740,6 +740,7 @@ def test_product_commercialization_preview_plans_long_video_segments() -> None:
 
     result = service.preview(
         ProductCommercializationRequest(
+            action="video_preview",
             productImageUrl="https://example.com/socks.png",
             productFields={"productNameEn": "Women's knitted woolen socks", "material": "polyester"},
             targetDurationSeconds=15,
@@ -763,11 +764,59 @@ def test_product_commercialization_preview_plans_long_video_segments() -> None:
     ]
 
 
+def test_product_commercialization_video_preview_skips_copy_model(monkeypatch) -> None:
+    service = ProductCommercializationService()
+
+    def fail_copy_model(**_: object) -> None:
+        raise AssertionError("video preview must not call copy generation")
+
+    monkeypatch.setattr(service, "_generate_model_content_package", fail_copy_model)
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            action="video_preview",
+            productImageUrl="https://example.com/mug.png",
+            productFields={"productNameEn": "Ceramic travel mug", "material": "ceramic"},
+            targetDurationSeconds=15,
+        )
+    )
+
+    assert result["copyScenarios"] == []
+    assert result["copyGeneration"]["method"] == "skipped_for_video_preview"
+    assert result["copyGeneration"]["skipped"] is True
+    assert result["execution"]["copyGenerated"] is False
+    assert result["videoPlan"]["targetDurationSeconds"] == 15
+    assert result["review"]["nextActions"][0].startswith("Verify product image")
+
+
+def test_product_commercialization_preview_keeps_customer_duration_and_planning_context() -> None:
+    service = ProductCommercializationService()
+
+    result = service.preview(
+        ProductCommercializationRequest(
+            action="video_preview",
+            productImageUrl="https://example.com/mug.png",
+            productFields={"productNameEn": "Ceramic travel mug", "material": "ceramic"},
+            targetDurationSeconds=5,
+            extraPrompt="核心信息：展示杯身花纹和杯盖结构。镜头偏好：慢速转圈。",
+        )
+    )
+
+    video_plan = result["videoPlan"]
+    assert video_plan["targetDurationSeconds"] == 5
+    assert video_plan["totalGeneratedSeconds"] == 8
+    assert video_plan["requiresComposition"] is True
+    assert video_plan["storyboard"][0]["keepSeconds"] == 5
+    assert "核心信息" in video_plan["videoPrompt"]
+    assert "慢速转圈" in video_plan["storyboard"][0]["prompt"]
+
+
 def test_product_commercialization_preview_uses_vidu_duration_profile() -> None:
     service = ProductCommercializationService()
 
     result = service.preview(
         ProductCommercializationRequest(
+            action="video_preview",
             productImageUrl="https://example.com/blanket.png",
             productFields={"productNameEn": "Floral throw blanket", "material": "soft plush"},
             executorId="executor_vidu_default",
@@ -795,6 +844,7 @@ def test_product_commercialization_preview_accepts_multi_product_images() -> Non
 
     result = service.preview(
         ProductCommercializationRequest(
+            action="video_preview",
             productImageUrl="https://example.com/front.png",
             productImages=[
                 {"url": "https://example.com/back.png", "role": "back", "label": "背面"},
@@ -868,6 +918,27 @@ def test_product_3d_render_video_preview_returns_plan_without_video() -> None:
     assert result["assetReadiness"]["renderWorkerReady"] is False
     assert result["renderPlan"]["executionStatus"] == "preview_only"
     assert result["execution"]["videoGenerated"] is False
+
+
+def test_product_3d_render_video_preview_accepts_texture_slots() -> None:
+    service = Product3DRenderVideoService()
+
+    result = service.preview(
+        Product3DRenderVideoRequest(
+            modelKey="cup_1660",
+            materialSlot="front",
+            textureSlots=[
+                {"materialSlot": "front", "imageUrl": "https://example.com/front.png", "label": "杯身正面"},
+                {"materialSlot": "bottom", "imageUrl": "https://example.com/bottom.png", "label": "底部"},
+            ],
+        )
+    )
+
+    texture_application = result["renderPlan"]["textureApplication"]
+    assert texture_application["mode"] == "slot_texture_mapping"
+    assert texture_application["textureSlotCount"] == 2
+    assert [item["materialSlot"] for item in texture_application["textureSlots"]] == ["front", "bottom"]
+    assert result["assetReadiness"]["textureSlotCount"] == 2
 
 
 def test_product_3d_render_video_preview_marks_missing_texture() -> None:

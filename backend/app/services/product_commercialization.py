@@ -584,23 +584,31 @@ def _join_keywords(values: list[str], fallback: list[str]) -> list[str]:
 class ProductCommercializationService:
     """Builds a first-pass copy/video commercialization package."""
 
+    def _is_video_only_action(self, payload: Any) -> bool:
+        action = _clean_text(getattr(payload, "action", None)).lower()
+        return action in {"video_preview", "video_generate", "compose_video"}
+
     def preview(self, payload: Any, *, user_id: str | None = None) -> dict[str, Any]:
         request_id = _clean_text(getattr(payload, "requestId", None)) or f"pcp_{uuid4().hex[:12]}"
+        video_only_action = self._is_video_only_action(payload)
         output_language = self._normalize_output_language(getattr(payload, "outputLanguage", None))
         market_region = self._normalize_market_region(getattr(payload, "marketRegion", None))
         visual_mode = self._normalize_visual_mode(getattr(payload, "visualSupportMode", None))
         video_scenario = self._normalize_video_scenario(getattr(payload, "videoScenario", None))
-        copy_scenarios = self._normalize_copy_scenarios(getattr(payload, "copyScenarios", None))
+        copy_scenarios = [] if video_only_action else self._normalize_copy_scenarios(getattr(payload, "copyScenarios", None))
         product_images = _normalize_product_image_inputs(payload)
         primary_product_image_url = _primary_product_image_url(product_images)
         product_card = self._build_product_card(payload)
-        content_bundle = self._build_content_bundle(
-            payload=payload,
-            product_card=product_card,
-            scenarios=copy_scenarios,
-            output_language=output_language,
-            market_region=market_region,
-        )
+        if video_only_action:
+            content_bundle = self._build_video_only_content_bundle(product_card=product_card)
+        else:
+            content_bundle = self._build_content_bundle(
+                payload=payload,
+                product_card=product_card,
+                scenarios=copy_scenarios,
+                output_language=output_language,
+                market_region=market_region,
+            )
         copy_package = content_bundle["copyPackage"]
         content_package = content_bundle["contentPackage"]
         copy_generation = content_bundle["copyGeneration"]
@@ -631,6 +639,7 @@ class ProductCommercializationService:
             output_language=output_language,
             market_region=market_region,
             executor_id=getattr(payload, "executorId", None),
+            extra_prompt=getattr(payload, "extraPrompt", None),
         )
         video_asset_package_plan = self._build_video_asset_package_plan(video_plan)
         review = self._build_review(
@@ -661,14 +670,15 @@ class ProductCommercializationService:
             "videoAssetPackagePlan": video_asset_package_plan,
             "review": review,
             "execution": {
-                "copyGenerated": not bool(copy_generation.get("fallback")),
+                "copyGenerated": False if video_only_action else not bool(copy_generation.get("fallback")),
                 "copyGenerationMethod": copy_generation.get("method"),
                 "imageGenerated": False,
                 "videoGenerated": False,
                 "costActions": [],
                 "note": (
-                    "Copy preview uses the configured LLM/VL planner when available. "
-                    "Image/video generation requires explicit execute endpoint."
+                    "Video preview skips copy generation and only prepares storyboard/execution parameters."
+                    if video_only_action
+                    else "Copy preview uses the configured LLM/VL planner when available. Image/video generation requires explicit execute endpoint."
                 ),
             },
             "audit": {
@@ -679,6 +689,11 @@ class ProductCommercializationService:
         }
 
     def generate_video(self, payload: Any, *, user_id: str | None = None) -> dict[str, Any]:
+        if not _clean_text(getattr(payload, "action", None)):
+            try:
+                setattr(payload, "action", "video_generate")
+            except Exception:  # pragma: no cover - defensive for non-model payloads
+                pass
         preview = self.preview(payload, user_id=user_id)
         image_url = _primary_product_image_url(_normalize_product_image_inputs(payload))
         if not image_url:
@@ -1677,7 +1692,7 @@ class ProductCommercializationService:
             duration = int(value)
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID") from exc
-        min_duration = min(options) if options else DEFAULT_VIDEO_SEGMENT_SECONDS
+        min_duration = 1
         max_duration = min(int(profile.get("maxTargetSeconds") or MAX_TARGET_VIDEO_SECONDS), MAX_TARGET_VIDEO_SECONDS)
         if duration < min_duration or duration > max_duration:
             raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID")
@@ -1857,6 +1872,37 @@ class ProductCommercializationService:
             "copyPackage": copy_package,
             "contentPackage": content_package,
             "copyGeneration": generation,
+        }
+
+    def _build_video_only_content_bundle(self, *, product_card: dict[str, Any]) -> dict[str, Any]:
+        source_facts = {**product_card.get("inferredFacts", {}), **product_card.get("sourceFacts", {})}
+        field_conflicts = self._build_fallback_field_conflicts(product_card)
+        content_package = {
+            "mode": "video_only_preview",
+            "copyPackage": {},
+            "imageFactAssessment": {
+                "visualSourcePriority": "product_image_primary",
+                "observedProductType": _english_product_name(source_facts),
+                "observedVisualFeatures": [],
+                "fieldConflicts": field_conflicts,
+                "missingFieldInferences": [],
+                "copyDecision": "copy_generation_skipped_for_video_planning",
+                "confidence": "medium" if source_facts else "low",
+            },
+            "imageBriefs": [],
+            "channelUsage": [],
+        }
+        return {
+            "copyPackage": {},
+            "contentPackage": content_package,
+            "copyGeneration": {
+                "method": "skipped_for_video_preview",
+                "provider": "internal",
+                "model": "none",
+                "fallback": False,
+                "skipped": True,
+                "evidence": "Product video preview does not generate ecommerce copy.",
+            },
         }
 
     def _content_fact_guard(self, *, content_package: dict[str, Any], product_card: dict[str, Any]) -> dict[str, Any]:
@@ -2770,6 +2816,7 @@ class ProductCommercializationService:
         output_language: str,
         market_region: str,
         executor_id: Any,
+        extra_prompt: Any = None,
     ) -> dict[str, Any]:
         facts = (
             _as_record(resolved_product_facts.get("facts")) if isinstance(resolved_product_facts, dict) else {}
@@ -2788,8 +2835,9 @@ class ProductCommercializationService:
         duration = segment_durations[0]
         segment_count = len(segment_durations)
         total_generated_seconds = sum(segment_durations)
-        requires_composition = segment_count > 1
+        requires_composition = segment_count > 1 or total_generated_seconds != target_duration
         ratio = _clean_text(aspect_ratio) or "16:9"
+        user_planning_requirements = _clean_text(extra_prompt)
         if provider == "vidu":
             aspect_policy = {
                 "mode": "input_image_ratio",
@@ -2821,6 +2869,8 @@ class ProductCommercializationService:
             prompt_parts.append(f"Material cue: {material}.")
         if market_region:
             prompt_parts.append(f"Target marketplace region: {market_region}.")
+        if user_planning_requirements:
+            prompt_parts.append(f"User planning requirements: {user_planning_requirements}.")
         segment_roles = self._build_video_segment_roles(
             scenario=scenario,
             segment_count=segment_count,
@@ -3020,6 +3070,7 @@ class ProductCommercializationService:
         video_plan: dict[str, Any],
     ) -> dict[str, Any]:
         issues: list[dict[str, Any]] = []
+        is_video_only = copy_generation.get("method") == "skipped_for_video_preview" or bool(copy_generation.get("skipped"))
         image_fact_assessment = (
             content_package.get("imageFactAssessment") if isinstance(content_package.get("imageFactAssessment"), dict) else {}
         )
@@ -3063,10 +3114,14 @@ class ProductCommercializationService:
                 {
                     "level": "warning",
                     "code": "PRODUCT_IMAGE_MISSING",
-                    "message": "Copy preview can continue, but image/video generation should wait for a product image.",
+                    "message": (
+                        "Video planning can continue, but paid video generation should wait for a product image."
+                        if is_video_only
+                        else "Copy preview can continue, but image/video generation should wait for a product image."
+                    ),
                 }
             )
-        if any("gift" in str(item).lower() for item in copy_package.get("adShortCopy", []) if isinstance(item, str)):
+        if not is_video_only and any("gift" in str(item).lower() for item in copy_package.get("adShortCopy", []) if isinstance(item, str)):
             issues.append(
                 {
                     "level": "info",
@@ -3078,11 +3133,19 @@ class ProductCommercializationService:
             "profile": "default_pod_profile",
             "score": max(40, min(92, int((product_card.get("confidence") or 0.5) * 100))),
             "issues": issues,
-            "nextActions": [
-                "Verify product facts before publishing.",
-                "Generate visual assets only when the target copy scenario needs them.",
-                "After the copy package is accepted, optionally continue in the product video ability.",
-            ],
+            "nextActions": (
+                [
+                    "Verify product image and optional product fields before paid execution.",
+                    "Review storyboard, segment duration, reference image selection, and first/last-frame needs.",
+                    "Submit the video素材包 task only after the script and segment package are accepted.",
+                ]
+                if is_video_only
+                else [
+                    "Verify product facts before publishing.",
+                    "Generate visual assets only when the target copy scenario needs them.",
+                    "After the copy package is accepted, optionally continue in the product video ability.",
+                ]
+            ),
             "videoReady": all(item.get("available") or not item.get("required") for item in video_plan.get("assetNeeds") or []),
         }
 

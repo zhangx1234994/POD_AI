@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640">
+  <rect width="640" height="640" fill="#fff7ed"/>
+  <circle cx="320" cy="320" r="222" fill="#ffffff" stroke="#1f2937" stroke-width="8"/>
+  <path d="M160 320c68-74 132-74 200 0s132 74 200 0" fill="none" stroke="#ef4444" stroke-width="34" stroke-linecap="round"/>
+  <path d="M160 404c68-74 132-74 200 0s132 74 200 0" fill="none" stroke="#22c55e" stroke-width="30" stroke-linecap="round"/>
+  <path d="M160 236c68-74 132-74 200 0s132 74 200 0" fill="none" stroke="#facc15" stroke-width="26" stroke-linecap="round"/>
+  <text x="320" y="96" text-anchor="middle" font-family="Arial" font-size="32" font-weight="700" fill="#111827">Pattern Detail</text>
+</svg>

@@ -84,7 +84,7 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
         "notes": [
             "GLB/GLTF 均存在，首版渲染优先使用 GLB。",
             "全部 primitive 有 TEXCOORD_0，可进入多材质贴图验证。",
-            "材质槽较多，首版默认只贴 front，后续再开放多面贴图模板。",
+            "材质槽较多，建议先从 front 验证方向和比例，再逐步扩展多槽贴图模板。",
         ],
     },
 }
@@ -164,17 +164,50 @@ class Product3DRenderVideoService:
         if not scene_preset:
             raise HTTPException(status_code=400, detail="PRODUCT_3D_RENDER_VIDEO_SCENE_PRESET_INVALID")
 
+        valid_slots = set(model.get("materialSlots") or [])
+        texture_slots: list[dict[str, str]] = []
+        raw_texture_slots = getattr(payload, "textureSlots", None)
+        if isinstance(raw_texture_slots, list):
+            for item in raw_texture_slots:
+                if not isinstance(item, dict):
+                    continue
+                slot = _clean_text(item.get("materialSlot") or item.get("material_slot"))
+                image_url = _clean_text(item.get("imageUrl") or item.get("image_url") or item.get("url"))
+                if not image_url:
+                    continue
+                if slot and slot not in valid_slots:
+                    raise HTTPException(status_code=400, detail="PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID")
+                texture_slots.append(
+                    {
+                        "materialSlot": slot or material_slot,
+                        "imageUrl": image_url,
+                        "label": _clean_text(item.get("label")) or slot or material_slot,
+                    }
+                )
+
         texture_urls = _normalize_list(getattr(payload, "textureImageUrls", None))
         texture_url = _clean_text(getattr(payload, "textureImageUrl", None))
         if texture_url and texture_url not in texture_urls:
             texture_urls.insert(0, texture_url)
+        for item in texture_slots:
+            image_url = _clean_text(item.get("imageUrl"))
+            if image_url and image_url not in texture_urls:
+                texture_urls.append(image_url)
         texture_urls = texture_urls[:6]
+        if texture_urls and not texture_slots:
+            texture_slots.append(
+                {
+                    "materialSlot": material_slot,
+                    "imageUrl": texture_urls[0],
+                    "label": _clean_text(model.get("recommendedMaterialSlot")) or material_slot,
+                }
+            )
         duration_seconds = int(getattr(payload, "durationSeconds", None) or 6)
         aspect_ratio = _clean_text(getattr(payload, "aspectRatio", None)) or "16:9"
         render_note = _clean_text(getattr(payload, "extraPrompt", None))
 
         warnings: list[dict[str, str]] = []
-        if not texture_urls:
+        if not texture_urls and not texture_slots:
             warnings.append(
                 {
                     "code": "PRODUCT_3D_RENDER_VIDEO_TEXTURE_MISSING",
@@ -195,10 +228,14 @@ class Product3DRenderVideoService:
             "outputMode": output_mode,
             "modelFile": model.get("preferredFile"),
             "textureApplication": {
-                "mode": "single_slot_texture" if len(texture_urls) <= 1 else "multi_texture_planned",
+                "mode": "slot_texture_mapping" if texture_slots else "single_slot_texture",
+                "activeMaterialSlot": material_slot,
                 "materialSlot": material_slot,
                 "textureImageUrls": texture_urls,
+                "textureSlots": texture_slots,
+                "textureSlotCount": len(texture_slots),
                 "preserveUv": True,
+                "previewBoundary": "client_threejs_wysiwyg_preview_then_server_render_worker",
             },
             "scene": {
                 "preset": scene_preset_key,
@@ -223,7 +260,7 @@ class Product3DRenderVideoService:
             ],
             "renderNote": render_note or None,
         }
-        readiness_score = 92 if texture_urls and model.get("hasUv") else 72
+        readiness_score = 92 if (texture_urls or texture_slots) and model.get("hasUv") else 72
         return {
             "requestId": request_id,
             "businessKey": "product_3d_render_video",
@@ -235,7 +272,8 @@ class Product3DRenderVideoService:
                 "score": readiness_score,
                 "modelReady": True,
                 "uvReady": bool(model.get("hasUv")),
-                "textureProvided": bool(texture_urls),
+                "textureProvided": bool(texture_urls or texture_slots),
+                "textureSlotCount": len(texture_slots),
                 "renderWorkerReady": False,
                 "warnings": warnings,
             },
