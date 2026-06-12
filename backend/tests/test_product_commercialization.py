@@ -1429,6 +1429,9 @@ def test_product_commercialization_video_can_use_vidu_executor(monkeypatch) -> N
     assert frame_calls[0]["aspect_ratio"] == "16:9"
     assert captured["input_payload"]["images"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/first-frame-16x9.png"]
     assert captured["input_payload"]["duration"] == 5
+    assert "Vidu product framing guardrails" in captured["input_payload"]["prompt"]
+    assert "complete product silhouette" in captured["input_payload"]["prompt"]
+    assert "do not crop product handles" in captured["input_payload"]["prompt"]
     assert "aspectRatio" not in captured["input_payload"]
     assert captured["input_payload"]["audio"] is False
     assert captured["input_payload"]["bgm"] is False
@@ -1466,6 +1469,24 @@ def test_product_commercialization_first_frame_prompt_blocks_framed_layout() -> 
     assert "edge-to-edge commercial scene" in prompt
     assert "smaller framed picture" in prompt
     assert "white mat" in prompt
+    assert "do not crop handles" in prompt
+
+
+def test_product_commercialization_vidu_execution_prompt_preserves_full_product() -> None:
+    service = ProductCommercializationService()
+
+    prompt = service._build_video_execution_prompt(
+        provider="vidu",
+        prompt="Show the tote bag with a slow camera move.",
+        shot={"durationSeconds": 8},
+        video_plan={"scenario": "product_showcase_short", "durationSeconds": 8},
+    )
+
+    assert prompt.startswith("Show the tote bag")
+    assert "Vidu product framing guardrails" in prompt
+    assert "first 2 seconds" in prompt
+    assert "avoid aggressive zoom" in prompt
+    assert "End on a stable medium product frame" in prompt
     assert "inset image" in prompt
     assert "Avoid large empty padding" in prompt
 

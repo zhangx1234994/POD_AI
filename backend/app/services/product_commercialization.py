@@ -859,7 +859,12 @@ class ProductCommercializationService:
             preview["videoAssetPackagePlan"] = self._build_video_asset_package_plan(video_plan)
         result, video_urls = self._generate_segment_with_retry(
             executor_id=executor_id,
-            prompt=prompt,
+            prompt=self._build_video_execution_prompt(
+                provider=provider_hint,
+                prompt=prompt,
+                shot=(video_plan.get("storyboard") or [{}])[0] if isinstance(video_plan.get("storyboard"), list) else {},
+                video_plan=video_plan,
+            ),
             image_url=reference_image_url,
             aspect_ratio=video_plan.get("aspectRatio") or "16:9",
             duration_seconds=int(video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
@@ -874,7 +879,12 @@ class ProductCommercializationService:
             shot=(video_plan.get("storyboard") or [{}])[0] if isinstance(video_plan.get("storyboard"), list) else {},
             result=result,
             video_urls=video_urls,
-            prompt=prompt,
+            prompt=self._build_video_execution_prompt(
+                provider=provider_hint,
+                prompt=prompt,
+                shot=(video_plan.get("storyboard") or [{}])[0] if isinstance(video_plan.get("storyboard"), list) else {},
+                video_plan=video_plan,
+            ),
             duration_seconds=int(video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
             reference_image_url=reference_image_url,
             normalized_first_frame=normalized_first_frame,
@@ -962,9 +972,15 @@ class ProductCommercializationService:
                 generated_keyframes.append(normalized_first_frame)
                 execution_reference_image = _clean_text(normalized_first_frame.get("imageUrl")) or shot_reference_image
             try:
+                execution_prompt = self._build_video_execution_prompt(
+                    provider=provider_hint,
+                    prompt=prompt,
+                    shot=shot,
+                    video_plan=video_plan,
+                )
                 result, video_urls = self._generate_segment_with_retry(
                     executor_id=executor_id,
-                    prompt=prompt,
+                    prompt=execution_prompt,
                     image_url=execution_reference_image,
                     aspect_ratio=video_plan.get("aspectRatio") or "16:9",
                     duration_seconds=duration,
@@ -1008,7 +1024,7 @@ class ProductCommercializationService:
                     shot=shot,
                     result=result,
                     video_urls=video_urls,
-                    prompt=prompt,
+                    prompt=execution_prompt,
                     duration_seconds=duration,
                     reference_image_url=execution_reference_image,
                     normalized_first_frame=normalized_first_frame,
@@ -1261,6 +1277,8 @@ class ProductCommercializationService:
                 "Use exported fields only as explanation when they match the image.",
                 "Plan exactly one storyboard item per provided segment duration.",
                 "Each shot must contain concrete camera movement, scene, first-frame prompt, last-frame prompt, and vendor prompt.",
+                "For short product-showcase videos, hold a full-product hero view before any detail move; do not crop handles, edges, bottom, or corners during the opening.",
+                "Camera movement should be restrained and commercial: slow micro push-in, gentle parallax, or stable rotation only when the full product remains recognizable.",
                 "If first/last frames are useful, mark them as keyframePlan items. Default image generation route is GPT Image 2, but do not trigger image generation in preview.",
                 "Do not include subtitles, embedded text, logos, watermarks, price tags, or unsupported claims.",
                 "Return JSON only.",
@@ -1360,7 +1378,9 @@ class ProductCommercializationService:
                 "You are PODI's ecommerce video director. Plan a practical post-design product-video material "
                 "package for a POD merchant. Product images are the source of truth. Use the selected vendor model "
                 "profile and segment duration constraints. Return only JSON matching the schema; include concrete "
-                "camera movements, first/last frame prompts, and execution prompts."
+                "camera movements, first/last frame prompts, and execution prompts. For product-showcase clips, "
+                "prioritize a full-product hero hold before any detail movement; avoid early crop-ins that cut "
+                "off handles, edges, bottoms, or corners."
             ),
             "input": [{"role": "user", "content": content}],
             "text": {
@@ -1397,6 +1417,7 @@ class ProductCommercializationService:
             "必须先理解产品图，产品图优先于导出字段；不要把字段里和图片不一致的商品写进脚本。\n"
             "必须严格按照 videoRequest.segmentDurations 输出同数量分镜，每个分镜必须写清：scene、goal、cameraMovement、composition、"
             "prompt、firstFramePrompt、lastFramePrompt、negativePrompt、transition、referenceImageRole。\n"
+            "商品展示短视频必须先保留完整商品 hero 画面，再轻微运动；不要一开始就推到局部特写，不要裁掉手柄、边缘、底部或角。\n"
             "videoPrompt 是整体供应商执行脚本；每个 storyboard.prompt 是对应片段的执行提示词。\n"
             "keyframePlan 只描述需要生成/确认的首帧、尾帧或细节帧，默认生成路线是 GPT Image 2，但当前只规划不触发生成。\n"
             "不要字幕、内嵌文字、水印、Logo、价格标签，不要改变商品形状、图案、颜色和材质。\n"
@@ -1423,6 +1444,7 @@ class ProductCommercializationService:
             "Use the selected product image as the exact visual reference and preserve product identity.",
             "Plan concrete camera movement, scene, first frame, ending frame, and vendor-ready prompts.",
             "Clean ecommerce lighting, stable product geometry, no extra text, no watermarks, no logos, no price tags.",
+            "Start with a full-product hero view and keep the product silhouette readable before any detail movement.",
         ]
         if material:
             base_prompt_parts.append(f"Material cue: {material}.")
@@ -1430,7 +1452,11 @@ class ProductCommercializationService:
             base_prompt_parts.append(f"Target marketplace region: {market_region}.")
         if user_planning_requirements:
             base_prompt_parts.append(f"User planning requirements: {user_planning_requirements}.")
-        negative_prompt = "No embedded text, watermark, logo, price tag, unrealistic deformation, wrong product category, extra hands, or changed print pattern."
+        negative_prompt = (
+            "No embedded text, watermark, logo, price tag, unrealistic deformation, wrong product category, "
+            "extra hands, changed print pattern, aggressive zoom, early macro crop, cropped handles, cropped edges, "
+            "or cropped product bottom."
+        )
         storyboard: list[dict[str, Any]] = []
         keyframe_plan: list[dict[str, Any]] = []
         consumed_seconds = 0
@@ -2163,11 +2189,47 @@ class ProductCommercializationService:
             f"Frame direction: {first_frame}. Use the supplied product image as the highest-priority factual anchor. "
             "Preserve the visible product shape, pattern, color, material, and category. "
             "Keep the whole product readable and suitable as the first frame for image-to-video generation. "
+            "The complete product silhouette must stay inside the frame; do not crop handles, edges, bottom, or corners. "
             "Use one edge-to-edge commercial scene that fills the entire canvas. "
             "Do not place the product inside a smaller framed picture, white mat, card, mockup sheet, or inset image. "
             "Avoid large empty padding around the product; keep the product prominent while still fully visible. "
             "No letterboxing, pillarboxing, black bars, borders, text, watermark, logo, or price tag."
         )
+
+    def _build_video_execution_prompt(
+        self,
+        *,
+        provider: str,
+        prompt: str,
+        shot: dict[str, Any] | None,
+        video_plan: dict[str, Any] | None,
+    ) -> str:
+        base_prompt = _clean_text(prompt)
+        if not base_prompt or self._normalize_video_provider(provider) != "vidu":
+            return base_prompt
+        if "Vidu product framing guardrails:" in base_prompt:
+            return base_prompt
+        shot_record = _as_record(shot)
+        plan_record = _as_record(video_plan)
+        scenario = _clean_text(plan_record.get("scenario")) or "product_showcase_short"
+        duration = int(shot_record.get("durationSeconds") or plan_record.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS)
+        hold_seconds = min(3, max(1, duration // 3))
+        scenario_hint = (
+            "If this is a detail-oriented clip, move to detail only after the opening full-product hold."
+            if scenario == "detail_explainer"
+            else "Use detail emphasis only as a gentle secondary movement, not as the main frame."
+        )
+        guardrails = (
+            " Vidu product framing guardrails: keep the complete product silhouette fully visible for at least "
+            f"the first {hold_seconds} seconds; do not crop product handles, edges, bottom, corners, or important "
+            "pattern areas during the opening. Use only a very slow micro push-in, gentle parallax, or stable "
+            "movement; avoid aggressive zoom, macro-only crop, fast pan, or rotation that hides product shape. "
+            "The product identity, shape, color, print pattern, and material must remain recognizable throughout. "
+            f"{scenario_hint} End on a stable medium product frame rather than an extreme close-up. No text, "
+            "logo, watermark, price tag, black bars, borders, inset image, picture-in-picture, or unrelated props. "
+            "Avoid large empty padding; keep the product commercially prominent while still fully visible."
+        )
+        return f"{base_prompt}{guardrails}"
 
     def _normalize_first_frame_canvas(
         self,
@@ -4006,13 +4068,13 @@ class ProductCommercializationService:
         base = [
             {
                 "label": "Opening product hero",
-                "camera": "slow push-in with a slight side movement",
+                "camera": "hold the full product hero frame first, then use only a very gentle micro push-in without cropping the item",
                 "goal": "establish product shape, pattern, and marketplace appeal",
                 "direction": "start with a clean hero view that clearly shows the full product",
             },
             {
                 "label": "Material and print detail",
-                "camera": "smooth close-up glide across the product surface",
+                "camera": "smooth medium detail glide while keeping enough product context visible",
                 "goal": "show material texture, print clarity, and design quality",
                 "direction": "move closer to highlight texture, print detail, and product finish",
             },
