@@ -1488,6 +1488,7 @@ def test_product_commercialization_visual_prompt_does_not_inherit_brief_product_
     assert "Brief hint" not in prompt
     assert "Visual scenario only" in prompt
     assert "Do not inherit product identity" in prompt
+    assert "no letterboxing" in prompt
 
 
 def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:

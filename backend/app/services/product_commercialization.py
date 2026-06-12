@@ -585,6 +585,7 @@ def _build_visual_prompt(
                 subject,
                 scenario_instruction,
                 "商品身份、形状、花纹和材质只能以产品图和已解析事实为准；不要从配图模板文案继承商品品类。",
+                "画面必须填满整个画布，不要黑边、留边、信箱条、边框或外框。",
                 "禁止加入文字、水印、logo、价格标签或未提供的属性。",
             ]
         )
@@ -612,7 +613,10 @@ def _build_visual_prompt(
         subject += f" Constraints: {_compact_sentence(risk_notes)}."
     if extra_prompt:
         subject += f" Additional request: {extra_prompt}."
-    subject += " Keep product silhouette, print, material consistency. No watermark, text, logos, brand claims, or irrelevant props."
+    subject += (
+        " Keep product silhouette, print, material consistency. Fill the entire canvas; no letterboxing, "
+        "pillarboxing, black bars, frames, or borders. No watermark, text, logos, brand claims, or irrelevant props."
+    )
     if scene_label or brief_usage:
         subject += (
             f" Visual scenario only: {scene_label or brief_usage}. "

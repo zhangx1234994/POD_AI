@@ -63,6 +63,11 @@
 3. `backend/tests/test_product_commercialization.py`
    - 新增回归断言：即使 brief 内有错误商品名，最终 GPT Image 2 prompt 也不能包含该错误商品身份。
 
+4. 2026-06-12 发布后复测 runId `919f59edeeb943c08908c821df7e7eaf`
+   - Prompt 污染已消失：不再包含 `Floral printed lightweight hooded jacket` 或 `Brief hint`。
+   - 新发现质量问题：结果图为 `679x679`，画面内容带上下黑边。该图不能作为合格营销图交付。
+   - 已继续补充 prompt 硬约束：画面必须填满画布，禁止 letterboxing / black bars / frames / borders。
+
 ## 后续优化项
 
 P0：
@@ -72,6 +77,7 @@ P0：
   - 如果不生成首帧，页面和 API 必须明确展示 `aspectPolicy=input_image_ratio`，不能让用户以为模型会强制输出目标比例。
 - 付费提交前增加 prompt 质量门禁：
   - 检查 prompt 内是否出现冲突商品名。
+  - 检查 prompt 是否包含“填满画布、禁止黑边/边框”约束。
   - 检查产品名、材质、品类是否来自 `resolvedProductFacts`。
   - 检查场景 brief 是否只作为场景，不携带商品身份。
 - 输出质量报告增加结构化字段：
@@ -86,4 +92,3 @@ P1：
 - 对源图类型做提示：信息图、带大量文字/尺寸标注的图可用于事实识别，但不适合作为视频/营销图直接参考。
 - 建立 golden case：至少覆盖托特包、服饰、杯子、家纺四类商品，每类保存原图、prompt、结果图、视频抽帧和人工评分。
 - 把“营销图”和“商品证明图”拆成不同质量标准：前者允许场景化重绘，后者必须更严格保持产品结构和图案。
-
