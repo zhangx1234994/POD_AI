@@ -421,7 +421,7 @@ POST /api/business/runs/get
 
 ### 定位
 
-面向有 3D 模型的 POD 商品，通过固定模型、材质槽 / UV 贴图、预设场景、灯光和相机路径生成可控商品动效。它不是 KIE/Vidu 大模型视频生成的子模式，也不是“文字描述生成视频”；不能混在 `promo_video` 的供应商选择里。当前开放方案预览和测评端浏览器 Three.js WebM 录制；服务端 Blender/MP4/OSS 异步渲染 worker 接入后再开放 `/runs`。
+面向有 3D 模型的 POD 商品，通过固定模型、材质槽 / UV 贴图、预设场景、灯光和相机路径生成可控商品动效。它不是 KIE/Vidu 大模型视频生成的子模式，也不是“文字描述生成视频”；不能混在 `promo_video` 的供应商选择里。当前开放方案预览和测评端浏览器 Three.js 本地 MP4 录制（不支持 MP4 时明确回退 WebM）；服务端 Blender/MP4/OSS 异步渲染 worker 接入后再开放 `/runs`。
 
 ### 建议入口
 
@@ -453,7 +453,7 @@ POST /api/business/runs/get
 - 模型必须先进入受控模型目录；测评端上传 zip 只是资产检查，不代表生产可执行。
 - `textureImageUrl` 是主贴图，必须贴到 `materialSlot` 对应的固定区域；`textureImageUrls` 用于后续多材质/多面贴图。
 - `materialSlot` 是模型内真实材质槽 / UV 区域，不是自然语言区域描述。用户侧应该通过可视化区域选择，不应该让用户写一段文字描述要贴哪里。
-- 当前 `preview` 只能验证模型、UV、材质槽和参数计划；测评端 Three.js 画布负责所见即所得预览和本地 WebM 录制，但这仍不是服务端生产渲染。
+- 当前 `preview` 只能验证模型、UV、材质槽和参数计划；测评端 Three.js 画布负责所见即所得预览和本地 MP4 录制，但这仍不是服务端生产渲染和 OSS 回填。
 - 当前只允许 `outputMode=plan_only`；真实渲染必须等 worker 接入并统一走 runId 查询。
 - 镜头预设包括 `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`；场景预设包括 `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`，每个场景必须定义商品摆放位置、比例、安全区和阴影规则。
 

@@ -105,7 +105,8 @@ python3 backend/scripts/patrol_product_commercialization.py \
 - 2026-06-11：补充 `backend/scripts/patrol_product_commercialization.py`，后续封版前必须至少跑默认预览门禁；线上验收窗口再打开 `--include-live-visual/--include-live-video` 做真实成本链路。
 - 2026-06-11：本机执行默认预览巡检生成 `output/product-commercialization-patrol-local.json`，3 个用例均未通过。直接原因是本地请求超时；后端日志显示上游商品理解链路访问 vendor-api-ops 被拒绝：`VENDOR_API_CLIENT_FORBIDDEN`。该结果不能作为能力失败结论，只能说明当前本机不具备完整 vendor-api allowlist 条件；真实门禁必须在 114 或已加白的后端环境重跑。
 - 2026-06-12：产品视频测评端修正为 4 步：`上传产品图组 -> 核对商品并规划视频素材包 -> 确认脚本分镜 -> 素材结果`，不再把“确认商品”和“设置视频策略”拆成两个页面。产品视频规划结果必须展示 `planner` 证据、`directorBrief`、分镜场景/镜头运动、首尾帧提示词和关键帧计划。
-- 2026-06-12：3D 渲染视频测评端补齐本地闭环：STEP 4 主动作变为“生成并预览 WebM”，结果区显示播放器、大小和下载入口；`/preview` 返回 `renderPlan.camera.key` 与 `renderPlan.scene.key`，便于追踪选中的镜头和场景模板。
+- 2026-06-12：3D 渲染视频测评端补齐本地闭环：STEP 4 主动作变为“生成并预览 MP4”，结果区显示播放器、大小和下载入口；浏览器不支持 MP4 MediaRecorder 时明确回退 WebM；`/preview` 返回 `renderPlan.camera.key` 与 `renderPlan.scene.key`，便于追踪选中的镜头和场景模板。
+- 2026-06-12：系统 Chrome 真实页面复测 3D MP4 闭环通过：`127.0.0.1:8200` 选择 1660 杯子、绑定 `mug-front.svg`、检查方案、生成 6 秒视频后页面显示 `598 KB · MP4`，点击“下载 MP4”触发浏览器下载，文件名 `podi-3d-cup_1660-6s-*.mp4`，保存文件大小约 610KB。截图：`output/playwright/market-video-ux-remediation-20260612/product-3d-mp4-result.png`。
 - 2026-06-12：本地验证通过：`python3 -m pytest backend/tests/test_product_commercialization.py -q` 为 38 passed；`podi-eval-web` `npm run lint`、`npm run build` 通过；`PODI_EVAL_USE_SYSTEM_CHROME=1 npm run test:ui -- tests/ui/product-video-workbench.spec.ts tests/ui/product-3d-render-video-workbench.spec.ts` 为 2 passed。截图证据目录：`podi-eval-web/output/playwright/product-commercialization-2026-06-12/`。
 
 ## 114 线上复测记录
@@ -116,8 +117,8 @@ python3 backend/scripts/patrol_product_commercialization.py \
 - 2026-06-11：114 真实 GPT Image 2 配图链路已通过，runId `83f4dd35a8e44d02b946e8a090ae49fd`，结果已回填 OSS：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/system/20260611/96d9da72-1781154570.png`。
 - 2026-06-11：114 真实 Vidu 单段视频素材包链路已通过，runId `24858339ccd94e588866018ab2c49963`，结果已回填 OSS：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260611/750a0574-1781154747.mp4`，`videoAssetPackage.deliveryStatus=assets_ready`。
 - 2026-06-11：测评端产品文案 / 产品视频交互改为 AI 摄影棚式渐进工作台：`上传产品图 -> 确认商品事实 -> 设置文案/视频策略 -> 审核内容包/脚本分镜 -> 配图与下载/视频素材包结果`。旧左右堆叠表单已隐藏，产品图常驻右侧摘要；视频执行前必须在第 4 步确认脚本和分镜。线上 114 截图已留存：`output/product-commercialization-progressive-ui/copy-online-114-desktop.png`。
-- 2026-06-12：产品视频规划门禁升级：`planner.fallback=true` 只能作为排障/交互验证，不允许作为最终验收；页面必须展示规划器证据、导演 brief、每个镜头的场景/镜头运动/首尾帧提示词。`product_3d_render_video` 当前只验收 Three.js 本地 WebM 预览和下载路径，服务端 MP4/OSS worker 仍为后续项。
-- 2026-06-12：待下一次发布后复测 114 页面是否同步 4 步产品视频流程和 3D WebM 结果态；发布前不要再以 2026-06-11 的 5 步产品视频截图作为最新交互口径。
+- 2026-06-12：产品视频规划门禁升级：`planner.fallback=true` 只能作为排障/交互验证，不允许作为最终验收；页面必须展示规划器证据、导演 brief、每个镜头的场景/镜头运动/首尾帧提示词。`product_3d_render_video` 当前只验收 Three.js 本地 MP4 预览和下载路径，服务端 MP4/OSS worker 仍为后续项。
+- 2026-06-12：待下一次发布后复测 114 页面是否同步 4 步产品视频流程和 3D MP4 结果态；发布前不要再以 2026-06-11 的 5 步产品视频截图作为最新交互口径。
 
 ## 暂不封版项
 

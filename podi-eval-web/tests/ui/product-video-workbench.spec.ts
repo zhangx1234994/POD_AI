@@ -174,8 +174,8 @@ test('product video workbench previews a material package without triggering pai
   await expect(page.getByText('预览只生成视频脚本、分镜和执行参数')).toBeVisible();
   await expect(page.getByRole('button', { name: /核对商品与视频策略/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /确认商品事实/ })).toHaveCount(0);
-
   const stageMain = page.locator('.podi-product-commercialization__stage-main');
+  await expect(stageMain.getByRole('button', { name: /上传产品图 拖拽图片/ })).toBeVisible();
   await stageMain.getByPlaceholder('https://...').fill(FRONT_IMAGE);
   await stageMain
     .getByPlaceholder(/每行一张/)
@@ -187,6 +187,8 @@ test('product video workbench previews a material package without triggering pai
 
   await expect(stageMain.getByText('核对商品并规划视频素材包')).toBeVisible();
   await stageMain.getByRole('button', { name: '清空字段，仅用产品图' }).click();
+  await expect(stageMain.getByText('商品：产品图已锁定，待规划识别')).toBeVisible();
+  await expect(stageMain.getByText('分类：待规划识别')).toBeVisible();
   await stageMain.locator('input[placeholder="例如 15"]').fill('15');
   await expect(stageMain.getByText('8 + 5 + 3s')).toBeVisible();
   await stageMain.getByPlaceholder('例如：突出材质纹理和商品轮廓，不要出现文字和水印。').fill('强调杯身花纹和杯柄轮廓，适合海外礼品场景。');
@@ -194,6 +196,7 @@ test('product video workbench previews a material package without triggering pai
 
   await expect(stageMain.getByText('确认脚本与分镜')).toBeVisible();
   await expect(stageMain.getByText('视频规划')).toBeVisible();
+  await expect(stageMain.getByText('产品图 / VL 识别')).toBeVisible();
   await expect(stageMain.getByText('规划器证据')).toBeVisible();
   await expect(stageMain.getByText('模型规划')).toBeVisible();
   await expect(stageMain.getByText('商品理解')).toBeVisible();

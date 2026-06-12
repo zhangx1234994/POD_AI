@@ -349,6 +349,27 @@ function getProductFieldSummary(data: Record<string, unknown> | null) {
   };
 }
 
+function getPendingImageSummary() {
+  return {
+    name: '产品图已锁定，待规划识别',
+    category: '待规划识别',
+    material: '待规划识别',
+    model: '待规划识别',
+    keywords: '待规划识别',
+  };
+}
+
+function productFactSourceLabel(source: unknown, exportedFieldCount: number): string {
+  const value = String(source || '').trim();
+  const normalized = value.toLowerCase();
+  if (!value) return exportedFieldCount > 0 ? '导出字段补充' : '产品图 / VL 识别';
+  if (normalized.includes('image') || normalized.includes('vision') || normalized.includes('vl')) return '产品图 / VL 识别';
+  if (normalized.includes('field') || normalized.includes('json') || normalized.includes('export')) {
+    return exportedFieldCount > 0 ? '导出字段补充' : '产品图 / VL 识别';
+  }
+  return value;
+}
+
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -1156,6 +1177,10 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const hasProductImage = Boolean(productImageUrl.trim());
   const hasParsedFields = parsedFields !== null;
   const exportedFieldCount = parsedFields ? Object.keys(parsedFields).length : 0;
+  const visibleProductSummary = useMemo(
+    () => (isVideoMode && hasProductImage && exportedFieldCount === 0 ? getPendingImageSummary() : productSummary),
+    [exportedFieldCount, hasProductImage, isVideoMode, productSummary],
+  );
   const factsStepReady = hasProductImage && hasParsedFields && (!shouldConfirmMatch || fieldsConfirmed);
   const strategyStepReady = isVideoMode ? factsStepReady : hasProductImage && hasParsedFields && copyScenarios.length > 0;
   const deliverReady = generatedVisuals.some((item) => item.urls.length > 0) || videoUrls.length > 0 || Boolean(videoRun);
@@ -1305,19 +1330,37 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                 </Typography.Text>
               </div>
               <div className="podi-product-commercialization__asset-layout">
-                <div className="podi-product-commercialization__asset-drop">
+                <div
+                  className="podi-product-commercialization__asset-drop"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => uploadRef.current?.click()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      uploadRef.current?.click();
+                    }
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    void uploadProductImage(event.dataTransfer.files?.[0]);
+                  }}
+                >
                   {productImageUrl ? (
                     <img src={productImageUrl} alt="产品图预览" />
                   ) : (
                     <div>
-                      <strong>还没有产品图</strong>
-                      <span>上传图片或粘贴公网 URL 后继续。</span>
+                      <strong>上传产品图</strong>
+                      <span>拖拽图片到这里，或点击选择本地文件。</span>
                     </div>
                   )}
                 </div>
                 <div className="podi-product-commercialization__stage-controls">
                   <div className="podi-field-stack">
-                    <Typography.Text>产品图 URL</Typography.Text>
+                    <Typography.Text>{isVideoMode ? '产品图来源' : '产品图 URL'}</Typography.Text>
                     <Space align="center">
                       <Input value={productImageUrl} onChange={(v) => setProductImageUrl(String(v))} placeholder="https://..." clearable />
                       <input
@@ -1327,10 +1370,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         style={{ display: 'none' }}
                         onChange={(event) => void uploadProductImage(event.currentTarget.files?.[0])}
                       />
-                      <Button variant="outline" loading={status === 'uploading'} onClick={() => uploadRef.current?.click()}>
-                        上传
+                      <Button theme="primary" loading={status === 'uploading'} onClick={() => uploadRef.current?.click()}>
+                        选择本地产品图
                       </Button>
                     </Space>
+                    <Typography.Text theme="secondary">本地上传是主路径；公网 URL 仅用于复现或调试。</Typography.Text>
                   </div>
                   {isVideoMode ? (
                     <div className="podi-field-stack">
@@ -1471,10 +1515,10 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   <div className="podi-product-commercialization__fact-card">
                     <Typography.Text strong>当前商品摘要</Typography.Text>
                     <div className="podi-product-commercialization__facts">
-                      <span>商品：{productSummary.name}</span>
-                      <span>分类：{productSummary.category}</span>
-                      <span>材质：{productSummary.material}</span>
-                      <span>型号：{productSummary.model}</span>
+                      <span>商品：{visibleProductSummary.name}</span>
+                      <span>分类：{visibleProductSummary.category}</span>
+                      <span>材质：{visibleProductSummary.material}</span>
+                      <span>型号：{visibleProductSummary.model}</span>
                     </div>
                     {shouldConfirmMatch ? (
                       <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
@@ -1706,7 +1750,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       </div>
                       <div>
                         <Typography.Text theme="secondary">事实来源</Typography.Text>
-                        <Typography.Text>{String(resolvedProductFacts.source || 'exported_fields') === 'product_image_primary' ? '产品图优先' : '导出字段'}</Typography.Text>
+                        <Typography.Text>{productFactSourceLabel(resolvedProductFacts.source, exportedFieldCount)}</Typography.Text>
                       </div>
                       <div>
                         <Typography.Text theme="secondary">置信度</Typography.Text>
@@ -2648,11 +2692,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                     <div className="podi-product-commercialization__strategy-summary">
                       <div>
                         <Typography.Text theme="secondary">事实来源</Typography.Text>
-                        <Typography.Text>
-                          {String(resolvedProductFacts.source || 'exported_fields') === 'product_image_primary'
-                            ? '产品图优先'
-                            : '导出字段'}
-                        </Typography.Text>
+                        <Typography.Text>{productFactSourceLabel(resolvedProductFacts.source, exportedFieldCount)}</Typography.Text>
                       </div>
                       <div>
                         <Typography.Text theme="secondary">商品判断</Typography.Text>

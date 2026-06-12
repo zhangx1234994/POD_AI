@@ -13,8 +13,8 @@ test('3d render video workbench exports a local preview video', async ({ page })
 
   await page.addInitScript(() => {
     class FakeMediaRecorder {
-      static isTypeSupported() {
-        return true;
+      static isTypeSupported(type: string) {
+        return type.startsWith('video/mp4') || type.startsWith('video/webm');
       }
 
       mimeType = 'video/webm';
@@ -23,12 +23,14 @@ test('3d render video workbench exports a local preview video', async ({ page })
       onerror: (() => void) | null = null;
       onstop: (() => void) | null = null;
 
-      constructor(_stream: MediaStream, _options?: MediaRecorderOptions) {}
+      constructor(_stream: MediaStream, options?: MediaRecorderOptions) {
+        this.mimeType = options?.mimeType || 'video/webm';
+      }
 
       start() {
         this.state = 'recording';
         window.setTimeout(() => {
-          this.ondataavailable?.({ data: new Blob(['podi-webm-preview'], { type: 'video/webm' }) });
+          this.ondataavailable?.({ data: new Blob(['podi-mp4-preview'], { type: this.mimeType }) });
         }, 20);
       }
 
@@ -106,7 +108,7 @@ test('3d render video workbench exports a local preview video', async ({ page })
 
   const stageMain = page.locator('.podi-product-commercialization__stage-main');
   await expect(page.getByRole('heading', { name: '固定模型区域贴图与渲染方案' })).toBeVisible();
-  await expect(page.getByText('本地 WebM', { exact: true })).toBeVisible();
+  await expect(page.getByText('本地 MP4', { exact: true })).toBeVisible();
 
   await stageMain.getByPlaceholder('https://...').fill(TEXTURE_IMAGE);
   await expect(page.getByText(/模型已加载|已按材质名应用/)).toBeVisible({ timeout: 20_000 });
@@ -118,10 +120,10 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await expect(stageMain.getByText('选择拍摄模板并生成视频')).toBeVisible();
   await expect(stageMain.getByText(/镜头模板/)).toBeVisible();
   await expect(stageMain.getByText(/场景模型/)).toBeVisible();
-  await stageMain.getByRole('button', { name: '2. 生成并预览 6s WebM' }).click();
-  await expect(stageMain.getByText(/KB · WebM/)).toBeVisible({ timeout: 15_000 });
+  await stageMain.getByRole('button', { name: '2. 生成并预览 6s MP4' }).click();
+  await expect(stageMain.getByText(/KB · MP4/)).toBeVisible({ timeout: 15_000 });
   await expect(stageMain.locator('video')).toBeVisible();
-  await expect(stageMain.getByRole('button', { name: '下载 WebM' })).toBeVisible();
+  await expect(stageMain.getByRole('button', { name: '下载 MP4' })).toBeVisible();
 
   expect(previewPayloads).toHaveLength(1);
   expect(previewPayloads[0]).toMatchObject({

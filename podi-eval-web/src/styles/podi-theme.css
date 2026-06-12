@@ -508,6 +508,16 @@ html.t-theme-dark {
   border: 1px solid var(--td-border-level-1-color);
   border-radius: 8px;
   background: #f8fafc;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.podi-product-commercialization__asset-drop:hover,
+.podi-product-commercialization__asset-drop:focus-visible {
+  border-color: color-mix(in srgb, var(--td-brand-color) 44%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--td-brand-color) 4%, #f8fafc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--td-brand-color) 10%, transparent);
+  outline: none;
 }
 
 .podi-product-commercialization__asset-drop img,
@@ -1504,7 +1514,7 @@ html.t-theme-dark {
   cursor: pointer;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1320px) {
   .podi-product-commercialization__head,
   .podi-product-commercialization__panel-head {
     flex-direction: column;

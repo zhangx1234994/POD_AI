@@ -11,21 +11,22 @@
 5. `market-side-ai-technical-plan-2026-06-11.md`
 6. `market-side-ai-ability-contracts-2026-06-11.md`
 7. `market-side-3d-render-video-assets-2026-06-12.md`
-8. `product-commercialization-remediation-2026-06-10.md`
-9. `../standards/version-acceptance-template.md`
-10. `../standards/agent-runtime-regression-matrix.md`
-11. `../standards/eval-ability-interaction-state-model.md`
-12. `ability-definition-v0.6.md`
-13. `business-agent-runtime-v0.6.md`
-14. `ability-governance-operating-model-v0.6.md`
-15. `ability-api-gap-v0.6.md`
-16. `client-parallel-preview-v0.6-handoff.md`
-17. `v0.6-closure-inventory-2026-06-07.md`
-18. `v0.6-closure-standardization-plan.md`
-19. `v0.6.3-control-plane-hardening-plan.md`
-20. `project-half-year-review-2026-05-26.md`
-21. `platform-polish-v0.5-decision-plan.md`
-22. `output-quality-review-v0.5.md`
+8. `market-side-video-ux-remediation-2026-06-12.md`
+9. `product-commercialization-remediation-2026-06-10.md`
+10. `../standards/version-acceptance-template.md`
+11. `../standards/agent-runtime-regression-matrix.md`
+12. `../standards/eval-ability-interaction-state-model.md`
+13. `ability-definition-v0.6.md`
+14. `business-agent-runtime-v0.6.md`
+15. `ability-governance-operating-model-v0.6.md`
+16. `ability-api-gap-v0.6.md`
+17. `client-parallel-preview-v0.6-handoff.md`
+18. `v0.6-closure-inventory-2026-06-07.md`
+19. `v0.6-closure-standardization-plan.md`
+20. `v0.6.3-control-plane-hardening-plan.md`
+21. `project-half-year-review-2026-05-26.md`
+22. `platform-polish-v0.5-decision-plan.md`
+23. `output-quality-review-v0.5.md`
 
 ## 当前阶段
 

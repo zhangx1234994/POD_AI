@@ -11,19 +11,20 @@
 5. `docs/strategy/market-side-ai-capability-plan-2026-06-11.md`
 6. `docs/strategy/market-side-ai-technical-plan-2026-06-11.md`
 7. `docs/strategy/market-side-ai-ability-contracts-2026-06-11.md`
-8. `docs/standards/version-acceptance-template.md`
-9. `docs/standards/agent-runtime-regression-matrix.md`
-10. `docs/standards/eval-ability-interaction-state-model.md`
-11. `docs/strategy/ability-definition-v0.6.md`
-12. `docs/strategy/business-agent-runtime-v0.6.md`
-13. `docs/strategy/ability-governance-operating-model-v0.6.md`
-14. `docs/strategy/ability-api-gap-v0.6.md`
-15. `docs/strategy/client-parallel-preview-v0.6-handoff.md`
-16. `docs/strategy/v0.6-closure-inventory-2026-06-07.md`
-17. `docs/strategy/v0.6-closure-standardization-plan.md`
-18. `docs/strategy/v0.6.3-control-plane-hardening-plan.md`
-19. `docs/standards/release-sop.md`
-20. `docs/api/INDEX.md`
+8. `docs/strategy/market-side-video-ux-remediation-2026-06-12.md`
+9. `docs/standards/version-acceptance-template.md`
+10. `docs/standards/agent-runtime-regression-matrix.md`
+11. `docs/standards/eval-ability-interaction-state-model.md`
+12. `docs/strategy/ability-definition-v0.6.md`
+13. `docs/strategy/business-agent-runtime-v0.6.md`
+14. `docs/strategy/ability-governance-operating-model-v0.6.md`
+15. `docs/strategy/ability-api-gap-v0.6.md`
+16. `docs/strategy/client-parallel-preview-v0.6-handoff.md`
+17. `docs/strategy/v0.6-closure-inventory-2026-06-07.md`
+18. `docs/strategy/v0.6-closure-standardization-plan.md`
+19. `docs/strategy/v0.6.3-control-plane-hardening-plan.md`
+20. `docs/standards/release-sop.md`
+21. `docs/api/INDEX.md`
 
 ## 当前真源
 
@@ -34,6 +35,7 @@
 | 市场端能力规划 | `docs/strategy/market-side-ai-capability-plan-2026-06-11.md` | 产品生产后的文案、组图、模特图、多角度、视频和营销 Agent 能力边界 |
 | 市场端技术方案 | `docs/strategy/market-side-ai-technical-plan-2026-06-11.md` | 产品图优先、JSON 可选、视频素材包、接口、状态、错误和开发顺序 |
 | 市场端能力契约 | `docs/strategy/market-side-ai-ability-contracts-2026-06-11.md` | `product_image_set`、`model_scene_image`、`promo_video` 的待实现接口契约、错误和 golden cases |
+| 市场端视频交互整改 | `docs/strategy/market-side-video-ux-remediation-2026-06-12.md` | 产品视频和 3D 渲染视频真实体验走查、用户视角问题、P0/P1/P2 整改和验收标准 |
 | 运行事实 | `docs/standards/runtime-facts-and-regression-guardrails.md` | 114/158/233、端口、executor、模型依赖、图片尺寸和 DPI 的固定口径 |
 | 会议决策包 | `docs/strategy/v0.7-kickoff-meeting-2026-06-09.md` | 2026-06-09 v0.7 kickoff 的目标选择、P0 范围、非目标、角色视角和拍板事项 |
 | 上阶段封版方案 | `docs/strategy/v0.6-closure-standardization-plan.md` | v0.6 收口、缺失补齐、交互纠偏、接口文档和机制标准化 |
@@ -112,4 +114,4 @@
 4. 页面交互或业务动线变化，必须同步当前回顾或对应模块入口。
 5. 过期 TODO、WIP 草稿和重复索引应删除或归档，不能继续进入阅读路径。
 
-最后更新：2026-06-11
+最后更新：2026-06-12
