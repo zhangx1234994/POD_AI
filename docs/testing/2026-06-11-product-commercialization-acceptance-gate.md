@@ -108,7 +108,7 @@ python3 backend/scripts/patrol_product_commercialization.py \
 - 2026-06-12：3D 渲染视频测评端补齐本地闭环：STEP 4 主动作变为“生成并预览 MP4”，结果区显示播放器、大小和下载入口；浏览器不支持 MP4 MediaRecorder 时明确回退 WebM；`/preview` 返回 `renderPlan.camera.key` 与 `renderPlan.scene.key`，便于追踪选中的镜头和场景模板。
 - 2026-06-12：系统 Chrome 真实页面复测 3D MP4 闭环通过：`127.0.0.1:8200` 选择 1660 杯子、绑定 `mug-front.svg`、检查方案、生成 6 秒视频后页面显示 `598 KB · MP4`，点击“下载 MP4”触发浏览器下载，文件名 `podi-3d-cup_1660-6s-*.mp4`，保存文件大小约 610KB。截图：`output/playwright/market-video-ux-remediation-20260612/product-3d-mp4-result.png`。
 - 2026-06-12：本地验证通过：`python3 -m pytest backend/tests/test_product_commercialization.py -q` 为 38 passed；`podi-eval-web` `npm run lint`、`npm run build` 通过；`PODI_EVAL_USE_SYSTEM_CHROME=1 npm run test:ui -- tests/ui/product-video-workbench.spec.ts tests/ui/product-3d-render-video-workbench.spec.ts` 为 2 passed。截图证据目录：`podi-eval-web/output/playwright/product-commercialization-2026-06-12/`。
-- 2026-06-12：收费能力质量复测见 `docs/testing/2026-06-12-product-commercialization-paid-quality-review.md`。真实 GPT Image 2 配图 runId `6afeae4282434df2b00eed723fa54021` 成功回填 OSS，真实 Vidu 单段视频 runId `888b187fed8e45709c7ab4ab54b9f0bd` 成功回填 OSS。质量结论：配图可作社媒营销封面，但曾出现旧商品身份污染 prompt；已修复为 brief 只提供场景用途，并补回归测试。视频功能可用，但输出 `692x1328` 竖版，后续必须引入首帧归一化或明确按参考图比例验收。
+- 2026-06-12：收费能力质量复测见 `docs/testing/2026-06-12-product-commercialization-paid-quality-review.md`。真实 GPT Image 2 配图 runId `6afeae4282434df2b00eed723fa54021` 成功回填 OSS，真实 Vidu 单段视频 runId `888b187fed8e45709c7ab4ab54b9f0bd` 成功回填 OSS。质量结论：配图可作社媒营销封面，但曾出现旧商品身份污染 prompt；已修复为 brief 只提供场景用途，并补回归测试。二次复测 runId `cf049080925d42bea578037d276a90b3` 的 prompt 污染和黑边问题均通过检查。视频功能可用，但输出 `692x1328` 竖版，后续必须引入首帧归一化或明确按参考图比例验收。
 
 ## 114 线上复测记录
 

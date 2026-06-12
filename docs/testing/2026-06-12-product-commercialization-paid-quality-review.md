@@ -13,6 +13,7 @@
 | --- | --- | --- | --- |
 | GPT Image 2 配图 | `6afeae4282434df2b00eed723fa54021` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/system/20260612/b02f8a99-1781240355.png` |
 | Vidu 单段视频 | `888b187fed8e45709c7ab4ab54b9f0bd` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260612/b6f31a6a-1781234483.mp4` |
+| GPT Image 2 配图修复后复测 | `cf049080925d42bea578037d276a90b3` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/system/20260612/b047cb51-1781242404.png` |
 
 本地证据：
 
@@ -20,6 +21,7 @@
 - `output/quality/product-commercialization-20260612/manual-live-video-888b-20260612.json`
 - `output/quality/product-commercialization-20260612/assets/visual_source_default.jpg`
 - `output/quality/product-commercialization-20260612/assets/visual_result_imageUrls.png`
+- `output/quality/product-commercialization-20260612/assets/visual_result_after_letterbox_fix_cf04.png`
 - `output/quality/product-commercialization-20260612/assets/video_result_videoUrls.mp4`
 - `output/quality/product-commercialization-20260612/video-contact-sheet.jpg`
 - `output/quality/product-commercialization-20260612/video-ffprobe.json`
@@ -67,6 +69,11 @@
    - Prompt 污染已消失：不再包含 `Floral printed lightweight hooded jacket` 或 `Brief hint`。
    - 新发现质量问题：结果图为 `679x679`，画面内容带上下黑边。该图不能作为合格营销图交付。
    - 已继续补充 prompt 硬约束：画面必须填满画布，禁止 letterboxing / black bars / frames / borders。
+
+5. 2026-06-12 最终复测 runId `cf049080925d42bea578037d276a90b3`
+   - Prompt 校验通过：不包含旧商品身份或 `Brief hint`，包含 `no letterboxing`、`black bars`、`frames, or borders` 和 `Do not inherit product identity`。
+   - 结果图 `679x679`，视觉检查未见上下黑边；主体填满画布，适合作为社媒营销封面样例。
+   - 质量仍需标注为“营销封面可用”，不是严格商品证明图；花纹细节仍可能存在模型重绘。
 
 ## 后续优化项
 
