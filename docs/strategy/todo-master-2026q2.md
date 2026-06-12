@@ -101,6 +101,7 @@
 - 进展（2026-06-12 追加）：针对验收反馈继续整改：产品视频 `videoPlan` 增加 `planner/directorBrief/keyframePlan/vendorExecutionNotes/riskChecks`，分镜必须包含场景、镜头运动、首帧/尾帧提示词和负向约束；`planner.fallback=true` 明确只能排障不能验收。3D 渲染视频补充 `hero_turntable/top_reveal/social_arc` 镜头模板和 `desktop_lifestyle/gift_table/retail_shelf` 场景摆放规则，测评端把“生成并预览 MP4”提升为拍摄步骤主动作。
 - 进展（2026-06-12 追加）：本地闭环验证完成：`backend/tests/test_product_commercialization.py` 38 项通过；`podi-eval-web` `lint/build` 通过；系统 Chrome 跑通 `product-video-workbench.spec.ts` 和 `product-3d-render-video-workbench.spec.ts`。截图证据位于 `podi-eval-web/output/playwright/product-commercialization-2026-06-12/`，覆盖产品视频合并后的 STEP 2、规划确认页和 3D MP4 结果态。
 - 进展（2026-06-12 体验走查）：使用本地产品图和本地花纹贴图在 114 测评端跑产品视频与 3D 渲染视频真实流程，形成专项整改方案 `docs/strategy/market-side-video-ux-remediation-2026-06-12.md`。结论：两条链路功能闭环基本成立，但用户路径、状态反馈、事实来源、关键帧提示词和结果可见性仍需按 P0/P1 继续打磨；产品视频和 3D 渲染视频必须继续保持能力边界拆分。
+- 进展（2026-06-12 收费质量复测）：真实 GPT Image 2 配图 runId `6afeae4282434df2b00eed723fa54021` 和真实 Vidu 单段视频 runId `888b187fed8e45709c7ab4ab54b9f0bd` 均成功回填 OSS；质量复盘见 `docs/testing/2026-06-12-product-commercialization-paid-quality-review.md`。已修复配图 prompt 继承旧商品身份的问题，新增回归测试；Vidu 输出比例跟随参考图/首帧的问题保留为 P0 策略待办：固定画幅必须先做首帧归一化或在 UI/API 明确按参考图比例验收。
 - 验收：每个候选能力至少有一页能力契约和固定样例计划；是否实现由样例质量和业务优先级决定。当前测评重点先放在 `product_commercialization` 产品视频素材包、KIE/Vidu 单段/多段视频和 OSS 沉淀；文案后续按 `product_copy_package` 独立能力重新设计和验收；`product_image_set` 至少准备 3 类固定样例：服饰/配件、家居软装、节日营销图。
 
 5. `todo` 质量迭代与观测方案

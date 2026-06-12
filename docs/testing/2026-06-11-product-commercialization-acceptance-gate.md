@@ -108,6 +108,7 @@ python3 backend/scripts/patrol_product_commercialization.py \
 - 2026-06-12：3D 渲染视频测评端补齐本地闭环：STEP 4 主动作变为“生成并预览 MP4”，结果区显示播放器、大小和下载入口；浏览器不支持 MP4 MediaRecorder 时明确回退 WebM；`/preview` 返回 `renderPlan.camera.key` 与 `renderPlan.scene.key`，便于追踪选中的镜头和场景模板。
 - 2026-06-12：系统 Chrome 真实页面复测 3D MP4 闭环通过：`127.0.0.1:8200` 选择 1660 杯子、绑定 `mug-front.svg`、检查方案、生成 6 秒视频后页面显示 `598 KB · MP4`，点击“下载 MP4”触发浏览器下载，文件名 `podi-3d-cup_1660-6s-*.mp4`，保存文件大小约 610KB。截图：`output/playwright/market-video-ux-remediation-20260612/product-3d-mp4-result.png`。
 - 2026-06-12：本地验证通过：`python3 -m pytest backend/tests/test_product_commercialization.py -q` 为 38 passed；`podi-eval-web` `npm run lint`、`npm run build` 通过；`PODI_EVAL_USE_SYSTEM_CHROME=1 npm run test:ui -- tests/ui/product-video-workbench.spec.ts tests/ui/product-3d-render-video-workbench.spec.ts` 为 2 passed。截图证据目录：`podi-eval-web/output/playwright/product-commercialization-2026-06-12/`。
+- 2026-06-12：收费能力质量复测见 `docs/testing/2026-06-12-product-commercialization-paid-quality-review.md`。真实 GPT Image 2 配图 runId `6afeae4282434df2b00eed723fa54021` 成功回填 OSS，真实 Vidu 单段视频 runId `888b187fed8e45709c7ab4ab54b9f0bd` 成功回填 OSS。质量结论：配图可作社媒营销封面，但曾出现旧商品身份污染 prompt；已修复为 brief 只提供场景用途，并补回归测试。视频功能可用，但输出 `692x1328` 竖版，后续必须引入首帧归一化或明确按参考图比例验收。
 
 ## 114 线上复测记录
 
@@ -122,8 +123,8 @@ python3 backend/scripts/patrol_product_commercialization.py \
 
 ## 暂不封版项
 
-- 未完成真实线上 GPT Image 2 配图质量复测。
-- 本地真实复测发现 Vidu 5 秒任务成功并回填 OSS，但输入图为方图时实际输出 960x960；这符合 Vidu 单参考图生视频“比例随首帧”的能力边界。上线前必须确认页面、接口文档和 `videoPlan.aspectPolicy` 已明确该约束。
+- GPT Image 2 配图已完成真实线上质量复测，但仍需扩展为多商品 golden case。
+- 真实复测发现 Vidu 单段任务成功并回填 OSS，但实际比例会跟随参考图/首帧；本轮 8 秒样例输出 `692x1328`。这符合 Vidu 单参考图生视频“比例随首帧”的能力边界。上线前必须确认页面、接口文档和 `videoPlan.aspectPolicy` 已明确该约束，并补首帧归一化方案。
 - 未完成真实线上统一 runId 视频素材包任务复测。
 - 视频素材包结构化回填已进入本地实现：`script/storyboard/keyframes/segmentVideos/composition`；仍需线上真实链路确认。
 - 未形成平台/语气/场景的 golden case 质量基线。

@@ -579,7 +579,15 @@ def _build_visual_prompt(
             subject += f"约束：{_compact_sentence(risk_notes)}。"
         if extra_prompt:
             subject += f"补充要求：{extra_prompt}。"
-        return _compact_sentence([subject, "禁止加入文字、水印、logo、价格标签或未提供的属性。", brief_prompt or "保持产品结构、花纹和比例一致。"])
+        scenario_instruction = f"配图场景只参考用途：{scene_label or brief_usage}。" if (scene_label or brief_usage) else ""
+        return _compact_sentence(
+            [
+                subject,
+                scenario_instruction,
+                "商品身份、形状、花纹和材质只能以产品图和已解析事实为准；不要从配图模板文案继承商品品类。",
+                "禁止加入文字、水印、logo、价格标签或未提供的属性。",
+            ]
+        )
 
     english_name = _english_text_or_empty(english_name) or "POD product"
     market = _clean_text(market_region) or "global marketplace"
@@ -605,8 +613,11 @@ def _build_visual_prompt(
     if extra_prompt:
         subject += f" Additional request: {extra_prompt}."
     subject += " Keep product silhouette, print, material consistency. No watermark, text, logos, brand claims, or irrelevant props."
-    if brief_prompt:
-        subject += f" Brief hint: {brief_prompt}."
+    if scene_label or brief_usage:
+        subject += (
+            f" Visual scenario only: {scene_label or brief_usage}. "
+            "Do not inherit product identity, category, material, or claims from any visual brief template."
+        )
     return " ".join([part for part in subject.split() if part]).strip()
 
 

@@ -82,13 +82,13 @@ def _base_payload(*, product_image_url: str, tag: str) -> dict[str, Any]:
 
 def _sample_product_fields() -> dict[str, Any]:
     return {
-        "英文名称": "Floral printed lightweight hooded jacket",
-        "产品型号": "POD-FLORAL-JACKET-001",
-        "一级分类": "Apparel",
-        "二级分类": "Outerwear",
-        "产品材质": "lightweight woven fabric",
+        "英文名称": "Preppy Western Coastal Print 100% Cotton Tote Bag",
+        "产品型号": "POD-TOTE-WESTERN-COASTAL-001",
+        "一级分类": "Bags",
+        "二级分类": "Tote Bags",
+        "产品材质": "100% cotton canvas",
         "建议售价": "29.99",
-        "卖点": "all-over floral print, relaxed hooded silhouette, casual layering",
+        "卖点": "western coastal illustration print, reusable lightweight shoulder bag, foldable daily shopping and beach tote",
     }
 
 

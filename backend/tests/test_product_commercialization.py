@@ -12,7 +12,7 @@ from app.schemas.abilities import AbilityInvokeResponse, AbilityOutputAsset
 from app.schemas.business import Product3DRenderVideoRequest, ProductCommercializationRequest
 from app.services.business_runs import BusinessRunService
 from app.services.product_3d_render_video import Product3DRenderVideoService
-from app.services.product_commercialization import ProductCommercializationService
+from app.services.product_commercialization import ProductCommercializationService, _build_visual_prompt
 
 
 client = TestClient(app)
@@ -1453,6 +1453,41 @@ def test_product_commercialization_visual_generation_defaults_to_gpt_image2(monk
     assert result["imageResult"]["provider"] == "openai"
     assert result["imageResult"]["model"] == "gpt-image-2"
     assert result["imageResult"]["imageUrls"] == ["https://podi.oss-cn-hangzhou.aliyuncs.com/visual.png"]
+
+
+def test_product_commercialization_visual_prompt_does_not_inherit_brief_product_identity() -> None:
+    prompt = _build_visual_prompt(
+        product_card={"sourceFacts": {"productNameEn": "Floral printed lightweight hooded jacket"}},
+        resolved_product_facts={
+            "facts": {
+                "productNameEn": "Preppy Western Coastal Print 100% Cotton Tote Bag",
+                "material": "100% cotton canvas",
+                "keywords": ["western coastal print", "reusable tote bag"],
+            }
+        },
+        copy_package={
+            "listingTitle": "Preppy Western Coastal Print 100% Cotton Tote Bag",
+            "bulletPoints": ["100% cotton canvas", "Reusable shoulder tote"],
+            "adShortCopy": ["A western coastal tote for daily errands."],
+        },
+        visual_brief={
+            "id": "social-ad-cover",
+            "label": "Social ad cover",
+            "usage": "Social ad cover for ecommerce marketing",
+            "prompt": "Create a clean lifestyle ad cover for Floral printed lightweight hooded jacket.",
+            "riskNotes": ["Avoid overpromising performance or sustainability."],
+            "linkedCopy": ["adShortCopy"],
+        },
+        output_language="en-US",
+        market_region="US",
+        extra_prompt="Beach lifestyle setting.",
+    )
+
+    assert "Preppy Western Coastal Print 100% Cotton Tote Bag" in prompt
+    assert "Floral printed lightweight hooded jacket" not in prompt
+    assert "Brief hint" not in prompt
+    assert "Visual scenario only" in prompt
+    assert "Do not inherit product identity" in prompt
 
 
 def test_product_commercialization_runs_submit_and_poll(monkeypatch) -> None:
