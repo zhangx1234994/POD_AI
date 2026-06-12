@@ -2187,13 +2187,14 @@ class ProductCommercializationService:
             source_rgba = source.convert("RGBA")
             white = Image.new("RGBA", source_rgba.size, (250, 250, 250, 255))
             source_rgb = Image.alpha_composite(white, source_rgba).convert("RGB")
+            source_rgb = self._trim_large_light_border(source_rgb)
             resample_filter = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
             background = ImageOps.fit(source_rgb, (width, height), method=resample_filter, centering=(0.5, 0.5))
             blur_radius = max(12, int(max(width, height) / 80))
             background = background.filter(ImageFilter.GaussianBlur(radius=blur_radius))
             foreground = ImageOps.contain(
                 source_rgb,
-                (int(width * 0.9), int(height * 0.9)),
+                (int(width * 0.98), int(height * 0.98)),
                 method=resample_filter,
             )
             canvas = background.copy()
@@ -2226,6 +2227,62 @@ class ProductCommercializationService:
             "height": height,
             "aspectRatio": aspect_ratio,
         }
+
+    def _trim_large_light_border(self, image: Image.Image) -> Image.Image:
+        """Remove obvious generated white mats before aspect-ratio normalization."""
+        source = image.convert("RGB")
+        resample_filter = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+        probe = source.copy()
+        probe.thumbnail((512, 512), resample_filter)
+        probe_width, probe_height = probe.size
+        if probe_width < 20 or probe_height < 20:
+            return source
+        pixels = probe.load()
+
+        def is_light_pixel(x: int, y: int) -> bool:
+            r, g, b = pixels[x, y]
+            return r >= 238 and g >= 238 and b >= 238 and (max(r, g, b) - min(r, g, b)) <= 24
+
+        def light_row(y: int) -> bool:
+            light_count = sum(1 for x in range(probe_width) if is_light_pixel(x, y))
+            return light_count / probe_width >= 0.92
+
+        def light_col(x: int) -> bool:
+            light_count = sum(1 for y in range(probe_height) if is_light_pixel(x, y))
+            return light_count / probe_height >= 0.92
+
+        top = 0
+        while top < probe_height and light_row(top):
+            top += 1
+        bottom = probe_height - 1
+        while bottom >= top and light_row(bottom):
+            bottom -= 1
+        left = 0
+        while left < probe_width and light_col(left):
+            left += 1
+        right = probe_width - 1
+        while right >= left and light_col(right):
+            right -= 1
+
+        if top >= bottom or left >= right:
+            return source
+
+        removed_x = left + (probe_width - 1 - right)
+        removed_y = top + (probe_height - 1 - bottom)
+        if removed_x < probe_width * 0.08 and removed_y < probe_height * 0.08:
+            return source
+
+        scale_x = source.width / probe_width
+        scale_y = source.height / probe_height
+        pad_x = int(source.width * 0.035)
+        pad_y = 0
+        crop_left = max(0, int(left * scale_x) - pad_x)
+        crop_top = max(0, int(top * scale_y) - pad_y)
+        crop_right = min(source.width, int((right + 1) * scale_x) + pad_x)
+        crop_bottom = min(source.height, int((bottom + 1) * scale_y) + pad_y)
+        if (crop_right - crop_left) < source.width * 0.35 or (crop_bottom - crop_top) < source.height * 0.35:
+            return source
+        return source.crop((crop_left, crop_top, crop_right, crop_bottom))
 
     @staticmethod
     def _target_dimensions_for_aspect_ratio(aspect_ratio: str) -> tuple[int, int]:

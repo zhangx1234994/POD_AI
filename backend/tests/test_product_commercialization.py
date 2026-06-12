@@ -1470,6 +1470,28 @@ def test_product_commercialization_first_frame_prompt_blocks_framed_layout() -> 
     assert "Avoid large empty padding" in prompt
 
 
+def test_product_commercialization_trims_generated_white_mat_before_canvas() -> None:
+    service = ProductCommercializationService()
+    source = Image.new("RGB", (1000, 1000), (250, 250, 250))
+    content = Image.new("RGB", (1000, 420), (120, 180, 210))
+    source.paste(content, (0, 290))
+
+    trimmed = service._trim_large_light_border(source)
+
+    assert trimmed.width == 1000
+    assert trimmed.height < 460
+    assert trimmed.height > 400
+
+
+def test_product_commercialization_does_not_trim_all_white_frame() -> None:
+    service = ProductCommercializationService()
+    source = Image.new("RGB", (800, 800), (250, 250, 250))
+
+    trimmed = service._trim_large_light_border(source)
+
+    assert trimmed.size == source.size
+
+
 def test_product_commercialization_first_frame_canvas_normalizes_to_target_ratio(monkeypatch) -> None:
     service = ProductCommercializationService()
     source = Image.new("RGB", (600, 1000), (220, 120, 60))
