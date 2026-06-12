@@ -101,9 +101,9 @@
 | BUSINESS_ACCEPTANCE_STATUS_INVALID | 业务版本验收状态非法 | 400，允许 `passed` / `failed` / `warning` / `waived` |
 | BUSINESS_ACCEPTANCE_REQUIRED | 业务版本缺少最近一次“验收通过”记录 | 409，默认版本切换申请或直接设默认前必须先记录验收 |
 | BUSINESS_RELEASE_ACCEPTANCE_REQUIRED | 业务版本发布缺少验收证据 | 发布门禁提示码，需先登记真实样本或人工验收 |
-| BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED | 业务版本发布缺少出图质量复盘 | 发布门禁提示码，核心业务默认切换前需至少完成一张输出质量标注 |
-| BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED | 业务版本发布缺少可用质量样本 | 发布门禁提示码，近 168 小时没有 `excellent` 或 `usable` 样本时阻断默认切换 |
-| BUSINESS_RELEASE_QUALITY_REVIEW_RISKY | 业务版本发布存在风险质量样本 | 发布门禁提示码，近 168 小时存在 `borderline` / `bad` / `blocked` 样本时提示复核 |
+| BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED | 业务版本发布缺少出图质量复盘 | 历史提示码；质量复盘已迁移到看板侧，中台旧标注不再阻断发版或默认切换 |
+| BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED | 业务版本发布缺少可用质量样本 | 历史提示码；仅用于解释旧记录，不再作为中台发布阻断 |
+| BUSINESS_RELEASE_QUALITY_REVIEW_RISKY | 业务版本发布存在风险质量样本 | 历史提示码；仅用于解释旧记录，不再作为中台发布阻断 |
 | BUSINESS_RELEASE_GATE_BLOCKED | 业务版本完整上线门禁未通过 | 409，默认版本切换、审批申请或直接设默认前必须补齐治理阻断项 |
 | HEALTH_WATCH_SYSTEMD_UNAVAILABLE | 当前环境无法读取 systemd | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
 | HEALTH_WATCH_UNIT_UNAVAILABLE | 自检守护单元未安装或不可加载 | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |

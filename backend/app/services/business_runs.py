@@ -201,6 +201,7 @@ BUSINESS_QUALITY_ACTION_TYPES = {
 }
 BUSINESS_QUALITY_ACTION_STATUSES = {"draft", "candidate", "validated", "default", "paused", "rejected", "archived"}
 BUSINESS_QUALITY_GATE_KEYS = {"pattern_extract", "fission", "image_edit", "outpaint", "text_fission", "product_design"}
+BUSINESS_QUALITY_GATE_ENFORCED = False
 BUSINESS_QUALITY_ACCEPTED_GRADES = {"excellent", "usable"}
 BUSINESS_QUALITY_RISK_GRADES = {"borderline", "bad", "blocked"}
 BUSINESS_QUALITY_GATE_WINDOW_HOURS = 168
@@ -11537,9 +11538,15 @@ class BusinessRunService:
         }
 
     def _business_capability_quality_evidence(self, row: BusinessCapability, *, session=None) -> dict[str, Any]:
-        required = row.business_key in BUSINESS_QUALITY_GATE_KEYS and row.status in {"active", "draft"}
+        tracked = row.business_key in BUSINESS_QUALITY_GATE_KEYS and row.status in {"active", "draft"}
+        # Output quality is now reviewed in the dedicated evaluation dashboard.
+        # The legacy middle-platform review table remains queryable, but it must
+        # not block release governance or default-version switching.
+        required = tracked and BUSINESS_QUALITY_GATE_ENFORCED
         empty = {
             "required": required,
+            "enforced": BUSINESS_QUALITY_GATE_ENFORCED,
+            "source": "evaluation_dashboard" if tracked else "not_required",
             "windowHours": BUSINESS_QUALITY_GATE_WINDOW_HOURS,
             "total": 0,
             "reviewed": 0,
@@ -11551,17 +11558,21 @@ class BusinessRunService:
             "bad": 0,
             "blocked": 0,
             "pending": 0,
-            "status": "not_required" if not required else "blocked",
-            "label": "不要求质量复盘" if not required else "缺少质量复盘",
+            "status": "external_dashboard" if tracked and not required else ("not_required" if not required else "blocked"),
+            "label": "质量复盘以看板为准" if tracked and not required else ("不要求质量复盘" if not required else "缺少质量复盘"),
             "canRequestDefault": not required,
             "blockers": [] if not required else ["BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED"],
             "warnings": [],
-            "suggestions": [] if not required else ["先打开候选版本的 runId 详情，至少把一张输出标为优秀或可用。"],
+            "suggestions": (
+                ["发布前仍需跑真实业务样例，并在看板侧完成质量判断；中台旧标注不再阻断发版。"]
+                if tracked and not required
+                else ([] if not required else ["先打开候选版本的 runId 详情，至少把一张输出标为优秀或可用。"])
+            ),
             "topIssueTags": [],
             "topInputTags": [],
             "latestAt": None,
         }
-        if session is None or not required:
+        if session is None or not tracked:
             return empty
         if not self._optional_table_exists(session, "business_output_reviews"):
             return empty
@@ -11600,9 +11611,11 @@ class BusinessRunService:
         blockers: list[str] = []
         warnings: list[str] = []
         suggestions: list[str] = []
-        status = "ready"
-        label = "质量证据通过"
-        if reviewed <= 0:
+        status = "observed"
+        label = "旧中台质量记录仅观察"
+        if not required:
+            suggestions.append("质量验收以看板侧结论为准；这里的旧记录只用于历史观察。")
+        elif reviewed <= 0:
             blockers.append("BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED")
             suggestions.append("候选版本已有输出但未完成质量标注，先在 runId 详情保存质量档位。")
             status = "blocked"
@@ -11621,6 +11634,8 @@ class BusinessRunService:
         latest_at = max((review.updated_at or review.created_at for review in rows if review.updated_at or review.created_at), default=None)
         return {
             "required": required,
+            "enforced": BUSINESS_QUALITY_GATE_ENFORCED,
+            "source": "evaluation_dashboard" if tracked and not required else "middle_platform",
             "windowHours": BUSINESS_QUALITY_GATE_WINDOW_HOURS,
             "total": len(rows),
             "reviewed": reviewed,

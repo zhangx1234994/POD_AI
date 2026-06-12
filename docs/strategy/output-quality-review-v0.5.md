@@ -73,7 +73,7 @@ v0.5 首批只覆盖五个核心业务：
 - 新增 `business_output_reviews` 表，支持按 `runId + outputIndex` 保存单张结果的质量档位、输入标签、问题标签、建议动作和备注。
 - 管理端 runId 详情已接入“出图质量标注”，运营可直接在结果预览旁逐张保存标注。
 - 业务页读取近窗口质量汇总，展示已标注数量、质量档位分布、业务 TopN 输入/问题标签。
-- 默认版本切换门禁已读取近 168 小时质量证据：五个核心业务必须至少有一张 `excellent` 或 `usable` 输出标注，缺标注或只有风险样本会阻断申请；存在 `borderline` / `bad` / `blocked` 样本时会进入复核提示。
+- 当前发布门禁不再读取中台质量标注作为阻断项：质量结论以看板侧为准；中台 `business_output_reviews` 只保留历史观察、导出和问题分析价值。
 - TopN 输入/问题标签已带样例下钻：点击标签可打开对应 runId，runId 详情会定位并高亮具体输出序号。
 - 质量汇总已增加版本维度 `byVersion`，用于把质量样本归因到具体业务版本 / LoRA / workflow 候选。
 - 管理端业务能力页已新增“候选版本对照”面板，按核心业务聚合默认、候选、草稿版本，展示路由、workflow、LoRA、模型、最近运行和版本级质量样例。
@@ -641,11 +641,15 @@ v0.5 首批只覆盖五个核心业务：
 
 默认切换门禁：
 
+2026-06-12 口径调整：业务结果质量判断以后以看板侧为准。中台 `business_output_reviews`
+属于历史观察表，不再阻断发版、默认切换或 release smoke。核心能力是否可封版，
+必须回到真实接口巡检、runId、结果图、执行节点和看板侧质量结论。
+
 | 规则 | 结果 |
 | --- | --- |
-| 核心业务候选版本近 168 小时没有质量复盘记录 | 阻断，返回 `BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED` |
-| 已复盘但没有 `excellent` / `usable` 样本 | 阻断，返回 `BUSINESS_RELEASE_QUALITY_REVIEW_POSITIVE_REQUIRED` |
-| 已有可用样本，但同时存在 `borderline` / `bad` / `blocked` | 提示复核，返回 `BUSINESS_RELEASE_QUALITY_REVIEW_RISKY` |
+| 核心业务候选版本近 168 小时没有中台质量复盘记录 | 不阻断；看板侧质检为准 |
+| 已复盘但没有 `excellent` / `usable` 样本 | 不阻断；仅作为历史观察 |
+| 已有可用样本，但同时存在 `borderline` / `bad` / `blocked` | 不阻断；看板侧决定是否复核或分流 |
 
 ## 6. 迭代节奏
 

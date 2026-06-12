@@ -958,15 +958,15 @@ def test_business_default_switch_requires_manual_acceptance(monkeypatch) -> None
     assert promote_exc.value.detail == "BUSINESS_ACCEPTANCE_REQUIRED"
 
 
-def test_business_default_switch_requires_quality_review(monkeypatch) -> None:
+def test_business_default_switch_does_not_require_legacy_middle_platform_quality_review(monkeypatch) -> None:
     install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
     service = BusinessRunService()
 
     created = service.create_capability(
         BusinessCapabilityCreateRequest(
             businessKey="fission",
-            version="needs-quality",
-            displayName="待质量复盘图裂变",
+            version="dashboard-quality",
+            displayName="看板质检图裂变",
             status="active",
             isDefault=False,
             primaryAbilityId="ability_openai_fission",
@@ -974,21 +974,21 @@ def test_business_default_switch_requires_quality_review(monkeypatch) -> None:
     )
     service.record_acceptance(
         created["id"],
-        BusinessAcceptanceRecordRequest(status="passed", note="已有人工验收，但未做出图质量标注"),
+        BusinessAcceptanceRecordRequest(status="passed", note="已有人工验收；质量结论在看板侧维护"),
     )
 
     listed = {item["id"]: item for item in service.list_capabilities()}
     gate = listed[created["id"]]["release_gate"]
-    assert gate["canRequestDefault"] is False
-    assert "BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED" in gate["blockers"]
+    assert gate["canRequestDefault"] is True
+    assert "BUSINESS_RELEASE_QUALITY_REVIEW_REQUIRED" not in gate["blockers"]
+    assert gate["qualityEvidence"]["source"] == "evaluation_dashboard"
+    assert gate["qualityEvidence"]["enforced"] is False
 
-    with pytest.raises(HTTPException) as approval_exc:
-        service.create_default_approval(
-            created["id"],
-            BusinessDefaultApprovalCreateRequest(note="缺少质量复盘，不能申请切默认"),
-        )
-    assert approval_exc.value.status_code == 409
-    assert approval_exc.value.detail == "BUSINESS_RELEASE_GATE_BLOCKED"
+    approval = service.create_default_approval(
+        created["id"],
+        BusinessDefaultApprovalCreateRequest(note="质量结论以看板为准，中台旧标注不阻断"),
+    )
+    assert approval["status"] == "pending"
 
 
 def test_business_capability_rejects_invalid_acceptance_status(monkeypatch) -> None:
