@@ -2707,7 +2707,8 @@ class ProductCommercializationService:
         if not ffmpeg:
             raise HTTPException(status_code=500, detail="PRODUCT_COMMERCIALIZATION_FFMPEG_MISSING")
         target_duration = max(3.0, float(target_duration_seconds or DEFAULT_VIDEO_SEGMENT_SECONDS))
-        intro_seconds = min(2.0, max(1.0, target_duration * 0.25))
+        intro_seconds = min(4.0, max(1.5, target_duration * 0.38))
+        intro_seconds = min(intro_seconds, max(0.8, target_duration - 0.8))
         tail_seconds = max(0.8, target_duration - intro_seconds)
         with tempfile.TemporaryDirectory(prefix="podi-video-hero-compose-") as temp_dir:
             work_dir = Path(temp_dir)
