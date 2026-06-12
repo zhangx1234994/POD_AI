@@ -2710,6 +2710,8 @@ class ProductCommercializationService:
         intro_seconds = min(4.0, max(1.5, target_duration * 0.38))
         intro_seconds = min(intro_seconds, max(0.8, target_duration - 0.8))
         tail_seconds = max(0.8, target_duration - intro_seconds)
+        transition_seconds = min(0.35, max(0.0, intro_seconds / 4), max(0.0, tail_seconds / 4))
+        tail_render_seconds = tail_seconds + transition_seconds
         with tempfile.TemporaryDirectory(prefix="podi-video-hero-compose-") as temp_dir:
             work_dir = Path(temp_dir)
             first_frame_path = work_dir / "first-frame.png"
@@ -2750,7 +2752,7 @@ class ProductCommercializationService:
                     "-i",
                     str(segment_source_path),
                     "-t",
-                    f"{tail_seconds:.3f}",
+                    f"{tail_render_seconds:.3f}",
                     "-vf",
                     "scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=24,format=yuv420p,setsar=1",
                     "-an",
@@ -2763,36 +2765,72 @@ class ProductCommercializationService:
                     str(tail_path),
                 ]
             )
-            concat_file = work_dir / "concat.txt"
-            concat_lines = []
-            for path in (intro_path, tail_path):
-                escaped_path = str(path).replace("'", "'\\''")
-                concat_lines.append(f"file '{escaped_path}'")
-            concat_file.write_text("\n".join(concat_lines), encoding="utf-8")
-            self._run_ffmpeg(
-                [
-                    ffmpeg,
-                    "-y",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    str(concat_file),
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "20",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-movflags",
-                    "+faststart",
-                    "-an",
-                    str(output_path),
-                ]
-            )
+            try:
+                self._run_ffmpeg(
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-i",
+                        str(intro_path),
+                        "-i",
+                        str(tail_path),
+                        "-filter_complex",
+                        (
+                            "[0:v][1:v]"
+                            f"xfade=transition=fade:duration={transition_seconds:.3f}:offset={intro_seconds - transition_seconds:.3f},"
+                            "format=yuv420p[v]"
+                        ),
+                        "-map",
+                        "[v]",
+                        "-t",
+                        f"{target_duration:.3f}",
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "veryfast",
+                        "-crf",
+                        "20",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-movflags",
+                        "+faststart",
+                        "-an",
+                        str(output_path),
+                    ]
+                )
+            except HTTPException:
+                concat_file = work_dir / "concat.txt"
+                concat_lines = []
+                for path in (intro_path, tail_path):
+                    escaped_path = str(path).replace("'", "'\\''")
+                    concat_lines.append(f"file '{escaped_path}'")
+                concat_file.write_text("\n".join(concat_lines), encoding="utf-8")
+                self._run_ffmpeg(
+                    [
+                        ffmpeg,
+                        "-y",
+                        "-f",
+                        "concat",
+                        "-safe",
+                        "0",
+                        "-i",
+                        str(concat_file),
+                        "-t",
+                        f"{target_duration:.3f}",
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "veryfast",
+                        "-crf",
+                        "20",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-movflags",
+                        "+faststart",
+                        "-an",
+                        str(output_path),
+                    ]
+                )
             data = output_path.read_bytes()
         uploaded = media_ingest_service.upload_generated_media_bytes(
             data=data,
@@ -2807,6 +2845,7 @@ class ProductCommercializationService:
             "mode": "opening_hold_plus_vidu_segment",
             "introHoldSeconds": intro_seconds,
             "tailSeconds": tail_seconds,
+            "transitionSeconds": transition_seconds,
             "sourceFirstFrameUrl": first_frame_url,
             "sourceSegmentVideoUrl": segment_video_url,
         }
