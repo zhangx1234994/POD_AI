@@ -63,6 +63,14 @@
 | 模特 / 场景图 `model_scene_image` | `POST /api/business/model-scene-image/plan` + `/runs` | 待实现 | 重点是参考图角色、身份锚点、主体真源和质量标签；当前未开放线上接口。 |
 | 产品推广视频素材包 `promo_video` | `POST /api/business/promo-video/plan` + `/runs` + `/compose` | 待实现 | 当前产品视频仍通过 `product_commercialization` 试验入口验证；正式能力必须按脚本、分镜、关键帧、分段视频、可选合成片交付。 |
 
+产品商业化视频执行补充口径：
+
+- Vidu 固定画幅试点不再直接把原始 Vidu 段作为唯一最终交付。后端会先用 GPT Image 2 生成商业首帧，再确定性归一化到目标画幅，然后把归一化首帧交给 Vidu 生成动态素材段。
+- 当 `resultPayload.videoAssetPackage.deliveryStatus=composed_ready` 时，`videoUrls[0]` 是后端 ffmpeg 组合后的推荐成片，`videoUrls[1...]` 是保留的原始分段素材。
+- `resultPayload.videoAssetPackage.composition.output.mode=opening_hold_plus_vidu_segment` 表示“完整商品开场 + Vidu 动态细节段”；常见字段包括 `introHoldSeconds`、`transitionSeconds`、`tailSeconds`、`sourceFirstFrameUrl`、`sourceSegmentVideoUrl`。
+- 成本动作会同时记录 `openai.gpt_image_2.image`、`vidu.viduq3_turbo.video`、`ffmpeg.compose`。其中 ffmpeg 是自有后处理，不代表第三方视频模型再次扣费。
+- 原始 Vidu 段可能快速推进到局部细节，不适合作为唯一验收口径；业务方如只需要素材包，可读取 `resultPayload.videoAssetPackage.segmentVideos`。
+
 调用上下文兼容接口：
 
 - 中台主概念是能力、版本、路由、调用、结果、质量和成本；客户端的项目、工单、订单、素材夹、业务流程由客户端自行组装。

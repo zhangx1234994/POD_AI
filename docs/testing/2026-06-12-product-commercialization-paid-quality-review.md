@@ -5,7 +5,7 @@
 本轮收费链路不是只验“能不能调用”，而是同时检查功能、结果质量、提示词污染和流程稳定性。
 
 - GPT Image 2 配图：功能跑通，OSS 回填正常；社媒封面商业感可用，但不适合作为严格商品证明图。发现提示词曾混入旧商品身份，已修复并补回归测试。
-- Vidu 视频：旧链路功能跑通但暴露比例缺陷，实际输出为竖版 `692x1328`；已改为“GPT Image 2 生成商业首帧 -> 后端确定性归一到目标画幅 -> Vidu 使用归一化首帧生成视频”。修复后真实 run 输出 `1280x720`、`8.041667s`，与 `16:9` 目标一致。
+- Vidu 视频：旧链路功能跑通但暴露比例缺陷，实际输出为竖版 `692x1328`；已改为“GPT Image 2 生成商业首帧 -> 后端确定性归一到目标画幅 -> Vidu 生成原始动态段 -> 后端 ffmpeg 组合完整商品开场 + Vidu 细节段”。最终真实 run 输出推荐成片 `1280x720`、`8.000000s`，`videoUrls[0]` 为组合推荐成片，`videoUrls[1]` 为 Vidu 原始素材段。
 
 ## 真实运行证据
 
@@ -15,6 +15,9 @@
 | Vidu 单段视频 | `888b187fed8e45709c7ab4ab54b9f0bd` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260612/b6f31a6a-1781234483.mp4` |
 | GPT Image 2 配图修复后复测 | `cf049080925d42bea578037d276a90b3` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/system/20260612/b047cb51-1781242404.png` |
 | Vidu 首帧归一化修复后复测 | `22ee421e56704a6db851f4fb677360d2` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260612/a23688d2-1781245503.mp4` |
+| Vidu 组合成片验证 | `33a03256b67e41708eafda850d2b45e4` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260612/f53b0001-1781250262.mp4` |
+| Vidu 3 秒完整商品开场验证 | `791e9900cc354b9fb8a3c936afdfec66` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260612/529256c7-1781251282.mp4` |
+| Vidu 淡入过渡最终验证 | `da48605620cf4f4e90f0d69fea2c7206` | `succeeded` | `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260612/75e16dfc-1781252337.mp4` |
 
 本地证据：
 
@@ -32,6 +35,13 @@
 - `output/quality/product-commercialization-20260612/normalized-first-frame-1.png`
 - `output/quality/product-commercialization-20260612/normalized-vidu-segment-1.mp4`
 - `output/quality/product-commercialization-20260612/normalized-video-contact-sheet.jpg`
+- `output/quality/product-commercialization-20260612/final-live-video-after-xfade-report.json`
+- `output/quality/product-commercialization-20260612/final-live-video-after-xfade-run-get.json`
+- `output/quality/product-commercialization-20260612/final-xfade-normalized-first-frame.png`
+- `output/quality/product-commercialization-20260612/final-xfade-composed.mp4`
+- `output/quality/product-commercialization-20260612/final-xfade-vidu-segment-1.mp4`
+- `output/quality/product-commercialization-20260612/final-xfade-composed-time-contact-sheet.jpg`
+- `output/quality/product-commercialization-20260612/final-xfade-vidu-time-contact-sheet.jpg`
 
 旧视频媒体信息：
 
@@ -56,7 +66,7 @@
 | 项目 | 功能 | 质量 | 一致性 | 结论 |
 | --- | --- | --- | --- | --- |
 | GPT Image 2 社媒封面 | 5/5 | 4/5 | 3.5/5 | 可作为营销封面样例；不能当作商品证明图。 |
-| Vidu 单段视频 | 5/5 | 3.8/5 | 4.5/5 | 修复后可作为横版短视频素材；比例策略已闭环，首帧商业构图仍需继续优化。 |
+| Vidu + 后端组合视频 | 5/5 | 4.1/5 | 4.6/5 | 可作为产品展示短视频试点交付；完整商品开场由后端确定性保障，Vidu 原始段作为动态细节素材保留。 |
 
 配图质量观察：
 
@@ -68,7 +78,7 @@
 
 - 优点：主体稳定，运镜平滑，产品材质和图案有一定展示价值。
 - 已修复风险：Vidu 单参考图生视频会跟随参考图/首帧比例，旧链路不能把 `aspectRatio` 当成已强执行的模型参数。当前改为固定画幅先生成并归一化首帧，再把该首帧作为 Vidu 输入图。
-- 当前质量观察：修复后视频为横版 `1280x720`，没有黑边或竖版漂移；运镜包含商品展示、近景和使用动作。仍有局部花纹重绘和手部动作引入，适合作为营销短视频素材，不应作为严格商品证明视频。
+- 当前质量观察：最终推荐成片为横版 `1280x720`，没有黑边或竖版漂移；开头约 `3.04s` 完整稳定展示商品，并用约 `0.35s` 淡入过渡到 Vidu 动态细节段。Vidu 原始段仍会快速进入局部裁切，因此不能把原始段直接当唯一交付；它应作为可复用素材保留。
 - 首帧观察：归一化首帧比例正确，但 GPT Image 2 原始构图有时会出现类似白色画框/留白。已继续收紧首帧 prompt，要求全画幅商业场景、禁止 smaller framed picture / white mat / inset image / large empty padding。
 
 ## 已完成修复
@@ -101,12 +111,21 @@
    - `execution.costActions` 同时记录 `openai.gpt_image_2.image` 和 `vidu.viduq3_turbo.video`，成本证据完整。
    - 继续补充首帧 prompt 约束，避免白色画框、画中画、留白和边框布局。
 
+7. 2026-06-12 Vidu 原始段不可控裁切复盘与组合成片修复
+   - 复测发现即使首帧 `1280x720`，Vidu 原始段仍会在 0.5-1.5 秒内快速推进到局部纹理，无法稳定保障“完整商品先看清楚”。
+   - 后端新增 `opening_hold_plus_vidu_segment` 组合策略：使用归一化首帧生成完整商品开场，再拼接 Vidu 动态细节段，组合成片排在 `videoUrls[0]`，原始 Vidu 段排在 `videoUrls[1]`。
+   - runId `33a03256b67e41708eafda850d2b45e4` 验证组合入链：`provider=vidu+ffmpeg`，`deliveryStatus=composed_ready`，组合视频 `1280x720`、约 `7.958333s`。
+   - runId `791e9900cc354b9fb8a3c936afdfec66` 验证开场时长：`introHoldSeconds=3.04`，`tailSeconds=4.96`，组合视频 `1280x720`、`8.000000s`。
+   - runId `da48605620cf4f4e90f0d69fea2c7206` 验证最终淡入过渡：`introHoldSeconds=3.04`、`transitionSeconds=0.35`、`tailSeconds=4.96`，组合视频 `1280x720`、`8.000000s`、192 帧。
+   - `execution.costActions` 最终记录 `openai.gpt_image_2.image`、`vidu.viduq3_turbo.video`、`ffmpeg.compose`，能清楚解释成本构成和处理链路。
+
 ## 后续优化项
 
 P0：
 
 - 视频首帧策略已落地到 Vidu 固定画幅链路：
   - 用户需要固定 `16:9` / `9:16` / `1:1` 且选择 Vidu 时，先生成归一化首帧，再把首帧交给 Vidu。
+  - Vidu 原始段不再作为唯一成功口径；后端默认组合完整商品开场 + 动态细节素材，最终推荐成片放在 `videoUrls[0]`。
   - 后续需要把同样策略抽象到正式 `promo_video` 能力契约，并决定 KIE / 其他供应商是否也统一使用首尾帧模式。
 - 付费提交前增加 prompt 质量门禁：
   - 检查 prompt 内是否出现冲突商品名。
@@ -119,6 +138,9 @@ P0：
   - `aspectPolicyObserved`
   - `sourceImageType`
   - `recommendedUse`
+- 视频耗时体验需要进入观测：
+  - 本轮真实 Vidu 任务从提交到终态约 204-222 秒，脚本侧等待更长；页面必须按异步任务心智展示阶段和预计等待，不应让用户误以为按钮无响应。
+  - 后续按供应商、模型、时长、输入图类型统计 P50/P90，作为是否默认 Vidu 或分流其他视频能力的依据。
 
 P1：
 
