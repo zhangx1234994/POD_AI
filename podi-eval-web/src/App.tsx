@@ -1603,6 +1603,29 @@ function WorkflowListErrorState({
   );
 }
 
+function WorkflowListInlineWarning({
+  scope,
+  error,
+  onRetry,
+}: {
+  scope: 'public' | 'admin';
+  error: RemoteLoadError | null;
+  onRetry: () => void;
+}) {
+  const copy = getListLoadHelp(error, scope);
+  return (
+    <div className="podi-workflow-inline-warning" role="status" aria-label={copy.title} title={copy.description}>
+      <div>
+        <strong>{copy.title}</strong>
+        <span>当前工作台可继续使用，版本列表和最近记录暂不可用。</span>
+      </div>
+      <Button size="small" variant="text" onClick={onRetry}>
+        重试
+      </Button>
+    </div>
+  );
+}
+
 const normalizeFieldOptions = (field?: SchemaField | null, opts?: { allowEmpty?: boolean }): LoraOption[] => {
   const allowEmpty = Boolean(opts?.allowEmpty);
   const options = Array.isArray((field as any)?.options) ? (((field as any).options as any[]) || []) : [];
@@ -11108,14 +11131,11 @@ export function App() {
     return shell(
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {bootstrapLoading || workflowListStatus === 'loading' ? <Alert theme="info" message="正在加载功能清单和评分数据…" /> : null}
-        {workflowListStatus === 'error' ? (
-          <WorkflowListErrorState scope="public" error={workflowListError} onRetry={() => void loadWorkflowList()} />
-        ) : null}
-        {activeCategory === '3D渲染视频' ? (
-          <Product3DRenderVideoWorkbench key="product-3d-render-video" />
-        ) : (
-          <ProductCommercializationWorkbench key="product-commercialization-video" mode="video" />
-        )}
+	        {activeCategory === '3D渲染视频' ? (
+	          <Product3DRenderVideoWorkbench key="product-3d-render-video" />
+	        ) : (
+	          <ProductCommercializationWorkbench key="product-commercialization-video" mode="video" />
+	        )}
         <AuxiliaryAbilityNav
           items={auxiliaryCategorySummaries}
           activeCategory={activeCategory}

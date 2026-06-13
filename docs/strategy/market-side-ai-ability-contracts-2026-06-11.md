@@ -2,7 +2,7 @@
 
 ## 说明
 
-本文定义 `product_image_set`、`model_scene_image`、`promo_video` 三个正式市场端能力的契约草案。它们当前是 v0.7 待实现能力，不代表线上接口已经开放。
+本文定义 `product_image_set`、`model_scene_image`、`promo_video` 三个正式市场端能力的契约草案，并补充 `product_3d_render_video` 作为独立确定性视频能力。前三者偏 AI 生成和营销素材规划；`product_3d_render_video` 偏受控模型、贴图、相机和场景渲染，不属于 KIE/Vidu 大模型视频。
 
 短期试验仍可通过 `product_commercialization` 聚合入口验证产品视频素材包；产品文案入口已暂停，只保留历史试验记录，后续按 `product_copy_package` 独立能力重新设计。长期业务方、客户端和 Agent Runtime 应调用独立能力，避免把文案、组图、模特图和视频混成一个大接口。
 
@@ -14,6 +14,7 @@
 - 所有成本动作返回统一 `runId`，查询统一走 `/api/business/runs/get`。
 - 外部供应商结果必须沉淀到自有 OSS 后再作为正式输出。
 - 失败必须返回错误码、失败阶段、可重试建议和已成功资产。
+- 确定性 3D 渲染能力必须保留场景资产、模型资产、材质槽、相机路径和 OSS manifest 证据，不能只返回一个视频 URL。
 
 ## 1. `product_image_set` 商品组图 / 营销套图
 
@@ -98,6 +99,8 @@ POST /api/business/runs/get
   }
 }
 ```
+
+`shotPackages` 是业务接口的主消费结构：每个镜头把脚本目标、视频提示词、首尾帧提示词、所需素材、确认状态和执行状态放在同一对象里。`storyboard` 与全局 `keyframeNeeds` 只用于兼容和排障，不再要求业务方自行拼装镜头上下文。
 
 ### 执行输出
 
@@ -264,10 +267,24 @@ POST /api/business/runs/get
 
 ```text
 POST /api/business/promo-video/plan
+POST /api/business/promo-video/keyframes/runs
 POST /api/business/promo-video/runs
-POST /api/business/promo-video/compose
+POST /api/business/promo-video/compose/runs
 POST /api/business/runs/get
 ```
+
+2026-06-13：以上入口已开放 MVP。对业务方已经按能力拆分，固定 action，不再要求接入方自己传 `video_preview/video_keyframes/video_generate/compose_video`；运行任务业务键为 `promo_video`。当前内部仍复用 `product_commercialization` 编排服务、计费、轮询和错误契约。
+
+### 能力拆分
+
+| 能力 | 责任 | 成本动作 |
+| --- | --- | --- |
+| `promo_video.plan` | VL/LLM 读取产品图组和可选字段，输出商品理解、脚本、分镜、模型画像拆段、首尾帧需求和风险检查。 | 不触发图片/视频生成。 |
+| `promo_video.keyframes` | 按已确认脚本和分镜生成首帧、尾帧或关键帧，回填 OSS，供用户逐镜头确认。 | 调用 GPT Image 2 或后续指定图片模型。 |
+| `promo_video.segment_video` | 按每个分镜调用 KIE/Vidu 等视频模型，生成一段或多段视频素材。 | 调用视频供应商，按片段计量。 |
+| `promo_video.compose` | 在用户确认分段素材后做可选合成、裁剪和转码。 | 本地/服务端转码成本，不替代分段素材交付。 |
+
+前端交互必须对应这四层：先填写或由 VL 回填核心要素，生成脚本分镜；再按镜头列表展示脚本、首尾帧提示词和结果；用户必须逐镜头确认首尾帧，不满意时只重生成对应镜头并清除该镜头确认状态，所有必需镜头确认后再触发视频段成本动作。后端同样必须做角色级确认校验：`confirmedVideoKeyframes` 不只是数量校验，而是逐项匹配 `shot/segmentIndex/role`；例如同一镜头返回两张首帧但缺尾帧时，视频接口必须拒绝并返回缺失的 `last_frame`。
 
 ### 请求字段
 
@@ -287,6 +304,21 @@ POST /api/business/runs/get
   "modelProfile": "vidu.viduq3-turbo",
   "generationMode": "segment_package",
   "keyframeMode": "auto_first_frame",
+  "videoPlanningContext": {
+    "coreMessage": "show the full product shape and print first",
+    "targetAudience": "US gift buyers and marketplace shoppers",
+    "usageScene": "clean tabletop ecommerce scene",
+    "shotPreference": "gentle orbit first, then slow push-in without cropping product edges",
+    "avoid": "no text, watermark, logo, price tag, product deformation",
+    "fields": [
+      {
+        "id": "custom_note",
+        "label": "补充要素",
+        "value": "keep the handle visible in the first shot",
+        "source": "manual"
+      }
+    ]
+  },
   "scriptOverride": "",
   "storyboardOverride": [],
   "requestId": "promo-video-001"
@@ -298,6 +330,7 @@ POST /api/business/runs/get
 - `targetDurationSeconds` 是目标素材包时长，不等于每个供应商都能直接执行。
 - 后端根据模型画像拆分分镜，例如 Vidu 3/5/8 秒，KIE 8 秒。
 - `productImageUrl` 是兼容主图字段；`productImages` 用于多角度、细节、材质和场景图输入。规划层可以使用图组，但当前 KIE/Vidu 执行仍按每段一张参考图调用。
+- `videoPlanningContext` 是业务方和测评端传递核心信息、目标人群、使用场景、镜头偏好、禁止内容和自定义要素的结构化入口。测评端可先由 VL/LLM 根据产品图、图组和可选 JSON 回填空白项，用户修改后再重新规划；后端必须把该对象传入视频导演模型上下文，不能只拼成不可追踪的长文本。
 - `plan` 必须返回 `planner.method/provider/model/fallback/evidence`，不能把模板兜底伪装成大模型规划。`fallback=true` 时只允许用于排障和交互验证，不作为最终方法论验收。
 - 每个分镜必须包含 `scene/cameraMovement/composition/prompt/firstFramePrompt/lastFramePrompt/negativePrompt/referenceImage`，否则不允许触发视频成本动作。
 - 固定画幅如果供应商跟随输入图比例，必须先生成或归一化首帧。
@@ -343,6 +376,27 @@ POST /api/business/runs/get
         "firstFramePrompt": "Create the opening product hero frame...",
         "lastFramePrompt": "Create the stable ending product frame...",
         "requiredAssets": ["first_frame"]
+      }
+    ],
+    "shotPackages": [
+      {
+        "shotNo": 1,
+        "segmentIndex": 1,
+        "durationSeconds": 5,
+        "goal": "product reveal",
+        "scene": "clean studio ecommerce set",
+        "cameraMovement": "slow push-in with a slight side movement",
+        "videoPrompt": "Slow camera push-in...",
+        "firstFramePrompt": "Create the opening product hero frame...",
+        "lastFramePrompt": "Create the stable ending product frame...",
+        "keyframeNeeds": [
+          {
+            "role": "first_frame",
+            "reason": "lock aspect ratio and product identity"
+          }
+        ],
+        "confirmationRequired": true,
+        "executionState": "needs_keyframes"
       }
     ],
     "keyframeNeeds": [
@@ -421,13 +475,13 @@ POST /api/business/runs/get
 
 ### 定位
 
-面向有 3D 模型的 POD 商品，通过固定模型、材质槽 / UV 贴图、预设场景、灯光和相机路径生成可控商品动效。它不是 KIE/Vidu 大模型视频生成的子模式，也不是“文字描述生成视频”；不能混在 `promo_video` 的供应商选择里。当前开放方案预览和测评端浏览器 Three.js 本地 MP4 录制（不支持 MP4 时明确回退 WebM）；服务端 Blender/MP4/OSS 异步渲染 worker 接入后再开放 `/runs`。
+面向有 3D 模型的 POD 商品，通过固定模型、材质槽 / UV 贴图、预设场景、灯光和相机路径生成可控商品动效。它不是 KIE/Vidu 大模型视频生成的子模式，也不是“文字描述生成视频”；不能混在 `promo_video` 的供应商选择里。当前开放方案预览、测评端浏览器 Three.js 本地 MP4/WebM 录制，以及服务端 `/runs` 轻量 MP4/OSS 渲染任务；后续再把 `lightweight_scene_renderer_v1` 替换为 Blender/headless Three.js 高保真 worker。
 
 ### 建议入口
 
 ```text
 POST /api/business/product-3d-render-video/preview
-POST /api/business/product-3d-render-video/runs   # 待渲染 worker 接入后开放
+POST /api/business/product-3d-render-video/runs   # 创建统一业务 run；终态查询 videoUrls/imageUrls/renderAssetPackage
 POST /api/business/runs/get
 ```
 
@@ -439,7 +493,13 @@ POST /api/business/runs/get
   "textureImageUrl": "https://example.com/pattern.png",
   "materialSlot": "front",
   "cameraPreset": "hero_turntable",
+  "cameraDistance": "wide",
   "scenePreset": "desktop_lifestyle",
+  "motionPath": [
+    {"x": 0.22, "y": 0.66},
+    {"x": 0.5, "y": 0.5},
+    {"x": 0.78, "y": 0.42}
+  ],
   "durationSeconds": 6,
   "aspectRatio": "16:9",
   "outputMode": "plan_only",
@@ -453,9 +513,15 @@ POST /api/business/runs/get
 - 模型必须先进入受控模型目录；测评端上传 zip 只是资产检查，不代表生产可执行。
 - `textureImageUrl` 是主贴图，必须贴到 `materialSlot` 对应的固定区域；`textureImageUrls` 用于后续多材质/多面贴图。
 - `materialSlot` 是模型内真实材质槽 / UV 区域，不是自然语言区域描述。用户侧应该通过可视化区域选择，不应该让用户写一段文字描述要贴哪里。
-- 当前 `preview` 只能验证模型、UV、材质槽和参数计划；测评端 Three.js 画布负责所见即所得预览和本地 MP4 录制，但这仍不是服务端生产渲染和 OSS 回填。
-- 当前只允许 `outputMode=plan_only`；真实渲染必须等 worker 接入并统一走 runId 查询。
-- 镜头预设包括 `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`；场景预设包括 `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`，每个场景必须定义商品摆放位置、比例、安全区和阴影规则。
+- 当前 `preview` 只能验证模型、UV、材质槽和参数计划；测评端 Three.js 画布负责所见即所得预览和本地 MP4/WebM 录制，服务端 `/runs` 负责可查询、可回填 OSS 的 MP4 交付。
+- `preview` 当前只允许 `outputMode=plan_only`；传 `render_video` 会返回 `PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY`。
+- `/runs` 是独立服务端渲染入口，固定接收 `outputMode=render_video`；当前返回标准 `runId/taskId`，并按统一 runId 查询 OSS 视频、封面和 manifest。
+- 镜头预设包括 `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`；镜头远近包括 `wide/standard/close`，默认 `wide`，前端和服务端都必须遵守 `fit_product_safe_bounds`，保证商品主体完整入画。
+- 场景预设包括 `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`，每个场景必须定义商品摆放位置、比例、安全区、阴影和道具遮挡规则，并映射到 `renderPlan.scene.asset`。
+- `renderPlan.scene.asset` 必须包含 `assetId/assetType/assetStatus/renderFidelity/source/license/geometry/materialPolicy/highFidelityTarget`。当前首版为 `mvp_procedural`，可用于交互和接口闭环；商用级效果要替换为高保真 worker 或经过授权的真实场景资产。
+- `/preview` 必须返回 `renderPlan.scene.fusion`，`/runs` 输出的 `renderAssetPackage.manifest.sceneFusion` 必须沉淀场景融合证据，至少包括 `landingZone/productScale/occlusionPolicy/propDepth/shadowPolicy`。这用于证明商品落点、道具层级和遮挡规则，不允许把场景能力降级成“换背景枚举”。
+- `/runs` 输出的 `renderAssetPackage.manifest.sceneAsset` 必须沉淀场景资产证据，不能只给视频 URL。业务方验收视频时要能追溯模型、贴图槽、相机、运动路径、场景资产和场景融合策略。
+- 外部场景资产只允许引入授权明确的资源。优先用 CC0 来源做测试，例如 Poly Haven、ambientCG；BlenderKit 等混合授权库必须逐项记录 license、作者、来源 URL 和商用限制，不能直接塞进生产资产目录。
 
 ### 错误码
 
@@ -465,7 +531,13 @@ POST /api/business/runs/get
 | `PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID` | 材质槽不属于当前模型。 |
 | `PRODUCT_3D_RENDER_VIDEO_CAMERA_PRESET_INVALID` | 镜头预设非法。 |
 | `PRODUCT_3D_RENDER_VIDEO_SCENE_PRESET_INVALID` | 场景预设非法。 |
-| `PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY` | 当前未开放真实渲染执行。 |
+| `PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY` | `/preview` 收到 `render_video`，应改用 `/runs`。 |
+| `PRODUCT_3D_RENDER_VIDEO_TEXTURE_REQUIRED` | 服务端生成缺少真实贴图 URL。 |
+| `PRODUCT_3D_RENDER_VIDEO_TEXTURE_LOAD_FAILED` | 贴图下载或读取失败。 |
+| `PRODUCT_3D_RENDER_VIDEO_CONTEXT_INVALID` | 后台任务上下文恢复失败。 |
+| `PRODUCT_3D_RENDER_VIDEO_FFMPEG_MISSING` | 服务端缺少 ffmpeg 或 imageio-ffmpeg。 |
+| `PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_NOT_READY` | 历史/兼容错误码；当前轻量渲染器已接入。 |
+| `PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED` | 服务端渲染任务提交异常。 |
 | `PRODUCT_3D_RENDER_VIDEO_PREVIEW_FAILED` | 方案预览异常。 |
 | `PRODUCT_3D_RENDER_VIDEO_TEXTURE_MISSING` | 非阻断 issue code，缺少贴图时只验证模型和镜头方案。 |
 | `PRODUCT_3D_RENDER_VIDEO_UV_MISSING` | 非阻断 issue code，模型缺少 UV 时需先修复资产。 |

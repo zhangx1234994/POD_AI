@@ -285,6 +285,7 @@ export type BusinessAgentSession = {
 export type BusinessRunPollResult = {
   runId?: string;
   id?: string;
+  taskId?: string | null;
   businessKey?: string;
   status?: string;
   taskStatus?: string;
@@ -303,7 +304,7 @@ export type BusinessRunPollResult = {
 };
 
 export type ProductCommercializationRequest = {
-  action?: 'copy_preview' | 'video_preview' | 'video_generate' | 'compose_video' | 'visual_generate';
+  action?: 'copy_preview' | 'video_preview' | 'video_keyframes' | 'video_generate' | 'compose_video' | 'visual_generate';
   productImageUrl?: string;
   productImages?: Array<{
     url: string;
@@ -332,6 +333,9 @@ export type ProductCommercializationRequest = {
   strategyProfile?: string;
   executorId?: string;
   videoPromptOverride?: string;
+  videoPlanningContext?: Record<string, unknown>;
+  keyframeShotScope?: string | number;
+  confirmedVideoKeyframes?: Array<Record<string, unknown>>;
   visualScenes?: string[];
   pollTimeout?: number;
   requestId?: string;
@@ -355,6 +359,7 @@ export type ProductDesignRunRequest = {
 export type ProductCommercializationResponse = {
   requestId: string;
   businessKey: string;
+  underlyingBusinessKey?: string | null;
   version: string;
   status: string;
   generatedAt?: string;
@@ -379,7 +384,7 @@ export type ProductCommercializationResponse = {
 };
 
 export type Product3DRenderVideoRequest = {
-  modelKey?: 'cup_1660' | 'backpack_2551';
+  modelKey?: string;
   textureImageUrl?: string;
   textureImageUrls?: string[];
   textureSlots?: Array<{
@@ -388,11 +393,14 @@ export type Product3DRenderVideoRequest = {
     label?: string;
   }>;
   materialSlot?: string;
-  cameraPreset?: 'orbit_360' | 'slow_push_in' | 'detail_sweep' | 'hero_turntable' | 'top_reveal' | 'social_arc';
-  scenePreset?: 'clean_studio' | 'marketplace_white' | 'premium_dark' | 'desktop_lifestyle' | 'gift_table' | 'retail_shelf';
+  cameraPreset?: string;
+  cameraDistance?: string;
+  scenePreset?: string;
+  motionPath?: Array<{ x: number; y: number }>;
+  cameraPlan?: Record<string, unknown>;
   durationSeconds?: number;
   aspectRatio?: string;
-  outputMode?: 'plan_only';
+  outputMode?: 'plan_only' | 'render_video';
   extraPrompt?: string;
   requestId?: string;
   traceId?: string;
@@ -411,6 +419,23 @@ export type Product3DRenderVideoResponse = {
   review: Record<string, unknown>;
   execution: Record<string, unknown>;
   audit?: Record<string, unknown> | null;
+};
+
+export type Product3DRenderVideoCatalogResponse = {
+  businessKey: string;
+  version: string;
+  status: string;
+  generatedAt?: string;
+  defaults: Record<string, unknown>;
+  models: Array<Record<string, unknown>>;
+  scenePresets: Array<Record<string, unknown>>;
+  sceneAssetSources?: Array<Record<string, unknown>>;
+  cameraPresets: Array<Record<string, unknown>>;
+  cameraDistances: Array<Record<string, unknown>>;
+  durationOptions: number[];
+  aspectRatioOptions: string[];
+  renderers: Record<string, unknown>;
+  endpoints: Record<string, string>;
 };
 
 export const evalApi = {
@@ -865,11 +890,41 @@ export const evalApi = {
       { method: 'POST', body: JSON.stringify(payload) },
       90000,
     ),
+  planPromoVideo: (payload: ProductCommercializationRequest) =>
+    request<ProductCommercializationResponse>(
+      '/api/business/promo-video/plan',
+      { method: 'POST', body: JSON.stringify(payload) },
+      90000,
+    ),
   submitProductCommercializationVideoRun: (payload: ProductCommercializationRequest) =>
     request<BusinessRunPollResult>(
       '/api/business/product-commercialization/runs',
       { method: 'POST', body: JSON.stringify(payload) },
       30000,
+    ),
+  submitPromoVideoKeyframesRun: (payload: ProductCommercializationRequest) =>
+    request<BusinessRunPollResult>(
+      '/api/business/promo-video/keyframes/runs',
+      { method: 'POST', body: JSON.stringify(payload) },
+      30000,
+    ),
+  submitPromoVideoRun: (payload: ProductCommercializationRequest) =>
+    request<BusinessRunPollResult>(
+      '/api/business/promo-video/runs',
+      { method: 'POST', body: JSON.stringify(payload) },
+      30000,
+    ),
+  submitPromoVideoComposeRun: (payload: ProductCommercializationRequest) =>
+    request<BusinessRunPollResult>(
+      '/api/business/promo-video/compose/runs',
+      { method: 'POST', body: JSON.stringify(payload) },
+      30000,
+    ),
+  generateProductCommercializationVideoKeyframes: (payload: ProductCommercializationRequest) =>
+    request<ProductCommercializationResponse>(
+      '/api/business/product-commercialization/video-keyframes',
+      { method: 'POST', body: JSON.stringify(payload) },
+      240000,
     ),
   submitProductDesignRun: (payload: ProductDesignRunRequest) =>
     request<BusinessRunPollResult>(
@@ -893,6 +948,18 @@ export const evalApi = {
     request<Product3DRenderVideoResponse>(
       '/api/business/product-3d-render-video/preview',
       { method: 'POST', body: JSON.stringify(payload) },
+      30000,
+    ),
+  getProduct3DRenderVideoCatalog: () =>
+    request<Product3DRenderVideoCatalogResponse>(
+      '/api/business/product-3d-render-video/catalog',
+      { method: 'GET' },
+      30000,
+    ),
+  submitProduct3DRenderVideoRun: (payload: Product3DRenderVideoRequest) =>
+    request<BusinessRunPollResult>(
+      '/api/business/product-3d-render-video/runs',
+      { method: 'POST', body: JSON.stringify({ ...payload, outputMode: 'render_video' }) },
       30000,
     ),
   adminListWorkflowVersions: async (adminToken: string) =>

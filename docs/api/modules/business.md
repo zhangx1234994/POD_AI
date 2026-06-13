@@ -48,8 +48,9 @@
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
-| 产品商业化 | 视频预览 `POST /api/business/product-commercialization/preview` 且 `action=video_preview`；视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 核心输入为 `productImageUrl` 或 `productImages`；`productFields` 是可选说明材料，不是必填事实源；视频执行必须至少有一张产品图 | 视频：`action=video_preview/video_generate`、`productImages`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId`、`extraPrompt`；文案入口已从测评端撤下，后续按 `product_copy_package` 独立重做 | 视频预览返回 `videoPlan`、`videoAssetPackagePlan`、`resolvedProductFacts`、`review`；执行返回 `runId`，终态查询返回 `videoUrls` 或 `resultPayload.videoAssetPackage` | 产品设计后的商业化能力先集中验证视频素材包。测评端主流程是“上传产品图组 -> 核对商品事实并设置视频策略 -> 确认脚本分镜 -> 交付追踪”，不再把商品确认和策略设置拆成两个独立步骤。视频不是只交付最终合成片，脚本、分镜、首尾帧、分段视频都是可复用资产。 |
-| 3D 渲染视频 | 方案预览 `POST /api/business/product-3d-render-video/preview` | `modelKey`；贴图 `textureImageUrl` 建议传 | `materialSlot`、`cameraPreset`、`scenePreset`、`durationSeconds`、`aspectRatio`、`extraPrompt` | `model`、`assetReadiness`、`renderPlan`、`review`；测评端可本地导出 WebM 预览 | 独立于 KIE/Vidu 的 3D 模型渲染视频能力。当前测评端已接入客户端 GLB/UV 预览和浏览器本地 WebM 录制；接口仍只开放方案预览，不触发服务端渲染 worker，不返回 MP4/OSS 视频。 |
+| 产品推广视频素材包 | 规划 `POST /api/business/promo-video/plan`；首尾帧 `POST /api/business/promo-video/keyframes/runs`；分段视频 `POST /api/business/promo-video/runs`；可选合成 `POST /api/business/promo-video/compose/runs`；查询 `POST /api/business/runs/get` | 核心输入为 `productImageUrl` 或 `productImages`；`productFields` 是可选说明材料，不是必填事实源；成本动作必须至少有一张产品图 | `productImages`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId`、`extraPrompt`、`videoPlanningContext`、`videoPromptOverride`、`keyframeShotScope`、`confirmedVideoKeyframes` | 规划返回 `videoPlan`、`videoAssetPackagePlan`、`resolvedProductFacts`、`review`；执行返回 `runId` 且 `businessKey=promo_video`，终态查询返回 `imageUrls`、`videoUrls` 或 `resultPayload.videoAssetPackage` | 正式产品视频能力入口，拆成规划、首尾帧、分段视频和可选合成四层。MVP 内部沿用 `product_commercialization` 编排服务和计费/轮询链路，但业务方不再需要自己传 `action`，也不再看到旧聚合业务键。 |
+| 产品商业化（兼容聚合） | 视频预览 `POST /api/business/product-commercialization/preview` 且 `action=video_preview`；首尾帧/视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 同上 | 视频：`action=video_preview/video_keyframes/video_generate` 等；文案入口已从测评端撤下，后续按 `product_copy_package` 独立重做 | 同上 | 试验/兼容聚合入口。新业务接入优先使用 `promo-video` 拆分入口，避免把文案、组图、视频和合成混在一个大接口里。 |
+| 3D 渲染视频 | 能力目录 `GET /api/business/product-3d-render-video/catalog`；方案预览 `POST /api/business/product-3d-render-video/preview`；服务端渲染任务 `POST /api/business/product-3d-render-video/runs`；查询 `POST /api/business/runs/get` | `modelKey`；服务端生成必须提供贴图 `textureImageUrl` 或 `textureSlots` | `materialSlot`、`cameraPreset`、`cameraDistance`、`scenePreset`、`cameraPlan`、兼容 `motionPath`、`durationSeconds`、`aspectRatio`、`extraPrompt` | catalog 返回模型/材质槽/场景资产、`sceneAssetSources` 来源治理、镜头/远近档位；预览返回 `model`、`assetReadiness`、`renderPlan`、`review`；测评端需先播放并确认镜头轨迹，再本地导出 MP4/WebM 预览或提交服务端 MP4/OSS；`/runs` 返回标准 `runId`，终态查询返回 `videoUrls/imageUrls/resultPayload.renderAssetPackage` | 独立于 KIE/Vidu 的 3D 模型渲染视频能力。当前测评端已接入客户端 GLB/UV 预览、场景布景、镜头远近、镜头轨迹确认、本地录制和服务端轻量 MP4/OSS 输出；商品固定，轨迹驱动相机运动；高保真 Blender/headless Three.js worker 后续替换。 |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
@@ -61,7 +62,7 @@
 | --- | --- | --- | --- |
 | 商品组图 / 营销套图 `product_image_set` | `POST /api/business/product-image-set/plan` + `/runs` | 待实现 | 契约草案见 `docs/strategy/market-side-ai-ability-contracts-2026-06-11.md`。当前不要直接调用该路径；可用 `product_commercialization action=visual_generate` 做试验。 |
 | 模特 / 场景图 `model_scene_image` | `POST /api/business/model-scene-image/plan` + `/runs` | 待实现 | 重点是参考图角色、身份锚点、主体真源和质量标签；当前未开放线上接口。 |
-| 产品推广视频素材包 `promo_video` | `POST /api/business/promo-video/plan` + `/runs` + `/compose` | 待实现 | 当前产品视频仍通过 `product_commercialization` 试验入口验证；正式能力必须按脚本、分镜、关键帧、分段视频、可选合成片交付。 |
+| 产品推广视频素材包 `promo_video` | `POST /api/business/promo-video/plan` + `/keyframes/runs` + `/runs` + `/compose/runs` | 已开放 MVP | 对业务方已经拆成规划、关键帧、分段视频和可选合成四个入口；运行任务业务键为 `promo_video`，内部实现仍复用产品商业化编排服务。 |
 
 产品商业化视频执行补充口径：
 
@@ -121,7 +122,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
     "status": "active",
     "tenantId": "tenant-a",
     "clientId": "open-api",
-    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit", "image_edit_chat", "product_design", "product_commercialization"],
+    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit", "image_edit_chat", "product_design", "product_commercialization", "promo_video"],
     "expireAt": "2026-12-31T23:59:59+08:00"
   }'
 ```
@@ -1546,19 +1547,26 @@ X-PODI-API-Key: podi_xxx
 
 它是产品设计之后的试验入口，不负责花纹提取、裂变或产品设计本身。当前测评端先撤下产品文案入口，集中验证**产品视频素材包**；产品文案后续按 `product_copy_package` 独立能力重新设计。历史接口仍可能返回 `copyGeneration/contentPackage/copyPackage`，但这些字段暂不作为当前测评端交付面。
 
-当前测评端先集中验证“产品视频素材包”：主流程为“上传产品图组 -> 核对商品事实并设置视频策略 -> 确认脚本分镜 -> 交付追踪”。商品事实核对和视频策略设置必须在同一屏完成：`productFields`/导出 JSON 只是可选说明材料，产品图仍是最高优先级事实源；用户在同一步选择视频场景、供应商、目标时长和补充规划要素。`action=video_preview` 会跳过文案生成，响应中的 `copyGeneration.method=skipped_for_video_preview` 只用于兼容旧响应结构，不代表文案能力已完成。产品文案后续按 `product_copy_package` 独立能力重做。
+当前测评端先集中验证“产品视频素材包”：主流程为“上传产品图组 -> 核对商品事实并设置视频策略 -> 确认脚本分镜 -> 生成并确认首尾帧 -> 生成视频素材 -> 交付追踪”。商品事实核对和视频策略设置必须在同一屏完成：`productFields`/导出 JSON 只是可选说明材料，产品图仍是最高优先级事实源；用户在同一步选择视频场景、供应商、目标时长和补充规划要素。`action=video_preview` 会跳过文案生成，响应中的 `copyGeneration.method=skipped_for_video_preview` 只用于兼容旧响应结构，不代表文案能力已完成。产品文案后续按 `product_copy_package` 独立能力重做。
+
+视频规划要素的 UI 口径：`core_message/target_audience/usage_scene/shot_preference/avoid` 由后端在 `videoPlan.editablePlanningFields` 中返回，字段包含 `value/source/sourceLabel/editable/confidence`，页面必须标注“模型回填 / 人工调整 / 默认约束”等来源状态；用户手动修改后应作为下一次规划输入。旧客户端可以继续从 `resolvedProductFacts`、`videoPlan.directorBrief` 和 `videoPlan.storyboard` 兼容推断，但新接入以 `editablePlanningFields` 为准。确认页必须展示这些要素的快照，避免用户只看脚本和分镜而忽略目标人群、镜头偏好或禁止项。脚本、视频提示词、首尾帧提示词和生成出的首尾帧必须按镜头分组展示；有首尾帧需求时，必须逐镜头生成并确认，未生成或未确认的镜头不得提交视频成本动作；重生成某个镜头会清除该镜头确认状态，不影响其他已确认镜头。确认不是“图片数量够”即可，必须覆盖该镜头规划的每个 `role`，例如要求 `first_frame + last_frame` 时，传两张 `first_frame` 仍会被视为缺少 `last_frame`。
 
 当前测评端配图生成的最小安全实现是：先调用 `preview` 得到文案和配图计划，再由用户显式点击配图生成按钮，前端提交 `POST /api/business/product-commercialization/runs` 且传 `action=visual_generate`，用返回的 `runId` 轮询 `/api/business/runs/get`，最终展示自有 OSS 图片。也就是说，`visualSupportMode=generate` 不等于预览接口自动生图，它只表示“本次计划允许后续显式生成配图”。
 
 统一任务口径：
 
+- 正式产品视频规划：`POST /api/business/promo-video/plan`，固定等价于 `action=video_preview`，同步返回 `videoPlan/videoAssetPackagePlan/review`，不触发文案模型、不生成图片、不生成视频。
+- 正式产品视频首尾帧：`POST /api/business/promo-video/keyframes/runs`，固定等价于 `action=video_keyframes`，立即返回 `runId` 且 `businessKey=promo_video`；终态查询返回 `imageUrls` 和 `resultPayload.videoAssetPackage.keyframes`。可选传 `keyframeShotScope` 只重生成某个镜头，便于用户对单个不满意镜头二次生成，不必整包重跑。
+- 正式产品视频素材包：`POST /api/business/promo-video/runs`，固定等价于 `action=video_generate`，必须在 `confirmedVideoKeyframes` 中传入已人工确认的首尾帧/关键帧；若规划中存在 `keyframeNeeds` 但未按 `shot/segmentIndex/role` 全部确认，返回 `PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED`，不会触发 KIE/Vidu 视频扣费。提交成功后立即返回 `runId` 且 `businessKey=promo_video`；终态查询返回分段视频素材包。
+- 正式产品视频可选合成：`POST /api/business/promo-video/compose/runs`，固定等价于 `action=compose_video`，立即返回 `runId` 且 `businessKey=promo_video`；只在业务方明确需要合成片时调用。
 - 视频规划预览：`POST /api/business/product-commercialization/preview` 且 `action=video_preview`，同步返回 `videoPlan/videoAssetPackagePlan/review`，不触发文案模型、不生成图片、不生成视频。
 - 执行配图：`POST /api/business/product-commercialization/runs` 且 `action=visual_generate`，当前不作为测评端主入口；后续组图能力会独立整理。
-- 执行视频素材包：`POST /api/business/product-commercialization/runs` 且 `action=video_generate` 或不传 `action`，立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。视频素材包包含脚本、分镜、首尾帧/关键帧、分段视频和可选合成片。
+- 执行视频首尾帧：`POST /api/business/product-commercialization/runs` 且 `action=video_keyframes`，立即返回 `runId`，终态查询返回 `resultPayload.videoAssetPackage.deliveryStatus=keyframes_ready` 和 `keyframes[]`。该动作默认调用 GPT Image 2，并做目标画幅归一化；成功后仍需人工确认，不能等同于视频已完成。
+- 执行视频素材包：`POST /api/business/product-commercialization/runs` 且 `action=video_generate` 或不传 `action`，必须传入已确认的 `confirmedVideoKeyframes`；缺少任一规划中的首尾帧/关键帧会返回 `PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED` 和 `missingKeyframes`，错误详情同时返回 `requiredCount/confirmedCount/matchedCount`，用于区分“传入数量”和“真正匹配到的需求数量”。不在提交阶段偷偷生成首帧，也不触发视频扣费。校验通过后立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。视频素材包包含脚本、分镜、首尾帧/关键帧、分段视频和可选合成片。
 - 多产品图：`productImageUrl` 是兼容主图字段；`productImages[]` 可传 `primary/front/back/side/detail/texture/lifestyle/reference` 等角色。规划层会把图组交给 VL/LLM 上下文，并在 `videoPlan.referenceImageSet` 和每个 `storyboard[].referenceImage` 中记录参考图选择。当前 KIE/Vidu 执行仍按每段一张参考图调用，不伪装成厂商原生多图视频能力。
-- 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。视频查询不能只看最终合成片，必须同时查看 `resultPayload.videoAssetPackage.deliveryStatus/script/keyframes/segmentVideos/composition`；配图成功标准是查询到 `status=succeeded` 且 `imageUrls` 非空；失败原因看 `errorMessage/errorCode`。
-- 计费口径：MVP 阶段按生成片段计量，每个视频片段记 `quotaUnits=1`。`billingUnit` 会按真实供应商成本动作派生，例如 `kie_veo3_fast_video_segment` 或 `vidu_viduq3_turbo_video_segment`；当前先记录 quota 和成本证据，不虚构第三方货币单价，正式价格表后续接入模型成本策略。
-- 兼容调试：`/video` 与 `/video-compose` 暂时保留给内部联调，不作为正式业务方接入口径。
+- 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。视频查询不能只看最终合成片，必须同时查看 `resultPayload.videoAssetPackage.deliveryStatus/script/keyframes/segmentVideos/composition`；首尾帧成功标准是查询到 `status=succeeded` 且 `imageUrls` 非空；视频成功标准是 `videoUrls` 或 `resultPayload.videoAssetPackage.segmentVideos[].videoUrl` 非空；失败原因看 `errorMessage/errorCode`。
+- 计费口径：MVP 阶段关键帧按图片计量，`action=video_keyframes` 每张图记 `quotaUnits=1`，`billingUnit` 例如 `openai.gpt_image_2.image`；视频按生成片段计量，每个视频片段记 `quotaUnits=1`，`billingUnit` 会按真实供应商成本动作派生，例如 `kie_veo3_fast_video_segment` 或 `vidu_viduq3_turbo_video_segment`。当前先记录 quota 和成本证据，不虚构第三方货币单价，正式价格表后续接入模型成本策略。
+- 兼容调试：`/product-commercialization/video-keyframes`、`/product-commercialization/video` 与 `/product-commercialization/video-compose` 暂时保留给内部联调，不作为正式业务方接入口径。
 
 ### POST /api/business/product-commercialization/preview
 
@@ -1628,9 +1636,12 @@ X-PODI-API-Key: podi_xxx
 | `forbiddenClaims` | 否 | 空 | 禁用或谨慎使用的声明，支持字符串或数组，例如环保认证、医疗功效、品牌词、物流时效承诺。 |
 | `copyScenarios` | 否 | 空 | 仅后续 `copy_preview/product_copy_package` 使用。当前 `video_preview` 不传该字段，后端会跳过文案生成。 |
 | `visualSupportMode` | 否 | `recommendation` | `none/recommendation/generate`。`generate` 只表示允许后续显式生成配图，预览接口不自动生图。 |
-| `action` | 预览建议必传；执行接口否 | 预览建议 `video_preview`；执行默认 `video_generate` | 预览支持 `video_preview/copy_preview`，当前测评端只用 `video_preview`。执行支持空值/`video_generate`/`compose_video`/`visual_generate`；非法值返回 `PRODUCT_COMMERCIALIZATION_ACTION_INVALID`，不会静默回退。 |
+| `action` | 预览建议必传；执行接口否 | 预览建议 `video_preview`；执行默认 `video_generate` | 预览支持 `video_preview/copy_preview`，当前测评端只用 `video_preview`。执行支持空值/`video_keyframes`/`video_generate`/`compose_video`/`visual_generate`；非法值返回 `PRODUCT_COMMERCIALIZATION_ACTION_INVALID`，不会静默回退。 |
 | `visualScenes` | 否 | 空 | 仅 `action=visual_generate` 使用。可传 `listing-main/social-ad-cover/detail-closeup` 等配图场景 ID；不传时按模型产出的前三个配图 brief 执行。 |
+| `videoPlanningContext` | 否 | 空 | 视频规划结构化上下文，建议包含 `coreMessage/targetAudience/usageScene/shotPreference/avoid/fields`。测评端会用产品图、VL 识别和可选 JSON 自动回填空白要素，用户可修改后重新规划；业务方也可以直接传该对象，避免把人群、镜头偏好等关键要求埋在长文本里。 |
 | `videoPromptOverride` | 否 | 空 | 仅视频执行使用。测评端生成规划后允许用户编辑执行脚本；如果传入该字段，视频模型按用户编辑后的脚本生成，原始规划只作为参考。 |
+| `keyframeShotScope` | 否 | 空 | 仅 `action=video_keyframes` 使用。传镜头序号（如 `1`、`2`）时只生成/重生成该镜头的首帧、尾帧或关键帧；不传则按 `videoAssetPackagePlan.keyframeNeeds` 生成全部关键帧。若没有匹配项返回 `PRODUCT_COMMERCIALIZATION_KEYFRAME_SCOPE_EMPTY`，不能静默改成全量生成。 |
+| `confirmedVideoKeyframes` | 条件必填 | 空 | 仅 `action=video_generate` 使用。测评端或业务方把已经人工确认过的关键帧传入，后端按 `shot/segmentIndex/role` 匹配对应镜头并优先作为视频参考图；当 `videoAssetPackagePlan.keyframeNeeds` 非空时，该字段必须覆盖所有镜头的首尾帧/关键帧，否则返回 `PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED`。数量不是通过条件，角色也必须匹配；例如同一镜头两张 `first_frame` 不能替代缺失的 `last_frame`。已确认帧不会被当成需要再次生成的图片扣费项。 |
 | `videoScenario` | 否 | `product_showcase_short` | `product_showcase_short/social_ad_short/detail_explainer`。 |
 | `durationSeconds` | 否 | 模型默认 | 期望单段视频执行时长。合法值由所选 `executorId` 的模型画像决定，例如 KIE Veo3.1 Fast 当前按 8 秒片段执行，Vidu viduq3-turbo 当前按 3/5/8 秒片段规划。 |
 | `targetDurationSeconds` | 否 | 模型默认 | 客户目标视频素材包时长，允许 1-60。该值以客户需求为主，不按 KIE/Vidu 单段枚举限制；预览会先围绕目标时长规划脚本和分镜，再根据模型画像拆成 8 秒或 3/5/8 秒片段。正式 `/runs` 默认交付单段或多段视频素材包，显式 `action=compose_video` 才要求合成片。 |
@@ -1646,8 +1657,8 @@ X-PODI-API-Key: podi_xxx
 ```json
 {
   "requestId": "req-product-commercialization-001",
-  "businessKey": "product_commercialization",
-  "version": "product-commercialization-mvp-v1",
+  "businessKey": "promo_video",
+  "version": "promo-video-mvp-v1",
   "status": "previewed",
   "outputLanguage": "en-US",
   "marketRegion": "US",
@@ -1739,6 +1750,32 @@ X-PODI-API-Key: podi_xxx
     "totalGeneratedSeconds": 16,
     "requiresComposition": true,
     "aspectRatio": "16:9",
+    "editablePlanningFields": [
+      {
+        "id": "target_audience",
+        "label": "目标人群",
+        "value": "overseas ecommerce gift buyers",
+        "source": "auto",
+        "sourceLabel": "导演 brief / 市场推断",
+        "editable": true,
+        "confidence": 0.86
+      },
+      {
+        "id": "shot_preference",
+        "label": "镜头偏好",
+        "value": "full-product hero hold, then restrained material push-in",
+        "source": "auto",
+        "sourceLabel": "分镜镜头规划",
+        "editable": true,
+        "confidence": 0.86
+      }
+    ],
+    "planningFieldContract": {
+      "mode": "backend_structured_suggestions",
+      "frontendEditable": true,
+      "manualChangesRequireReplan": true,
+      "fields": ["core_message", "target_audience", "usage_scene", "shot_preference", "avoid"]
+    },
     "storyboard": [
       {"shot": 1, "durationSeconds": 8, "keepSeconds": 8, "label": "Opening product hero"},
       {"shot": 2, "durationSeconds": 8, "keepSeconds": 7, "label": "Material and print detail"}
@@ -1773,6 +1810,31 @@ X-PODI-API-Key: podi_xxx
         "requiredAssets": ["first_frame"]
       }
     ],
+    "shotPackages": [
+      {
+        "shotNo": 1,
+        "segmentIndex": 1,
+        "label": "Opening product hero",
+        "durationSeconds": 8,
+        "keepSeconds": 8,
+        "goal": "Product reveal",
+        "scene": "clean studio ecommerce set",
+        "cameraMovement": "slow push-in",
+        "videoPrompt": "Slow camera movement on the product. Preserve visible shape, color and pattern.",
+        "firstFramePrompt": "Create the opening product hero frame...",
+        "lastFramePrompt": "Create the stable ending product frame...",
+        "keyframeNeeds": [
+          {
+            "role": "first_frame",
+            "required": true,
+            "available": false,
+            "prompt": "Create the opening product hero frame..."
+          }
+        ],
+        "confirmationRequired": true,
+        "executionState": "needs_keyframes"
+      }
+    ],
     "keyframeNeeds": [
       {
         "role": "first_frame",
@@ -1800,20 +1862,39 @@ X-PODI-API-Key: podi_xxx
 }
 ```
 
+`videoAssetPackagePlan.shotPackages` 是正式业务方优先使用的镜头级素材包。旧的 `storyboard` 与 `keyframeNeeds` 会继续保留用于兼容，但业务方不应再自行把脚本、首尾帧和结果按镜头二次拼装。
+
 ### POST /api/business/product-commercialization/runs
 
 用途：显式提交产品商业化成本动作，并将生成结果保存到自有 OSS。该接口会复用同一套产品理解、文案和规划逻辑，但属于成本动作，必须由业务方明确触发。
 
 请求体与 `preview` 相同，但必须提供 `productImageUrl`，或在 `productImages` 中提供至少一张可用产品图。`action=visual_generate` 时执行产品商业化配图，支持 `visualScenes` 指定 `listing-main/social-ad-cover/detail-closeup` 等场景，结果通过 `imageUrls/resultPayload.imageResult` 返回。配图默认走中台 GPT Image 2 图片编辑能力 `openai_gpt_image_2_edit`，以商品图作为事实锚点，默认 `size=auto`；只有后续显式指定低成本、批量或特定模型策略时才分流到其他图片能力。
 
-`action=video_generate` 或不传 `action` 时执行视频素材包；后端先按 `executorId` 解析模型画像，再围绕 `targetDurationSeconds` 规划脚本、分镜、首尾帧/关键帧需求和分段视频。客户目标时长不是供应商单段枚举：例如客户要求 15 秒，规划层必须规划 15 秒脚本，执行层再按 KIE 8 秒或 Vidu 3/5/8 秒片段拆解、保留和可选合成。默认交付目标是 `segment_package`：先保留脚本、关键帧和分段视频素材，最终合成是可选动作，不是唯一成功口径。用户如在测评端编辑了视频脚本，前端会把当前脚本写入 `videoPromptOverride`，后端必须按该脚本调用 KIE/Vidu。可选 `executorId` 指定 KIE 或 Vidu 节点；不传使用默认 KIE 执行节点。第三方返回的临时外链都必须先沉淀到自有 OSS，对外结果以自有 OSS URL 为准。注意：Vidu 单参考图生视频的实际比例由输入图/首帧决定；`aspectRatio` 不会作为无效厂商参数直接下发。若使用 Vidu 且目标画幅为固定比例，后端会先调用 GPT Image 2 生成商业首帧，再用确定性画布处理归一到目标比例并上传 OSS，最后把归一化首帧作为 Vidu 输入图。首帧生成或归一化失败时会在视频扣费前失败，不会静默提交原图导致比例错误。
+`action=video_keyframes` 时只生成视频首尾帧/关键帧，不生成视频。后端会复用 `video_preview` 的脚本和分镜，按 `videoAssetPackagePlan.keyframeNeeds` 调用 GPT Image 2 生成图片，并做目标画幅归一化后上传 OSS。`videoPlan.keyframePlan` 只是导演模型原始建议，业务方不应直接拿它当执行清单；最终执行清单以资产包为准，因为后端会按供应商规则补齐必需素材，例如 Vidu 固定画幅执行前必须补 `normalized_first_frame`。该动作成功后返回 `deliveryStatus=keyframes_ready`，业务方或测评端必须逐镜头人工确认关键帧是否合理；不合理时可传 `keyframeShotScope` 只重生成对应镜头，重生成后该镜头确认状态应失效，合理后再调用 `video_generate`。
+
+`action=video_generate` 或不传 `action` 时执行视频素材包；后端先按 `executorId` 解析模型画像，再围绕 `targetDurationSeconds` 规划脚本、分镜、首尾帧/关键帧需求和分段视频。客户目标时长不是供应商单段枚举：例如客户要求 15 秒，规划层必须规划 15 秒脚本，执行层再按 KIE 8 秒或 Vidu 3/5/8 秒片段拆解、保留和可选合成。默认交付目标是 `segment_package`：先保留脚本、关键帧和分段视频素材，最终合成是可选动作，不是唯一成功口径。用户如在测评端编辑了视频脚本，前端会把当前脚本写入 `videoPromptOverride`，后端必须按该脚本调用 KIE/Vidu。用户已确认的首尾帧或关键帧必须通过 `confirmedVideoKeyframes` 传入 `video_generate`；后端按镜头序号和角色优先使用确认帧作为该段参考图，不能在用户确认后又回退原始产品图，也不能对已确认帧重复触发 GPT Image 2 首帧生成成本动作。若缺少任一规划中的首尾帧/关键帧，返回 `PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED`，响应包含 `missingKeyframes/requiredCount/confirmedCount/matchedCount`，并且不会调用 KIE/Vidu。`confirmedCount` 只是传入的有效图片数量，`matchedCount` 才是按镜头和角色命中的需求数量；两者不一致时必须优先看 `missingKeyframes`。可选 `executorId` 指定 KIE 或 Vidu 节点；不传使用默认 KIE 执行节点。第三方返回的临时外链都必须先沉淀到自有 OSS，对外结果以自有 OSS URL 为准。注意：Vidu 单参考图生视频的实际比例由输入图/首帧决定；`aspectRatio` 不会作为无效厂商参数直接下发。若使用 Vidu 且目标画幅为固定比例，业务方必须先通过 `video_keyframes` 生成并确认归一化首帧，再把该帧传入 `confirmedVideoKeyframes`；后端不会在视频生成阶段自动补首帧。
+
+同步调试入口 `/video-keyframes`、`/video`、`/video-compose` 如果遇到上游白名单、Key、供应商任务等错误，响应会优先暴露上游 `detail.errorCode`，并用 `detail.businessErrorCode` 标记当前业务阶段。例如本地未加白访问 vendor-api-ops 时返回：
+
+```json
+{
+  "detail": {
+    "errorCode": "VENDOR_API_CLIENT_FORBIDDEN",
+    "businessErrorCode": "PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED",
+    "message": "vendor-api-ops only accepts requests from backend allowlisted hosts.",
+    "suggestion": "Route calls through the backend service or add the backend host to VENDOR_API_ALLOWED_CLIENTS."
+  }
+}
+```
+
+业务方判断时先看 `detail.errorCode` 定位根因，再看 `detail.businessErrorCode` 判断失败发生在哪个产品商业化阶段。
 
 当前视频供应商和模型口径：
 
 | `executorId` | 当前模型 | 状态 | 说明 |
 | --- | --- | --- | --- |
-| `executor_kie_market_default` | Veo3.1 Fast | 可执行 | 当前按 8 秒片段规划；长视频默认通过多个 8 秒片段形成素材包。首尾帧控制属于待接入模式，不在当前按钮中伪装成可执行。 |
-| `executor_vidu_default` | viduq3-turbo | 可执行 | 当前按 3/5/8 秒片段规划。Vidu 图生视频比例跟随输入图/首帧；中台会在固定画幅执行前自动生成并归一化首帧，再把该首帧作为视频参考图。`aspectRatio` 不会作为无效厂商参数下发。 |
+| `executor_kie_market_default` | Veo3.1 Fast | 可执行 | 当前按 8 秒片段规划；长视频默认通过多个 8 秒片段形成素材包。首尾帧由 `action=video_keyframes` 单独生成和确认，不和视频提交混在一个按钮里。 |
+| `executor_vidu_default` | viduq3-turbo | 可执行 | 当前按 3/5/8 秒片段规划。Vidu 图生视频比例跟随输入图/首帧；固定画幅必须先通过首尾帧任务生成并确认归一化首帧，再把确认帧作为视频参考图。`aspectRatio` 不会作为无效厂商参数下发。 |
 | 待定 | Vidu 一键营销成片 Agent | 待接入 | 需要单独接口/参数，不混入当前单段视频按钮。 |
 | 待定 | Vidu 视频复刻 Agent | 待接入 | 需要参考视频输入、复刻策略和版权/风格风险提示。 |
 | 待定 | viduq3-ad / reference2video | 待接入 | 需要多参考图和广告模型参数，不伪装为当前已完成能力。 |
@@ -1853,7 +1934,7 @@ Vidu 固定画幅执行补充字段：
 }
 ```
 
-口径说明：`product_commercialization` 当前是中台内置编排任务，不额外暴露一套底层任务表。对外 `taskId` 等同 `runId`，业务方可用 `runId` 或 `taskId` 调用 `/api/business/runs/get` 查询同一条任务数据。
+口径说明：正式产品视频任务的业务键是 `promo_video`。当前内部仍复用产品商业化编排服务，不额外暴露底层任务表；对外 `taskId` 等同 `runId`，业务方可用 `runId` 或 `taskId` 调用 `/api/business/runs/get` 查询同一条任务数据。
 
 查询：
 
@@ -1873,7 +1954,7 @@ Vidu 固定画幅执行补充字段：
     "primaryCostAction": "kie.veo3_fast.video"
   },
   "resultPayload": {
-    "businessKey": "product_commercialization",
+    "businessKey": "promo_video",
     "status": "succeeded",
     "videoAssetPackage": {
       "deliveryStatus": "assets_ready",
@@ -1947,6 +2028,7 @@ Vidu 固定画幅执行补充字段：
 
 - `PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID`
 - `PRODUCT_COMMERCIALIZATION_ACTION_INVALID`
+- `PRODUCT_COMMERCIALIZATION_BUSINESS_KEY_INVALID`
 - `PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID`
 - `PRODUCT_COMMERCIALIZATION_MARKET_INVALID`
 - `PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID`
@@ -1954,6 +2036,7 @@ Vidu 固定画幅执行补充字段：
 - `PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID`
 - `PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID`
 - `PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED`
+- `PRODUCT_COMMERCIALIZATION_KEYFRAME_SCOPE_EMPTY`
 - `PRODUCT_COMMERCIALIZATION_IMAGE_BRIEF_MISSING`
 - `PRODUCT_COMMERCIALIZATION_VISUAL_PROMPT_EMPTY`
 - `PRODUCT_COMMERCIALIZATION_VISUAL_GENERATION_FAILED`
@@ -1989,14 +2072,281 @@ Vidu 固定画幅执行补充字段：
 
 业务名：3D 渲染视频。业务标识固定为 `product_3d_render_video`。它和 `product_commercialization` 的 KIE/Vidu 大模型视频生成是两条路线：这里不调用视频生成模型，也不通过文字提示词生成画面，而是把用户上传的贴图应用到 3D 模型的固定材质槽 / UV 区域，再通过场景、灯光和相机路径生成可控商品动效。
 
-当前版本只开放方案预览：
+当前版本开放三个清晰入口：能力目录、方案预览和服务端轻量渲染任务。
 
+- 能力目录：`GET /api/business/product-3d-render-video/catalog`
 - 接口：`POST /api/business/product-3d-render-video/preview`
+- 服务端渲染任务入口：`POST /api/business/product-3d-render-video/runs`
 - 当前模型：`cup_1660`（1660 杯子）、`backpack_2551`（2551 笔记本电脑背包）
-- 当前状态：接口只返回 `model/assetReadiness/renderPlan/review`，不触发渲染 worker，不返回 MP4，不产生第三方成本。测评端已接入客户端 Three.js 画布，可读取 GLB/UV 并按材质名应用贴图，同时支持在浏览器内录制当前预览并导出 WebM。
-- 边界：客户端负责 GLB/UV/材质槽的实时 WYSIWYG 预览；服务端负责异步渲染 worker、MP4、封面帧、manifest 和 OSS 回填。批量导出时应独立扩容渲染 executor 池，不能混入 KIE/Vidu 队列。
-- 当前验收口径：可以验证模型是否进入受控目录、材质槽是否合法、UV 是否存在、贴图 URL 是否齐备、客户端贴图方向是否可接受、渲染参数是否可解释；不能把它当作正式视频生成能力。
-- 后续执行形态：接入 Three.js headless 或 Blender 渲染 worker 后，再按统一异步任务口径开放 `/runs`，返回 `runId` 并通过 `/api/business/runs/get` 查询 OSS 视频。
+- 当前状态：`/preview` 只返回 `model/assetReadiness/renderPlan/review`，不触发服务端视频生成，不产生第三方成本。`/runs` 已接入 `lightweight_scene_renderer_v1`：创建统一 `BusinessRun`，后台生成 MP4、封面帧和 manifest，并回填自有 OSS；高保真 Blender/headless Three.js worker 后续可在不改 API 的前提下替换。
+- 边界：客户端负责 GLB/UV/材质槽的实时 WYSIWYG 预览和本地录制；服务端负责可查询、可回调、可沉淀的 MP4、封面帧、manifest 和 OSS 回填。批量导出或高保真渲染时应独立扩容渲染 executor 池，不能混入 KIE/Vidu 队列。
+- 当前验收口径：可以验证模型是否进入受控目录、材质槽是否合法、UV 是否存在、贴图 URL 是否齐备、客户端贴图方向是否可接受、渲染参数是否可解释、场景融合规则是否明确、镜头是否遵循 `fit_product_safe_bounds` 完整入画规则、`/runs` 是否返回标准 runId、任务完成后是否有 OSS 视频/封面/manifest。
+- 后续执行形态：将 `lightweight_scene_renderer_v1` 替换为 Three.js headless 或 Blender 高保真渲染 worker，保持 `/runs` -> `/api/business/runs/get` 的任务契约不变。
+- 能力拆分口径：
+  1. `product_3d_render_video.preview`：当前已开放，负责模型、贴图槽、场景、镜头、路径、时长和输出物的方案校验。
+  2. `product_3d_render_video.catalog`：当前已开放，只读返回模型、材质槽、场景资产、镜头模板、镜头远近、默认路径和渲染器边界，供业务方构建 UI。
+  3. `product_3d_render_video.local_preview_export`：仅测评端/客户端能力，负责浏览器本地预览录制，不作为业务 API 交付。
+  4. `product_3d_render_video.render_run`：业务 API `POST /api/business/product-3d-render-video/runs`，负责异步渲染、封面帧、manifest、OSS 回填和任务查询；当前使用轻量服务端渲染器，高保真 worker 后续替换。
+
+能力目录响应摘要：
+
+```json
+{
+  "businessKey": "product_3d_render_video",
+  "version": "product-3d-render-video-catalog-v1",
+  "status": "active",
+  "defaults": {
+    "modelKey": "cup_1660",
+    "materialSlot": "front",
+    "cameraPreset": "orbit_360",
+    "cameraDistance": "wide",
+    "scenePreset": "clean_studio",
+    "durationSeconds": 6,
+    "aspectRatio": "16:9",
+    "motionPath": [
+      { "x": 0.22, "y": 0.66 },
+      { "x": 0.5, "y": 0.5 },
+      { "x": 0.78, "y": 0.42 }
+    ],
+    "cameraPlan": {
+      "version": "camera-plan-v1",
+      "template": "orbit_360",
+      "productMotion": "fixed",
+      "cameraMotion": "path_playback",
+      "playbackConfirmed": false,
+      "confirmationRequiredBeforeRender": true,
+      "path": {
+        "coordinateSpace": "normalized_camera_path_preview",
+        "points": [
+          { "x": 0.22, "y": 0.66 },
+          { "x": 0.5, "y": 0.5 },
+          { "x": 0.78, "y": 0.42 }
+        ],
+        "pointCount": 3
+      },
+      "constraints": {
+        "productFixed": true,
+        "keepFullProductInFrame": true,
+        "avoidTextureDistortion": true
+      }
+    }
+  },
+  "models": [
+    {
+      "modelKey": "cup_1660",
+      "displayName": "1660 杯子",
+      "recommendedMaterialSlot": "front",
+      "materialSlots": ["front", "mouth", "cover", "bottom", "handshank", "else", "else1"],
+      "hasUv": true
+    }
+  ],
+  "scenePresets": [
+    {
+      "key": "clean_studio",
+      "asset": {
+        "assetId": "podi.scene.procedural.clean_studio.v1",
+        "assetStatus": "ready",
+        "renderFidelity": "mvp_procedural",
+        "externalCandidates": [
+          {
+            "provider": "Poly Haven",
+            "kind": "studio HDRI",
+            "license": "CC0",
+            "licenseUrl": "https://polyhaven.com/license",
+            "ingestStage": "staging_candidate",
+            "assetVersion": "to_be_recorded",
+            "downloadDate": "not_downloaded",
+            "fileHash": "to_be_recorded",
+            "downloadRequired": true,
+            "workerReadiness": {
+              "browserPreview": "not_ingested",
+              "serverLightweightRenderer": "not_ingested",
+              "highFidelityWorker": "requires_asset_import_test"
+            },
+            "licenseReview": {
+              "required": false,
+              "commercialUse": true,
+              "licenseUrl": "https://polyhaven.com/license"
+            },
+            "requiredValidation": [
+              "license_and_commercial_use",
+              "no_text_logo_watermark_or_brand_props",
+              "scene_fusion_no_occlusion",
+              "safe_framing_with_close_camera",
+              "browser_preview_performance",
+              "server_worker_render_smoke"
+            ]
+          }
+        ]
+      },
+      "fusion": {
+        "landingZone": "center_ellipse_floor_zone",
+        "occlusionPolicy": "no foreground props may cross the product silhouette"
+      },
+      "sceneVisualAcceptance": {
+        "status": "mvp_ready",
+        "summary": "Current procedural scene is ready for preview and lightweight MP4/OSS output; high-fidelity external scene candidates remain staging-only until visual/import gates pass.",
+        "checks": [
+          {
+            "code": "CURRENT_SCENE_ASSET_READY",
+            "label": "当前场景资产可执行",
+            "status": "passed",
+            "evidence": "podi.scene.procedural.clean_studio.v1 · mvp_procedural"
+          },
+          {
+            "code": "SAFE_FRAMING",
+            "label": "镜头完整入画",
+            "status": "passed",
+            "evidence": "wide · frame 56% · margin 7%"
+          },
+          {
+            "code": "HIGH_FIDELITY_IMPORT_SMOKE",
+            "label": "高保真候选待入库",
+            "status": "planned",
+            "evidence": "2 candidates need staging/import smoke before promotion"
+          }
+        ],
+        "candidateSummary": {
+          "total": 2,
+          "cc0Count": 2,
+          "readyCount": 0,
+          "blockedCount": 2
+        }
+      }
+    }
+  ],
+  "sceneAssetSources": [
+    {
+      "provider": "Poly Haven",
+      "sourceType": "hdri_and_3d_models",
+      "sourceUrl": "https://polyhaven.com",
+      "license": "CC0",
+      "licenseUrl": "https://polyhaven.com/license",
+      "commercialUse": true,
+      "candidateAssets": [
+        {
+          "assetId": "blocky_photo_studio",
+          "displayName": "Blocky Photo Studio",
+          "sourceUrl": "https://polyhaven.com/a/blocky_photo_studio",
+          "targetScenePresets": ["clean_studio", "marketplace_white"],
+          "use": "calibrated studio HDRI for soft commercial product lighting",
+          "ingestStage": "staging_candidate",
+          "assetVersion": "to_be_recorded",
+          "downloadDate": "not_downloaded",
+          "fileHash": "to_be_recorded",
+          "downloadRequired": true,
+          "workerReadiness": {
+            "browserPreview": "not_ingested",
+            "serverLightweightRenderer": "not_ingested",
+            "highFidelityWorker": "requires_asset_import_test"
+          },
+          "licenseReview": {
+            "required": false,
+            "commercialUse": true,
+            "licenseUrl": "https://polyhaven.com/license"
+          },
+          "requiredValidation": [
+            "license_and_commercial_use",
+            "no_text_logo_watermark_or_brand_props",
+            "scene_fusion_no_occlusion",
+            "safe_framing_with_close_camera",
+            "browser_preview_performance",
+            "server_worker_render_smoke"
+          ]
+        },
+        {
+          "assetId": "blue_photo_studio",
+          "displayName": "Blue Photo Studio",
+          "sourceUrl": "https://polyhaven.com/a/blue_photo_studio",
+          "targetScenePresets": ["desktop_lifestyle"],
+          "use": "indoor studio HDRI for lifestyle tabletop depth"
+        },
+        {
+          "assetId": "metal_office_desk",
+          "displayName": "Metal Office Desk",
+          "sourceUrl": "https://polyhaven.com/a/metal_office_desk",
+          "targetScenePresets": ["desktop_lifestyle"],
+          "kind": "scene_model",
+          "use": "real desk scene model candidate for desktop lifestyle product placement",
+          "ingestStage": "staging_candidate",
+          "workerReadiness": {
+            "browserPreview": "not_ingested",
+            "serverLightweightRenderer": "not_ingested",
+            "highFidelityWorker": "requires_asset_import_test"
+          },
+          "requiredValidation": [
+            "license_and_commercial_use",
+            "scene_fusion_no_occlusion",
+            "safe_framing_with_close_camera",
+            "server_worker_render_smoke"
+          ]
+        },
+        {
+          "assetId": "wooden_display_shelves_01",
+          "displayName": "Wooden Display Shelves 01",
+          "sourceUrl": "https://polyhaven.com/a/wooden_display_shelves_01",
+          "targetScenePresets": ["retail_shelf", "desktop_lifestyle"],
+          "kind": "scene_model",
+          "use": "non-branded cubby shelf model candidate for retail display and lifestyle product placement",
+          "ingestStage": "staging_candidate",
+          "workerReadiness": {
+            "browserPreview": "not_ingested",
+            "serverLightweightRenderer": "not_ingested",
+            "highFidelityWorker": "requires_asset_import_test"
+          },
+          "requiredValidation": [
+            "license_and_commercial_use",
+            "no_text_logo_watermark_or_brand_props",
+            "scene_fusion_no_occlusion",
+            "safe_framing_with_close_camera",
+            "server_worker_render_smoke"
+          ]
+        }
+      ],
+      "ingestStatus": "candidate_source"
+    },
+    {
+      "provider": "ambientCG",
+      "sourceType": "pbr_materials_and_models",
+      "sourceUrl": "https://ambientcg.com",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://docs.ambientcg.com/license/",
+      "commercialUse": true,
+      "candidateAssets": [
+        {
+          "assetId": "Wood095",
+          "displayName": "Wood 095",
+          "sourceUrl": "https://ambientcg.com/a/Wood095",
+          "targetScenePresets": ["desktop_lifestyle"],
+          "use": "minimal light wood tabletop PBR material"
+        },
+        {
+          "assetId": "Paper006",
+          "displayName": "Paper 006",
+          "sourceUrl": "https://ambientcg.com/a/Paper006",
+          "targetScenePresets": ["gift_table", "marketplace_white"],
+          "use": "neutral paper surface for backdrops and gift props"
+        },
+        {
+          "assetId": "Metal037",
+          "displayName": "Metal 037",
+          "sourceUrl": "https://ambientcg.com/a/Metal037",
+          "targetScenePresets": ["retail_shelf", "desktop_lifestyle"],
+          "use": "neutral steel/fixture PBR material candidate for shelf and desk frame surfaces"
+        }
+      ],
+      "ingestStatus": "candidate_source"
+    }
+  ],
+  "renderers": {
+    "browserPreview": { "status": "ready" },
+    "serverLightweight": { "status": "ready", "worker": "lightweight_scene_renderer_v1" },
+    "highFidelity": { "status": "planned", "worker": "blender_or_headless_threejs" }
+  }
+}
+```
+
+`sceneAssetSources` 是平台侧场景资产治理字段，业务方通常只读不写。它用于说明后续高保真场景模型、HDRI、PBR 材质可以从哪些来源进入受控资产库，以及每类来源的授权、入库状态和验收门禁。`candidateAssets` 是资产级候选清单，只代表“可入库调研对象”，不是当前渲染直接下载的远程资产。执行请求仍然只传 `scenePreset`，不能让业务方直接传任意第三方模型 URL 绕过授权、性能和内容风险检查。候选资产必须携带 `ingestStage/assetVersion/downloadDate/fileHash/workerReadiness/licenseReview/requiredValidation`，用于资产下载、授权复核、视觉验收和渲染 worker 导入测试。`scenePresets[].renderElements` 与 `/runs` manifest 的 `sceneElements` 是当前场景模型结构，描述背景、台面、道具、层级和遮挡规则；它是平台输出和 worker 输入契约，不是业务方可任意改写的入参。`sceneVisualAcceptance` 是场景可用性验收合同：`status=mvp_ready` 只代表当前程序化/轻量渲染链路可执行；外部高保真候选仍需通过授权、无文字水印、融合遮挡、安全取景、浏览器预览性能和服务端导入 smoke 后，才可以替换成正式场景资产。
 
 最小请求：
 
@@ -2035,12 +2385,195 @@ Vidu 固定画幅执行补充字段：
 | `textureImageUrls` | 兼容字段 | 空 | 多贴图 URL 兼容入口。后续正式渲染以 `textureSlots` 的槽位映射为准。 |
 | `textureSlots` | 建议 | 空 | 按材质槽绑定的贴图清单，每项包含 `materialSlot/imageUrl/label`。这是 3D WYSIWYG 预览和服务端渲染 worker 的主输入。 |
 | `materialSlot` | 否 | 模型推荐槽 | 3D 模型的固定材质槽 / UV 区域。1660 杯子推荐 `front`；2551 背包推荐 `front`。非法槽返回 `PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID`。 |
-| `cameraPreset` | 否 | `orbit_360` | `orbit_360/slow_push_in/detail_sweep`。 |
-| `scenePreset` | 否 | `clean_studio` | `clean_studio/marketplace_white/premium_dark`。 |
-| `durationSeconds` | 否 | `6` | 1-30 秒；当前只用于方案，不触发真实渲染。 |
+| `cameraPreset` | 否 | `orbit_360` | `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`。 |
+| `cameraDistance` | 否 | `wide` | `wide/standard/close`。默认 `wide`，优先保证商品完整入画。三档都会写入 `renderPlan.camera.framing.mode=fit_product_safe_bounds` 和 `renderPlan.framingSafety`，服务端轻量渲染会按安全取景合同约束镜头轨迹，避免镜头过近或轨迹变化导致主体裁切。`close` 会标记为细节补充镜头，不建议作为唯一最终交付视频。非法值返回 `PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID`。 |
+| `scenePreset` | 否 | `clean_studio` | `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`。每个预设都会绑定 `renderPlan.scene.asset`，包含 `assetId/assetType/license/renderFidelity/materialPolicy`；同时返回 `renderPlan.scene.fusion` 说明商品落点、比例、道具层级、遮挡规则和阴影策略，并返回 `renderPlan.sceneVisualAcceptance` 用于判断当前场景能否执行、候选场景模型卡在哪些入库门禁。测评端会将这些场景以 Three.js 基础场景模型和缩略图呈现，不只是文字说明。 |
+| `cameraPlan` | 建议 | 默认镜头方案 | 镜头方案主字段，描述 `productMotion=fixed`、`cameraMotion=path_playback`、轨迹点、焦点、取景约束和 `playbackConfirmed`。测评端必须先播放并确认镜头轨迹，`/runs` 建议携带 `playbackConfirmed=true`，避免未经确认的路径直接触发服务端视频生成。 |
+| `motionPath` | 兼容字段 | 默认轻微弧线 | 兼容旧调用的镜头轨迹点数组，每项 `{x,y}` 且范围 0-1；至少 2 点，最多取前 12 点。商品保持固定，不表示商品位移。新接入优先使用 `cameraPlan.path.points`；响应里的 `framingSafety.motionPathBounds` 记录镜头轨迹范围，`appliedMotionScale` 记录轻量渲染器的取景缩放。非法值返回 `PRODUCT_3D_RENDER_VIDEO_MOTION_PATH_INVALID`。 |
+| `durationSeconds` | 否 | `6` | 1-30 秒；`/preview` 只进入方案，`/runs` 用于服务端 MP4 帧数和时长。 |
 | `aspectRatio` | 否 | `16:9` | 目标画幅。 |
-| `outputMode` | 否 | `plan_only` | 当前只允许 `plan_only`。传 `render_video` 会返回 `PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY`。 |
+| `outputMode` | 否 | `plan_only` | `/preview` 只允许 `plan_only`。`/runs` 会强制使用 `render_video` 并返回统一业务 runId。 |
 | `extraPrompt` | 否 | 空 | 内部渲染备注；不作为大模型提示词，不决定贴图槽或视频内容。测评端默认不展示。 |
+
+服务端渲染任务入口请求与预览一致，但固定使用：
+
+```json
+{
+  "modelKey": "cup_1660",
+  "textureSlots": [
+    {
+      "materialSlot": "front",
+      "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/floral-front.png"
+    }
+  ],
+  "cameraDistance": "wide",
+  "scenePreset": "clean_studio",
+  "motionPath": [
+    { "x": 0.22, "y": 0.66 },
+    { "x": 0.5, "y": 0.5 },
+    { "x": 0.78, "y": 0.42 }
+  ],
+  "cameraPlan": {
+    "version": "camera-plan-v1",
+    "template": "orbit_360",
+    "productMotion": "fixed",
+    "cameraMotion": "path_playback",
+    "playbackConfirmed": true,
+    "confirmationRequiredBeforeRender": true,
+    "path": {
+      "coordinateSpace": "normalized_camera_path_preview",
+      "points": [
+        { "x": 0.22, "y": 0.66 },
+        { "x": 0.5, "y": 0.5 },
+        { "x": 0.78, "y": 0.42 }
+      ],
+      "pointCount": 3
+    },
+    "constraints": {
+      "productFixed": true,
+      "keepFullProductInFrame": true,
+      "avoidTextureDistortion": true
+    }
+  },
+  "durationSeconds": 6,
+  "outputMode": "render_video",
+  "requestId": "req-product-3d-render-run-001"
+}
+```
+
+当前响应：
+
+```json
+{
+  "runId": "b8e0f0a5d7f14f1a9b9b1d0ad9a7c001",
+  "taskId": "b8e0f0a5d7f14f1a9b9b1d0ad9a7c001",
+  "businessKey": "product_3d_render_video",
+  "version": "p3d-render-video-v1",
+  "status": "queued",
+  "taskStatus": "queued",
+  "retryAfterSeconds": 10
+}
+```
+
+`version` 是业务 run 版本，长度受 `business_runs.version` 字段限制；轻量渲染器的具体版本保留在 `resultPayload.version`、`costBreakdown.pricingVersion` 和 manifest 里。随后调用 `/api/business/runs/get` 查询。若要读取完整 `resultPayload.renderAssetPackage.manifest`，请求体传 `detail=full`；默认轻量响应会保留 `videoUrls/imageUrls`，但不会展开大型结构化 payload：
+
+```json
+{
+  "runId": "b8e0f0a5d7f14f1a9b9b1d0ad9a7c001",
+  "taskId": "b8e0f0a5d7f14f1a9b9b1d0ad9a7c001",
+  "businessKey": "product_3d_render_video",
+  "version": "p3d-render-video-v1",
+  "status": "succeeded",
+  "videoUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/.../p3d_xxx.mp4"],
+  "imageUrls": ["https://podi.oss-cn-hangzhou.aliyuncs.com/.../p3d_xxx-cover.png"],
+  "resultPayload": {
+    "renderAssetPackage": {
+      "deliveryStatus": "assets_ready",
+      "renderer": "lightweight_scene_renderer_v1",
+      "videoUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/.../p3d_xxx.mp4",
+      "coverFrameUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/.../p3d_xxx-cover.png",
+      "manifestUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/.../p3d_xxx-manifest.json",
+      "textureApplication": {
+        "mode": "slot_texture_mapping",
+        "activeMaterialSlot": "front",
+        "textureSlotCount": 2,
+        "primaryTextureUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/floral-front.png",
+        "textureSlots": [
+          {
+            "materialSlot": "front",
+            "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/floral-front.png",
+            "label": "杯身正面"
+          },
+          {
+            "materialSlot": "bottom",
+            "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/floral-bottom.png",
+            "label": "底部"
+          }
+        ]
+      },
+      "manifest": {
+        "textureApplication": {
+          "mode": "slot_texture_mapping",
+          "activeMaterialSlot": "front",
+          "textureSlotCount": 2,
+          "primaryTextureUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/floral-front.png",
+          "preserveUv": true
+        },
+        "sceneAsset": {
+          "assetId": "podi.scene.procedural.clean_studio.v1",
+          "assetType": "procedural_scene_model",
+          "renderFidelity": "mvp_procedural",
+          "license": {
+            "type": "internal_procedural",
+            "commercialUse": true
+          },
+          "materialPolicy": "neutral matte materials only; no readable labels or brand props"
+        },
+        "sceneFusion": {
+          "landingZone": "center_ellipse_floor_zone",
+          "productScale": "56-70% frame height",
+          "occlusionPolicy": "no foreground props may cross the product silhouette",
+          "propDepth": "lighting cards and backdrop stay behind the product",
+          "shadowPolicy": "soft contact shadow under product footprint"
+        },
+        "sceneVisualAcceptance": {
+          "status": "mvp_ready",
+          "currentAsset": {
+            "assetId": "podi.scene.procedural.clean_studio.v1",
+            "assetStatus": "ready",
+            "renderFidelity": "mvp_procedural"
+          },
+          "candidateSummary": {
+            "total": 2,
+            "readyCount": 0,
+            "blockedCount": 2
+          },
+          "promotionPolicy": {
+            "currentRendererCanExecute": true,
+            "businessInput": "scenePreset only; external asset URLs are not accepted at execution time"
+          }
+        },
+        "sceneElements": [
+          {
+            "elementId": "cyclorama_backdrop",
+            "type": "seamless_backdrop",
+            "depthLayer": "background",
+            "zone": "full_frame",
+            "occlusion": "never_cross_product_silhouette"
+          },
+          {
+            "elementId": "matte_floor",
+            "type": "floor_plane",
+            "depthLayer": "surface",
+            "zone": "bottom_20_percent",
+            "occlusion": "shadow_receiver_only"
+          }
+        ],
+        "framingSafety": {
+          "mode": "fit_product_safe_bounds",
+          "cameraDistance": "wide",
+          "frameHeightRatio": 0.56,
+          "safeMarginRatio": 0.07,
+          "motionPathBounds": {
+            "minX": 0.22,
+            "maxX": 0.78,
+            "minY": 0.42,
+            "maxY": 0.66,
+            "spanX": 0.56,
+            "spanY": 0.24
+          },
+          "appliedMotionScale": {
+            "xFrameRatio": 0.22,
+            "yFrameRatio": 0.16
+          },
+          "fullProductFitRequired": true,
+          "finalDeliveryRecommended": true
+        }
+      }
+    }
+  }
+}
+```
 
 响应摘要：
 
@@ -2060,7 +2593,10 @@ Vidu 固定画幅执行补充字段：
     "uvReady": true,
     "textureProvided": true,
     "textureSlotCount": 2,
-    "renderWorkerReady": false
+    "renderWorkerReady": true,
+    "renderWorker": "lightweight_scene_renderer_v1",
+    "highFidelityWorkerReady": false,
+    "highFidelityWorker": "planned"
   },
   "renderPlan": {
     "pipeline": "threejs_or_blender_render_worker",
@@ -2087,10 +2623,74 @@ Vidu 固定画幅执行补充字段：
       "previewBoundary": "client_threejs_wysiwyg_preview_then_server_render_worker"
     },
     "camera": {
-      "preset": "orbit_360"
+      "preset": "orbit_360",
+      "distance": {
+        "key": "wide",
+        "frameHeightRatio": 0.58
+      },
+      "framing": {
+        "mode": "fit_product_safe_bounds",
+        "safety": {
+          "fullProductFitRequired": true,
+          "cameraPathCannotOverrideSafeBounds": true
+        }
+      }
+    },
+    "framingSafety": {
+      "mode": "fit_product_safe_bounds",
+      "cameraDistance": "wide",
+      "frameHeightRatio": 0.56,
+      "safeMarginRatio": 0.07,
+      "motionPathBounds": {
+        "spanX": 0.56,
+        "spanY": 0.24
+      },
+      "finalDeliveryRecommended": true
+    },
+    "cameraPlan": {
+      "version": "camera-plan-v1",
+      "template": "orbit_360",
+      "productMotion": "fixed",
+      "cameraMotion": "path_playback",
+      "playbackConfirmed": true,
+      "path": {
+        "coordinateSpace": "normalized_camera_path_preview",
+        "points": [
+          { "x": 0.22, "y": 0.66 },
+          { "x": 0.5, "y": 0.5 },
+          { "x": 0.78, "y": 0.42 }
+        ],
+        "pointCount": 3
+      },
+      "constraints": {
+        "productFixed": true,
+        "keepFullProductInFrame": true,
+        "avoidTextureDistortion": true
+      }
+    },
+    "motionPath": {
+      "mode": "legacy_camera_path_points",
+      "points": [
+        { "x": 0.22, "y": 0.66 },
+        { "x": 0.5, "y": 0.5 },
+        { "x": 0.78, "y": 0.42 }
+      ]
     },
     "scene": {
       "preset": "clean_studio"
+    },
+    "sceneVisualAcceptance": {
+      "status": "mvp_ready",
+      "candidateSummary": {
+        "total": 2,
+        "readyCount": 0,
+        "blockedCount": 2
+      },
+      "checks": [
+        { "code": "CURRENT_SCENE_ASSET_READY", "status": "passed" },
+        { "code": "SAFE_FRAMING", "status": "passed" },
+        { "code": "HIGH_FIDELITY_IMPORT_SMOKE", "status": "planned" }
+      ]
     },
     "deliverables": ["rendered_video_mp4", "cover_frame_png", "render_manifest_json"]
   }
@@ -2102,9 +2702,18 @@ Vidu 固定画幅执行补充字段：
 - `PRODUCT_3D_RENDER_VIDEO_MODEL_INVALID`
 - `PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID`
 - `PRODUCT_3D_RENDER_VIDEO_CAMERA_PRESET_INVALID`
+- `PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID`
 - `PRODUCT_3D_RENDER_VIDEO_SCENE_PRESET_INVALID`
+- `PRODUCT_3D_RENDER_VIDEO_MOTION_PATH_INVALID`
 - `PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY`
+- `PRODUCT_3D_RENDER_VIDEO_TEXTURE_REQUIRED`
+- `PRODUCT_3D_RENDER_VIDEO_TEXTURE_LOAD_FAILED`
+- `PRODUCT_3D_RENDER_VIDEO_CONTEXT_INVALID`
+- `PRODUCT_3D_RENDER_VIDEO_FFMPEG_MISSING`
+- `PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_NOT_READY`（历史/兼容，当前轻量渲染器已接入）
+- `PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED`
 - `PRODUCT_3D_RENDER_VIDEO_PREVIEW_FAILED`
+- `PRODUCT_3D_RENDER_VIDEO_CATALOG_FAILED`
 
 非阻断 issue code：
 
@@ -2390,7 +2999,7 @@ Coze 旧工具箱兼容查询：
 | 字段 | 类型 | 含义 | 业务方处理建议 |
 | --- | --- | --- | --- |
 | `runId` | string | 中台业务任务 ID，也是业务方保存和轮询的主 ID。 | 提交成功后必须保存；查询 `/api/business/runs/get` 时继续传这个值。 |
-| `taskId` | string/null | 底层原子能力任务 ID。 | 仅用于排障和中台定位；业务系统不需要依赖它。 |
+| `taskId` | string/null | 兼容任务 ID。普通原子能力任务可能是底层任务 ID；`product_commercialization`、`promo_video`、`product_3d_render_video` 等组合业务中等同 `runId`。 | 业务系统优先保存 `runId`；如果历史系统只保存 `taskId`，也可用它调用 `/api/business/runs/get` 查询同一条任务。 |
 | `status` | string | 中台业务状态，取值通常为 `queued/running/succeeded/failed/cancelled/timeout`。 | 判断任务是否结束的主字段。 |
 | `taskStatus` | string | 兼容 Coze 旧轮询口径的状态字段。 | 老调用方可以继续读这个字段；含义与 `status` 保持一致。 |
 | `imageUrl` | string/null | 第一张结果图的 OSS 地址。 | 只需要单张结果时读取这个字段。 |

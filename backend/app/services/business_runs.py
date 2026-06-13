@@ -71,6 +71,7 @@ from app.schemas.business import (
     BusinessQualitySampleImportRequest,
     BusinessQualitySampleUpdateRequest,
     BusinessRunCreateRequest,
+    Product3DRenderVideoRequest,
     ProductCommercializationRequest,
     TextFissionPromptRequest,
 )
@@ -92,6 +93,7 @@ from app.services.business_seed import ensure_default_business_capabilities
 from app.services.business_projects import get_business_project_service
 from app.services.product_commercialization import product_commercialization_service
 from app.services.product_commercialization import _normalize_product_image_inputs, _primary_product_image_url
+from app.services.product_3d_render_video import product_3d_render_video_service
 from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
 from app.services.fission_control_prompt import compile_comfyui_v4_prompt
 from app.services.fission_control_prompt import extract_fission_control_card
@@ -110,6 +112,10 @@ from app.services.wallet import wallet_service
 logger = logging.getLogger(__name__)
 FINALIZE_INTERVAL_SECONDS = 6
 FINALIZE_BATCH_SIZE = 30
+PRODUCT_COMMERCIALIZATION_RUN_KEYS = {"product_commercialization", "promo_video"}
+PRODUCT_3D_RENDER_VIDEO_RUN_VERSION = "p3d-render-video-v1"
+PRODUCT_3D_RENDER_VIDEO_RENDERER_VERSION = "product-3d-render-video-lightweight-v1"
+PRODUCT_3D_RENDER_VIDEO_BILLING_UNIT = "p3d_render_video_lightweight"
 BUSINESS_DASHBOARD_CACHE_TTL_SECONDS = 12
 BUSINESS_DASHBOARD_CACHE_MAX_ITEMS = 64
 BUSINESS_USAGE_FLOW_EVIDENCE_RUN_LIMIT = 5
@@ -277,6 +283,8 @@ class BusinessRunService:
         self._thread_started = False
         self._product_commercialization_active_run_ids: set[str] = set()
         self._product_commercialization_lock = threading.Lock()
+        self._product_3d_render_video_active_run_ids: set[str] = set()
+        self._product_3d_render_video_lock = threading.Lock()
         if self._background_workers_enabled and not suppress_background_threads_for_tests():
             self._start_finalize_thread()
 
@@ -2597,8 +2605,11 @@ class BusinessRunService:
         payload: ProductCommercializationRequest,
         user: User | None,
         source: str = "business-api",
+        business_key: str = "product_commercialization",
     ) -> dict[str, Any]:
         """Create a unified business run for commercialization actions."""
+        if business_key not in PRODUCT_COMMERCIALIZATION_RUN_KEYS:
+            raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_BUSINESS_KEY_INVALID")
         image_url = self._first_string(payload.productImageUrl) or _primary_product_image_url(
             _normalize_product_image_inputs(payload)
         )
@@ -2610,8 +2621,15 @@ class BusinessRunService:
 
         request_payload = payload.model_dump(exclude_none=True, by_alias=False)
         run_id = uuid4().hex
-        business_key = "product_commercialization"
-        step_name, step_type = self._product_commercialization_step_identity(action)
+        step_name, step_type = self._product_commercialization_step_identity(action, business_key=business_key)
+        version = "promo-video-mvp-v1" if business_key == "promo_video" else "product-commercialization-mvp-v1"
+        product_commercialization_contract = {
+            "action": action,
+            "businessKey": business_key,
+            "contract": "business_run_v1",
+            "queryEndpoint": "/api/business/runs/get",
+            "underlyingBusinessKey": "product_commercialization" if business_key == "promo_video" else business_key,
+        }
         business_payload = BusinessRunCreateRequest(
             imageUrl=image_url,
             inputs=request_payload,
@@ -2620,11 +2638,7 @@ class BusinessRunService:
             requestId=payload.requestId,
             metadata={
                 "source": payload.source or source,
-                "productCommercialization": {
-                    "action": action,
-                    "contract": "business_run_v1",
-                    "queryEndpoint": "/api/business/runs/get",
-                },
+                "productCommercialization": product_commercialization_contract,
             },
         )
         trace_context = self._resolve_trace_context(
@@ -2636,11 +2650,7 @@ class BusinessRunService:
         )
         request_payload["_trace"] = trace_context
         request_payload["action"] = action
-        request_payload["_productCommercialization"] = {
-            "action": action,
-            "contract": "business_run_v1",
-            "queryEndpoint": "/api/business/runs/get",
-        }
+        request_payload["_productCommercialization"] = product_commercialization_contract
 
         with get_session() as session:
             client_policy = self._check_business_client_policy(
@@ -2655,7 +2665,7 @@ class BusinessRunService:
                 id=run_id,
                 business_key=business_key,
                 business_version_id=None,
-                version="product-commercialization-mvp-v1",
+                version=version,
                 status="queued",
                 source=trace_context["source"],
                 channel=trace_context.get("channel"),
@@ -2677,7 +2687,10 @@ class BusinessRunService:
                     step_id=step_name,
                     step_type=step_type,
                     role="primary",
-                    display_name="产品商业化配图生成" if action == "visual_generate" else "产品商业化视频生成",
+                    display_name=self._product_commercialization_step_display_name(
+                        action,
+                        business_key=business_key,
+                    ),
                     enabled=True,
                     status="queued",
                     request_payload=self._omit_large_fields(request_payload),
@@ -2700,11 +2713,139 @@ class BusinessRunService:
         self._enqueue_product_commercialization_run(run_id=run_id, user_id=getattr(user, "id", None))
         return result
 
+    def create_product_3d_render_video_run(
+        self,
+        *,
+        payload: Product3DRenderVideoRequest,
+        user: User | None,
+        source: str = "business-api",
+    ) -> dict[str, Any]:
+        """Create a unified business run for deterministic 3D render-video generation."""
+        texture_url = self._product_3d_render_primary_texture_url(payload)
+        if not texture_url:
+            raise HTTPException(status_code=400, detail="PRODUCT_3D_RENDER_VIDEO_TEXTURE_REQUIRED")
+        if not getattr(self, "_background_workers_enabled", True):
+            raise HTTPException(status_code=503, detail="BACKGROUND_WORKERS_DISABLED")
+
+        request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+        request_payload["outputMode"] = "render_video"
+        request_payload["_product3DRenderVideo"] = {
+            "contract": "business_run_v1",
+            "renderer": "lightweight_scene_renderer_v1",
+            "queryEndpoint": "/api/business/runs/get",
+        }
+        run_id = uuid4().hex
+        business_key = "product_3d_render_video"
+        business_payload = BusinessRunCreateRequest(
+            imageUrl=texture_url,
+            inputs={
+                **request_payload,
+                "billingMode": "no_charge",
+            },
+            source=payload.source or source,
+            traceId=payload.traceId,
+            requestId=payload.requestId,
+            metadata={
+                "source": payload.source or source,
+                "billingMode": "no_charge",
+                "product3DRenderVideo": {
+                    "contract": "business_run_v1",
+                    "renderer": "lightweight_scene_renderer_v1",
+                    "queryEndpoint": "/api/business/runs/get",
+                },
+            },
+        )
+        trace_context = self._resolve_trace_context(
+            run_id=run_id,
+            business_key=business_key,
+            payload=business_payload,
+            source=source,
+            user=user,
+        )
+        request_payload["_trace"] = trace_context
+
+        with get_session() as session:
+            client_policy = self._check_business_client_policy(
+                session=session,
+                business_key=business_key,
+                payload=business_payload,
+                trace_context=trace_context,
+            )
+            if client_policy:
+                request_payload["_businessClient"] = client_policy
+            run = BusinessRun(
+                id=run_id,
+                business_key=business_key,
+                business_version_id=None,
+                version=PRODUCT_3D_RENDER_VIDEO_RUN_VERSION,
+                status="queued",
+                source=trace_context["source"],
+                channel=trace_context.get("channel"),
+                trace_id=trace_context["traceId"],
+                request_id=trace_context["requestId"],
+                tenant_id=trace_context.get("tenantId"),
+                client_id=trace_context.get("clientId"),
+                user_id=self._resolve_business_user_id(user=user, payload=business_payload, trace_context=trace_context),
+                user_name=self._resolve_business_user_name(user=user, payload=business_payload),
+                ability_id=None,
+                request_payload=self._omit_large_fields(request_payload),
+            )
+            session.add(run)
+            session.add(
+                BusinessRunStep(
+                    id=uuid4().hex,
+                    run_id=run.id,
+                    step_order=1,
+                    step_id="product_3d_render_video_render",
+                    step_type="product_3d_render_video_render",
+                    role="primary",
+                    display_name="3D 贴图渲染视频生成",
+                    enabled=True,
+                    status="queued",
+                    request_payload=self._omit_large_fields(request_payload),
+                )
+            )
+            project_context = get_business_project_service().link_run_to_project(
+                session=session,
+                run=run,
+                payload=business_payload,
+                trace_context=trace_context,
+                user=user,
+            )
+            if project_context and isinstance(request_payload, dict):
+                request_payload["_projectContext"] = project_context
+                run.request_payload = self._omit_large_fields(request_payload)
+            session.commit()
+            session.refresh(run)
+            result = self._run_to_dict(run, session=session)
+
+        self._enqueue_product_3d_render_video_run(run_id=run_id, user_id=getattr(user, "id", None))
+        return result
+
+    @staticmethod
+    def _product_3d_render_primary_texture_url(payload: Product3DRenderVideoRequest) -> str:
+        texture_slots = payload.textureSlots if isinstance(payload.textureSlots, list) else []
+        for item in texture_slots:
+            if not isinstance(item, dict):
+                continue
+            image_url = str(item.get("imageUrl") or item.get("image_url") or item.get("url") or "").strip()
+            if image_url:
+                return image_url
+        if payload.textureImageUrl and str(payload.textureImageUrl).strip():
+            return str(payload.textureImageUrl).strip()
+        if isinstance(payload.textureImageUrls, list):
+            for image_url in payload.textureImageUrls:
+                if str(image_url or "").strip():
+                    return str(image_url).strip()
+        return ""
+
     @staticmethod
     def _normalize_product_commercialization_action(raw_action: str | None, *, strict: bool = False) -> str:
         normalized = str(raw_action or "").strip().lower()
         if normalized in {"", "video_generate", "video", "generate_video"}:
             return "video_generate"
+        if normalized in {"video_keyframes", "keyframes", "generate_keyframes", "video_frames"}:
+            return "video_keyframes"
         if normalized in {"compose_video", "video_compose"}:
             return "compose_video"
         if normalized in {"visual_generate", "image_generate", "visual"}:
@@ -2714,10 +2855,40 @@ class BusinessRunService:
         return "video_generate"
 
     @staticmethod
-    def _product_commercialization_step_identity(action: str) -> tuple[str, str]:
+    def _product_commercialization_step_identity(
+        action: str,
+        *,
+        business_key: str = "product_commercialization",
+    ) -> tuple[str, str]:
+        if business_key == "promo_video":
+            if action == "video_keyframes":
+                return "promo_video_keyframes", "promo_video_keyframes"
+            if action == "compose_video":
+                return "promo_video_compose", "promo_video_compose"
+            return "promo_video_segments", "promo_video_segments"
         if action == "visual_generate":
             return "product_commercialization_image", "product_commercialization_image"
+        if action == "video_keyframes":
+            return "product_commercialization_keyframes", "product_commercialization_keyframes"
         return "product_commercialization_video", "product_commercialization_video"
+
+    @staticmethod
+    def _product_commercialization_step_display_name(
+        action: str,
+        *,
+        business_key: str = "product_commercialization",
+    ) -> str:
+        if business_key == "promo_video":
+            if action == "video_keyframes":
+                return "产品推广视频首尾帧生成"
+            if action == "compose_video":
+                return "产品推广视频合成"
+            return "产品推广视频素材生成"
+        if action == "visual_generate":
+            return "产品商业化配图生成"
+        if action == "video_keyframes":
+            return "产品视频首尾帧生成"
+        return "产品商业化视频生成"
 
     def create_run_for_capability(
         self,
@@ -3282,7 +3453,7 @@ class BusinessRunService:
         started_at = datetime.utcnow()
         with get_session() as session:
             run = session.get(BusinessRun, run_id)
-            if not run or run.business_key != "product_commercialization":
+            if not run or run.business_key not in PRODUCT_COMMERCIALIZATION_RUN_KEYS:
                 return
             if run.status in {"succeeded", "failed", "cancelled"}:
                 return
@@ -3324,6 +3495,20 @@ class BusinessRunService:
                     texts=self._extract_product_commercialization_texts(result),
                 )
                 return
+            if action == "video_keyframes":
+                result = product_commercialization_service.generate_video_keyframes(payload, user_id=user_id)
+                image_urls = self._extract_product_commercialization_image_urls(result)
+                if not image_urls:
+                    raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED")
+                self._finish_product_commercialization_run(
+                    run_id=run_id,
+                    status="succeeded",
+                    started_at=started_at,
+                    result_payload=result,
+                    image_urls=image_urls,
+                    texts=self._extract_product_commercialization_texts(result),
+                )
+                return
 
             target_duration = int(payload.targetDurationSeconds or payload.durationSeconds or 8)
             segment_duration = int(payload.durationSeconds or 8)
@@ -3344,11 +3529,15 @@ class BusinessRunService:
                 texts=self._extract_product_commercialization_texts(result),
             )
         except Exception as exc:
-            error_message = self._extract_error_message(exc)
-            error_payload: dict[str, Any] = {"error": error_message}
+            fallback_code = self._product_commercialization_error_fallback_code(
+                locals().get("action") if isinstance(locals().get("action"), str) else None
+            )
+            error_payload = self._structured_product_commercialization_error(exc, fallback_code=fallback_code)
+            error_message = str(error_payload.get("errorCode") or error_payload.get("message") or self._extract_error_message(exc))[:500]
             detail = getattr(exc, "detail", None)
-            if isinstance(detail, dict):
-                error_payload["detail"] = detail
+            normalized_detail = self._unwrap_exception_detail(detail)
+            if isinstance(normalized_detail, dict):
+                error_payload["detail"] = normalized_detail
             self._finish_product_commercialization_run(
                 run_id=run_id,
                 status="failed",
@@ -3415,7 +3604,14 @@ class BusinessRunService:
             self._deliver_callback(run_id)
 
     def _find_product_commercialization_step(self, *, session, run: BusinessRun) -> BusinessRunStep | None:
-        step_ids = ["product_commercialization_video", "product_commercialization_image"]
+        step_ids = [
+            "product_commercialization_video",
+            "product_commercialization_keyframes",
+            "product_commercialization_image",
+            "promo_video_segments",
+            "promo_video_keyframes",
+            "promo_video_compose",
+        ]
         return (
             session.execute(
                 select(BusinessRunStep)
@@ -3499,6 +3695,12 @@ class BusinessRunService:
                 add(result.get("image_urls"))
                 add(result.get("storedAssets"))
                 add(result.get("imageResults"))
+            video_asset_package = result.get("videoAssetPackage")
+            if isinstance(video_asset_package, dict):
+                add(video_asset_package.get("keyframes"))
+            video_result = result.get("videoResult")
+            if isinstance(video_result, dict):
+                add(video_result.get("keyframes"))
 
         seen: set[str] = set()
         out: list[str] = []
@@ -3522,7 +3724,7 @@ class BusinessRunService:
         video_asset_package = payload.get("videoAssetPackage") if isinstance(payload.get("videoAssetPackage"), dict) else {}
         execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else {}
 
-        if normalized_action == "visual_generate":
+        if normalized_action in {"visual_generate", "video_keyframes"}:
             image_result = payload.get("imageResult") if isinstance(payload.get("imageResult"), dict) else {}
             image_count = self._first_int(len((self._extract_product_commercialization_image_urls(payload)) or []))
             image_count = max(1, image_count or 1)
@@ -3545,7 +3747,11 @@ class BusinessRunService:
                         "billingUnit": primary_cost_action,
                         "quotaUnits": image_count,
                         "segmentCount": image_count,
-                        "policy": "one_quota_per_generated_image",
+                        "policy": (
+                            "one_quota_per_generated_video_keyframe"
+                            if normalized_action == "video_keyframes"
+                            else "one_quota_per_generated_image"
+                        ),
                         "primaryCostAction": primary_cost_action,
                         "costActions": cost_actions,
                         "monetaryPriceStatus": "pending_vendor_cost_policy",
@@ -3617,6 +3823,241 @@ class BusinessRunService:
             if isinstance(value, list):
                 values.extend(str(item).strip() for item in value if str(item).strip())
         return values[:20]
+
+    def _enqueue_product_3d_render_video_run(self, *, run_id: str, user_id: str | None = None) -> bool:
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            return False
+        with self._product_3d_render_video_lock:
+            if normalized_run_id in self._product_3d_render_video_active_run_ids:
+                return False
+            self._product_3d_render_video_active_run_ids.add(normalized_run_id)
+
+        def _target() -> None:
+            try:
+                self._execute_product_3d_render_video_run(run_id=normalized_run_id, user_id=user_id)
+            except Exception as exc:  # pragma: no cover - defensive, execution should self-record
+                logger.warning("product 3D render-video run worker failed: run_id=%s error=%s", normalized_run_id, exc)
+            finally:
+                with self._product_3d_render_video_lock:
+                    self._product_3d_render_video_active_run_ids.discard(normalized_run_id)
+
+        threading.Thread(target=_target, daemon=True).start()
+        return True
+
+    def _execute_product_3d_render_video_run(self, *, run_id: str, user_id: str | None = None) -> None:
+        started_at = datetime.utcnow()
+        with get_session() as session:
+            run = session.get(BusinessRun, run_id)
+            if not run or run.business_key != "product_3d_render_video":
+                return
+            if run.status in {"succeeded", "failed", "cancelled"}:
+                return
+            request_payload = dict(run.request_payload) if isinstance(run.request_payload, dict) else {}
+            run.status = "running"
+            run.started_at = run.started_at or started_at
+            step = self._find_product_3d_render_video_step(session=session, run=run)
+            if step:
+                step.status = "running"
+                step.started_at = step.started_at or run.started_at
+                session.add(step)
+            session.add(run)
+            session.commit()
+
+        clean_payload = {key: value for key, value in request_payload.items() if not str(key).startswith("_")}
+        clean_payload["outputMode"] = "render_video"
+        try:
+            payload = Product3DRenderVideoRequest.model_validate(clean_payload)
+        except ValidationError as exc:
+            self._finish_product_3d_render_video_run(
+                run_id=run_id,
+                status="failed",
+                started_at=started_at,
+                error_message="PRODUCT_3D_RENDER_VIDEO_CONTEXT_INVALID",
+                result_payload={
+                    "error": "PRODUCT_3D_RENDER_VIDEO_CONTEXT_INVALID",
+                    "errorCode": "PRODUCT_3D_RENDER_VIDEO_CONTEXT_INVALID",
+                    "message": str(exc)[:500],
+                },
+            )
+            return
+
+        try:
+            result = product_3d_render_video_service.render_video(payload, user_id=user_id)
+            video_urls = self._extract_product_3d_render_video_video_urls(result)
+            if not video_urls:
+                raise HTTPException(status_code=502, detail="PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED")
+            self._finish_product_3d_render_video_run(
+                run_id=run_id,
+                status="succeeded",
+                started_at=started_at,
+                result_payload=result,
+                video_urls=video_urls,
+                image_urls=self._extract_product_3d_render_video_image_urls(result),
+            )
+        except Exception as exc:
+            error_payload = self._structured_product_commercialization_error(
+                exc,
+                fallback_code="PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED",
+            )
+            error_message = str(error_payload.get("errorCode") or error_payload.get("message") or self._extract_error_message(exc))[:500]
+            detail = getattr(exc, "detail", None)
+            normalized_detail = self._unwrap_exception_detail(detail)
+            if isinstance(normalized_detail, dict):
+                error_payload["detail"] = normalized_detail
+            self._finish_product_3d_render_video_run(
+                run_id=run_id,
+                status="failed",
+                started_at=started_at,
+                error_message=error_message,
+                result_payload=error_payload,
+            )
+
+    def _finish_product_3d_render_video_run(
+        self,
+        *,
+        run_id: str,
+        status: str,
+        started_at: datetime,
+        result_payload: dict[str, Any] | None = None,
+        video_urls: list[str] | None = None,
+        image_urls: list[str] | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        finished_at = datetime.utcnow()
+        with get_session() as session:
+            run = session.get(BusinessRun, run_id)
+            if not run:
+                return
+            run.status = status
+            run.result_payload = self._omit_large_fields(result_payload if isinstance(result_payload, dict) else {})
+            run.video_urls = video_urls or None
+            run.image_urls = image_urls or None
+            run.texts = None
+            run.error_message = error_message
+            run.started_at = run.started_at or started_at
+            run.finished_at = finished_at
+            run.duration_ms = self._calculate_duration_ms(run.started_at, finished_at)
+            if status == "succeeded":
+                run.billing_unit = PRODUCT_3D_RENDER_VIDEO_BILLING_UNIT
+                run.quota_units = 0
+                run.cost_breakdown = self._omit_large_fields(
+                    {
+                        "pricingVersion": PRODUCT_3D_RENDER_VIDEO_RENDERER_VERSION,
+                        "rendererVersion": PRODUCT_3D_RENDER_VIDEO_RENDERER_VERSION,
+                        "pricingStatus": "internal_lightweight_renderer",
+                        "billingMode": "no_charge",
+                        "billingUnit": PRODUCT_3D_RENDER_VIDEO_BILLING_UNIT,
+                        "quotaUnits": 0,
+                        "policy": "lightweight_server_renderer_no_third_party_video_model",
+                    }
+                )
+            step = self._find_product_3d_render_video_step(session=session, run=run)
+            if step:
+                step.status = status
+                step.result_payload = run.result_payload
+                step.error_message = error_message
+                step.started_at = step.started_at or run.started_at
+                step.finished_at = finished_at
+                step.duration_ms = run.duration_ms
+                if status == "succeeded":
+                    step.billing_unit = run.billing_unit
+                    step.quota_units = run.quota_units
+                    step.cost_breakdown = run.cost_breakdown
+                session.add(step)
+            session.add(run)
+            session.commit()
+        if status in {"succeeded", "failed", "cancelled"}:
+            get_business_project_service().sync_run_outputs_to_project_assets(run_id)
+            self._auto_settle_run_if_needed(run_id)
+            self._deliver_callback(run_id)
+
+    def _find_product_3d_render_video_step(self, *, session, run: BusinessRun) -> BusinessRunStep | None:
+        return (
+            session.execute(
+                select(BusinessRunStep)
+                .where(
+                    BusinessRunStep.run_id == run.id,
+                    BusinessRunStep.step_id == "product_3d_render_video_render",
+                )
+                .order_by(BusinessRunStep.step_order.asc())
+            )
+            .scalars()
+            .first()
+        )
+
+    def _extract_product_3d_render_video_video_urls(self, result: dict[str, Any]) -> list[str]:
+        urls: list[str] = []
+
+        def add(value: Any) -> None:
+            if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
+                urls.append(value.strip())
+            elif isinstance(value, dict):
+                asset_type = str(value.get("type") or value.get("assetType") or "").strip().lower()
+                asset_role = str(value.get("role") or "").strip().lower()
+                if asset_type or asset_role:
+                    if "video" not in asset_type and "video" not in asset_role:
+                        return
+                    candidate = value.get("videoUrl") or value.get("ossUrl") or value.get("storedUrl") or value.get("url")
+                    if isinstance(candidate, str):
+                        add(candidate)
+                    return
+                for key in ("videoUrl", "videoUrls", "ossUrl", "storedUrl", "url", "assets", "storedAssets"):
+                    candidate = value.get(key)
+                    if isinstance(candidate, (str, list, dict)):
+                        add(candidate)
+            elif isinstance(value, list):
+                for item in value:
+                    add(item)
+
+        if isinstance(result, dict):
+            add(result.get("videoUrls"))
+            add(result.get("videoResult"))
+            add(result.get("renderAssetPackage"))
+        seen: set[str] = set()
+        out: list[str] = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            out.append(url)
+        return out
+
+    def _extract_product_3d_render_video_image_urls(self, result: dict[str, Any]) -> list[str]:
+        urls: list[str] = []
+
+        def add(value: Any) -> None:
+            if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
+                urls.append(value.strip())
+            elif isinstance(value, dict):
+                asset_type = str(value.get("type") or value.get("assetType") or "").strip().lower()
+                asset_role = str(value.get("role") or "").strip().lower()
+                if asset_type or asset_role:
+                    if "image" not in asset_type and "cover" not in asset_role:
+                        return
+                    candidate = value.get("coverFrameUrl") or value.get("imageUrl") or value.get("ossUrl") or value.get("storedUrl") or value.get("url")
+                    if isinstance(candidate, str):
+                        add(candidate)
+                    return
+                for key in ("coverFrameUrl", "imageUrl", "imageUrls", "ossUrl", "storedUrl", "url", "assets", "storedAssets"):
+                    candidate = value.get(key)
+                    if isinstance(candidate, (str, list, dict)):
+                        add(candidate)
+            elif isinstance(value, list):
+                for item in value:
+                    add(item)
+
+        if isinstance(result, dict):
+            add(result.get("imageUrls"))
+            add(result.get("renderAssetPackage"))
+        seen: set[str] = set()
+        out: list[str] = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            out.append(url)
+        return out
 
     def _submit_primary_ability(
         self,
@@ -3773,12 +4214,18 @@ class BusinessRunService:
                 if task:
                     self._copy_task_to_run(session=session, run=run, task=task)
             should_resume_product_commercialization = (
-                run.business_key == "product_commercialization"
+                run.business_key in PRODUCT_COMMERCIALIZATION_RUN_KEYS
+                and not run.ability_task_id
+                and run.status in {"queued", "running"}
+            )
+            should_resume_product_3d_render_video = (
+                run.business_key == "product_3d_render_video"
                 and not run.ability_task_id
                 and run.status in {"queued", "running"}
             )
             should_submit_primary = (
                 not should_resume_product_commercialization
+                and not should_resume_product_3d_render_video
                 and not run.ability_task_id
                 and run.status not in {"failed", "cancelled"}
             )
@@ -3787,6 +4234,8 @@ class BusinessRunService:
             terminal_after_sync = run.status in {"succeeded", "failed", "cancelled"}
         if should_resume_product_commercialization:
             self._enqueue_product_commercialization_run(run_id=run_id, user_id=None)
+        if should_resume_product_3d_render_video:
+            self._enqueue_product_3d_render_video_run(run_id=run_id, user_id=None)
         if should_submit_primary:
             self._submit_primary_after_vl_if_ready(run_id=run_id, user=None)
             with get_session() as session:
@@ -3835,7 +4284,14 @@ class BusinessRunService:
             product_commercialization_ids = [
                 row.id
                 for row in rows
-                if row.business_key == "product_commercialization"
+                if row.business_key in PRODUCT_COMMERCIALIZATION_RUN_KEYS
+                and not row.ability_task_id
+                and row.status in {"queued", "running"}
+            ]
+            product_3d_render_video_ids = [
+                row.id
+                for row in rows
+                if row.business_key == "product_3d_render_video"
                 and not row.ability_task_id
                 and row.status in {"queued", "running"}
             ]
@@ -3843,11 +4299,13 @@ class BusinessRunService:
                 row.id
                 for row in rows
                 if not row.ability_task_id and row.status not in {"failed", "cancelled", "succeeded"}
-                and row.business_key != "product_commercialization"
+                and row.business_key not in {*PRODUCT_COMMERCIALIZATION_RUN_KEYS, "product_3d_render_video"}
             ]
         self._finalize_pending_steps()
         for run_id in product_commercialization_ids:
             self._enqueue_product_commercialization_run(run_id=run_id, user_id=None)
+        for run_id in product_3d_render_video_ids:
+            self._enqueue_product_3d_render_video_run(run_id=run_id, user_id=None)
         for run_id in waiting_primary_ids:
             self._submit_primary_after_vl_if_ready(run_id=run_id, user=None)
         for run_id in terminal_ids:
@@ -4485,17 +4943,28 @@ class BusinessRunService:
                 "issue": self._build_run_issue_summary(run, session=session),
             }
 
-        try:
-            payload = BusinessRunCreateRequest.model_validate(payload_data)
-        except Exception as exc:
-            raise HTTPException(status_code=409, detail="BUSINESS_RUN_RETEST_PAYLOAD_INVALID") from exc
+        if business_key == "product_3d_render_video":
+            try:
+                product_3d_payload = Product3DRenderVideoRequest.model_validate(payload_data)
+            except Exception as exc:
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_RETEST_PAYLOAD_INVALID") from exc
+            created = self.create_product_3d_render_video_run(
+                payload=product_3d_payload,
+                user=actor,
+                source="admin-retest",
+            )
+        else:
+            try:
+                payload = BusinessRunCreateRequest.model_validate(payload_data)
+            except Exception as exc:
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_RETEST_PAYLOAD_INVALID") from exc
 
-        created = self.create_run(
-            business_key=business_key,
-            payload=payload,
-            user=actor,
-            source="admin-retest",
-        )
+            created = self.create_run(
+                business_key=business_key,
+                payload=payload,
+                user=actor,
+                source="admin-retest",
+            )
         with get_session() as session:
             self._record_business_operation(
                 session=session,
@@ -6253,7 +6722,7 @@ class BusinessRunService:
 
     @staticmethod
     def _business_route_missing(row: BusinessRun) -> bool:
-        if row.business_key == "product_commercialization" and row.version:
+        if row.business_key in {"product_commercialization", "product_3d_render_video"} and row.version:
             return False
         return not row.business_version_id or not row.version
 
@@ -6269,7 +6738,8 @@ class BusinessRunService:
             tenant_id = str(row.tenant_id or "").strip()
             client_id = str(row.client_id or "").strip()
             if (
-                source in INTERNAL_NO_CHARGE_SOURCES
+                BusinessRunService._business_no_charge_policy_reason(row)
+                or source in INTERNAL_NO_CHARGE_SOURCES
                 or tenant_id in INTERNAL_NO_CHARGE_TENANTS
                 or client_id in INTERNAL_NO_CHARGE_CLIENTS
             ):
@@ -9494,6 +9964,89 @@ class BusinessRunService:
         if isinstance(detail, (str, int, float)) and str(detail).strip():
             return str(detail).strip()
         return str(exc)[:500]
+
+    @staticmethod
+    def _unwrap_exception_detail(detail: Any) -> Any:
+        current = detail
+        seen = 0
+        while isinstance(current, dict) and set(current.keys()) == {"detail"} and seen < 6:
+            current = current.get("detail")
+            seen += 1
+        return current
+
+    @classmethod
+    def _extract_error_code(cls, value: Any) -> str | None:
+        if isinstance(value, dict):
+            for key in ("errorCode", "error_code", "code", "detail", "message", "error"):
+                candidate = value.get(key)
+                if isinstance(candidate, dict):
+                    found = cls._extract_error_code(candidate)
+                    if found:
+                        return found
+                elif isinstance(candidate, (str, int, float)):
+                    found = cls._extract_error_code(str(candidate))
+                    if found:
+                        return found
+            return None
+        text = str(value or "").strip()
+        if not text:
+            return None
+        match = re.search(r"\b([A-Z][A-Z0-9_]{2,})\b", text)
+        return match.group(1) if match else None
+
+    @staticmethod
+    def _product_commercialization_error_fallback_code(action: str | None) -> str:
+        if action == "visual_generate":
+            return "PRODUCT_COMMERCIALIZATION_VISUAL_GENERATION_FAILED"
+        if action == "video_keyframes":
+            return "PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED"
+        if action == "compose_video":
+            return "PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED"
+        return "PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED"
+
+    @classmethod
+    def _structured_product_commercialization_error(cls, exc: Exception, *, fallback_code: str) -> dict[str, Any]:
+        detail = cls._unwrap_exception_detail(getattr(exc, "detail", None))
+        code = cls._extract_error_code(detail) or cls._extract_error_code(exc) or fallback_code
+        if isinstance(detail, dict):
+            message = (
+                detail.get("message")
+                or detail.get("error")
+                or detail.get("detail")
+                or detail.get("suggestion")
+                or code
+            )
+            payload: dict[str, Any] = {
+                "error": code,
+                "errorCode": code,
+                "message": str(message or code),
+            }
+            if fallback_code and fallback_code != code:
+                payload["businessErrorCode"] = fallback_code
+            for key in (
+                "suggestion",
+                "provider",
+                "model",
+                "taskId",
+                "requestId",
+                "retryAfterSeconds",
+                "missingKeyframes",
+                "requiredCount",
+                "confirmedCount",
+            ):
+                value = detail.get(key)
+                if value is not None:
+                    payload[key] = value
+            return payload
+        message = str(detail or exc or code).strip() or code
+        payload = {
+            "error": code,
+            "errorCode": code,
+            "message": message,
+        }
+        if fallback_code and fallback_code != code:
+            payload["businessErrorCode"] = fallback_code
+        return payload
 
     @staticmethod
     def _extract_urls(payload: dict[str, Any] | None, *, keys: tuple[str, ...]) -> list[str]:

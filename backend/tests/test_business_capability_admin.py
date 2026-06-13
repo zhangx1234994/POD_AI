@@ -2409,6 +2409,79 @@ def test_business_run_retest_creates_new_run_without_business_callback(monkeypat
     assert bulk["items"][0]["status"] == "skipped"
 
 
+def test_business_run_retest_supports_product_3d_render_video(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    monkeypatch.setattr(
+        BusinessRunService,
+        "_enqueue_product_3d_render_video_run",
+        lambda self, *, run_id, user_id=None: True,
+    )
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_3d_need_retest",
+                business_key="product_3d_render_video",
+                version="p3d-render-video-v1",
+                status="failed",
+                source="release-smoke",
+                channel=None,
+                trace_id="trace-3d-old",
+                request_id="request-3d-old",
+                request_payload={
+                    "modelKey": "cup_1660",
+                    "textureSlots": [
+                        {"materialSlot": "front", "imageUrl": "https://example.com/front.png"},
+                    ],
+                    "scenePreset": "gift_table",
+                    "cameraDistance": "wide",
+                    "outputMode": "render_video",
+                    "source": "release-smoke",
+                    "requestId": "request-3d-old",
+                    "metadata": {"scene": "release-smoke"},
+                },
+                error_message="PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED",
+            )
+        )
+        session.commit()
+
+    retested = service.retest_run("run_3d_need_retest")
+
+    assert retested["id"] != "run_3d_need_retest"
+    assert retested["business_key"] == "product_3d_render_video"
+    assert retested["version"] == "p3d-render-video-v1"
+    assert retested["status"] == "queued"
+    assert retested["source"] == "admin-retest"
+    assert retested["request_payload"]["textureSlots"][0]["materialSlot"] == "front"
+
+    source_after_retest = service.get_run(run_id="run_3d_need_retest")
+    assert source_after_retest["retest_attempts"] == 1
+    assert source_after_retest["retest_latest_run_id"] == retested["id"]
+    assert source_after_retest["retest_latest_status"] == "queued"
+
+    with business_runs_module.get_session() as session:
+        row = session.get(BusinessRun, retested["id"])
+        row.status = "succeeded"
+        row.video_urls = ["https://example.com/retest-result.mp4"]
+        row.image_urls = ["https://example.com/retest-cover.png"]
+        row.billing_unit = "p3d_render_video_lightweight"
+        row.quota_units = 0
+        row.cost_breakdown = {
+            "billingMode": "no_charge",
+            "billingUnit": "p3d_render_video_lightweight",
+            "pricingVersion": "product-3d-render-video-lightweight-v1",
+        }
+        row.finished_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+
+    recovered_source = service.get_run(run_id="run_3d_need_retest")
+    assert recovered_source["retest_recovered"] is True
+    summary_after_recovered = service.usage_summary(window_hours=24)
+    assert all(item["id"] != "run_3d_need_retest" for item in summary_after_recovered["recent_unresolved_issues"])
+
+
 def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> None:
     install_business_db(monkeypatch)
     service = BusinessRunService()

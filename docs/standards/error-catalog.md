@@ -55,7 +55,7 @@
 | ADMIN_ONLY | 仅管理员可访问 | 403 |
 | INTERNAL_ONLY | 仅内网可访问 | 401 |
 | VENDOR_API_AUTH_REQUIRED | 第三方 API 执行服务缺少服务 token | 401，vendor-api-ops 敏感接口 |
-| VENDOR_API_CLIENT_FORBIDDEN | 第三方 API 执行服务拒绝非白名单来源 | 403，vendor-api-ops 只接受中台等固定服务调用 |
+| VENDOR_API_CLIENT_FORBIDDEN | 第三方 API 执行服务拒绝非白名单来源 | 403，vendor-api-ops 只接受中台等固定服务调用；产品商业化同步调试入口会将该码作为 `detail.errorCode` 透出，并用 `detail.businessErrorCode` 标记业务阶段 |
 
 ---
 
@@ -172,7 +172,8 @@
 | PRODUCT_DESIGN_PRODUCT_TYPE_INVALID | 产品设计产品类型非法 | 400，允许 `apparel` / `home_textile` / `bag` / `shoe` / `stationery` / `packaging` / `generic` |
 | PRODUCT_DESIGN_SCENE_INVALID | 产品设计展示场景非法 | 400，允许 `studio_product` / `flat_lay` / `ecommerce` / `lifestyle` / `print_mockup` / `generic` |
 | PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID | 产品商业化上下文不是合法 JSON 对象 | 400，`productFields` 必须是对象；缺字段不报错，会进入 `missingFields/inferredFacts` |
-| PRODUCT_COMMERCIALIZATION_ACTION_INVALID | 产品商业化执行动作非法 | 400，预览允许 `video_preview/copy_preview`；`/api/business/product-commercialization/runs` 允许空值/`video_generate`/`compose_video`/`visual_generate`，不能静默回退 |
+| PRODUCT_COMMERCIALIZATION_ACTION_INVALID | 产品商业化执行动作非法 | 400，预览允许 `video_preview/copy_preview`；`/api/business/product-commercialization/runs` 允许空值/`video_keyframes`/`video_generate`/`compose_video`/`visual_generate`，不能静默回退 |
+| PRODUCT_COMMERCIALIZATION_BUSINESS_KEY_INVALID | 产品商业化/产品推广视频内部业务键非法 | 400，正式产品视频入口只能创建 `promo_video` 运行任务；旧聚合入口只能创建 `product_commercialization` 运行任务 |
 | PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID | 产品商业化输出语言非法 | 400，允许 `en-US` / `zh-CN` / `bilingual` |
 | PRODUCT_COMMERCIALIZATION_MARKET_INVALID | 产品商业化目标市场非法 | 400，允许 `US` / `UK` / `EU` / `global` |
 | PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID | 产品商业化文案场景非法 | 400，允许 `listing_title` / `bullet_points` / `detail_description` / `ad_short_copy` / `keyword_pack` |
@@ -180,12 +181,14 @@
 | PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID | 产品商业化视频场景非法 | 400，允许 `product_showcase_short` / `social_ad_short` / `detail_explainer` |
 | PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID | 产品商业化目标成片时长非法 | 400，`targetDurationSeconds` 当前允许 1-60；实际片段时长由模型画像约束。KIE Veo3.1 Fast 当前按 8 秒片段规划，Vidu viduq3-turbo 当前按 3/5/8 秒片段规划。 |
 | PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED | 产品商业化成本动作缺少产品图 | 400，预览可缺图，配图/视频执行必须传 `productImageUrl`，或在 `productImages` 中提供至少一张可用产品图 |
+| PRODUCT_COMMERCIALIZATION_KEYFRAME_SCOPE_EMPTY | 产品视频首尾帧镜头范围无匹配项 | 400，`action=video_keyframes` 传入 `keyframeShotScope` 后没有匹配到任何 `videoAssetPackagePlan.keyframeNeeds` 项；不能静默改为全量生成，前端应提示重新选择镜头或重新规划 |
+| PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED | 产品视频缺少已确认首尾帧/关键帧 | 400，`action=video_generate` 或正式 `promo-video/runs` 在 `videoAssetPackagePlan.keyframeNeeds` 非空时必须传 `confirmedVideoKeyframes`；后端按 `shot/segmentIndex/role` 逐项匹配，传够张数但缺少尾帧、首帧或归一化首帧同样拒绝；返回 `missingKeyframes/requiredCount/confirmedCount/matchedCount`，后端不得自动生成首帧后继续扣视频费用 |
+| PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED | 产品视频首尾帧/关键帧生成失败 | 502/500，`action=video_keyframes` 生成首尾帧/关键帧失败；必须保留 runId、segment、role 和上游错误，默认保留已成功脚本/分镜，不直接抹掉素材包，也不能继续提交视频扣费。同步调试入口遇到上游错误时可作为 `detail.businessErrorCode` 返回 |
 | PRODUCT_COMMERCIALIZATION_IMAGE_BRIEF_MISSING | 产品商业化配图缺少可执行配图 brief | 400，`action=visual_generate` 时需要 preview/model 产出 `imageBriefs`，或请求传入有效 `visualScenes` |
 | PRODUCT_COMMERCIALIZATION_VISUAL_PROMPT_EMPTY | 产品商业化配图提示词为空 | 400，`resolvedProductFacts/imageBriefs` 不足以生成可执行配图 prompt |
 | PRODUCT_COMMERCIALIZATION_VISUAL_GENERATION_FAILED | 产品商业化配图生成失败 | 502/500，GPT Image 2 图片编辑、结果 URL 解析或 OSS 沉淀失败；除非显式指定低成本/批量/特定模型策略，商业化配图默认不路由到其他图片模型。 |
 | PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED | 产品商业化视频生成缺少可执行视频提示词 | 400，分镜规划异常或输入不足导致无法生成 prompt |
 | PRODUCT_COMMERCIALIZATION_VIDEO_ASSET_PLAN_FAILED | 产品商业化视频素材包规划失败 | 500，脚本、分镜、首尾帧/关键帧需求或分段策略无法生成；不得继续触发视频成本动作 |
-| PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED | 产品商业化视频关键帧生成失败 | 502/500，首帧、尾帧或关键帧生成失败；默认保留已成功脚本/分镜，不直接抹掉素材包 |
 | PRODUCT_COMMERCIALIZATION_VIDEO_ASPECT_REQUIRES_KEYFRAME | 产品商业化固定画幅需要先生成归一化首帧 | 400，Vidu 等跟随输入图比例的模型不能直接承诺 `aspectRatio`，必须先走首帧归一化或首尾帧模式 |
 | PRODUCT_COMMERCIALIZATION_FIRST_FRAME_GENERATION_FAILED | 产品商业化视频首帧生成或画布归一化失败 | 502/500，Vidu 固定画幅执行前会先用 GPT Image 2 生成首帧并归一到目标画布；该步骤失败时必须在视频扣费前停止，不能静默用原始产品图提交 |
 | PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY | 产品商业化长视频调用了单段视频接口 | 400，目标时长不属于所选模型单段合法时长时，不能调用旧单段兼容接口，应通过 `/api/business/product-commercialization/runs` 统一提交并由后端按模型画像多段生成/合成。 |
@@ -197,11 +200,20 @@
 | PRODUCT_COMMERCIALIZATION_COMPOSE_TIMEOUT | 产品商业化视频合成超时 | 502/500，ffmpeg 裁剪或拼接超过超时时间 |
 | PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED | 产品商业化视频合成失败 | 502/500，ffmpeg 裁剪/拼接或最终 OSS 上传失败 |
 | PRODUCT_3D_RENDER_VIDEO_MODEL_INVALID | 3D 渲染视频模型 key 非法 | 400，当前允许 `cup_1660` / `backpack_2551` |
+| PRODUCT_3D_RENDER_VIDEO_TEXTURE_REQUIRED | 3D 渲染视频服务端生成缺少贴图 | 400，`/preview` 可不传贴图但只能看方案；`/runs` 必须通过 `textureImageUrl` 或 `textureSlots[].imageUrl` 提供至少一张真实贴图 |
+| PRODUCT_3D_RENDER_VIDEO_TEXTURE_LOAD_FAILED | 3D 渲染视频贴图下载或读取失败 | 502/500，正式生成不能用 fallback 演示纹理伪装成功，必须让调用方修正贴图 URL 或重试 |
 | PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID | 3D 渲染视频材质槽非法 | 400，材质槽必须属于所选模型的 `materialSlots` |
-| PRODUCT_3D_RENDER_VIDEO_CAMERA_PRESET_INVALID | 3D 渲染视频镜头预设非法 | 400，当前允许 `orbit_360` / `slow_push_in` / `detail_sweep` |
-| PRODUCT_3D_RENDER_VIDEO_SCENE_PRESET_INVALID | 3D 渲染视频场景预设非法 | 400，当前允许 `clean_studio` / `marketplace_white` / `premium_dark` |
-| PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY | 3D 渲染视频真实执行尚未开放 | 400，当前只开放 `outputMode=plan_only`，不触发渲染 worker 或 MP4 生成 |
+| PRODUCT_3D_RENDER_VIDEO_CAMERA_PRESET_INVALID | 3D 渲染视频镜头预设非法 | 400，当前允许 `orbit_360` / `hero_turntable` / `slow_push_in` / `detail_sweep` / `top_reveal` / `social_arc` |
+| PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID | 3D 渲染视频镜头远近非法 | 400，当前允许 `wide` / `standard` / `close`；默认 `wide` 优先保证商品完整入画 |
+| PRODUCT_3D_RENDER_VIDEO_SCENE_PRESET_INVALID | 3D 渲染视频场景预设非法 | 400，当前允许 `clean_studio` / `marketplace_white` / `premium_dark` / `desktop_lifestyle` / `gift_table` / `retail_shelf` |
+| PRODUCT_3D_RENDER_VIDEO_MOTION_PATH_INVALID | 3D 渲染视频运动路径非法 | 400，`motionPath` 必须是至少 2 个、最多 12 个归一化坐标点，x/y 范围均为 0-1 |
+| PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY | 3D 渲染视频预览接口收到了执行模式 | 400，`/preview` 只允许 `outputMode=plan_only`；正式生成必须调用 `/api/business/product-3d-render-video/runs` |
+| PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_NOT_READY | 3D 渲染视频服务端渲染任务尚未开放 | 历史/兼容错误码；当前 `/runs` 已接入 `lightweight_scene_renderer_v1`，后续仅在关闭渲染 worker 或回滚时使用 |
+| PRODUCT_3D_RENDER_VIDEO_CONTEXT_INVALID | 3D 渲染视频任务上下文非法 | 500，后台从 `BusinessRun.request_payload` 恢复请求失败 |
+| PRODUCT_3D_RENDER_VIDEO_FFMPEG_MISSING | 3D 渲染视频服务端缺少 ffmpeg | 500，轻量服务端渲染需要 ffmpeg 或 `imageio-ffmpeg` 编码 MP4 |
+| PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED | 3D 渲染视频服务端渲染任务提交异常 | 500，渲染、编码、OSS 回填或结果提取异常 |
 | PRODUCT_3D_RENDER_VIDEO_PREVIEW_FAILED | 3D 渲染视频方案预览失败 | 500，模型资产、贴图、场景或镜头方案构建异常 |
+| PRODUCT_3D_RENDER_VIDEO_CATALOG_FAILED | 3D 渲染视频能力目录读取失败 | 500，模型/场景/镜头配置目录构建异常；不触发渲染成本动作 |
 | PRODUCT_3D_RENDER_VIDEO_TEXTURE_MISSING | 3D 渲染视频缺少贴图 | 非阻断 issue code，预览仍返回 200；只能验证模型/镜头方案，不能判断最终贴图效果 |
 | PRODUCT_3D_RENDER_VIDEO_UV_MISSING | 3D 渲染视频模型缺少 UV | 非阻断 issue code，预览仍返回 200；真实贴图前需要重建或修复 UV |
 | AGENT_CAPABILITY_NOT_FOUND | 业务 Agent 能力不存在或未开放 | 404，当前仅开放 `agent.image_edit_assistant` |

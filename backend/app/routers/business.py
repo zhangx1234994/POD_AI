@@ -127,11 +127,78 @@ def _normalize_business_task_status(status: Any) -> str:
 
 
 def _business_error_code(message: Any) -> str | None:
+    if isinstance(message, dict):
+        for key in ("errorCode", "error_code", "code", "detail", "message", "error"):
+            value = message.get(key)
+            if isinstance(value, str):
+                found = _business_error_code(value)
+                if found:
+                    return found
+            elif isinstance(value, dict):
+                found = _business_error_code(value)
+                if found:
+                    return found
     text = str(message or "").strip()
     if not text:
         return None
     match = re.search(r"\b([A-Z][A-Z0-9_]{2,})\b", text)
     return match.group(1) if match else None
+
+
+def _unwrap_http_exception_detail(detail: Any) -> Any:
+    current = detail
+    seen = 0
+    while isinstance(current, dict) and set(current.keys()) == {"detail"} and seen < 6:
+        current = current.get("detail")
+        seen += 1
+    return current
+
+
+def _business_http_exception_detail(exc: HTTPException, *, fallback_code: str) -> dict[str, Any] | str:
+    detail = _unwrap_http_exception_detail(exc.detail)
+    if not isinstance(detail, dict):
+        code = _business_error_code(detail) or fallback_code
+        if code == str(detail or "").strip():
+            return code
+        return {"errorCode": code, "message": str(detail or code)}
+
+    code = _business_error_code(detail) or fallback_code
+    message = (
+        detail.get("message")
+        or detail.get("error")
+        or detail.get("detail")
+        or detail.get("suggestion")
+        or code
+    )
+    response: dict[str, Any] = {
+        "errorCode": code,
+        "message": str(message or code),
+    }
+    if fallback_code and fallback_code != code:
+        response["businessErrorCode"] = fallback_code
+    for key in (
+        "suggestion",
+        "provider",
+        "model",
+        "taskId",
+        "requestId",
+        "retryAfterSeconds",
+        "missingKeyframes",
+        "requiredCount",
+        "confirmedCount",
+    ):
+        value = detail.get(key)
+        if value is not None:
+            response[key] = value
+    return response
+
+
+def _raise_business_http_exception(exc: HTTPException, *, fallback_code: str) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail=_business_http_exception_detail(exc, fallback_code=fallback_code),
+        headers=exc.headers,
+    ) from exc
 
 
 def _compact_business_payload(value: Any, *, max_text: int = 800) -> Any:
@@ -195,7 +262,7 @@ def _business_run_full_response(run: dict[str, Any]) -> dict[str, Any]:
     result = schemas.BusinessRunRead.model_validate(run).model_dump(mode="json", by_alias=False)
     business_key = str(result.get("businessKey") or "").strip()
     run_id = result.get("runId") or result.get("id")
-    if business_key == "product_commercialization" and run_id and not result.get("taskId"):
+    if business_key in {"product_commercialization", "promo_video", "product_3d_render_video"} and run_id and not result.get("taskId"):
         result["taskId"] = run_id
     return result
 
@@ -208,7 +275,9 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
     texts = full.get("texts") if isinstance(full.get("texts"), list) else []
     business_key = str(full.get("businessKey") or full.get("business_key") or "").strip()
     run_id = full.get("runId") or full.get("id")
-    task_id = full.get("taskId") or (run_id if business_key == "product_commercialization" else None)
+    task_id = full.get("taskId") or (
+        run_id if business_key in {"product_commercialization", "promo_video", "product_3d_render_video"} else None
+    )
     error_message = str(full.get("errorMessage") or full.get("error") or full.get("callbackError") or "").strip() or None
     result = {
         "runId": run_id,
@@ -248,7 +317,9 @@ def _business_run_submit_response(run: dict[str, Any]) -> dict[str, Any]:
     error_message = str(full.get("errorMessage") or full.get("error") or "").strip() or None
     business_key = str(full.get("businessKey") or full.get("business_key") or "").strip()
     run_id = full.get("runId") or full.get("id")
-    task_id = full.get("taskId") or (run_id if business_key == "product_commercialization" else None)
+    task_id = full.get("taskId") or (
+        run_id if business_key in {"product_commercialization", "promo_video", "product_3d_render_video"} else None
+    )
     return {
         "runId": run_id,
         "taskId": task_id,
@@ -743,7 +814,10 @@ def _business_key_allowed_for_api_key(request: Request, business_key: str) -> No
         return
     raw_allowed = allowed.split(",") if isinstance(allowed, str) else allowed
     allowed_set = {str(item).strip() for item in raw_allowed if str(item).strip()}
-    if allowed_set and business_key not in allowed_set:
+    # Existing business keys that were created before the public promo-video
+    # split should continue to work for the new narrower entrypoint.
+    compatibility_allowed = business_key == "promo_video" and "product_commercialization" in allowed_set
+    if allowed_set and business_key not in allowed_set and not compatibility_allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED")
 
 
@@ -840,12 +914,16 @@ def _create_product_commercialization_run_with_usage(
     request: Request,
     payload: schemas.ProductCommercializationRequest,
     user: User,
+    business_key: str = "product_commercialization",
 ) -> dict[str, Any]:
-    business_key = "product_commercialization"
     request_payload = payload.model_dump(exclude_none=True, by_alias=False)
     try:
         _business_key_allowed_for_api_key(request, business_key)
-        result = get_business_run_service().create_product_commercialization_run(payload=payload, user=user)
+        result = get_business_run_service().create_product_commercialization_run(
+            payload=payload,
+            user=user,
+            business_key=business_key,
+        )
     except HTTPException as exc:
         _record_business_api_key_usage(
             request,
@@ -866,6 +944,13 @@ def _create_product_commercialization_run_with_usage(
         raise
     _record_business_api_key_usage(request, status_code=200, business_key=business_key, run=result)
     return _business_run_submit_response(result)
+
+
+def _product_video_payload_with_action(
+    payload: schemas.ProductCommercializationRequest,
+    action: str,
+) -> schemas.ProductCommercializationRequest:
+    return payload.model_copy(update={"action": action})
 
 
 def _record_project_api_usage(
@@ -1033,8 +1118,23 @@ def preview_product_commercialization(
     request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> dict[str, Any]:
+    return _preview_product_commercialization_with_usage(
+        payload=payload,
+        request=request,
+        user=user,
+        business_key="product_commercialization",
+    )
+
+
+def _preview_product_commercialization_with_usage(
+    *,
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User,
+    business_key: str,
+    response_business_key: str | None = None,
+) -> dict[str, Any]:
     request_payload = payload.model_dump(exclude_none=True, by_alias=False)
-    business_key = "product_commercialization"
     _business_key_allowed_for_api_key(request, business_key)
     try:
         result = product_commercialization_service.preview(
@@ -1065,7 +1165,77 @@ def preview_product_commercialization(
         business_key=business_key,
         request_payload=request_payload,
     )
+    if response_business_key and isinstance(result, dict):
+        result = dict(result)
+        result["businessKey"] = response_business_key
+        result["business_key"] = response_business_key
+        result.setdefault("underlyingBusinessKey", "product_commercialization")
     return result
+
+
+@router.post(
+    "/promo-video/plan",
+    response_model=schemas.ProductCommercializationPreviewResponse,
+    response_model_by_alias=False,
+)
+def plan_promo_video(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    video_payload = _product_video_payload_with_action(payload, "video_preview")
+    return _preview_product_commercialization_with_usage(
+        payload=video_payload,
+        request=request,
+        user=user,
+        business_key="promo_video",
+        response_business_key="promo_video",
+    )
+
+
+@router.post("/promo-video/keyframes/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_promo_video_keyframe_run(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    video_payload = _product_video_payload_with_action(payload, "video_keyframes")
+    return _create_product_commercialization_run_with_usage(
+        request=request,
+        payload=video_payload,
+        user=user,
+        business_key="promo_video",
+    )
+
+
+@router.post("/promo-video/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_promo_video_run(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    video_payload = _product_video_payload_with_action(payload, "video_generate")
+    return _create_product_commercialization_run_with_usage(
+        request=request,
+        payload=video_payload,
+        user=user,
+        business_key="promo_video",
+    )
+
+
+@router.post("/promo-video/compose/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_promo_video_compose_run(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    video_payload = _product_video_payload_with_action(payload, "compose_video")
+    return _create_product_commercialization_run_with_usage(
+        request=request,
+        payload=video_payload,
+        user=user,
+        business_key="promo_video",
+    )
 
 
 @router.post(
@@ -1113,6 +1283,76 @@ def preview_product_3d_render_video(
     return result
 
 
+@router.get(
+    "/product-3d-render-video/catalog",
+    response_model=schemas.Product3DRenderVideoCatalogResponse,
+    response_model_by_alias=False,
+)
+def get_product_3d_render_video_catalog(
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    business_key = "product_3d_render_video"
+    _business_key_allowed_for_api_key(request, business_key)
+    try:
+        result = product_3d_render_video_service.catalog()
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="PRODUCT_3D_RENDER_VIDEO_CATALOG_FAILED",
+            request_payload={},
+        )
+        raise
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=business_key,
+        request_payload={},
+    )
+    result["audit"] = {
+        "userId": getattr(user, "id", None),
+        "source": "business-api",
+    }
+    return result
+
+
+@router.post("/product-3d-render-video/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_product_3d_render_video_run(
+    payload: schemas.Product3DRenderVideoRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+    business_key = "product_3d_render_video"
+    fallback_code = "PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED"
+    _business_key_allowed_for_api_key(request, business_key)
+    try:
+        result = get_business_run_service().create_product_3d_render_video_run(payload=payload, user=user)
+    except HTTPException as exc:
+        detail = _business_http_exception_detail(exc, fallback_code=fallback_code)
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=_business_error_code(detail) or fallback_code,
+            request_payload=request_payload,
+        )
+        raise HTTPException(status_code=exc.status_code, detail=detail, headers=exc.headers) from exc
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, business_key=business_key, run=result)
+    return _business_run_submit_response(result)
+
+
 @router.post(
     "/product-commercialization/video",
     response_model=schemas.ProductCommercializationVideoResponse,
@@ -1132,20 +1372,73 @@ def generate_product_commercialization_video(
             user_id=getattr(user, "id", None),
         )
     except HTTPException as exc:
+        detail = _business_http_exception_detail(
+            exc,
+            fallback_code="PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED",
+        )
         _record_business_api_key_usage(
             request,
             status_code=exc.status_code,
             business_key=business_key,
-            error_code=str(exc.detail or ""),
+            error_code=_business_error_code(detail) or "PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED",
             request_payload=request_payload,
         )
-        raise
+        _raise_business_http_exception(exc, fallback_code="PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED")
     except Exception:
         _record_business_api_key_usage(
             request,
             status_code=500,
             business_key=business_key,
             error_code="PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=business_key,
+        request_payload=request_payload,
+    )
+    return result
+
+
+@router.post(
+    "/product-commercialization/video-keyframes",
+    response_model=schemas.ProductCommercializationVideoResponse,
+    response_model_by_alias=False,
+)
+def generate_product_commercialization_video_keyframes(
+    payload: schemas.ProductCommercializationRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    request_payload = payload.model_dump(exclude_none=True, by_alias=False)
+    business_key = "product_commercialization"
+    _business_key_allowed_for_api_key(request, business_key)
+    try:
+        result = product_commercialization_service.generate_video_keyframes(
+            payload,
+            user_id=getattr(user, "id", None),
+        )
+    except HTTPException as exc:
+        detail = _business_http_exception_detail(
+            exc,
+            fallback_code="PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED",
+        )
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=_business_error_code(detail) or "PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED",
+            request_payload=request_payload,
+        )
+        _raise_business_http_exception(exc, fallback_code="PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED")
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED",
             request_payload=request_payload,
         )
         raise
@@ -1177,14 +1470,18 @@ def generate_product_commercialization_composed_video(
             user_id=getattr(user, "id", None),
         )
     except HTTPException as exc:
+        detail = _business_http_exception_detail(
+            exc,
+            fallback_code="PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED",
+        )
         _record_business_api_key_usage(
             request,
             status_code=exc.status_code,
             business_key=business_key,
-            error_code=str(exc.detail or ""),
+            error_code=_business_error_code(detail) or "PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED",
             request_payload=request_payload,
         )
-        raise
+        _raise_business_http_exception(exc, fallback_code="PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED")
     except Exception:
         _record_business_api_key_usage(
             request,
@@ -2311,8 +2608,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "action": {
                 "type": "string",
                 "nullable": True,
-                "description": "预览或执行动作。当前测评端产品视频预览传 video_preview；文案后续按 product_copy_package 独立重做。",
-                "enum": ["copy_preview", "video_preview", "video_generate", "compose_video", "visual_generate"],
+                "description": "预览或执行动作。当前测评端产品视频预览传 video_preview；首尾帧单独传 video_keyframes；文案后续按 product_copy_package 独立重做。",
+                "enum": ["copy_preview", "video_preview", "video_keyframes", "video_generate", "compose_video", "visual_generate"],
             },
             "extraPrompt": {"type": "string", "nullable": True, "description": "业务方补充要求。"},
             "outputLanguage": {
@@ -2364,6 +2661,60 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "aspectRatio": {"type": "string", "nullable": True, "description": "视频比例，默认 16:9。", "default": "16:9"},
             "strategyProfile": {"type": "string", "nullable": True, "description": "审核/策略配置，默认 default_pod_profile。"},
             "executorId": {"type": "string", "nullable": True, "description": "视频生成使用的 executor；可指定 KIE 或 Vidu 节点，不传用默认 KIE 节点。"},
+            "videoPromptOverride": {
+                "type": "string",
+                "nullable": True,
+                "description": "用户确认/编辑后的最终视频执行脚本；首尾帧和视频生成动作会优先使用该脚本。",
+            },
+            "videoPlanningContext": {
+                "type": "object",
+                "nullable": True,
+                "description": "视频规划结构化上下文。用于传递核心信息、目标人群、使用场景、镜头偏好、禁止内容和自定义要素；预览规划和后续首尾帧/视频生成都会把它作为导演模型上下文。",
+                "properties": {
+                    "coreMessage": {"type": "string", "nullable": True},
+                    "targetAudience": {"type": "string", "nullable": True},
+                    "usageScene": {"type": "string", "nullable": True},
+                    "shotPreference": {"type": "string", "nullable": True},
+                    "avoid": {"type": "string", "nullable": True},
+                    "fields": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "nullable": True},
+                                "label": {"type": "string", "nullable": True},
+                                "description": {"type": "string", "nullable": True},
+                                "value": {"type": "string", "nullable": True},
+                                "source": {"type": "string", "nullable": True},
+                                "sourceLabel": {"type": "string", "nullable": True},
+                            },
+                        },
+                    },
+                },
+            },
+            "keyframeShotScope": {
+                "type": ["string", "integer"],
+                "nullable": True,
+                "description": "可选首尾帧生成范围。传镜头序号时只生成/重生成该镜头的首帧、尾帧或关键帧；不传则按 keyframePlan 生成全部关键帧。",
+            },
+            "confirmedVideoKeyframes": {
+                "type": "array",
+                "nullable": True,
+                "description": "仅 video_generate 使用。用户已确认的视频首尾帧/关键帧资产；当规划存在 keyframeNeeds 时必须传入，后端按 shot/segmentIndex/role 匹配并优先作为该镜头参考图，未确认会返回 PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED。",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "shot": {"type": ["string", "integer"], "nullable": True},
+                        "segmentIndex": {"type": "integer", "nullable": True},
+                        "role": {"type": "string", "nullable": True},
+                        "label": {"type": "string", "nullable": True},
+                        "imageUrl": {"type": "string", "nullable": True},
+                        "storedUrl": {"type": "string", "nullable": True},
+                        "url": {"type": "string", "nullable": True},
+                        "confirmed": {"type": "boolean", "nullable": True},
+                    },
+                },
+            },
             "pollTimeout": {"type": "number", "nullable": True, "description": "视频生成轮询超时秒数。"},
             "source": {"type": "string", "nullable": True},
             "traceId": {"type": "string", "nullable": True},
@@ -2397,6 +2748,18 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "description": "本次是否触发成本动作。preview 不生成图片/视频；video 接口会记录 kie.veo3_fast.video。",
             },
             "videoResult": {"type": "object", "nullable": True, "description": "仅视频生成接口返回。"},
+        },
+    }
+    promo_video_response_schema = {
+        **product_commercialization_response_schema,
+        "properties": {
+            **product_commercialization_response_schema["properties"],
+            "businessKey": {"type": "string", "enum": ["promo_video"]},
+            "underlyingBusinessKey": {
+                "type": "string",
+                "enum": ["product_commercialization"],
+                "description": "MVP 阶段复用的底层编排服务；正式业务键仍为 promo_video。",
+            },
         },
     }
     product_3d_render_video_submit_schema = {
@@ -2441,6 +2804,12 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "enum": ["orbit_360", "hero_turntable", "slow_push_in", "detail_sweep", "top_reveal", "social_arc"],
                 "default": "orbit_360",
             },
+            "cameraDistance": {
+                "type": "string",
+                "enum": ["wide", "standard", "close"],
+                "description": "镜头远近。默认 wide 优先保证商品完整入画；close 只建议用于细节补充。",
+                "default": "wide",
+            },
             "scenePreset": {
                 "type": "string",
                 "enum": [
@@ -2453,12 +2822,44 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 ],
                 "default": "clean_studio",
             },
+            "motionPath": {
+                "type": "array",
+                "description": "兼容字段：镜头轨迹归一化坐标点。商品保持固定，x/y 均为 0-1，至少 2 点，最多取前 12 点。新接入优先使用 cameraPlan。",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "number", "minimum": 0, "maximum": 1},
+                        "y": {"type": "number", "minimum": 0, "maximum": 1},
+                    },
+                    "required": ["x", "y"],
+                },
+            },
+            "cameraPlan": {
+                "type": "object",
+                "description": "镜头方案主字段。描述商品固定、相机轨迹、焦点、是否已播放确认和生成前确认门禁；/runs 建议携带 playbackConfirmed=true。",
+                "properties": {
+                    "version": {"type": "string", "default": "camera-plan-v1"},
+                    "template": {"type": "string", "description": "镜头模板，与 cameraPreset 对齐。"},
+                    "productMotion": {"type": "string", "enum": ["fixed"], "description": "商品固定，不做物体运动。"},
+                    "cameraMotion": {"type": "string", "enum": ["path_playback"], "description": "按镜头轨迹播放。"},
+                    "playbackConfirmed": {"type": "boolean", "description": "前端是否已播放并确认镜头轨迹。"},
+                    "confirmationRequiredBeforeRender": {"type": "boolean", "description": "生成视频前是否必须确认镜头轨迹。"},
+                    "path": {
+                        "type": "object",
+                        "description": "归一化镜头轨迹点；后端会同步兼容读取 motionPath。",
+                    },
+                    "constraints": {
+                        "type": "object",
+                        "description": "取景和贴图约束，例如 productFixed/keepFullProductInFrame/avoidTextureDistortion。",
+                    },
+                },
+            },
             "durationSeconds": {"type": "integer", "minimum": 1, "maximum": 30, "default": 6},
             "aspectRatio": {"type": "string", "default": "16:9"},
             "outputMode": {
                 "type": "string",
                 "enum": ["plan_only"],
-                "description": "当前只开放方案预览；真实渲染 worker 接入后再开放 render_video。",
+                "description": "/preview 固定使用 plan_only，只返回方案和资产准备度，不创建服务端视频任务。",
                 "default": "plan_only",
             },
             "extraPrompt": {
@@ -2471,6 +2872,16 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "requestId": {"type": "string", "nullable": True},
         },
     }
+    product_3d_render_video_run_submit_schema = deepcopy(product_3d_render_video_submit_schema)
+    product_3d_render_video_run_submit_schema["properties"] = deepcopy(
+        product_3d_render_video_submit_schema["properties"]
+    )
+    product_3d_render_video_run_submit_schema["properties"]["outputMode"] = {
+        "type": "string",
+        "enum": ["render_video"],
+        "description": "/runs 固定使用 render_video；接口创建统一业务 run，结果通过 /api/business/runs/get 查询。",
+        "default": "render_video",
+    }
     product_3d_render_video_response_schema = {
         "type": "object",
         "properties": {
@@ -2480,9 +2891,47 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "status": {"type": "string", "enum": ["previewed"]},
             "model": {"type": "object", "description": "模型资产信息、材质槽、UV 和当前可执行性。"},
             "assetReadiness": {"type": "object", "description": "贴图、UV、渲染 worker 等准备度。"},
-            "renderPlan": {"type": "object", "description": "Three.js/Blender 渲染管线、镜头、场景、贴图和交付物计划。"},
+            "renderPlan": {
+                "type": "object",
+                "description": "Three.js/Blender 渲染管线、镜头、场景、贴图和交付物计划；scene.renderElements 描述背景、台面、道具、层级和遮挡策略；sceneVisualAcceptance 给出场景融合、候选资产和正式渲染验收合同。",
+            },
             "review": {"type": "object"},
             "execution": {"type": "object"},
+        },
+    }
+    product_3d_render_video_catalog_schema = {
+        "type": "object",
+        "properties": {
+            "businessKey": {"type": "string", "enum": ["product_3d_render_video"]},
+            "version": {"type": "string", "enum": ["product-3d-render-video-catalog-v1"]},
+            "status": {"type": "string", "enum": ["active"]},
+            "generatedAt": {"type": "string"},
+            "defaults": {"type": "object", "description": "默认模型、贴图槽、镜头、场景、时长、画幅和默认镜头轨迹。motionPath 仅作兼容字段。"},
+            "models": {"type": "array", "items": {"type": "object"}, "description": "可用 3D 模型与材质槽清单。"},
+            "scenePresets": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "可用场景预设、场景资产、renderElements 场景模型结构、融合规则、sceneVisualAcceptance 验收合同和外部高保真候选。",
+            },
+            "sceneAssetSources": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "可用于高保真场景资产入库的来源、授权、资产级 candidateAssets、场景模型候选、当前状态和入库门禁；业务方只读，不作为执行入参。",
+            },
+            "cameraPresets": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "镜头模板，包含拍摄目标、镜头运动和关键帧模板。",
+            },
+            "cameraDistances": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "镜头远近档位，包含完整入画比例、安全边距和 cameraZ/FOV 参考。",
+            },
+            "durationOptions": {"type": "array", "items": {"type": "integer"}},
+            "aspectRatioOptions": {"type": "array", "items": {"type": "string"}},
+            "renderers": {"type": "object", "description": "浏览器预览、服务端轻量渲染和高保真 worker 边界。"},
+            "endpoints": {"type": "object", "description": "catalog、preview、renderRun 和 poll 接口路径。"},
         },
     }
     image_edit_chat_create_schema = {
@@ -2989,7 +3438,27 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "textureImageUrl": "https://example.com/floral-pattern.png",
                 "materialSlot": "front",
                 "cameraPreset": "orbit_360",
+                "cameraDistance": "wide",
                 "scenePreset": "clean_studio",
+                "motionPath": [{"x": 0.22, "y": 0.66}, {"x": 0.5, "y": 0.5}, {"x": 0.78, "y": 0.42}],
+                "cameraPlan": {
+                    "version": "camera-plan-v1",
+                    "template": "orbit_360",
+                    "productMotion": "fixed",
+                    "cameraMotion": "path_playback",
+                    "playbackConfirmed": True,
+                    "confirmationRequiredBeforeRender": True,
+                    "path": {
+                        "coordinateSpace": "normalized_camera_path_preview",
+                        "points": [{"x": 0.22, "y": 0.66}, {"x": 0.5, "y": 0.5}, {"x": 0.78, "y": 0.42}],
+                        "pointCount": 3,
+                    },
+                    "constraints": {
+                        "productFixed": True,
+                        "keepFullProductInFrame": True,
+                        "avoidTextureDistortion": True,
+                    },
+                },
                 "durationSeconds": 6,
                 "aspectRatio": "16:9",
                 "requestId": "biz-product-3d-video-001",
@@ -3002,7 +3471,27 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "textureImageUrl": "https://example.com/backpack-pattern.png",
                 "materialSlot": "front",
                 "cameraPreset": "detail_sweep",
+                "cameraDistance": "standard",
                 "scenePreset": "marketplace_white",
+                "motionPath": [{"x": 0.28, "y": 0.5}, {"x": 0.72, "y": 0.5}],
+                "cameraPlan": {
+                    "version": "camera-plan-v1",
+                    "template": "detail_sweep",
+                    "productMotion": "fixed",
+                    "cameraMotion": "path_playback",
+                    "playbackConfirmed": True,
+                    "confirmationRequiredBeforeRender": True,
+                    "path": {
+                        "coordinateSpace": "normalized_camera_path_preview",
+                        "points": [{"x": 0.28, "y": 0.5}, {"x": 0.72, "y": 0.5}],
+                        "pointCount": 2,
+                    },
+                    "constraints": {
+                        "productFixed": True,
+                        "keepFullProductInFrame": True,
+                        "avoidTextureDistortion": True,
+                    },
+                },
                 "durationSeconds": 5,
                 "aspectRatio": "1:1",
             },
@@ -3070,8 +3559,22 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "type": "object",
         "properties": {
             "detail": {
-                "type": "string",
-                "description": "平台错误码，例如 BUSINESS_IMAGE_URL_REQUIRED、BUSINESS_RUN_NOT_FOUND。",
+                "oneOf": [
+                    {"type": "string"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "errorCode": {"type": "string"},
+                            "message": {"type": "string"},
+                            "businessErrorCode": {"type": "string", "nullable": True},
+                            "suggestion": {"type": "string", "nullable": True},
+                            "requestId": {"type": "string", "nullable": True},
+                            "retryAfterSeconds": {"type": "integer", "nullable": True},
+                        },
+                        "additionalProperties": True,
+                    },
+                ],
+                "description": "平台错误码或结构化错误对象，例如 BUSINESS_IMAGE_URL_REQUIRED、BUSINESS_RUN_NOT_FOUND，或 { errorCode, message, suggestion }。",
             }
         },
     }
@@ -3193,6 +3696,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         **submit_errors,
         "400": [
             "PRODUCT_COMMERCIALIZATION_CONTEXT_INVALID",
+            "PRODUCT_COMMERCIALIZATION_ACTION_INVALID",
+            "PRODUCT_COMMERCIALIZATION_BUSINESS_KEY_INVALID",
             "PRODUCT_COMMERCIALIZATION_LANGUAGE_INVALID",
             "PRODUCT_COMMERCIALIZATION_MARKET_INVALID",
             "PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID",
@@ -3200,8 +3705,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID",
             "PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID",
             "PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED",
+            "PRODUCT_COMMERCIALIZATION_KEYFRAME_SCOPE_EMPTY",
+            "PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED",
             "PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED",
             "PRODUCT_COMMERCIALIZATION_COMPOSE_NOT_READY",
+            "PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED",
             "EXECUTOR_TYPE_NOT_KIE",
             "EXECUTOR_TYPE_NOT_VIDU",
             "KIE_API_KEY_MISSING",
@@ -3211,6 +3719,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "500": [
             "PRODUCT_COMMERCIALIZATION_PREVIEW_FAILED",
             "PRODUCT_COMMERCIALIZATION_VIDEO_GENERATION_FAILED",
+            "PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED",
             "PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED",
             "PRODUCT_COMMERCIALIZATION_COMPOSE_DOWNLOAD_FAILED",
             "PRODUCT_COMMERCIALIZATION_FFMPEG_MISSING",
@@ -3235,12 +3744,24 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         **submit_errors,
         "400": [
             "PRODUCT_3D_RENDER_VIDEO_MODEL_INVALID",
+            "PRODUCT_3D_RENDER_VIDEO_TEXTURE_REQUIRED",
             "PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID",
             "PRODUCT_3D_RENDER_VIDEO_CAMERA_PRESET_INVALID",
+            "PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID",
             "PRODUCT_3D_RENDER_VIDEO_SCENE_PRESET_INVALID",
+            "PRODUCT_3D_RENDER_VIDEO_MOTION_PATH_INVALID",
             "PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY",
         ],
-        "500": ["PRODUCT_3D_RENDER_VIDEO_PREVIEW_FAILED", *submit_errors["500"]],
+        "502": ["PRODUCT_3D_RENDER_VIDEO_TEXTURE_LOAD_FAILED"],
+        "503": ["BACKGROUND_WORKERS_DISABLED"],
+        "500": [
+            "PRODUCT_3D_RENDER_VIDEO_PREVIEW_FAILED",
+            "PRODUCT_3D_RENDER_VIDEO_CONTEXT_INVALID",
+            "PRODUCT_3D_RENDER_VIDEO_TEXTURE_LOAD_FAILED",
+            "PRODUCT_3D_RENDER_VIDEO_FFMPEG_MISSING",
+            "PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_FAILED",
+            *submit_errors["500"],
+        ],
     }
     agent_errors = {
         **submit_errors,
@@ -3428,6 +3949,106 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     ),
                 }
             },
+            "/api/business/promo-video/plan": {
+                "post": {
+                    "operationId": "podi_business_promo_video_plan",
+                    "summary": "PODI · 产品推广视频 · 脚本分镜规划",
+                    "description": "正式产品视频规划入口。固定走 video_preview：读取产品图组和可选字段，输出商品理解、脚本、分镜、首尾帧/关键帧需求、模型拆段策略和审核提示；不生成图片或视频，不产生视频成本动作。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {**product_commercialization_submit_schema, "x-podi-fixed-action": "video_preview"},
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Promo video plan prepared",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=promo_video_response_schema,
+                    ),
+                }
+            },
+            "/api/business/promo-video/keyframes/runs": {
+                "post": {
+                    "operationId": "podi_business_promo_video_keyframe_run_create",
+                    "summary": "PODI · 产品推广视频 · 首尾帧任务",
+                    "description": "正式首尾帧/关键帧异步任务入口。固定走 action=video_keyframes：根据已确认脚本分镜生成首尾帧图片，返回 runId；业务方通过 /api/business/runs/get 查询 imageUrls 和 resultPayload.videoAssetPackage.keyframes，人工确认后再提交视频任务。可传 keyframeShotScope 只重生成某个镜头的首尾帧。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    **product_commercialization_submit_schema,
+                                    "x-podi-required-one-of": ["productImageUrl", "productImages"],
+                                    "x-podi-fixed-action": "video_keyframes",
+                                },
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Business run accepted; poll /api/business/runs/get for keyframe assets",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
+            "/api/business/promo-video/runs": {
+                "post": {
+                    "operationId": "podi_business_promo_video_run_create",
+                    "summary": "PODI · 产品推广视频 · 分段视频素材任务",
+                    "description": "正式产品推广视频异步任务入口。固定走 action=video_generate：在脚本、分镜和首尾帧确认后生成 KIE/Vidu 分段视频素材包，返回 runId；最终合成片不是默认成功口径。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    **product_commercialization_submit_schema,
+                                    "x-podi-required-one-of": ["productImageUrl", "productImages"],
+                                    "x-podi-fixed-action": "video_generate",
+                                },
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Business run accepted; poll /api/business/runs/get for segment videos",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
+            "/api/business/promo-video/compose/runs": {
+                "post": {
+                    "operationId": "podi_business_promo_video_compose_run_create",
+                    "summary": "PODI · 产品推广视频 · 可选合成任务",
+                    "description": "正式可选合成异步任务入口。固定走 action=compose_video：当业务方明确需要合成片时，把分段素材合成为最终视频；不替代分段视频素材包交付。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    **product_commercialization_submit_schema,
+                                    "x-podi-required-one-of": ["productImageUrl", "productImages"],
+                                    "x-podi-fixed-action": "compose_video",
+                                },
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Business run accepted; poll /api/business/runs/get for composed video assets",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
             "/api/business/product-3d-render-video/preview": {
                 "post": {
                     "operationId": "podi_business_product_3d_render_video_preview",
@@ -3450,6 +4071,41 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     ),
                 }
             },
+            "/api/business/product-3d-render-video/catalog": {
+                "get": {
+                    "operationId": "podi_business_product_3d_render_video_catalog",
+                    "summary": "PODI · 3D 模型渲染视频 · 能力目录",
+                    "description": "只读配置目录，返回可用模型、材质槽、场景资产、镜头模板、镜头远近、默认镜头轨迹和渲染器边界。用于业务方或客户端先构建配置 UI，再调用 /preview 或 /runs；不触发视频生成和成本动作。",
+                    "security": business_api_key_security,
+                    "responses": _business_responses(
+                        success_description="3D render-video catalog returned",
+                        errors_by_status={**submit_errors, "500": ["PRODUCT_3D_RENDER_VIDEO_CATALOG_FAILED", *submit_errors["500"]]},
+                        success_schema=product_3d_render_video_catalog_schema,
+                    ),
+                }
+            },
+            "/api/business/product-3d-render-video/runs": {
+                "post": {
+                    "operationId": "podi_business_product_3d_render_video_run_create",
+                    "summary": "PODI · 3D 模型渲染视频 · 服务端渲染任务",
+                    "description": "服务端异步渲染任务入口，边界独立于测评端本地录制。当前接入 lightweight_scene_renderer_v1：服务端生成 MP4、封面帧和 manifest 并回填 OSS；后续可在不改 API 的前提下替换为 Blender/headless Three.js 高保真渲染 worker。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": product_3d_render_video_run_submit_schema,
+                                "examples": product_3d_render_video_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Business run accepted; poll /api/business/runs/get for status and rendered assets",
+                        errors_by_status=product_3d_render_video_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
             "/api/business/product-commercialization/video": {
                 "post": {
                     "operationId": "podi_business_product_commercialization_video",
@@ -3467,6 +4123,28 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     },
                     "responses": _business_responses(
                         success_description="Product commercialization video generated or running",
+                        errors_by_status=product_commercialization_errors,
+                        success_schema=product_commercialization_response_schema,
+                    ),
+                }
+            },
+            "/api/business/product-commercialization/video-keyframes": {
+                "post": {
+                    "operationId": "podi_business_product_commercialization_video_keyframes",
+                    "summary": "PODI · 产品商业化 · 生成视频首尾帧（兼容调试）",
+                    "description": "兼容/内部调试同步入口。正式业务接入建议调用 /api/business/product-commercialization/runs 且 action=video_keyframes，先生成并确认首尾帧，再 action=video_generate 触发视频生成。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {**product_commercialization_submit_schema, "x-podi-required-one-of": ["productImageUrl", "productImages"]},
+                                "examples": product_commercialization_examples,
+                            }
+                        },
+                    },
+                    "responses": _business_responses(
+                        success_description="Product commercialization video keyframes generated",
                         errors_by_status=product_commercialization_errors,
                         success_schema=product_commercialization_response_schema,
                     ),

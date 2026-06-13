@@ -77,7 +77,7 @@
 视频质量观察：
 
 - 优点：主体稳定，运镜平滑，产品材质和图案有一定展示价值。
-- 已修复风险：Vidu 单参考图生视频会跟随参考图/首帧比例，旧链路不能把 `aspectRatio` 当成已强执行的模型参数。当前改为固定画幅先生成并归一化首帧，再把该首帧作为 Vidu 输入图。
+- 已修复风险：Vidu 单参考图生视频会跟随参考图/首帧比例，旧链路不能把 `aspectRatio` 当成已强执行的模型参数。当前流程要求先通过 `video_keyframes` 生成并归一化首帧，由用户确认后再把该帧通过 `confirmedVideoKeyframes` 传给 Vidu 视频任务。
 - 当前质量观察：最终推荐成片为横版 `1280x720`，没有黑边或竖版漂移；开头约 `3.04s` 完整稳定展示商品，并用约 `0.35s` 淡入过渡到 Vidu 动态细节段。Vidu 原始段仍会快速进入局部裁切，因此不能把原始段直接当唯一交付；它应作为可复用素材保留。
 - 首帧观察：归一化首帧比例正确，但 GPT Image 2 原始构图有时会出现类似白色画框/留白。已继续收紧首帧 prompt，要求全画幅商业场景、禁止 smaller framed picture / white mat / inset image / large empty padding。
 
@@ -110,6 +110,8 @@
    - Vidu 输出视频 `1280x720`、`8.041667s`，OSS：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-vidu/20260612/a23688d2-1781245503.mp4`。
    - `execution.costActions` 同时记录 `openai.gpt_image_2.image` 和 `vidu.viduq3_turbo.video`，成本证据完整。
    - 继续补充首帧 prompt 约束，避免白色画框、画中画、留白和边框布局。
+
+   2026-06-13 口径更新：上述复测证据保留为质量样例，但执行流程已改为硬门禁：视频生成阶段不再自动补首帧。业务方或测评端必须先生成并确认首尾帧/关键帧，再调用 `video_generate`；否则返回 `PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED`，不会触发 KIE/Vidu 视频扣费。
 
 7. 2026-06-12 Vidu 原始段不可控裁切复盘与组合成片修复
    - 复测发现即使首帧 `1280x720`，Vidu 原始段仍会在 0.5-1.5 秒内快速推进到局部纹理，无法稳定保障“完整商品先看清楚”。

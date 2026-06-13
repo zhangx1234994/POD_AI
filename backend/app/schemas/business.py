@@ -429,7 +429,7 @@ class ProductCommercializationRequest(BaseModel):
 
     action: str | None = Field(
         default=None,
-        description="业务动作：copy_preview、video_preview、video_generate（默认执行视频）、compose_video、visual_generate（配图）。",
+        description="业务动作：copy_preview、video_preview、video_keyframes、video_generate（默认执行视频）、compose_video、visual_generate（配图）。",
     )
 
     productImageUrl: str | None = Field(
@@ -514,6 +514,21 @@ class ProductCommercializationRequest(BaseModel):
         alias="video_prompt_override",
         description="用户编辑后的最终视频执行脚本。仅影响显式视频生成动作，预览规划仍由模型生成。",
     )
+    videoPlanningContext: dict[str, Any] | None = Field(
+        default=None,
+        alias="video_planning_context",
+        description="视频规划结构化上下文，例如核心信息、目标人群、使用场景、镜头偏好、禁止内容和自定义要素。",
+    )
+    keyframeShotScope: str | int | None = Field(
+        default=None,
+        alias="keyframe_shot_scope",
+        description="可选首尾帧生成范围；传镜头序号时只重生成该镜头的首帧/尾帧/关键帧，不传则生成全部计划关键帧。",
+    )
+    confirmedVideoKeyframes: list[dict[str, Any]] | None = Field(
+        default=None,
+        alias="confirmed_video_keyframes",
+        description="用户已确认的视频首尾帧/关键帧资产。video_generate 会按 shot/segmentIndex 匹配并优先作为对应镜头参考图。",
+    )
     visualScenes: list[str] | None = Field(
         default=None,
         alias="visual_scenes",
@@ -529,6 +544,7 @@ class ProductCommercializationPreviewResponse(BaseModel):
 
     requestId: str = Field(alias="request_id")
     businessKey: str = Field(alias="business_key")
+    underlyingBusinessKey: str | None = Field(default=None, alias="underlying_business_key")
     version: str
     status: str
     generatedAt: str = Field(alias="generated_at")
@@ -579,13 +595,24 @@ class Product3DRenderVideoRequest(BaseModel):
     )
     materialSlot: str | None = Field(default=None, alias="material_slot", description="目标材质槽；为空使用推荐槽。")
     cameraPreset: str = Field(default="orbit_360", alias="camera_preset", description="镜头预设。")
+    cameraDistance: str = Field(default="wide", alias="camera_distance", description="镜头远近：wide/standard/close。")
     scenePreset: str = Field(default="clean_studio", alias="scene_preset", description="场景预设。")
+    motionPath: list[dict[str, float]] | None = Field(
+        default=None,
+        alias="motion_path",
+        description="兼容字段：镜头轨迹归一化坐标点列表，x/y 均为 0-1；至少 2 点，最多取前 12 点。商品保持固定，不表示商品位移。",
+    )
+    cameraPlan: dict[str, Any] | None = Field(
+        default=None,
+        alias="camera_plan",
+        description="镜头方案。描述相机轨迹、焦点、是否已播放确认和商品固定约束；新接入优先使用该字段。",
+    )
     durationSeconds: int = Field(default=6, ge=1, le=30, alias="duration_seconds", description="目标渲染视频秒数。")
     aspectRatio: str = Field(default="16:9", alias="aspect_ratio", description="目标画幅比例。")
     outputMode: str = Field(
         default="plan_only",
         alias="output_mode",
-        description="输出模式。当前仅开放 plan_only；render_video 为后续渲染服务能力。",
+        description="输出模式。/preview 使用 plan_only；/runs 会强制使用 render_video 并返回统一业务 runId。",
     )
     extraPrompt: str | None = Field(
         default=None,
@@ -610,6 +637,26 @@ class Product3DRenderVideoPreviewResponse(BaseModel):
     renderPlan: dict[str, Any] = Field(alias="render_plan")
     review: dict[str, Any]
     execution: dict[str, Any]
+    audit: dict[str, Any] | None = None
+
+
+class Product3DRenderVideoCatalogResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    businessKey: str = Field(alias="business_key")
+    version: str
+    status: str
+    generatedAt: str = Field(alias="generated_at")
+    defaults: dict[str, Any]
+    models: list[dict[str, Any]]
+    scenePresets: list[dict[str, Any]] = Field(alias="scene_presets")
+    sceneAssetSources: list[dict[str, Any]] = Field(alias="scene_asset_sources")
+    cameraPresets: list[dict[str, Any]] = Field(alias="camera_presets")
+    cameraDistances: list[dict[str, Any]] = Field(alias="camera_distances")
+    durationOptions: list[int] = Field(alias="duration_options")
+    aspectRatioOptions: list[str] = Field(alias="aspect_ratio_options")
+    renderers: dict[str, Any]
+    endpoints: dict[str, str]
     audit: dict[str, Any] | None = None
 
 

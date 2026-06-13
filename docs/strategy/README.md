@@ -35,7 +35,7 @@
 - 当前会议材料：`v0.7-kickoff-meeting-2026-06-09.md`，用于 2026-06-09 会议确认下阶段目标和 P0 范围。
 - 当前重点：v0.7 子版本拆分、市场端 AI 能力产品化、全局交互治理、Agent Runtime v2、首批能力产品化、质量迭代、控制面预聚合和文档入口切换。
 - 当前市场端口径：产品图 / 设计图是最高优先级事实源，产品导出 JSON 只是可选说明材料；产品视频按“脚本、分镜、首尾帧、分段视频、可选合成片”的素材包能力建设，不再只以最终合成片作为唯一交付物。
-- 当前市场端能力契约：`product_image_set`、`model_scene_image`、`promo_video` 已形成草案，但仍是待实现能力；线上继续用 `product_commercialization` 试验入口验证大模型产品视频素材包，产品文案入口已暂停，后续按 `product_copy_package` 独立能力重做。3D 渲染视频是独立技术路线，当前先开放 `product_3d_render_video` 方案预览，不与 KIE/Vidu 大模型视频混用。
+- 当前市场端能力契约：`product_image_set`、`model_scene_image`、`promo_video` 已形成草案，但仍是待实现能力；线上继续用 `product_commercialization` 试验入口验证大模型产品视频素材包，产品文案入口已暂停，后续按 `product_copy_package` 独立能力重做。3D 渲染视频是独立技术路线，当前开放 `product_3d_render_video` 方案预览和受控 `/runs` 服务端轻量渲染入口，已能生成 MP4、封面和 manifest 并回填 OSS；后续替换高保真 Blender/headless Three.js worker，不与 KIE/Vidu 大模型视频混用。
 - 当前基线：114 线上封版提交 `516ba656`，已通过 smoke、真实业务巡检、图编辑抽检、测评端 production 巡检和页面回归。
 - 当前 Agent 约束：对话式改图可暂时归在图编辑分类下，但长期归宿是 Agent Runtime；可视化/画布式图编辑和对话式 Agent 改图必须保持命名、交互、API 边界和能力定义拆分。
 - 当前非目标：低代码工作流编辑器、一次全自动端到端承诺、客户端直连原子能力、正式支付、全品类一次性覆盖、重型通用 Agent 平台、在本仓库实现新客户端。

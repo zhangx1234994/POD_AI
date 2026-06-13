@@ -4,16 +4,23 @@ import { evalApi } from '../../api';
 import type { BusinessRunPollResult, ProductCommercializationRequest, ProductCommercializationResponse } from '../../api';
 
 type ProductCommercializationMode = 'copy' | 'video';
-type WorkStatus = 'idle' | 'previewing' | 'video' | 'uploading' | 'visual';
+type WorkStatus = 'idle' | 'previewing' | 'keyframes' | 'video' | 'uploading' | 'visual';
 type VideoProvider = 'kie_veo3_fast' | 'vidu_viduq3_turbo';
 type ProductCommercializationStage = 'asset' | 'facts' | 'strategy' | 'review' | 'deliver';
 type ProductImageInput = NonNullable<ProductCommercializationRequest['productImages']>[number];
+type VideoPlanningFieldSource = 'auto' | 'manual' | 'default';
 type VideoPlanningField = {
   id: string;
   label: string;
   description: string;
   value: string;
   removable?: boolean;
+  source?: VideoPlanningFieldSource;
+  sourceLabel?: string;
+};
+type VideoPlanningSuggestion = {
+  value: string;
+  sourceLabel: string;
 };
 
 const MODE_COPY: ProductCommercializationMode = 'copy';
@@ -39,7 +46,7 @@ const VIDEO_MODEL_PROFILES: Record<
     defaultSegmentSeconds: 5,
     modes: [
       { label: '单参考图生视频', status: 'executable', desc: '直接用产品图生成单段或多段片段。' },
-      { label: '首尾帧控制', status: 'planned', desc: '先生成并确认首尾帧，再调用对应视频接口。' },
+      { label: '关键帧控制', status: 'executable', desc: '先生成并确认关键帧/首尾帧，再调用对应视频接口。' },
     ],
   },
   kie_veo3_fast: {
@@ -49,7 +56,7 @@ const VIDEO_MODEL_PROFILES: Record<
     defaultSegmentSeconds: 8,
     modes: [
       { label: '单参考图生视频', status: 'executable', desc: '当前稳定执行入口。' },
-      { label: '首尾帧控制', status: 'planned', desc: '待完成首尾帧生成和接口适配后开放。' },
+      { label: '关键帧控制', status: 'executable', desc: '先生成并确认关键帧/首尾帧，再调用对应视频接口。' },
     ],
   },
 };
@@ -84,6 +91,8 @@ const DEFAULT_VIDEO_PLANNING_FIELDS: VideoPlanningField[] = [
     label: '禁止内容',
     description: '不要出现的元素，例如文字、水印、夸张承诺、变形',
     value: '不要出现文字、水印、Logo、价格标签，不要改变商品形状和图案。',
+    source: 'default',
+    sourceLabel: '系统默认商品保护约束',
   },
 ];
 
@@ -279,15 +288,17 @@ const MODE_META: Record<
   },
   video: {
     title: '产品视频素材包',
-    subtitle: '产品设计完成后，先规划脚本和分镜，再生成分段视频素材，合成片作为可选交付。',
+    subtitle: '产品设计完成后，先用产品图和可选字段规划脚本分镜，再确认关键帧/首尾帧，最后生成分段视频素材。',
     inputHint: '产品图是必填素材；字段只是可选补充，用于约束脚本和镜头。',
-    outputHint: '预览只生成脚本和分镜；视频素材按钮才会触发成本动作。',
-    emptyText: '先生成视频规划，确认商品、场景、供应商和时长，再生成视频素材包。',
+    outputHint: '预览只生成脚本和分镜；关键帧/首尾帧和视频素材都必须显式触发成本动作，用户目标时长由规划器按模型能力拆段。',
+    emptyText: '先生成视频规划，确认脚本分镜和关键帧/首尾帧，再生成视频素材包。',
     previewButton: '生成素材包规划',
-    usageSteps: ['上传产品图或填写图片 URL', '可选补充产品字段，选择供应商/场景/时长', '生成脚本和分镜，确认后提交分段视频素材任务'],
+    usageSteps: ['上传产品图或填写图片 URL', '可选补充产品字段，选择供应商/场景/时长', '生成脚本分镜，再生成并确认关键帧/首尾帧', '确认后提交分段视频素材任务'],
     interfaceNotes: [
-      { label: '规划接口', value: 'POST /api/business/product-commercialization/preview' },
-      { label: '视频素材执行', value: 'POST /api/business/product-commercialization/runs · action=video_generate' },
+      { label: '规划接口', value: 'POST /api/business/promo-video/plan' },
+      { label: '关键帧执行', value: 'POST /api/business/promo-video/keyframes/runs' },
+      { label: '视频素材执行', value: 'POST /api/business/promo-video/runs' },
+      { label: '可选合成', value: 'POST /api/business/promo-video/compose/runs' },
       { label: '查询结果', value: 'POST /api/business/runs/get · runId' },
     ],
     tags: [
@@ -297,9 +308,6 @@ const MODE_META: Record<
     ],
   },
 };
-
-const PRODUCT_COPY_PAUSED_MESSAGE =
-  '文案入口已暂停，后续按 product_copy_package 独立能力重做。';
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value ?? {}, null, 2);
@@ -513,6 +521,54 @@ function getVideoUrls(result: ProductCommercializationResponse | null): string[]
   return uniqueStrings(urls);
 }
 
+function videoKeyframeRoleLabel(role: unknown): string {
+  const value = String(role || '').trim();
+  if (value === 'normalized_first_frame') return 'Vidu 归一化首帧';
+  if (value === 'first_frame' || value === 'opening_frame') return '首帧';
+  if (value === 'last_frame' || value === 'ending_frame' || value === 'closing_frame') return '尾帧';
+  if (value === 'key_frame' || value === 'confirmed_keyframe') return '关键帧';
+  return value || '关键帧';
+}
+
+function videoKeyframeRoleHint(role: unknown): string {
+  const value = String(role || '').trim();
+  if (value === 'normalized_first_frame') return '用于固定目标画幅，确认后作为 Vidu 视频参考首帧';
+  if (value === 'first_frame' || value === 'opening_frame') return '作为本镜头开始画面的事实锚点';
+  if (value === 'last_frame' || value === 'ending_frame' || value === 'closing_frame') return '作为本镜头结束画面的收束参考';
+  return '用于约束本镜头视频生成效果';
+}
+
+function videoKeyframeRolesCompatible(needRole: unknown, frameRole: unknown): boolean {
+  const need = String(needRole || 'key_frame').trim();
+  const frame = String(frameRole || 'confirmed_keyframe').trim();
+  if (need === frame) return true;
+  const firstRoles = new Set(['first_frame', 'normalized_first_frame', 'opening_frame']);
+  const lastRoles = new Set(['last_frame', 'ending_frame', 'closing_frame']);
+  const genericRoles = new Set(['key_frame', 'confirmed_keyframe']);
+  if (firstRoles.has(need) && firstRoles.has(frame)) return true;
+  if (lastRoles.has(need) && lastRoles.has(frame)) return true;
+  return genericRoles.has(need) && genericRoles.has(frame);
+}
+
+function findGeneratedKeyframeForNeed(need: Record<string, unknown>, frames: Record<string, unknown>[]) {
+  return frames.find((frame) => getFrameImageUrl(frame) && videoKeyframeRolesCompatible(need.role, frame.role));
+}
+
+function keyframeGroupGenerationState(group: ReturnType<typeof buildVideoStoryboardGroups>[number]) {
+  const needs = group.keyframeNeeds;
+  const generatedFrames = group.generatedKeyframes.filter((item) => getFrameImageUrl(item));
+  if (needs.length === 0) {
+    return { generatedCount: generatedFrames.length, requiredCount: 0, missingNeeds: [] as Record<string, unknown>[], complete: true };
+  }
+  const missingNeeds = needs.filter((need) => !findGeneratedKeyframeForNeed(need, generatedFrames));
+  return {
+    generatedCount: generatedFrames.length,
+    requiredCount: needs.length,
+    missingNeeds,
+    complete: missingNeeds.length === 0,
+  };
+}
+
 function uniqueStrings(values: string[]): string[] {
   const seen = new Set<string>();
   return values.filter((item) => {
@@ -589,6 +645,77 @@ function getRunVisualResults(result: BusinessRunPollResult | null): Array<{ scen
     .filter((item) => item.urls.length > 0);
 }
 
+function getFrameImageUrl(frame: Record<string, unknown>): string {
+  return String(frame.imageUrl || frame.ossUrl || frame.storedUrl || frame.url || '').trim();
+}
+
+function normalizeShotScope(value: unknown): string {
+  if (value === null || value === undefined || value === false) return '';
+  const text = String(value).trim();
+  if (!text) return '';
+  const match = text.match(/\d+/);
+  return match ? String(Number(match[0])) : text;
+}
+
+function frameMatchesShotScope(frame: Record<string, unknown>, shotScope: string, fallbackIndex = 0): boolean {
+  const normalizedScope = normalizeShotScope(shotScope);
+  if (!normalizedScope) return true;
+  const frameShot = normalizeShotScope(frame.shot || frame.segmentIndex || frame.segment_index || frame.segment || fallbackIndex || '');
+  return frameShot === normalizedScope;
+}
+
+function mergeKeyframesForShotScope(
+  existingFrames: Record<string, unknown>[],
+  incomingFrames: Record<string, unknown>[],
+  shotScope: string,
+): Record<string, unknown>[] {
+  const normalizedScope = normalizeShotScope(shotScope);
+  if (!normalizedScope) return incomingFrames.length > 0 ? incomingFrames : existingFrames;
+  const keptFrames = existingFrames.filter((frame, index) => !frameMatchesShotScope(frame, normalizedScope, index + 1));
+  return [...keptFrames, ...incomingFrames];
+}
+
+function mergeScopedVideoKeyframeResult(
+  previous: ProductCommercializationResponse | null,
+  incoming: ProductCommercializationResponse,
+  shotScope: string,
+): ProductCommercializationResponse {
+  const normalizedScope = normalizeShotScope(shotScope);
+  if (!previous || !normalizedScope) return incoming;
+
+  const previousPackage = asRecord(previous.videoAssetPackage);
+  const incomingPackage = asRecord(incoming.videoAssetPackage);
+  const previousVideoPlan = asRecord(previous.videoPlan);
+  const incomingVideoPlan = asRecord(incoming.videoPlan);
+  const previousVideoResult = asRecord(previous.videoResult);
+  const incomingVideoResult = asRecord(incoming.videoResult);
+  const mergedKeyframes = mergeKeyframesForShotScope(
+    asArray(previousPackage.keyframes).map((item) => asRecord(item)),
+    asArray(incomingPackage.keyframes).map((item) => asRecord(item)),
+    normalizedScope,
+  );
+
+  return {
+    ...previous,
+    ...incoming,
+    videoPlan: {
+      ...previousVideoPlan,
+      ...incomingVideoPlan,
+      generatedKeyframes: mergedKeyframes,
+    },
+    videoAssetPackage: {
+      ...previousPackage,
+      ...incomingPackage,
+      keyframes: mergedKeyframes,
+    },
+    videoResult: {
+      ...previousVideoResult,
+      ...incomingVideoResult,
+      keyframes: mergedKeyframes,
+    },
+  };
+}
+
 function mergeVisualRunState(
   previous: GeneratedVisual[],
   scenes: readonly VisualScene[],
@@ -647,7 +774,11 @@ function hasAnyGeneratedVisualForScenes(visuals: GeneratedVisual[], scenes: read
 function asProductCommercializationResponse(value: unknown): ProductCommercializationResponse | null {
   if (!value || typeof value !== 'object') return null;
   const payload = value as ProductCommercializationResponse;
-  return payload.businessKey === 'product_commercialization' ? payload : null;
+  return payload.businessKey === 'product_commercialization' ||
+    payload.businessKey === 'promo_video' ||
+    payload.underlyingBusinessKey === 'product_commercialization'
+    ? payload
+    : null;
 }
 
 function businessRunStatusLabel(status: string) {
@@ -702,13 +833,209 @@ function buildVideoPlanningText(fields: VideoPlanningField[], targetDurationSeco
   return lines.join('\n');
 }
 
+function buildVideoPlanningContext(fields: VideoPlanningField[]): Record<string, unknown> {
+  const standardKeyMap: Record<string, string> = {
+    core_message: 'coreMessage',
+    target_audience: 'targetAudience',
+    usage_scene: 'usageScene',
+    shot_preference: 'shotPreference',
+    avoid: 'avoid',
+  };
+  const filled = fields
+    .map((field) => ({
+      id: field.id,
+      label: field.label.trim(),
+      description: field.description.trim(),
+      value: field.value.trim(),
+      source: field.source || (field.value.trim() ? 'manual' : undefined),
+      sourceLabel: field.sourceLabel,
+    }))
+    .filter((field) => field.value);
+  const context: Record<string, unknown> = {
+    source: 'eval-editable-video-planning-fields',
+    fields: filled,
+  };
+  filled.forEach((field) => {
+    const key = standardKeyMap[field.id];
+    if (key) context[key] = field.value;
+  });
+  return context;
+}
+
+function joinUniqueText(values: unknown[], limit = 4): string {
+  return uniqueStrings(
+    values
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  )
+    .slice(0, limit)
+    .join('；');
+}
+
+function deriveVideoPlanningSuggestions(response: ProductCommercializationResponse | null): Record<string, VideoPlanningSuggestion> {
+  const videoPlan = asRecord(response?.videoPlan);
+  const contractedFields = asArray(videoPlan.editablePlanningFields).map((item) => asRecord(item));
+  if (contractedFields.length > 0) {
+    const suggestions: Record<string, VideoPlanningSuggestion> = {};
+    contractedFields.forEach((field) => {
+      const id = String(field.id || '').trim();
+      const value = String(field.value || '').trim();
+      if (!id || !value) return;
+      suggestions[id] = {
+        value,
+        sourceLabel: String(field.sourceLabel || field.evidence || '后端规划字段合同').trim(),
+      };
+    });
+    return suggestions;
+  }
+  const brief = asRecord(videoPlan.directorBrief);
+  const facts = asRecord(response?.resolvedProductFacts);
+  const storyboard = asArray(videoPlan.storyboard).map((item) => asRecord(item));
+  const productText = joinUniqueText([facts.summary, brief.productUnderstanding]);
+  const sceneText = joinUniqueText(storyboard.flatMap((shot) => [shot.scene, shot.goal]));
+  const cameraText = joinUniqueText(storyboard.flatMap((shot) => [shot.cameraMovement, shot.camera]));
+  const subjectText = joinUniqueText(storyboard.map((shot) => shot.subject));
+  return {
+    core_message: {
+      value: joinUniqueText([brief.commercialGoal, productText, subjectText], 3),
+      sourceLabel: '产品图 / VL 商品理解 / 分镜规划',
+    },
+    target_audience: {
+      value: joinUniqueText([brief.targetAudience, videoPlan.targetAudience, videoPlan.audience, brief.commercialGoal], 3),
+      sourceLabel: '导演 brief / 目标市场推断',
+    },
+    usage_scene: {
+      value: sceneText,
+      sourceLabel: '分镜场景规划',
+    },
+    shot_preference: {
+      value: cameraText,
+      sourceLabel: '镜头运动规划',
+    },
+    avoid: {
+      value: joinUniqueText([videoPlan.negativePrompt, brief.continuityRule, '不要出现文字、水印、Logo、价格标签，不要改变商品形状和图案。'], 3),
+      sourceLabel: '模型风险约束 / 系统默认保护',
+    },
+  };
+}
+
+function getVideoPlanningSourceTag(field: VideoPlanningField) {
+  if (field.source === 'auto') return { label: '模型回填', theme: 'success' as const };
+  if (field.source === 'manual') return { label: '人工调整', theme: 'warning' as const };
+  if (field.source === 'default') return { label: '默认约束', theme: 'primary' as const };
+  return { label: field.value.trim() ? '已填写' : '待识别' };
+}
+
+function buildVideoStoryboardGroups(
+  videoPlan: Record<string, unknown>,
+  videoAssetPackagePlan: Record<string, unknown>,
+  videoAssetPackage: Record<string, unknown>,
+) {
+  const storyboard = asArray(videoPlan.storyboard).map((item) => asRecord(item));
+  const keyframeNeeds = asArray(videoAssetPackagePlan.keyframeNeeds).map((item) => asRecord(item));
+  const shotPackages = asArray(videoAssetPackagePlan.shotPackages).map((item) => asRecord(item));
+  const generatedKeyframes = asArray(videoAssetPackage.keyframes).map((item) => asRecord(item));
+  const buildShotMatcher = (shotNo: string, fallbackIndex: number) => (item: Record<string, unknown>) => {
+    const raw = String(item.shot || item.segmentIndex || item.segment_index || item.segment || '').trim();
+    return raw === shotNo || Number(raw) === fallbackIndex + 1 || (!raw && fallbackIndex === 0);
+  };
+
+  if (shotPackages.length > 0) {
+    return shotPackages.map((item, index) => {
+      const shotNo = String(item.shotNo || item.segmentIndex || item.shot || index + 1);
+      const matchesShot = buildShotMatcher(shotNo, index);
+      const packageNeeds = asArray(item.keyframeNeeds).map((need) => asRecord(need));
+      const fallbackShot = storyboard.find(matchesShot) || ({} as Record<string, unknown>);
+      const shot: Record<string, unknown> = {
+        ...fallbackShot,
+        shot: item.shotNo || item.segmentIndex || item.shot || fallbackShot.shot || index + 1,
+        label: item.label || fallbackShot.label,
+        keepSeconds: item.keepSeconds || fallbackShot.keepSeconds,
+        durationSeconds: item.durationSeconds || fallbackShot.durationSeconds,
+        subject: item.subject || fallbackShot.subject,
+        goal: item.goal || fallbackShot.goal,
+        scene: item.scene || fallbackShot.scene,
+        cameraMovement: item.cameraMovement || fallbackShot.cameraMovement || fallbackShot.camera,
+        camera: item.camera || fallbackShot.camera,
+        composition: item.composition || fallbackShot.composition,
+        referenceImage: item.referenceImage || fallbackShot.referenceImage,
+        prompt: item.prompt || item.videoPrompt || fallbackShot.prompt,
+        vendorPrompt: item.videoPrompt || fallbackShot.vendorPrompt,
+        firstFramePrompt: item.firstFramePrompt || fallbackShot.firstFramePrompt,
+        lastFramePrompt: item.lastFramePrompt || fallbackShot.lastFramePrompt,
+        negativePrompt: item.negativePrompt || fallbackShot.negativePrompt,
+      };
+      return {
+        shot,
+        shotNo,
+        keyframeNeeds: packageNeeds.length > 0 ? packageNeeds : keyframeNeeds.filter(matchesShot),
+        generatedKeyframes: generatedKeyframes.filter(matchesShot),
+        prompt: String(item.videoPrompt || item.prompt || fallbackShot.vendorPrompt || fallbackShot.prompt || videoPlan.videoPrompt || '').trim(),
+      };
+    });
+  }
+
+  const sourceShots = storyboard.length > 0 ? storyboard : [{ shot: 1, label: '视频脚本', prompt: videoPlan.videoPrompt }];
+
+  return sourceShots.map((shot, index) => {
+    const shotNo = String(shot.shot || shot.segmentIndex || index + 1);
+    const matchesShot = buildShotMatcher(shotNo, index);
+    const plannedNeeds = keyframeNeeds.filter(matchesShot);
+    const derivedNeeds =
+      plannedNeeds.length > 0
+        ? plannedNeeds
+        : [
+            shot.firstFramePrompt
+              ? { role: 'first_frame', shot: shotNo, prompt: shot.firstFramePrompt, source: 'storyboard' }
+              : null,
+            shot.lastFramePrompt
+              ? { role: 'last_frame', shot: shotNo, prompt: shot.lastFramePrompt, source: 'storyboard' }
+              : null,
+          ].filter(Boolean).map((item) => item as Record<string, unknown>);
+
+    return {
+      shot,
+      shotNo,
+      keyframeNeeds: derivedNeeds,
+      generatedKeyframes: generatedKeyframes.filter(matchesShot),
+      prompt: String(shot.vendorPrompt || shot.prompt || videoPlan.videoPrompt || '').trim(),
+    };
+  });
+}
+
+function buildConfirmedVideoKeyframesPayload(
+  groups: ReturnType<typeof buildVideoStoryboardGroups>,
+  confirmedShotScopes: string[],
+): Array<Record<string, unknown>> {
+  const confirmedScopes = new Set(confirmedShotScopes.map((item) => normalizeShotScope(item)).filter(Boolean));
+  if (confirmedScopes.size === 0) return [];
+  return groups.flatMap((group) => {
+    if (!confirmedScopes.has(normalizeShotScope(group.shotNo))) return [];
+    return group.generatedKeyframes
+      .map((frame) => {
+        const imageUrl = getFrameImageUrl(frame);
+        if (!imageUrl) return null;
+        return {
+          ...frame,
+          imageUrl,
+          ossUrl: String(frame.ossUrl || imageUrl),
+          shot: group.shotNo,
+          segmentIndex: Number(normalizeShotScope(group.shotNo)) || group.shotNo,
+          confirmed: true,
+          source: String(frame.source || 'user_confirmed_video_keyframe'),
+        };
+      })
+      .filter(Boolean) as Array<Record<string, unknown>>;
+  });
+}
+
 function hasReviewIssue(result: ProductCommercializationResponse | null, code: string): boolean {
   const issues = asArray(asRecord(result?.review).issues).map((item) => asRecord(item));
   return issues.some((item) => String(item.code || '') === code);
 }
 
-export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?: ProductCommercializationMode }) {
-  const meta = MODE_META[mode] || MODE_META.copy;
+export function ProductCommercializationWorkbench({ mode = MODE_VIDEO }: { mode?: ProductCommercializationMode }) {
+  const meta = MODE_META[mode] || MODE_META.video;
   const isVideoMode = mode === MODE_VIDEO;
   const [productImageUrl, setProductImageUrl] = useState('');
   const [productImageSetText, setProductImageSetText] = useState('');
@@ -735,11 +1062,16 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const [conflictAccepted, setConflictAccepted] = useState(false);
   const [generatedVisuals, setGeneratedVisuals] = useState<GeneratedVisual[]>([]);
   const uploadRef = useRef<HTMLInputElement | null>(null);
+  const stageStudioRef = useRef<HTMLDivElement | null>(null);
+  const stageMainRef = useRef<HTMLElement | null>(null);
+  const stageScrollRequestedRef = useRef(false);
   const activeVideoRunIdRef = useRef<string | null>(null);
   const [videoRun, setVideoRun] = useState<{ runId: string; status: string; elapsedSeconds: number } | null>(null);
   const [resultInputSignature, setResultInputSignature] = useState('');
   const [videoPromptDraft, setVideoPromptDraft] = useState('');
   const [videoPlanConfirmed, setVideoPlanConfirmed] = useState(false);
+  const [confirmedKeyframeShotScopes, setConfirmedKeyframeShotScopes] = useState<string[]>([]);
+  const [activeKeyframeShotScope, setActiveKeyframeShotScope] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState<ProductCommercializationStage>('asset');
   const selectedVideoProfile = VIDEO_MODEL_PROFILES[videoProvider];
   const videoSegmentPlan = useMemo(
@@ -761,59 +1093,67 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     () => parseProductImageSet(productImageSetText, productImageUrl.trim()),
     [productImageSetText, productImageUrl],
   );
-  const currentInputSignature = useMemo(
-    () =>
-      JSON.stringify({
-        mode,
-        productImageUrl: productImageUrl.trim(),
-        productImageSetText: isVideoMode ? productImageSetText.trim() : undefined,
-        productFieldsText,
-        extraPrompt: extraPrompt.trim(),
-        outputLanguage,
-        marketRegion,
-        commercePlatform: isVideoMode ? undefined : commercePlatform,
-        copyTone: isVideoMode ? undefined : copyTone,
-        targetAudience: isVideoMode ? undefined : targetAudience.trim(),
-        sellingAngle: isVideoMode ? undefined : sellingAngle,
-        forbiddenClaims: isVideoMode ? undefined : forbiddenClaims,
-        visualSupportMode: isVideoMode ? undefined : visualSupportMode,
-        copyScenarios: isVideoMode ? undefined : [...copyScenarios].sort(),
-        videoScenario: isVideoMode ? videoScenario : undefined,
-        videoProvider: isVideoMode ? videoProvider : undefined,
-        aspectRatio: isVideoMode ? aspectRatio.trim() : undefined,
-        targetDurationSeconds: isVideoMode ? targetDurationSeconds : undefined,
-        videoPlanningFields: isVideoMode ? videoPlanningFields.map(({ id, label, description, value }) => ({ id, label, description, value })) : undefined,
-      }),
-    [
-      aspectRatio,
-      commercePlatform,
-      copyScenarios,
-      copyTone,
-      extraPrompt,
-      forbiddenClaims,
-      isVideoMode,
-      marketRegion,
+  const buildInputSignature = (planningFields: VideoPlanningField[] = videoPlanningFields) =>
+    JSON.stringify({
       mode,
-      outputLanguage,
+      productImageUrl: productImageUrl.trim(),
+      productImageSetText: isVideoMode ? productImageSetText.trim() : undefined,
       productFieldsText,
-      productImageUrl,
-      productImageSetText,
-      sellingAngle,
-      targetAudience,
-      targetDurationSeconds,
-      videoPlanningFields,
-      videoProvider,
-      videoScenario,
-      visualSupportMode,
-    ],
-  );
+      extraPrompt: extraPrompt.trim(),
+      outputLanguage,
+      marketRegion,
+      commercePlatform: isVideoMode ? undefined : commercePlatform,
+      copyTone: isVideoMode ? undefined : copyTone,
+      targetAudience: isVideoMode ? undefined : targetAudience.trim(),
+      sellingAngle: isVideoMode ? undefined : sellingAngle,
+      forbiddenClaims: isVideoMode ? undefined : forbiddenClaims,
+      visualSupportMode: isVideoMode ? undefined : visualSupportMode,
+      copyScenarios: isVideoMode ? undefined : [...copyScenarios].sort(),
+      videoScenario: isVideoMode ? videoScenario : undefined,
+      videoProvider: isVideoMode ? videoProvider : undefined,
+      aspectRatio: isVideoMode ? aspectRatio.trim() : undefined,
+      targetDurationSeconds: isVideoMode ? targetDurationSeconds : undefined,
+      videoPlanningFields: isVideoMode ? planningFields.map(({ id, label, description, value }) => ({ id, label, description, value })) : undefined,
+    });
+  const currentInputSignature = buildInputSignature();
   const shouldConfirmMatch = Boolean(productImageUrl.trim() && parsedFields && Object.keys(parsedFields).length > 0);
   const canRunPaidAction = Boolean(productImageUrl.trim());
   const hasFreshResult = Boolean(result && resultInputSignature === currentInputSignature && parsedFields !== null);
   const resultIsStale = Boolean(result && !hasFreshResult);
   const hasImageFieldConflict = hasFreshResult && hasReviewIssue(result, 'PRODUCT_IMAGE_FIELD_CONFLICT');
   const canRunCostAction = canRunPaidAction && hasFreshResult && (!hasImageFieldConflict || conflictAccepted);
-  const canRunVideoCostAction = canRunCostAction && videoPlanConfirmed;
+  const currentVideoAssetPackagePlan = asRecord(result?.videoAssetPackagePlan);
+  const currentVideoAssetPackage = asRecord(result?.videoAssetPackage);
+  const currentVideoKeyframes = asArray(currentVideoAssetPackage.keyframes).map((item) => asRecord(item));
+  const videoPlanForReview = asRecord(result?.videoPlan);
+  const videoAssetPackagePlanForReview = asRecord(result?.videoAssetPackagePlan);
+  const videoAssetPackageForReview = asRecord(result?.videoAssetPackage);
+  const videoStoryboardGroupsForReview = buildVideoStoryboardGroups(
+    videoPlanForReview,
+    videoAssetPackagePlanForReview,
+    videoAssetPackageForReview,
+  );
+  const keyframeReviewGroups = videoStoryboardGroupsForReview.filter((group) => group.keyframeNeeds.length > 0);
+  const requiresVideoKeyframeConfirmation = isVideoMode && keyframeReviewGroups.length > 0;
+  const isKeyframeGroupGenerated = (group: (typeof videoStoryboardGroupsForReview)[number]) =>
+    keyframeGroupGenerationState(group).complete;
+  const keyframeGeneratedShotScopes = keyframeReviewGroups
+    .filter(isKeyframeGroupGenerated)
+    .map((group) => group.shotNo);
+  const allRequiredKeyframesGenerated =
+    keyframeReviewGroups.length > 0 &&
+    keyframeReviewGroups.every(isKeyframeGroupGenerated);
+  const allRequiredKeyframesConfirmed =
+    !requiresVideoKeyframeConfirmation ||
+    (allRequiredKeyframesGenerated &&
+      keyframeReviewGroups.every((group) => confirmedKeyframeShotScopes.includes(group.shotNo)));
+  const hasGeneratedVideoKeyframes = requiresVideoKeyframeConfirmation
+    ? allRequiredKeyframesGenerated
+    : currentVideoKeyframes.some((item) => getFrameImageUrl(item));
+  const confirmedKeyframeShotCount = keyframeReviewGroups.filter((group) =>
+    confirmedKeyframeShotScopes.includes(group.shotNo),
+  ).length;
+  const canRunVideoCostAction = canRunCostAction && videoPlanConfirmed && allRequiredKeyframesConfirmed;
   const videoUrls = getVideoUrls(result);
   const hasGeneratedVisuals = hasAnyGeneratedVisualForScenes(generatedVisuals, VISUAL_SCENES);
 
@@ -822,6 +1162,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     setConflictAccepted(false);
     setVideoPromptDraft('');
     setVideoPlanConfirmed(false);
+    setConfirmedKeyframeShotScopes([]);
   }, [productImageUrl, productImageSetText, productFieldsText]);
 
   useEffect(() => {
@@ -830,7 +1171,23 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
 
   useEffect(() => {
     setVideoPlanConfirmed(false);
+    setConfirmedKeyframeShotScopes([]);
   }, [currentInputSignature]);
+
+  useEffect(() => {
+    if (!stageScrollRequestedRef.current) {
+      return;
+    }
+    stageScrollRequestedRef.current = false;
+    window.requestAnimationFrame(() => {
+      stageStudioRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+  }, [activeStage]);
+
+  const goToStage = (stage: ProductCommercializationStage) => {
+    stageScrollRequestedRef.current = true;
+    setActiveStage(stage);
+  };
 
   const buildPayload = (): ProductCommercializationRequest => {
     if (parsedFields === null) {
@@ -863,6 +1220,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         durationSeconds: requestedSegmentSeconds,
         targetDurationSeconds,
         executorId,
+        videoPlanningContext: buildVideoPlanningContext(videoPlanningFields),
       };
     }
 
@@ -879,27 +1237,84 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     };
   };
 
-  const runPreview = async () => {
+  const buildPlanningFieldsWithSuggestions = (source: ProductCommercializationResponse | null, overwrite = false) => {
+    const suggestions = deriveVideoPlanningSuggestions(source);
+    const nextFields = videoPlanningFields.map((field) => {
+      const suggestion = suggestions[field.id];
+      const suggestionValue = String(suggestion?.value || '').trim();
+      const sourceLabel = String(suggestion?.sourceLabel || '模型识别回填').trim();
+      if (!suggestionValue) return field;
+      if (!suggestion) return field;
+      if (!overwrite && field.value.trim()) return field;
+      if (field.value.trim() === suggestionValue && field.source === 'auto' && field.sourceLabel === sourceLabel) return field;
+      return { ...field, value: suggestionValue, source: 'auto' as const, sourceLabel };
+    });
+    const changed = nextFields.some((field, index) => {
+      const previous = videoPlanningFields[index];
+      return field.value !== previous?.value || field.source !== previous?.source || field.sourceLabel !== previous?.sourceLabel;
+    });
+    return { nextFields, changed };
+  };
+
+  const applyVideoPlanningSuggestions = (source: ProductCommercializationResponse | null, overwrite = false, showMessage = true) => {
+    const { nextFields, changed } = buildPlanningFieldsWithSuggestions(source, overwrite);
+    if (!changed) {
+      if (showMessage) MessagePlugin.warning('当前没有可回填的新要素；可以继续手动调整。');
+      return;
+    }
+    setVideoPlanningFields(nextFields);
+    setVideoPlanConfirmed(false);
+    if (showMessage) MessagePlugin.success(overwrite ? '已用模型识别结果重填视频要素' : '已用模型识别结果补全空白视频要素');
+  };
+
+  const runPreview = async (
+    options: {
+      nextStage?: ProductCommercializationStage;
+      successMessage?: string;
+    } = {},
+  ) => {
     setError('');
     setStatus('previewing');
     const signature = currentInputSignature;
     try {
       const payload = buildPayload();
-      const response = await evalApi.previewProductCommercialization(payload);
+      const response = isVideoMode ? await evalApi.planPromoVideo(payload) : await evalApi.previewProductCommercialization(payload);
+      let signatureForResult = signature;
       setResult(response);
-      setResultInputSignature(signature);
       setVideoPlanConfirmed(false);
       if (isVideoMode) {
         setVideoPromptDraft(String((response.videoPlan as Record<string, unknown> | undefined)?.videoPrompt || ''));
+        const { nextFields, changed } = buildPlanningFieldsWithSuggestions(response, false);
+        if (changed) {
+          setVideoPlanningFields(nextFields);
+          signatureForResult = buildInputSignature(nextFields);
+        }
       }
+      setResultInputSignature(signatureForResult);
       setGeneratedVisuals([]);
-      if (!isVideoMode) setVideoRun(null);
-      setActiveStage('review');
+      setVideoRun(null);
+      goToStage(options.nextStage || 'review');
+      if (options.successMessage) MessagePlugin.success(options.successMessage);
     } catch (err) {
       setError(String((err as any)?.message || err || '生成失败'));
     } finally {
       setStatus('idle');
     }
+  };
+
+  const fillVideoPlanningFieldsWithModel = async () => {
+    if (hasFreshResult) {
+      applyVideoPlanningSuggestions(result, true);
+      return;
+    }
+    if (!strategyStepReady) {
+      setError('请先上传产品图，并确认产品字段 JSON 格式正确。');
+      return;
+    }
+    await runPreview({
+      nextStage: 'strategy',
+      successMessage: '已用模型识别并填写视频规划要素，可继续人工调整。',
+    });
   };
 
   const pollBusinessRun = async (
@@ -925,6 +1340,73 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     throw new Error('任务轮询超时，请复制 runId 到任务追踪继续排查');
   };
 
+  const runVideoKeyframes = async (shotScope?: string) => {
+    setError('');
+    const normalizedShotScope = normalizeShotScope(shotScope);
+    if (!productImageUrl.trim()) {
+      setError('生成关键帧/首尾帧必须先提供产品图 URL');
+      return;
+    }
+    if (!hasFreshResult) {
+      setError('请先生成当前视频规划，再生成关键帧/首尾帧。');
+      return;
+    }
+    if (!videoPromptDraft.trim()) {
+      setError('视频执行脚本不能为空；请先生成视频规划，或在脚本框里补充生成要求。');
+      return;
+    }
+    if (!videoPlanConfirmed) {
+      setError('请先确认当前视频脚本和分镜，再生成关键帧/首尾帧。');
+      return;
+    }
+    if (hasImageFieldConflict && !conflictAccepted) {
+      setError('检测到图片与 JSON 冲突。请先确认按产品图识别结果继续，再生成关键帧/首尾帧。');
+      return;
+    }
+    setActiveKeyframeShotScope(normalizedShotScope || null);
+    setConfirmedKeyframeShotScopes((prev) =>
+      normalizedShotScope ? prev.filter((scope) => scope !== normalizedShotScope) : [],
+    );
+    setStatus('keyframes');
+    const signature = currentInputSignature;
+    try {
+      const payload = buildPayload();
+      payload.action = 'video_keyframes';
+      payload.videoPromptOverride = videoPromptDraft.trim();
+      if (normalizedShotScope) payload.keyframeShotScope = normalizedShotScope;
+      const submitted = await evalApi.submitPromoVideoKeyframesRun(payload);
+      const runId = String(submitted.runId || submitted.id || '').trim();
+      if (!runId) {
+        throw new Error('关键帧任务提交成功但未返回 runId');
+      }
+      activeVideoRunIdRef.current = runId;
+      setVideoRun({ runId, status: String(submitted.status || 'queued'), elapsedSeconds: 0 });
+      MessagePlugin.success(`${normalizedShotScope ? `镜头 ${normalizedShotScope} ` : ''}关键帧任务已提交：${runId}`);
+      await pollBusinessRun(runId, (poll, elapsedSeconds) => {
+        if (activeVideoRunIdRef.current !== runId) return;
+        const runStatus = String(poll.status || poll.taskStatus || 'running');
+        setVideoRun({ runId, status: runStatus, elapsedSeconds });
+        const fullResult = asProductCommercializationResponse(poll.resultPayload || poll.result);
+        if (fullResult) {
+          setResult((previous) =>
+            normalizedShotScope ? mergeScopedVideoKeyframeResult(previous, fullResult, normalizedShotScope) : fullResult,
+          );
+          setResultInputSignature(signature);
+          setVideoPromptDraft(String((fullResult.videoPlan as Record<string, unknown> | undefined)?.videoPrompt || videoPromptDraft));
+          setConfirmedKeyframeShotScopes((prev) =>
+            normalizedShotScope ? prev.filter((scope) => scope !== normalizedShotScope) : [],
+          );
+        }
+      });
+      MessagePlugin.success(`${normalizedShotScope ? `镜头 ${normalizedShotScope} ` : ''}关键帧已生成，请确认后再生成视频。`);
+    } catch (err) {
+      setError(String((err as any)?.message || err || '关键帧生成失败'));
+    } finally {
+      setStatus('idle');
+      setActiveKeyframeShotScope(null);
+    }
+  };
+
   const runVideo = async () => {
     setError('');
     if (!productImageUrl.trim()) {
@@ -943,6 +1425,14 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       setError('请先确认当前视频脚本和分镜；脚本、产品图或参数变更后需要重新确认，再提交视频成本任务。');
       return;
     }
+    if (requiresVideoKeyframeConfirmation && !hasGeneratedVideoKeyframes) {
+      setError('当前规划要求关键帧/首尾帧。请先生成并确认，再提交视频成本任务。');
+      return;
+    }
+    if (requiresVideoKeyframeConfirmation && !allRequiredKeyframesConfirmed) {
+      setError('请逐个镜头确认生成的关键帧/首尾帧可用，再提交视频成本任务。');
+      return;
+    }
     if (hasImageFieldConflict && !conflictAccepted) {
       setError('检测到图片与 JSON 冲突。请先在结果区确认“按产品图识别结果继续”，再触发视频成本动作。');
       return;
@@ -953,14 +1443,21 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       const payload = buildPayload();
       payload.action = 'video_generate';
       payload.videoPromptOverride = videoPromptDraft.trim();
-      const submitted = await evalApi.submitProductCommercializationVideoRun(payload);
+      const confirmedVideoKeyframes = buildConfirmedVideoKeyframesPayload(
+        videoStoryboardGroupsForReview,
+        confirmedKeyframeShotScopes,
+      );
+      if (confirmedVideoKeyframes.length > 0) {
+        payload.confirmedVideoKeyframes = confirmedVideoKeyframes;
+      }
+      const submitted = await evalApi.submitPromoVideoRun(payload);
       const runId = String(submitted.runId || submitted.id || '').trim();
       if (!runId) {
         throw new Error('视频任务提交成功但未返回 runId');
       }
       activeVideoRunIdRef.current = runId;
       setVideoRun({ runId, status: String(submitted.status || 'queued'), elapsedSeconds: 0 });
-      setActiveStage('deliver');
+        goToStage('deliver');
       MessagePlugin.success(`视频任务已提交：${runId}`);
       await pollBusinessRun(runId, (poll, elapsedSeconds) => {
         if (activeVideoRunIdRef.current !== runId) return;
@@ -1001,7 +1498,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     try {
       const uploaded = await evalApi.uploadImage(file);
       setProductImageUrl(uploaded.url);
-      setActiveStage(isVideoMode ? 'strategy' : 'facts');
+      goToStage(isVideoMode ? 'strategy' : 'facts');
       MessagePlugin.success('产品图已上传');
     } catch (err) {
       setError(String((err as any)?.message || err || '上传失败'));
@@ -1019,7 +1516,18 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   };
 
   const updateVideoPlanningField = (id: string, patch: Partial<VideoPlanningField>) => {
-    setVideoPlanningFields((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    const isManualPatch = ['label', 'description', 'value'].some((key) => Object.prototype.hasOwnProperty.call(patch, key));
+    setVideoPlanningFields((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              ...patch,
+              ...(isManualPatch ? { source: 'manual' as const, sourceLabel: '人工调整' } : null),
+            }
+          : item,
+      ),
+    );
   };
 
   const addVideoPlanningField = () => {
@@ -1031,6 +1539,8 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         description: '可选补充信息',
         value: '',
         removable: true,
+        source: 'manual',
+        sourceLabel: '人工新增',
       },
     ]);
   };
@@ -1082,7 +1592,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       setGeneratedVisuals((prev) =>
         mergeVisualRunState(prev, scenes, runId, String(submitted.status || 'queued'), 0, submitted),
       );
-      setActiveStage('deliver');
+      goToStage('deliver');
       MessagePlugin.success(`${scenes.length > 1 ? '组图' : '配图'}任务已提交：${runId}`);
       const finalPoll = await pollBusinessRun(runId, (poll, elapsedSeconds) => {
         const runStatus = String(poll.status || poll.taskStatus || 'running');
@@ -1162,6 +1672,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const videoPlan = asRecord(result?.videoPlan);
   const videoAssetPackagePlan = asRecord(result?.videoAssetPackagePlan);
   const videoAssetPackage = asRecord(result?.videoAssetPackage);
+  const videoStoryboardGroups = buildVideoStoryboardGroups(videoPlan, videoAssetPackagePlan, videoAssetPackage);
   const videoPackageKeyframes = asArray(videoAssetPackage.keyframes).map((item) => asRecord(item));
   const videoPackageSegments = asArray(videoAssetPackage.segmentVideos).map((item) => asRecord(item));
   const videoPackageComposition = asRecord(videoAssetPackage.composition);
@@ -1176,6 +1687,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         : String(videoAspectPolicy.mode || '') === 'input_image_ratio'
           ? '实际比例随首帧'
           : String(videoAspectPolicy.executionAspectRatio || videoPlan.aspectRatio || aspectRatio);
+  const videoPlanningReviewFields = videoPlanningFields.filter((field) => field.value.trim());
   const review = asRecord(result?.review);
   const requiresComposition = videoSegmentPlan.length > 1 || !selectedVideoProfile.segmentDurationOptions.includes(targetDurationSeconds);
   const selectedScenario = VIDEO_SCENARIOS.find((item) => item.key === videoScenario);
@@ -1183,11 +1695,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
   const hasParsedFields = parsedFields !== null;
   const exportedFieldCount = parsedFields ? Object.keys(parsedFields).length : 0;
   const visibleProductSummary = useMemo(
-    () => (isVideoMode && hasProductImage && exportedFieldCount === 0 ? getPendingImageSummary() : productSummary),
-    [exportedFieldCount, hasProductImage, isVideoMode, productSummary],
+    () => (isVideoMode && hasProductImage && !hasFreshResult ? getPendingImageSummary() : productSummary),
+    [hasFreshResult, hasProductImage, isVideoMode, productSummary],
   );
   const factsStepReady = hasProductImage && hasParsedFields && (!shouldConfirmMatch || fieldsConfirmed);
-  const strategyStepReady = isVideoMode ? factsStepReady : hasProductImage && hasParsedFields && copyScenarios.length > 0;
+  const strategyStepReady = isVideoMode ? hasProductImage && hasParsedFields : hasProductImage && hasParsedFields && copyScenarios.length > 0;
   const deliverReady =
     generatedVisuals.some((item) => item.urls.length > 0) ||
     videoUrls.length > 0 ||
@@ -1201,7 +1713,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
               ? {
                   ...stage,
                   videoLabel: '核对商品与视频策略',
-                  desc: 'JSON 可选，设置场景、供应商、时长',
+                  desc: '商品核对 + 场景/时长/镜头',
                 }
               : stage,
           )
@@ -1224,13 +1736,17 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
     if (stage === 'asset' && hasProductImage) return 'done';
     if (stage === 'facts' && factsStepReady) return 'done';
     if (stage === 'strategy' && hasFreshResult) return 'done';
-    if (stage === 'review' && hasFreshResult && (isVideoMode ? videoPlanConfirmed || !videoPromptDraft : true)) return 'done';
+    if (
+      stage === 'review' &&
+      hasFreshResult &&
+      (isVideoMode ? videoPlanConfirmed && allRequiredKeyframesConfirmed : true)
+    ) return 'done';
     if (stage === 'deliver' && deliverReady) return 'done';
     return 'todo';
   };
   const handleStageClick = (stage: ProductCommercializationStage) => {
     if (!canOpenStage(stage)) return;
-    setActiveStage(stage);
+    goToStage(stage);
   };
 
   useEffect(() => {
@@ -1261,38 +1777,26 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         theme="info"
         message={
           isVideoMode
-            ? `预览只生成视频脚本、分镜和执行参数；提交素材包任务需单独点击，并按所选模型的时长画像拆段。${PRODUCT_COPY_PAUSED_MESSAGE}`
+            ? '预览只生成视频脚本、分镜和执行参数；提交素材包任务需单独点击，并按所选模型的时长画像拆段。'
             : '预览生成大模型文案包和配图方案；商业化配图需单独点击，默认走 GPT Image 2 并按 runId 回填。'
         }
       />
-      <div className="podi-product-commercialization__guide podi-product-commercialization__legacy-hidden">
-        <div>
-          <Typography.Text strong>流程</Typography.Text>
-          <div className="podi-product-commercialization__guide-steps">
-            {meta.usageSteps.map((item) => (
-              <span key={item}>{item}</span>
-            ))}
-          </div>
-        </div>
-        <div>
-          <details className="podi-product-commercialization__interface-note">
-            <summary>接口口径</summary>
-            <dl>
-              {meta.interfaceNotes.map((item) => (
-                <div key={item.label}>
-                  <dt>{item.label}</dt>
-                  <dd>{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </details>
+      <div className="podi-product-commercialization__interface-note">
+        <Typography.Text strong>能力接口</Typography.Text>
+        <div className="podi-product-commercialization__interface-list">
+          {meta.interfaceNotes.map((item) => (
+            <span key={`${item.label}-${item.value}`}>
+              <b>{item.label}</b>
+              {item.value}
+            </span>
+          ))}
         </div>
       </div>
       {error ? <Alert theme="error" message={error} /> : null}
       {videoRun ? (
         <Alert
           theme={videoRun.status === 'failed' ? 'error' : videoRun.status === 'succeeded' ? 'success' : 'info'}
-          message={`视频任务 ${businessRunStatusLabel(videoRun.status)} · runId=${videoRun.runId} · 已等待 ${videoRun.elapsedSeconds}s`}
+          message={`素材任务 ${businessRunStatusLabel(videoRun.status)} · runId=${videoRun.runId} · 已等待 ${videoRun.elapsedSeconds}s`}
         />
       ) : null}
       {status === 'previewing' ? (
@@ -1304,8 +1808,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
       {status === 'visual' ? (
         <Alert theme="info" message="正在生成配图，页面会按 runId 轮询任务状态；完成后图片会自动回填到结果区。" />
       ) : null}
+      {status === 'keyframes' ? (
+        <Alert theme="info" message="正在生成视频关键帧/首尾帧，页面会按 runId 轮询任务状态；完成后需要人工确认再生成视频。" />
+      ) : null}
 
-      <div className="podi-product-commercialization__studio">
+      <div ref={stageStudioRef} className="podi-product-commercialization__studio">
         <aside className="podi-product-commercialization__stage-rail" aria-label="产品商业化流程">
           {visibleStages.map((stage, index) => {
             const state = stageState(stage.key);
@@ -1326,7 +1833,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           })}
         </aside>
 
-        <main className="podi-product-commercialization__stage-main">
+        <main ref={stageMainRef} className="podi-product-commercialization__stage-main">
           {activeStage === 'asset' ? (
             <section className="podi-product-commercialization__stage-panel">
               <div className="podi-product-commercialization__stage-title">
@@ -1408,7 +1915,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                   ) : null}
                   <Alert theme="info" message="导出 JSON 不是必填项；如果 JSON 与图片不一致，后续默认以产品图为准并要求人工复核。" />
                   <Space>
-                    <Button theme="primary" disabled={!hasProductImage} onClick={() => setActiveStage(isVideoMode ? 'strategy' : 'facts')}>
+                    <Button theme="primary" disabled={!hasProductImage} onClick={() => goToStage(isVideoMode ? 'strategy' : 'facts')}>
                       {isVideoMode ? '下一步：核对并设置视频策略' : '下一步：核对商品事实'}
                     </Button>
                   </Space>
@@ -1472,10 +1979,10 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                     <Alert theme="success" message="当前按产品图主流程继续；缺失字段会由模型推断并降低置信度。" />
                   )}
                   <Space>
-                    <Button variant="outline" onClick={() => setActiveStage('asset')}>
+                    <Button variant="outline" onClick={() => goToStage('asset')}>
                       返回素材
                     </Button>
-                    <Button theme="primary" disabled={!factsStepReady} onClick={() => setActiveStage('strategy')}>
+                    <Button theme="primary" disabled={!factsStepReady} onClick={() => goToStage('strategy')}>
                       下一步：设置生成方案
                     </Button>
                   </Space>
@@ -1490,7 +1997,9 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                 <span>{isVideoMode ? 'STEP 2' : 'STEP 3'}</span>
                 <Typography.Title level="h4">{isVideoMode ? '核对商品并规划视频素材包' : '规划文案与配图'}</Typography.Title>
                 <Typography.Text theme="secondary">
-                  {isVideoMode ? '字段只是辅助说明，产品图优先；同一屏设置场景、供应商、时长和镜头约束。' : '先生成结构化内容包；配图仍需后续显式点击。'}
+                  {isVideoMode
+                    ? '先让模型读产品图和可选字段补齐关键要素；你确认或修改后，再生成脚本和分镜。'
+                    : '先生成结构化内容包；配图仍需后续显式点击。'}
                 </Typography.Text>
               </div>
               {isVideoMode ? (
@@ -1530,14 +2039,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       <span>型号：{visibleProductSummary.model}</span>
                     </div>
                     {shouldConfirmMatch ? (
-                      <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
-                        <input
-                          type="checkbox"
-                          checked={fieldsConfirmed}
-                          onChange={(event) => setFieldsConfirmed(event.currentTarget.checked)}
-                        />
-                        <span>我已核对：这批字段与当前产品图属于同一商品。若只是乱填测试，请清空字段或接受后续冲突复核。</span>
-                      </label>
+                      <Alert theme="warning" message="视频规划不会要求你预先确认 JSON 一定正确；产品图优先，字段只作为说明材料。若图片与字段冲突，结果区会标记并要求人工复核。" />
                     ) : (
                       <Alert theme="success" message="当前按产品图主流程继续；缺失字段会由模型推断并降低置信度。" />
                     )}
@@ -1669,43 +2171,88 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         ))}
                       </Space>
                       {isViduVideoProvider ? (
-                        <Alert theme="info" message="Vidu 图生视频会跟随输入首帧比例；提交视频前系统会先生成并归一目标画幅首帧，再把该首帧作为视频参考图。" />
+                        <Alert theme="info" message="Vidu 图生视频会跟随输入首帧比例；请先生成并确认目标画幅首帧，再提交视频素材任务。" />
                       ) : null}
                     </div>
                     <div className="podi-product-commercialization__planning-fields">
                       <div className="podi-product-commercialization__panel-head">
                         <Typography.Text strong>视频规划要素</Typography.Text>
-                        <Button size="small" variant="outline" onClick={addVideoPlanningField}>
-                          添加更多
-                        </Button>
+                        <Space size="small">
+                          <Button
+                            size="small"
+                            variant="outline"
+                            loading={status === 'previewing'}
+                            disabled={!strategyStepReady || status !== 'idle'}
+                            onClick={() => void fillVideoPlanningFieldsWithModel()}
+                          >
+                            {hasFreshResult ? '用模型结果重填' : '用模型填写'}
+                          </Button>
+                          <Button size="small" variant="outline" onClick={addVideoPlanningField}>
+                            添加更多
+                          </Button>
+                        </Space>
                       </div>
-                      {videoPlanningFields.map((field) => (
-                        <div key={field.id} className="podi-product-commercialization__planning-field">
-                          <div className="podi-product-commercialization__planning-field-meta">
-                            <Input
-                              label="要素名称"
-                              value={field.label}
-                              onChange={(v) => updateVideoPlanningField(field.id, { label: String(v) })}
+                      <Alert
+                        theme="info"
+                        message="可以只填你确定的信息；留空要素会在生成规划后由产品图、VL 识别和可选 JSON 回填。回填后仍可人工修改，修改后需要重新生成素材包规划。"
+                      />
+                      {resultIsStale ? (
+                        <Alert
+                          theme="warning"
+                          message="当前视频规划要素已经变更，旧脚本和分镜已过期。请重新生成素材包规划后，再确认关键帧/首尾帧或提交视频任务。"
+                        />
+                      ) : null}
+                      {videoPlanningFields.map((field) => {
+                        const isCustomField = Boolean(field.removable);
+                        const sourceTag = getVideoPlanningSourceTag(field);
+                        const sourceLabel = field.sourceLabel || (field.value.trim() ? '当前内容将作为规划输入' : '等待生成规划后识别');
+                        return (
+                          <div key={field.id} className="podi-product-commercialization__planning-field">
+                            {isCustomField ? (
+                              <>
+                                <div className="podi-product-commercialization__planning-field-meta">
+                                  <Input
+                                    label="要素名称"
+                                    value={field.label}
+                                    onChange={(v) => updateVideoPlanningField(field.id, { label: String(v) })}
+                                  />
+                                  <Input
+                                    label="说明"
+                                    value={field.description}
+                                    onChange={(v) => updateVideoPlanningField(field.id, { description: String(v) })}
+                                  />
+                                </div>
+                                <div className="podi-product-commercialization__planning-source">
+                                  <Tag {...(sourceTag.theme ? { theme: sourceTag.theme } : {})} variant="light">{sourceTag.label}</Tag>
+                                  <Typography.Text theme="secondary">{sourceLabel}</Typography.Text>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="podi-product-commercialization__planning-field-title">
+                                <div>
+                                  <Typography.Text strong>{field.label}</Typography.Text>
+                                  <Typography.Text theme="secondary">{field.description}</Typography.Text>
+                                  <Typography.Text theme="secondary" className="podi-product-commercialization__planning-source-copy">
+                                    {sourceLabel}
+                                  </Typography.Text>
+                                </div>
+                                <Tag {...(sourceTag.theme ? { theme: sourceTag.theme } : {})} variant="light">{sourceTag.label}</Tag>
+                              </div>
+                            )}
+                            <Textarea
+                              value={field.value}
+                              onChange={(v) => updateVideoPlanningField(field.id, { value: String(v) })}
+                              placeholder={`${field.label}可由产品图/JSON 识别后回填，也可以在这里手动调整；留空不会阻塞规划。`}
+                              autosize={{ minRows: 2, maxRows: 5 }}
                             />
-                            <Input
-                              label="说明"
-                              value={field.description}
-                              onChange={(v) => updateVideoPlanningField(field.id, { description: String(v) })}
-                            />
+                            {field.removable ? (
+                              <Button size="small" variant="text" theme="danger" onClick={() => removeVideoPlanningField(field.id)}>
+                                删除这个要素
+                              </Button>
+                            ) : null}
                           </div>
-                          <Textarea
-                            value={field.value}
-                            onChange={(v) => updateVideoPlanningField(field.id, { value: String(v) })}
-                            placeholder="可选填写；留空不会阻塞规划。"
-                            autosize={{ minRows: 2, maxRows: 5 }}
-                          />
-                          {field.removable ? (
-                            <Button size="small" variant="text" theme="danger" onClick={() => removeVideoPlanningField(field.id)}>
-                              删除这个要素
-                            </Button>
-                          ) : null}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1721,11 +2268,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                 </div>
 
                 <Space breakLine>
-                  <Button variant="outline" onClick={() => setActiveStage(isVideoMode ? 'asset' : 'facts')}>
+                  <Button variant="outline" onClick={() => goToStage(isVideoMode ? 'asset' : 'facts')}>
                     {isVideoMode ? '返回素材' : '返回核对'}
                   </Button>
                   <Button theme="primary" loading={status === 'previewing'} disabled={!strategyStepReady || (!isVideoMode && copyScenarios.length === 0)} onClick={() => void runPreview()}>
-                    {meta.previewButton}
+                    {isVideoMode && resultIsStale ? '重新生成素材包规划' : meta.previewButton}
                   </Button>
                 </Space>
               </div>
@@ -1737,14 +2284,18 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
               <div className="podi-product-commercialization__stage-title">
                 <span>{isVideoMode ? 'STEP 3' : 'STEP 4'}</span>
                 <Typography.Title level="h4">{isVideoMode ? '确认脚本与分镜' : '审核内容包'}</Typography.Title>
-                <Typography.Text theme="secondary">这一屏只做人工确认和成本动作入口，不再混入前置表单。</Typography.Text>
+                <Typography.Text theme="secondary">
+                  {isVideoMode
+                    ? '每个镜头都是一组脚本、视频提示词、关键帧/首尾帧需求和生成结果；确认无误后再触发视频成本任务。'
+                    : '这一屏只做人工确认和成本动作入口，不再混入前置表单。'}
+                </Typography.Text>
               </div>
               {!result ? (
                 <div className="podi-product-commercialization__empty">
                   <Typography.Text theme="secondary">
                     {isVideoMode ? '还没有生成视频规划。请回到上一步生成脚本和分镜。' : '还没有生成方案。请回到上一步生成内容包。'}
                   </Typography.Text>
-                  <Button theme="primary" onClick={() => setActiveStage('strategy')}>去生成方案</Button>
+                  <Button theme="primary" onClick={() => goToStage('strategy')}>去生成方案</Button>
                 </div>
               ) : resultIsStale ? (
                 <Alert theme="warning" title="结果已过期" message="当前产品图、JSON 或策略参数已经变化，请回到方案步骤重新生成。" />
@@ -1803,8 +2354,8 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                             ))}
                         </div>
                       </section>
-                      <Space breakLine>
-                        <Button variant="outline" onClick={() => setActiveStage('strategy')}>调整方案</Button>
+	                      <Space breakLine>
+	                        <Button variant="outline" onClick={() => goToStage('strategy')}>调整方案</Button>
                         <Button
                           variant="outline"
                           loading={status === 'visual'}
@@ -1821,7 +2372,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         >
                           {hasGeneratedVisuals ? '重新生成全部组图' : '生成全部组图'}
                         </Button>
-                        <Button theme="primary" disabled={!deliverReady} onClick={() => setActiveStage('deliver')}>
+                        <Button theme="primary" disabled={!deliverReady} onClick={() => goToStage('deliver')}>
                           {deliverReady ? '查看交付' : '等待素材包结果'}
                         </Button>
                       </Space>
@@ -1876,12 +2427,38 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                             </div>
                           ) : null;
                         })()}
+                        {videoPlanningReviewFields.length > 0 ? (
+                          <div className="podi-product-commercialization__planning-review" aria-label="模型回填要素">
+                            <div className="podi-product-commercialization__panel-head">
+                              <Typography.Text strong>模型回填要素</Typography.Text>
+                              <Typography.Text theme="secondary">这些内容会随脚本和分镜一起提交；不合理先返回调整方案。</Typography.Text>
+                            </div>
+                            <div className="podi-product-commercialization__planning-review-grid">
+                              {videoPlanningReviewFields.map((field) => {
+                                const sourceTag = getVideoPlanningSourceTag(field);
+                                return (
+                                  <div key={field.id}>
+                                    <div>
+                                      <Typography.Text strong>{field.label}</Typography.Text>
+                                      <Tag {...(sourceTag.theme ? { theme: sourceTag.theme } : {})} variant="light">{sourceTag.label}</Tag>
+                                    </div>
+                                    <Typography.Text>{field.value}</Typography.Text>
+                                    <small>{field.sourceLabel || field.description}</small>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
                         {Object.keys(videoAssetPackagePlan).length > 0 ? (
                           <div className="podi-product-commercialization__package-flow" aria-label="视频素材包阶段">
                             {[
                               { label: '脚本', value: videoPlanConfirmed ? '已确认' : String(asRecord(videoAssetPackagePlan.script).status || '待确认') },
-                              { label: '分镜', value: `${asArray(videoAssetPackagePlan.storyboard).length || asArray(videoPlan.storyboard).length || 1} 个镜头` },
-                              { label: '关键帧', value: `${asArray(videoAssetPackagePlan.keyframeNeeds).length} 项需求` },
+                              { label: '分镜', value: `${videoStoryboardGroups.length || 1} 个镜头` },
+                              {
+                                label: '关键帧',
+                                value: `${videoStoryboardGroups.reduce((total, group) => total + group.keyframeNeeds.length, 0)} 项需求`,
+                              },
                               { label: '分段视频', value: requiresComposition ? '多段生成' : '单段生成' },
                               { label: '合成片', value: asRecord(videoAssetPackagePlan.compositionPlan).availableAsOptionalAction ? '可选后续动作' : '非必需' },
                             ].map((item) => (
@@ -1892,65 +2469,216 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                             ))}
                           </div>
                         ) : null}
-                        <div className="podi-product-commercialization__shot-list">
-                          {asArray(videoPlan.storyboard).map((item, index) => {
-                            const shot = asRecord(item);
+                        <div className="podi-product-commercialization__script-review" aria-label="脚本确认与执行稿">
+                          <div className="podi-product-commercialization__panel-head">
+                            <Typography.Text strong>脚本确认与执行稿</Typography.Text>
+                            <Typography.Text theme="secondary">先核对或改写这份总执行稿，再按镜头生成关键帧/首尾帧。</Typography.Text>
+                          </div>
+                          <Textarea
+                            value={videoPromptDraft || String(videoPlan.videoPrompt || '')}
+                            onChange={(value) => {
+                              setVideoPromptDraft(String(value));
+                              setVideoPlanConfirmed(false);
+                              setConfirmedKeyframeShotScopes([]);
+                            }}
+                            autosize={{ minRows: 5, maxRows: 10 }}
+                            placeholder="先生成视频规划，或在这里写入最终视频脚本。"
+                          />
+                          <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
+                            <input
+                              type="checkbox"
+                              checked={videoPlanConfirmed}
+                              disabled={!hasFreshResult || !videoPromptDraft.trim()}
+                              onChange={(event) => setVideoPlanConfirmed(event.currentTarget.checked)}
+                            />
+                            <span>我已核对当前脚本和分镜；按当前稿提交视频素材包任务。</span>
+                          </label>
+                        </div>
+                        <div className="podi-product-commercialization__storyboard-groups">
+                          {videoStoryboardGroups.map((group, index) => {
+                            const shot = group.shot;
                             const referenceImage = asRecord(shot.referenceImage);
+                            const generationState = keyframeGroupGenerationState(group);
+                            const generatedFrameCount = generationState.generatedCount;
+                            const isShotGenerated = generationState.complete;
+                            const missingNeedLabels = generationState.missingNeeds.map((need) => videoKeyframeRoleLabel(need.role)).join('、');
+                            const isShotConfirmed =
+                              group.keyframeNeeds.length > 0 && confirmedKeyframeShotScopes.includes(group.shotNo);
+                            const shotNextAction =
+                              group.keyframeNeeds.length === 0
+                                ? '下一步：随视频任务直接执行'
+                                : isShotConfirmed
+                                  ? '下一步：可提交视频任务'
+                                  : isShotGenerated
+                                    ? '下一步：核对图片并勾选确认'
+                                    : videoPlanConfirmed
+                                      ? '下一步：生成本镜头关键帧'
+                                      : '下一步：先勾选脚本确认';
                             return (
-                              <div key={`${String(shot.label || 'shot')}-${index}`}>
-                                <strong>镜头 {String(shot.shot || index + 1)} · {String(shot.label || '商品镜头')}</strong>
-                                <span>{String(shot.goal || '')}</span>
-                                <span>场景：{String(shot.scene || '-')} · 镜头：{String(shot.cameraMovement || shot.camera || '-')}</span>
-                                <small>
-                                  {String(shot.keepSeconds || shot.durationSeconds || SEGMENT_SECONDS)}s · {String(shot.subject || '产品主体')}
-                                  {referenceImage.role ? ` · 参考 ${String(referenceImage.role)}` : ''}
-                                </small>
-                                {shot.firstFramePrompt || shot.lastFramePrompt ? (
-                                  <small>
-                                    首帧：{String(shot.firstFramePrompt || '-')} / 尾帧：{String(shot.lastFramePrompt || '-')}
-                                  </small>
-                                ) : null}
-                              </div>
+                              <article key={`${String(shot.label || 'shot')}-${index}`} className="podi-product-commercialization__storyboard-group">
+                                <header>
+                                  <div>
+                                    <Typography.Text strong>
+                                      镜头 {group.shotNo} · {String(shot.label || '商品镜头')}
+                                    </Typography.Text>
+                                    <Typography.Text theme="secondary">
+                                      {String(shot.keepSeconds || shot.durationSeconds || SEGMENT_SECONDS)}s · {String(shot.subject || '产品主体')}
+                                      {referenceImage.role ? ` · 参考 ${String(referenceImage.role)}` : ''}
+                                    </Typography.Text>
+                                  </div>
+                                  <Tag
+                                    theme={
+                                      group.keyframeNeeds.length === 0
+                                        ? 'default'
+                                        : isShotConfirmed
+                                          ? 'success'
+                                          : isShotGenerated
+                                            ? 'primary'
+                                            : 'warning'
+                                    }
+                                    variant="light"
+                                  >
+                                    {group.keyframeNeeds.length === 0
+                                      ? '无需关键帧'
+                                      : isShotConfirmed
+                                        ? '本镜头已确认'
+                                        : isShotGenerated
+                                          ? '待人工确认'
+                                          : '待生成关键帧'}
+                                  </Tag>
+                                </header>
+                                <div className="podi-product-commercialization__storyboard-body">
+                                  <div>
+                                    <Typography.Text theme="secondary">脚本意图</Typography.Text>
+                                    <p>{String(shot.goal || shot.scene || '按当前产品图生成商品展示镜头。')}</p>
+                                    <small>场景：{String(shot.scene || '-')} · 镜头：{String(shot.cameraMovement || shot.camera || '-')}</small>
+                                  </div>
+                                  <div>
+                                    <Typography.Text theme="secondary">视频提示词</Typography.Text>
+                                    <pre>{group.prompt || String(videoPlan.videoPrompt || '-')}</pre>
+                                  </div>
+                                  <div>
+                                    <Typography.Text theme="secondary">关键帧提示词与结果</Typography.Text>
+                                    <div className="podi-product-commercialization__frame-status">
+                                      <span>计划 {group.keyframeNeeds.length} 项</span>
+                                      <span>已生成 {generatedFrameCount} 张</span>
+                                      {missingNeedLabels ? <span>缺少 {missingNeedLabels}</span> : null}
+                                      <span>
+                                        {group.keyframeNeeds.length === 0
+                                          ? '无需独立关键帧'
+                                          : isShotConfirmed
+                                            ? '本镜头已确认'
+                                            : isShotGenerated
+                                              ? '生成后待确认'
+                                            : '先生成关键帧再提交视频'}
+                                      </span>
+                                      <span>{shotNextAction}</span>
+                                    </div>
+                                    {group.keyframeNeeds.length > 0 ? (
+                                      <div className="podi-product-commercialization__frame-needs">
+                                        {group.keyframeNeeds.map((frame, frameIndex) => (
+                                          <div key={`${String(frame.role || 'frame')}-${frameIndex}`}>
+                                            <strong>{videoKeyframeRoleLabel(frame.role)}</strong>
+                                            <span>{String(frame.prompt || frame.reason || videoKeyframeRoleHint(frame.role))}</span>
+                                            <small>{videoKeyframeRoleHint(frame.role)}</small>
+                                            <small>
+                                              {findGeneratedKeyframeForNeed(frame, group.generatedKeyframes)
+                                                ? '已生成对应图片'
+                                                : '待生成对应图片'}
+                                            </small>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p>当前镜头暂不要求独立关键帧；执行时直接使用产品参考图。</p>
+                                    )}
+                                    {group.generatedKeyframes.length > 0 ? (
+                                      <div className="podi-product-commercialization__frame-assets">
+                                        {group.generatedKeyframes.map((frame, frameIndex) => {
+                                          const frameUrl = getFrameImageUrl(frame);
+                                          return (
+                                            <div key={`${frameUrl || String(frame.role || 'frame')}-${frameIndex}`}>
+                                              {frameUrl ? <img src={frameUrl} alt={`镜头 ${group.shotNo} ${videoKeyframeRoleLabel(frame.role)} ${frameIndex + 1}`} /> : null}
+                                              <span>{videoKeyframeRoleLabel(frame.role)}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : null}
+                                    {group.keyframeNeeds.length > 0 ? (
+                                      <>
+                                        <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--inline">
+                                          <input
+                                            type="checkbox"
+                                            checked={isShotConfirmed}
+                                            disabled={!isShotGenerated}
+                                            onChange={(event) => {
+                                              const checked = event.currentTarget.checked;
+                                              setConfirmedKeyframeShotScopes((prev) => {
+                                                const withoutCurrent = prev.filter((scope) => scope !== group.shotNo);
+                                                return checked ? [...withoutCurrent, group.shotNo] : withoutCurrent;
+                                              });
+                                            }}
+                                          />
+                                          <span>
+                                            我确认镜头 {group.shotNo} 关键帧/首尾帧可用；如果不满意，只重生成本镜头。
+                                          </span>
+                                        </label>
+                                        <div className="podi-product-commercialization__frame-actions">
+                                          <Button
+                                            size="small"
+                                            variant="outline"
+                                            loading={status === 'keyframes' && activeKeyframeShotScope === group.shotNo}
+                                            disabled={
+                                              status === 'keyframes' ||
+                                              !canRunCostAction ||
+                                              !videoPlanConfirmed ||
+                                              !videoPromptDraft.trim()
+                                            }
+                                            onClick={() => void runVideoKeyframes(group.shotNo)}
+                                          >
+                                            {generatedFrameCount > 0 ? '重生成本镜头关键帧' : '生成本镜头关键帧'}
+                                          </Button>
+                                        </div>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </article>
                             );
                           })}
                         </div>
-                        {asArray(videoAssetPackagePlan.keyframeNeeds).length > 0 ? (
-                          <div className="podi-product-commercialization__keyframe-list">
-                            <Typography.Text strong>首尾帧 / 关键帧计划</Typography.Text>
-                            {asArray(videoAssetPackagePlan.keyframeNeeds)
-                              .slice(0, 6)
-                              .map((item, index) => {
-                                const keyframe = asRecord(item);
-                                return (
-                                  <div key={`${String(keyframe.role || 'frame')}-${index}`}>
-                                    <Typography.Text>{String(keyframe.role || '关键帧')} · 镜头 {String(keyframe.shot || '-')}</Typography.Text>
-                                    <Typography.Text theme="secondary">{String(keyframe.prompt || keyframe.reason || '-')}</Typography.Text>
-                                  </div>
-                                );
-                              })}
+                        {requiresVideoKeyframeConfirmation ? (
+                          <div className="podi-product-commercialization__confirm-gate" aria-label="关键帧确认门禁">
+                            <div className="podi-product-commercialization__frame-status">
+                              <span>关键帧确认进度 {confirmedKeyframeShotCount}/{keyframeReviewGroups.length} 个镜头。</span>
+                              <span>{allRequiredKeyframesGenerated ? '关键帧已生成' : '仍有镜头待生成'}</span>
+                              <span>{allRequiredKeyframesConfirmed ? '可提交视频素材任务' : '逐镜头确认后解锁视频生成'}</span>
+                            </div>
+                            <Typography.Text theme="secondary">
+                              这里不再设置额外总确认；每个镜头确认一次就是最终门禁，不满意直接重生成对应镜头。
+                            </Typography.Text>
                           </div>
-                        ) : null}
-                        <Textarea
-                          value={videoPromptDraft || String(videoPlan.videoPrompt || '')}
-                          onChange={(value) => {
-                            setVideoPromptDraft(String(value));
-                            setVideoPlanConfirmed(false);
-                          }}
-                          autosize={{ minRows: 6, maxRows: 12 }}
-                          placeholder="先生成视频规划，或在这里写入最终视频脚本。"
-                        />
-                        <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
-                          <input
-                            type="checkbox"
-                            checked={videoPlanConfirmed}
-                            disabled={!hasFreshResult || !videoPromptDraft.trim()}
-                            onChange={(event) => setVideoPlanConfirmed(event.currentTarget.checked)}
-                          />
-                          <span>我已核对当前脚本和分镜；按当前稿提交视频素材包任务。</span>
-                        </label>
+                        ) : (
+                          <Alert theme="info" message="当前规划没有独立关键帧需求，可以直接在确认脚本后生成视频素材。" />
+                        )}
                       </section>
                       <Space breakLine>
-                        <Button variant="outline" onClick={() => setActiveStage('strategy')}>调整方案</Button>
+                        <Button variant="outline" onClick={() => goToStage('strategy')}>调整方案</Button>
+                        <Button
+                          variant="outline"
+                          loading={status === 'keyframes' && !activeKeyframeShotScope}
+                          disabled={
+                            status === 'keyframes' ||
+                            !canRunCostAction ||
+                            !videoPlanConfirmed ||
+                            !videoPromptDraft.trim() ||
+                            !requiresVideoKeyframeConfirmation
+                          }
+                          onClick={() => void runVideoKeyframes()}
+                        >
+                          {hasGeneratedVideoKeyframes ? '重新生成全部关键帧' : '生成全部关键帧'}
+                        </Button>
                         <Button
                           theme="success"
                           loading={status === 'video'}
@@ -1959,10 +2687,14 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                         >
                           {requiresComposition ? `生成 ${targetDurationSeconds}s 分段视频素材包` : `生成 ${targetDurationSeconds}s 单段视频素材`}
                         </Button>
-                        <Button theme="primary" disabled={!deliverReady} onClick={() => setActiveStage('deliver')}>
+                        <Button theme="primary" disabled={!deliverReady} onClick={() => goToStage('deliver')}>
                           {deliverReady ? '查看交付' : '等待素材包结果'}
                         </Button>
                       </Space>
+                      <div className="podi-product-commercialization__cost-note" role="note">
+                        <strong>成本动作提示</strong>
+                        <span>“生成关键帧”和“生成视频素材”都会提交异步任务并返回 runId；当前页会轮询结果，也可以复制 runId 到任务追踪继续查看。</span>
+                      </div>
                     </>
                   )}
                 </Space>
@@ -1980,7 +2712,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
               {!result ? (
                 <div className="podi-product-commercialization__empty">
                   <Typography.Text theme="secondary">还没有可交付结果。</Typography.Text>
-                  <Button theme="primary" onClick={() => setActiveStage('strategy')}>返回生成方案</Button>
+                  <Button theme="primary" onClick={() => goToStage('strategy')}>返回生成方案</Button>
                 </div>
               ) : (
                 <Space direction="vertical" size="medium" style={{ width: '100%' }}>
@@ -2033,17 +2765,20 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
                       </div>
                       {videoPackageKeyframes.length > 0 ? (
                         <div className="podi-product-commercialization__keyframes">
-                          {videoPackageKeyframes.map((frame, index) => (
-                            <div key={`${String(frame.role || 'frame')}-${String(frame.segmentIndex || index)}`}>
-                              {frame.imageUrl ? <img src={String(frame.imageUrl)} alt={`视频首帧 ${index + 1}`} /> : null}
-                              <Typography.Text strong>
-                                {String(frame.role || '关键帧')} · 分段 {String(frame.segmentIndex || frame.shot || index + 1)}
-                              </Typography.Text>
-                              <Typography.Text theme="secondary">
-                                {String(frame.aspectRatio || '-')} · {String(frame.width || '-')}×{String(frame.height || '-')}
-                              </Typography.Text>
-                            </div>
-                          ))}
+                          {videoPackageKeyframes.map((frame, index) => {
+                            const frameUrl = getFrameImageUrl(frame);
+                            return (
+                              <div key={`${String(frame.role || 'frame')}-${String(frame.segmentIndex || index)}`}>
+                                {frameUrl ? <img src={frameUrl} alt={`视频${videoKeyframeRoleLabel(frame.role)} ${index + 1}`} /> : null}
+                                <Typography.Text strong>
+                                  {videoKeyframeRoleLabel(frame.role)} · 分段 {String(frame.segmentIndex || frame.shot || index + 1)}
+                                </Typography.Text>
+                                <Typography.Text theme="secondary">
+                                  {String(frame.aspectRatio || '-')} · {String(frame.width || '-')}×{String(frame.height || '-')}
+                                </Typography.Text>
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : null}
                       {videoUrls.map((url, index) => (
@@ -2126,7 +2861,6 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
           <div className="podi-product-commercialization__side-card">
             <Typography.Text strong>当前阶段</Typography.Text>
             <p>{visibleStages[activeStageIndex]?.desc || '-'}</p>
-            {isVideoMode ? <p>{PRODUCT_COPY_PAUSED_MESSAGE}</p> : null}
             <Space size="small" breakLine>
               {meta.tags.map((tag) => (
                 <Tag key={tag.label} theme={tag.theme} variant="light">{tag.label}</Tag>
@@ -2136,848 +2870,6 @@ export function ProductCommercializationWorkbench({ mode = MODE_COPY }: { mode?:
         </aside>
       </div>
 
-      <div className="podi-product-commercialization__grid podi-product-commercialization__legacy-hidden">
-        <div className="podi-product-commercialization__panel">
-          <div className="podi-product-commercialization__panel-head">
-            <Typography.Text strong>输入与核对</Typography.Text>
-            <Typography.Text theme="secondary">{meta.inputHint}</Typography.Text>
-          </div>
-
-          <Space direction="vertical" size="medium" style={{ width: '100%' }}>
-            <div className="podi-field-stack">
-              <Typography.Text>产品图 URL</Typography.Text>
-              <Space align="center">
-                <Input value={productImageUrl} onChange={(v) => setProductImageUrl(String(v))} placeholder="https://..." clearable />
-                <input
-                  ref={uploadRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={(event) => void uploadProductImage(event.currentTarget.files?.[0])}
-                />
-                <Button variant="outline" loading={status === 'uploading'} onClick={() => uploadRef.current?.click()}>
-                  上传
-                </Button>
-              </Space>
-            </div>
-
-            {productImageUrl ? (
-              <div className="podi-product-commercialization__image">
-                <img src={productImageUrl} alt="产品图预览" />
-              </div>
-            ) : null}
-
-            <div className="podi-field-stack">
-              <div className="podi-product-commercialization__panel-head">
-                <Typography.Text>产品导出字段 JSON（可选）</Typography.Text>
-                <Typography.Text theme={parsedFields === null ? 'error' : 'secondary'}>
-                  {parsedFields === null
-                    ? 'JSON 格式错误'
-                    : Object.keys(parsedFields).length > 0
-                      ? `${Object.keys(parsedFields).length} 个补充字段`
-                      : '未填写，按产品图推断'}
-                </Typography.Text>
-              </div>
-              <Space size="small" breakLine>
-                <Button size="small" variant="outline" onClick={() => setProductFieldsText(prettyJson(DEFAULT_PRODUCT_FIELDS))}>
-                  填入示例字段
-                </Button>
-                <Button size="small" variant="outline" onClick={() => setProductFieldsText('{}')}>
-                  清空字段，仅用产品图
-                </Button>
-              </Space>
-              <Textarea
-                value={productFieldsText}
-                onChange={(v) => setProductFieldsText(String(v))}
-                autosize={{ minRows: 8, maxRows: 16 }}
-                status={parsedFields === null ? 'error' : 'default'}
-              />
-            </div>
-
-            <div className="podi-product-commercialization__field-check">
-              <div>
-                <Typography.Text strong>图片 / 字段核对</Typography.Text>
-                <Typography.Text theme="secondary">
-                  {shouldConfirmMatch
-                    ? '字段只作为补充说明；如果与产品图冲突，后续成本动作默认以产品图事实为准。'
-                    : '只上传产品图也可以执行；系统会按图像事实推断商品信息。'}
-                </Typography.Text>
-              </div>
-              <div className="podi-product-commercialization__facts">
-                <span>商品：{productSummary.name}</span>
-                <span>分类：{productSummary.category}</span>
-                <span>材质：{productSummary.material}</span>
-                <span>型号：{productSummary.model}</span>
-              </div>
-              <label className="podi-product-commercialization__confirm">
-                <input
-                  type="checkbox"
-                  checked={fieldsConfirmed}
-                  disabled={!shouldConfirmMatch}
-                  onChange={(event) => setFieldsConfirmed(event.currentTarget.checked)}
-                />
-                <span>我确认这些字段与当前产品图属于同一商品；如果是乱填测试，后续结果只用于排查。</span>
-              </label>
-            </div>
-
-            <div className="podi-product-commercialization__controls">
-              <Select
-                label="语言"
-                value={outputLanguage}
-                onChange={(v) => setOutputLanguage(String(v) as any)}
-                options={[
-                  { label: '英文 en-US', value: 'en-US' },
-                  { label: '中文 zh-CN', value: 'zh-CN' },
-                  { label: '中英双语', value: 'bilingual' },
-                ]}
-              />
-              <Select
-                label="市场"
-                value={marketRegion}
-                onChange={(v) => setMarketRegion(String(v) as any)}
-                options={[
-                  { label: '美国 US', value: 'US' },
-                  { label: '英国 UK', value: 'UK' },
-                  { label: '欧盟 EU', value: 'EU' },
-                  { label: '全球 global', value: 'global' },
-                ]}
-              />
-              {!isVideoMode ? (
-                <>
-                  <Select
-                    label="平台"
-                    value={commercePlatform}
-                    onChange={(v) => setCommercePlatform(String(v))}
-                    options={COMMERCE_PLATFORM_OPTIONS}
-                  />
-                  <Select
-                    label="语气"
-                    value={copyTone}
-                    onChange={(v) => setCopyTone(String(v))}
-                    options={COPY_TONE_OPTIONS}
-                  />
-                  <Select
-                    label="主打角度"
-                    value={sellingAngle}
-                    onChange={(v) => setSellingAngle(String(v))}
-                    options={SELLING_ANGLE_OPTIONS}
-                  />
-                  <Select
-                    label="配图"
-                    value={visualSupportMode}
-                    onChange={(v) => setVisualSupportMode(String(v) as any)}
-                    options={[
-                      { label: '生成配图', value: 'generate' },
-                      { label: '只给建议', value: 'recommendation' },
-                      { label: '不配图', value: 'none' },
-                    ]}
-                  />
-                </>
-              ) : (
-                <>
-                  <Select
-                    label="视频供应商"
-                    value={videoProvider}
-                    onChange={(v) => setVideoProvider(String(v) as VideoProvider)}
-                    options={[
-                      { label: 'Vidu · viduq3-turbo', value: 'vidu_viduq3_turbo' },
-                      { label: 'KIE · Veo3.1 Fast', value: 'kie_veo3_fast' },
-                    ]}
-                  />
-                  <Input
-                    label="客户目标时长（秒）"
-                    value={String(targetDurationSeconds)}
-                    onChange={(v) => setTargetDurationSeconds(normalizeTargetDuration(v))}
-                    placeholder="例如 15"
-                  />
-                </>
-              )}
-              {isVideoMode ? (
-                <Input
-                  label={isViduVideoProvider ? '目标比例（执行前归一首帧）' : '目标比例'}
-                  value={aspectRatio}
-                  onChange={(v) => setAspectRatio(String(v))}
-                />
-              ) : null}
-            </div>
-
-            {!isVideoMode ? (
-              <>
-                <div className="podi-product-commercialization__strategy">
-                  <Input
-                    label="目标人群"
-                    value={targetAudience}
-                    onChange={(v) => setTargetAudience(String(v))}
-                    placeholder="例如：美国礼品买家、日常穿搭人群、季节上新受众"
-                  />
-                  <div className="podi-field-stack">
-                    <Typography.Text>禁用声明</Typography.Text>
-                    <Textarea
-                      value={forbiddenClaims}
-                      onChange={(v) => setForbiddenClaims(String(v))}
-                      placeholder="用逗号或换行分隔，例如：医疗功效、环保认证、品牌词、物流时效承诺"
-                      autosize={{ minRows: 2, maxRows: 4 }}
-                    />
-                  </div>
-                </div>
-                <div className="podi-field-stack">
-                  <Typography.Text>文案应用场景</Typography.Text>
-                  <div className="podi-product-commercialization__chips" aria-label="文案场景">
-                    {COPY_SCENARIOS.map((item) => (
-                      <button
-                        key={item.key}
-                        type="button"
-                        className={copyScenarios.includes(item.key) ? 'is-active' : ''}
-                        onClick={() => toggleScenario(item.key)}
-                      >
-                        <strong>{item.label}</strong>
-                        <small>{item.desc}</small>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="podi-field-stack">
-                <Typography.Text>视频应用场景</Typography.Text>
-                <div className="podi-product-commercialization__chips" aria-label="视频场景">
-                  {VIDEO_SCENARIOS.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      className={videoScenario === item.key ? 'is-active' : ''}
-                      onClick={() => setVideoScenario(item.key as any)}
-                    >
-                      <strong>{item.label}</strong>
-                      <small>{item.desc}</small>
-                    </button>
-                  ))}
-                </div>
-                <div className="podi-product-commercialization__pending">
-                  <Typography.Text theme="secondary">执行策略预估</Typography.Text>
-                  <div className="podi-product-commercialization__execution-plan">
-                    <div>
-                      <strong>{targetDurationSeconds}s</strong>
-                      <span>客户目标时长</span>
-                    </div>
-                    <div>
-                      <strong>{videoSegmentPlan.join(' + ')}s</strong>
-                      <span>{requiresComposition ? '规划为分段素材包' : '可走单段素材'}</span>
-                    </div>
-                  </div>
-                  <Typography.Text theme="secondary">当前模型</Typography.Text>
-                  <Space size="small" breakLine>
-                    <Tag theme="success" variant="light">
-                      {selectedVideoProfile.label}
-                    </Tag>
-                  </Space>
-                  <Typography.Text theme="secondary">模型支持片段</Typography.Text>
-                  <Space size="small" breakLine>
-                    {selectedVideoProfile.segmentDurationOptions.map((seconds) => (
-                      <Tag key={seconds} theme="primary" variant="light">
-                        {seconds} 秒片段
-                      </Tag>
-                    ))}
-                  </Space>
-                  <Typography.Text theme="secondary">生成模式</Typography.Text>
-                  <Space size="small" breakLine>
-                    {selectedVideoProfile.modes.map((item) => (
-                      <Tag key={item.label} theme={item.status === 'executable' ? 'success' : 'warning'} variant="light">
-                        {item.label} · {item.status === 'executable' ? '可执行' : '规划中'}
-                      </Tag>
-                    ))}
-                  </Space>
-                  {isViduVideoProvider ? (
-                    <Alert
-                      theme="info"
-                      message="Vidu 图生视频会跟随输入首帧比例；提交视频前系统会先生成并归一目标画幅首帧，再把该首帧作为视频参考图。"
-                    />
-                  ) : null}
-                  <Typography.Text theme="secondary">待接入 Vidu 场景</Typography.Text>
-                  <Space size="small" breakLine>
-                    {PENDING_VIDEO_ROUTES.map((item) => (
-                      <Tag key={item} theme="warning" variant="light">
-                        {item}
-                      </Tag>
-                    ))}
-                  </Space>
-                </div>
-                <div className="podi-product-commercialization__planning-fields">
-                  <div className="podi-product-commercialization__panel-head">
-                    <Typography.Text strong>视频规划要素</Typography.Text>
-                    <Button size="small" variant="outline" onClick={addVideoPlanningField}>
-                      添加更多
-                    </Button>
-                  </div>
-                  {videoPlanningFields.map((field) => (
-                    <div key={field.id} className="podi-product-commercialization__planning-field">
-                      <div className="podi-product-commercialization__planning-field-meta">
-                        <Input
-                          label="要素名称"
-                          value={field.label}
-                          onChange={(v) => updateVideoPlanningField(field.id, { label: String(v) })}
-                        />
-                        <Input
-                          label="说明"
-                          value={field.description}
-                          onChange={(v) => updateVideoPlanningField(field.id, { description: String(v) })}
-                        />
-                      </div>
-                      <Textarea
-                        value={field.value}
-                        onChange={(v) => updateVideoPlanningField(field.id, { value: String(v) })}
-                        placeholder="可选填写；留空不会阻塞规划。"
-                        autosize={{ minRows: 2, maxRows: 5 }}
-                      />
-                      {field.removable ? (
-                        <Button size="small" variant="text" theme="danger" onClick={() => removeVideoPlanningField(field.id)}>
-                          删除这个要素
-                        </Button>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="podi-field-stack">
-              <Typography.Text>补充要求</Typography.Text>
-              <Textarea
-                value={extraPrompt}
-                onChange={(v) => setExtraPrompt(String(v))}
-                placeholder={isVideoMode ? '例如：突出材质纹理和商品轮廓，不要出现文字和水印。' : '例如：偏节日礼品场景，避免夸张承诺。'}
-                autosize={{ minRows: 3, maxRows: 6 }}
-              />
-            </div>
-
-            <Space breakLine>
-              <Button
-                theme="primary"
-                loading={status === 'previewing'}
-                disabled={!isVideoMode && copyScenarios.length === 0}
-                onClick={() => void runPreview()}
-              >
-                {meta.previewButton}
-              </Button>
-              {!isVideoMode && result ? (
-                <>
-                  <Button
-                    variant="outline"
-                    loading={status === 'visual'}
-                    disabled={status === 'visual' || visualSupportMode !== 'generate' || !canRunCostAction || !hasFreshResult}
-                    onClick={() => void generateVisualScene(VISUAL_SCENES[1])}
-                  >
-                    生成社媒封面
-                  </Button>
-                  <Button
-                    theme="success"
-                    loading={status === 'visual'}
-                    disabled={status === 'visual' || visualSupportMode !== 'generate' || !canRunCostAction || !hasFreshResult}
-                    onClick={() => void generateAllVisualScenes()}
-                  >
-                    {hasGeneratedVisuals ? '重新生成全部组图' : '生成全部组图'}
-                  </Button>
-                </>
-              ) : null}
-              {isVideoMode ? (
-                <Button
-                  theme="success"
-                  loading={status === 'video'}
-                  disabled={status === 'video' || !canRunVideoCostAction || !videoPromptDraft.trim()}
-                  onClick={() => void runVideo()}
-                >
-                  {requiresComposition
-                    ? `生成 ${targetDurationSeconds}s 分段视频素材包`
-                    : `生成 ${targetDurationSeconds}s 单段视频素材`}
-                </Button>
-              ) : null}
-            </Space>
-          </Space>
-        </div>
-
-        <div className="podi-product-commercialization__panel podi-product-commercialization__result">
-          <div className="podi-product-commercialization__panel-head">
-            <Typography.Text strong>输出与交付</Typography.Text>
-            <Space size="small">
-              {result ? (
-                <Button size="small" variant="outline" disabled={!hasFreshResult} onClick={downloadContentPackage}>
-                  下载图文包
-                </Button>
-              ) : null}
-            </Space>
-          </div>
-
-          {!result ? (
-            <div className="podi-product-commercialization__empty">
-              <Typography.Text theme="secondary">{meta.emptyText}</Typography.Text>
-            </div>
-          ) : resultIsStale ? (
-            <div className="podi-product-commercialization__empty">
-              <Alert
-                theme="warning"
-                title="结果已过期"
-                message={
-                  isVideoMode
-                    ? '当前产品图、JSON 或策略参数已经变化，旧结果已收起。请重新生成视频规划后再触发视频素材任务。'
-                    : '当前产品图、JSON 或策略参数已经变化，旧结果已收起。请重新生成内容包后再下载或触发配图成本动作。'
-                }
-              />
-            </div>
-          ) : (
-            <Space direction="vertical" size="medium" style={{ width: '100%' }}>
-              <section className="podi-result-section">
-                <Typography.Text strong>产品理解</Typography.Text>
-                <div className="podi-product-commercialization__facts">
-                  <span>置信度 {String((productCard.confidence as any) ?? '-')}</span>
-                  <span>缺失 {asArray(productCard.missingFields).length} 项</span>
-                  <span>推断 {Object.keys(asRecord(productCard.inferredFacts)).length} 项</span>
-                  <span>配图策略 {String(visualAssetPlan.mode || visualSupportMode)}</span>
-                </div>
-                {asArray(productCard.missingFields).length > 0 ? (
-                  <Alert theme="warning" message={`字段缺失：${asArray(productCard.missingFields).join('、')}`} />
-                ) : null}
-              </section>
-
-              {!isVideoMode ? (
-                <>
-                  <section className="podi-result-section">
-                    <div className="podi-product-commercialization__panel-head">
-                      <Typography.Text strong>模型生成证据</Typography.Text>
-                      <Tag theme={themeForGeneration(copyGeneration.method)} variant="light">
-                        {copyGenerationLabel(copyGeneration.method)}
-                      </Tag>
-                    </div>
-                    <div className="podi-product-commercialization__facts">
-                      <span>provider {String(copyGeneration.provider || '-')}</span>
-                      <span>model {String(copyGeneration.model || '-')}</span>
-                      <span>fallback {String(copyGeneration.fallback ?? '-')}</span>
-                    </div>
-                    {String(copyGeneration.method || '') === 'template_fallback' ? (
-                      <Alert
-                        theme="error"
-                        message="当前是模板兜底，没有通过大模型/VL 生成；只能用于排障，不能作为文案能力验收通过。"
-                      />
-                    ) : (
-                      <Alert theme="success" message={String(copyGeneration.evidence || '已返回结构化电商文案内容包。')} />
-                    )}
-                  </section>
-
-                  <section className="podi-result-section">
-                    <Typography.Text strong>商家内容策略</Typography.Text>
-                    <div className="podi-product-commercialization__strategy-summary">
-                      <div>
-                        <Typography.Text theme="secondary">核心角度</Typography.Text>
-                        <Typography.Text>{String(commercePositioning.coreAngle || '-')}</Typography.Text>
-                      </div>
-                      <div>
-                        <Typography.Text theme="secondary">目标人群</Typography.Text>
-                        <Typography.Text>{formatCopyValue(commercePositioning.targetCustomers || [])}</Typography.Text>
-                      </div>
-                      <div>
-                        <Typography.Text theme="secondary">购买场景</Typography.Text>
-                        <Typography.Text>{formatCopyValue(commercePositioning.purchaseOccasions || [])}</Typography.Text>
-                      </div>
-                    </div>
-                  </section>
-
-                  {Object.keys(imageFactAssessment).length > 0 ? (
-                    <section className="podi-result-section">
-                      <Typography.Text strong>图片 / JSON 一致性</Typography.Text>
-                      <div className="podi-product-commercialization__strategy-summary">
-                        <div>
-                          <Typography.Text theme="secondary">图像主判断</Typography.Text>
-                          <Typography.Text>{String(imageFactAssessment.observedProductType || '-')}</Typography.Text>
-                        </div>
-                        <div>
-                          <Typography.Text theme="secondary">采用口径</Typography.Text>
-                          <Typography.Text>{String(imageFactAssessment.copyDecision || '-')}</Typography.Text>
-                        </div>
-                        <div>
-                          <Typography.Text theme="secondary">置信度</Typography.Text>
-                          <Typography.Text>{String(imageFactAssessment.confidence || '-')}</Typography.Text>
-                        </div>
-                      </div>
-                      {asArray(imageFactAssessment.fieldConflicts).length > 0 ? (
-                        <Alert
-                          theme="warning"
-                          message={`疑似冲突：${asArray(imageFactAssessment.fieldConflicts).map((item) => String(item)).join('；')}`}
-                        />
-                      ) : null}
-                      {hasImageFieldConflict ? (
-                        <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
-                          <input
-                            type="checkbox"
-                            checked={conflictAccepted}
-                            onChange={(event) => setConflictAccepted(event.currentTarget.checked)}
-                          />
-                          <span>我确认按产品图识别结果继续，忽略与图片冲突的导出字段；后续配图/视频将以图片事实为准。</span>
-                        </label>
-                      ) : null}
-                      {asArray(imageFactAssessment.missingFieldInferences).length > 0 ? (
-                        <Alert
-                          theme="info"
-                          message={`图片推断：${asArray(imageFactAssessment.missingFieldInferences).map((item) => String(item)).join('；')}`}
-                        />
-                      ) : null}
-                      <div className="podi-product-commercialization__facts">
-                        {asArray(imageFactAssessment.observedVisualFeatures).map((item, index) => (
-                          <span key={`${String(item)}-${index}`}>{String(item)}</span>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-
-                  <section className="podi-result-section">
-                    <Typography.Text strong>文案结果</Typography.Text>
-                    <div className="podi-product-commercialization__copy-list">
-                      {Object.entries(copyPackage)
-                        .filter(([key]) => COPY_OUTPUT_LABELS[key])
-                        .map(([key, value]) => (
-                          <div key={key}>
-                            <Typography.Text strong>{COPY_OUTPUT_LABELS[key]}</Typography.Text>
-                            <pre>{formatCopyValue(value)}</pre>
-                          </div>
-                        ))}
-                    </div>
-                  </section>
-
-                  {visualSupportMode !== 'none' ? (
-                    <section className="podi-result-section">
-                      <div className="podi-product-commercialization__panel-head">
-                        <Typography.Text strong>配图建议与生成</Typography.Text>
-                        <Typography.Text theme="secondary">
-                          {visualSupportMode === 'generate'
-                            ? '建议来自文案模型；点击后默认调用 GPT Image 2 生成配图'
-                            : '当前只输出配图建议'}
-                        </Typography.Text>
-                      </div>
-                      {modelImageBriefs.length > 0 ? (
-                        <div className="podi-product-commercialization__briefs">
-                          {modelImageBriefs.map((brief, index) => (
-                            <div key={`${brief.id || index}`} className="podi-product-commercialization__brief">
-                              <Typography.Text strong>{String(brief.label || brief.id || `配图 ${index + 1}`)}</Typography.Text>
-                              <Typography.Text theme="secondary">{String(brief.usage || '')}</Typography.Text>
-                              <pre>{String(brief.prompt || '')}</pre>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="podi-product-commercialization__visual-grid">
-                        {VISUAL_SCENES.map((scene) => {
-                          const visual = generatedVisuals.find((item) => item.id === scene.id);
-                          const modelBrief = modelImageBriefs.find((item) => String(item.id || '').trim() === scene.id);
-                          const label = String(modelBrief?.label || scene.label);
-                          const desc = String(modelBrief?.usage || scene.desc);
-                          return (
-                            <div key={scene.id} className="podi-product-commercialization__visual-card">
-                              <div>
-                                <Typography.Text strong>{label}</Typography.Text>
-                                <Typography.Text theme="secondary">{desc}</Typography.Text>
-                              </div>
-                              {visual?.urls?.[0] ? <img src={visual.urls[0]} alt={label} /> : null}
-                              {visual ? (
-                                <Typography.Text theme={visual.status === 'failed' ? 'error' : 'secondary'}>
-                                  {businessRunStatusLabel(visual.status)} · runId={visual.runId}
-                                </Typography.Text>
-                              ) : (
-                                <Typography.Text theme="secondary">尚未生成</Typography.Text>
-                              )}
-                              {visual?.error ? <Typography.Text theme="error">{visual.error}</Typography.Text> : null}
-                              <Button
-                                size="small"
-                                variant="outline"
-                                loading={status === 'visual'}
-                                disabled={status === 'visual' || visualSupportMode !== 'generate' || !canRunCostAction || !hasFreshResult}
-                                onClick={() => void generateVisualScene(scene)}
-                              >
-                                生成{label}
-                              </Button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  ) : null}
-
-                  {channelUsageGuide.length > 0 ? (
-                    <section className="podi-result-section">
-                      <Typography.Text strong>渠道使用建议</Typography.Text>
-                      <div className="podi-product-commercialization__channel-list">
-                        {channelUsageGuide.map((item, index) => (
-                          <div key={`${item.channel || index}`}>
-                            <Typography.Text strong>{String(item.channel || `渠道 ${index + 1}`)}</Typography.Text>
-                            <Typography.Text>{String(item.howToUse || '')}</Typography.Text>
-                            <Typography.Text theme="secondary">资产：{formatCopyValue(item.assets || [])}</Typography.Text>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <section className="podi-result-section">
-                    <Typography.Text strong>最终采用事实</Typography.Text>
-                    <div className="podi-product-commercialization__strategy-summary">
-                      <div>
-                        <Typography.Text theme="secondary">事实来源</Typography.Text>
-                        <Typography.Text>{productFactSourceLabel(resolvedProductFacts.source, exportedFieldCount)}</Typography.Text>
-                      </div>
-                      <div>
-                        <Typography.Text theme="secondary">商品判断</Typography.Text>
-                        <Typography.Text>{String(resolvedProductFacts.summary || productSummary.name || '-')}</Typography.Text>
-                      </div>
-                      <div>
-                        <Typography.Text theme="secondary">置信度</Typography.Text>
-                        <Typography.Text>{String(resolvedProductFacts.confidence || imageFactAssessment.confidence || '-')}</Typography.Text>
-                      </div>
-                    </div>
-                    {asArray(resolvedProductFacts.fieldConflicts).length > 0 ? (
-                      <Alert
-                        theme="warning"
-                        message={`疑似冲突：${asArray(resolvedProductFacts.fieldConflicts).map((item) => String(item)).join('；')}`}
-                      />
-                    ) : null}
-                    {hasImageFieldConflict ? (
-                      <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
-                        <input
-                          type="checkbox"
-                          checked={conflictAccepted}
-                          onChange={(event) => setConflictAccepted(event.currentTarget.checked)}
-                        />
-                        <span>我确认按产品图识别结果继续，忽略与图片冲突的导出字段；后续视频将以图片事实为准。</span>
-                      </label>
-                    ) : null}
-                  </section>
-
-                  <section className="podi-result-section">
-                    <Typography.Text strong>视频规划</Typography.Text>
-                    <div className="podi-product-commercialization__facts">
-                      <span>{videoProviderLabel(videoProvider)}</span>
-                      <span>{selectedScenario?.label || videoScenario}</span>
-                      <span>{String(videoPlan.targetDurationSeconds || targetDurationSeconds)}s</span>
-                      <span>目标 {String(videoAspectPolicy.requestedAspectRatio || videoPlan.aspectRatio || aspectRatio)}</span>
-                      <span>{videoAspectExecutionLabel}</span>
-                      <span>{asArray(videoPlan.storyboard).length || 1} 个镜头</span>
-                    </div>
-                    {Object.keys(videoAssetPackagePlan).length > 0 ? (
-                      <div className="podi-product-commercialization__package-flow" aria-label="视频素材包阶段">
-                        {[
-                          {
-                            label: '脚本',
-                            value: videoPlanConfirmed ? '已确认' : String(asRecord(videoAssetPackagePlan.script).status || '待确认'),
-                          },
-                          {
-                            label: '分镜',
-                            value: `${asArray(videoAssetPackagePlan.storyboard).length || asArray(videoPlan.storyboard).length || 1} 个镜头`,
-                          },
-                          { label: '关键帧', value: `${asArray(videoAssetPackagePlan.keyframeNeeds).length} 项需求` },
-                          { label: '分段视频', value: requiresComposition ? '多段生成' : '单段生成' },
-                          {
-                            label: '合成片',
-                            value: asRecord(videoAssetPackagePlan.compositionPlan).availableAsOptionalAction ? '可选后续动作' : '非必需',
-                          },
-                        ].map((item) => (
-                          <div key={item.label}>
-                            <strong>{item.label}</strong>
-                            <span>{item.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="podi-product-commercialization__channel-list">
-                      {asArray(videoPlan.storyboard).map((item, index) => {
-                        const shot = asRecord(item);
-                        return (
-                          <div key={`${String(shot.label || 'shot')}-${index}`}>
-                            <Typography.Text strong>
-                              镜头 {String(shot.shot || index + 1)} · {String(shot.label || '商品镜头')}
-                            </Typography.Text>
-                            <Typography.Text>{String(shot.goal || shot.camera || '')}</Typography.Text>
-                            <Typography.Text theme="secondary">
-                              保留 {String(shot.keepSeconds || shot.durationSeconds || SEGMENT_SECONDS)}s · 主体 {String(shot.subject || '-')}
-                            </Typography.Text>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {asArray(videoPlan.assetNeeds).length > 0 ? (
-                      <div className="podi-product-commercialization__facts">
-                        {asArray(videoPlan.assetNeeds).map((item, index) => {
-                          const asset = asRecord(item);
-                          return (
-                            <span key={`${String(asset.asset || 'asset')}-${index}`}>
-                              {String(asset.asset || '素材')}：{asset.available ? '已具备' : asset.required ? '建议补齐' : '可选'}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                    <div className="podi-product-commercialization__brief">
-                      <div className="podi-product-commercialization__panel-head">
-                        <Typography.Text strong>执行脚本</Typography.Text>
-                        <Typography.Text theme="secondary">可编辑；点击生成视频时按当前脚本提交给视频模型。</Typography.Text>
-                      </div>
-                      <Textarea
-                        value={videoPromptDraft || String(videoPlan.videoPrompt || '')}
-                        onChange={(value) => {
-                          setVideoPromptDraft(String(value));
-                          setVideoPlanConfirmed(false);
-                        }}
-                        autosize={{ minRows: 6, maxRows: 12 }}
-                        placeholder="先生成视频规划，或在这里写入最终视频脚本。"
-                      />
-                      <div className="podi-product-commercialization__confirm-gate">
-                        <label className="podi-product-commercialization__confirm podi-product-commercialization__confirm--strong">
-                          <input
-                            type="checkbox"
-                            checked={videoPlanConfirmed}
-                            disabled={!hasFreshResult || !videoPromptDraft.trim()}
-                            onChange={(event) => setVideoPlanConfirmed(event.currentTarget.checked)}
-                          />
-                          <span>我已核对当前脚本和分镜；按当前稿提交视频素材包任务。</span>
-                        </label>
-                        <Typography.Text theme={videoPlanConfirmed ? 'success' : 'warning'}>
-                          {videoPlanConfirmed
-                            ? '已确认：现在可以触发视频成本任务，结果仍按统一 runId 查询。'
-                            : '待确认：产品图、参数或脚本变更后必须重新确认，避免把旧规划提交给视频模型。'}
-                        </Typography.Text>
-                      </div>
-                    </div>
-                    <details className="podi-product-commercialization__debug">
-                      <summary>调试 JSON</summary>
-                      <pre>{prettyJson({ videoPlan, videoAssetPackagePlan })}</pre>
-                    </details>
-                  </section>
-
-                  {Object.keys(videoAssetPackage).length > 0 ? (
-                    <section className="podi-result-section">
-                      <Typography.Text strong>视频素材包</Typography.Text>
-                      <div className="podi-product-commercialization__facts">
-                        <span>交付阶段 {String(videoAssetPackage.deliveryStatus || '-')}</span>
-                        <span>脚本 {String(asRecord(videoAssetPackage.script).status || '-')}</span>
-                        <span>关键帧 {asArray(videoAssetPackage.keyframes).length}</span>
-                        <span>分段 {videoPackageSegments.length}</span>
-                        <span>合成 {String(videoPackageComposition.status || '未执行')}</span>
-                      </div>
-                      {videoPackageKeyframes.length > 0 ? (
-                        <div className="podi-product-commercialization__keyframes">
-                          {videoPackageKeyframes.map((frame, index) => (
-                            <div key={`${String(frame.role || 'frame')}-${String(frame.segmentIndex || index)}`}>
-                              {frame.imageUrl ? <img src={String(frame.imageUrl)} alt={`视频首帧 ${index + 1}`} /> : null}
-                              <Typography.Text strong>
-                                {String(frame.role || '关键帧')} · 分段 {String(frame.segmentIndex || frame.shot || index + 1)}
-                              </Typography.Text>
-                              <Typography.Text theme="secondary">
-                                {String(frame.aspectRatio || '-')} · {String(frame.width || '-')}×{String(frame.height || '-')}
-                              </Typography.Text>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      {videoPackageSegments.length > 0 ? (
-                        <div className="podi-product-commercialization__channel-list">
-                          {videoPackageSegments.map((segment, index) => (
-                            <div key={`${String(segment.segmentIndex || index)}-${String(segment.status || '')}`}>
-                              <Typography.Text strong>
-                                分段 {String(segment.segmentIndex || index + 1)} · {String(segment.status || '-')}
-                              </Typography.Text>
-                              <Typography.Text theme="secondary">
-                                {String(segment.durationSeconds || '-')}s · {String(segment.provider || '-')} · {String(segment.model || '-')}
-                              </Typography.Text>
-                              {segment.referenceImageUrl ? (
-                                <Typography.Text theme="secondary">执行参考图：{String(segment.referenceImageUrl)}</Typography.Text>
-                              ) : null}
-                              {segment.errorCode || segment.errorMessage ? (
-                                <Typography.Text theme="error">
-                                  {String(segment.errorCode || '')} {String(segment.errorMessage || '')}
-                                </Typography.Text>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      <details className="podi-product-commercialization__debug">
-                        <summary>素材包 JSON</summary>
-                        <pre>{prettyJson(videoAssetPackage)}</pre>
-                      </details>
-                    </section>
-                  ) : null}
-                </>
-              )}
-
-              {videoUrls.length > 0 ? (
-                <section className="podi-result-section">
-                  <Typography.Text strong>视频结果</Typography.Text>
-                  {videoUrls.map((url, index) => (
-                    <div key={`${url}-${index}`} className="podi-product-commercialization__video">
-                      <video src={url} controls />
-                      <Button variant="outline" onClick={() => window.open(url, '_blank', 'noreferrer')}>
-                        打开视频
-                      </Button>
-                    </div>
-                  ))}
-                </section>
-              ) : null}
-
-              <section className="podi-result-section">
-                <Typography.Text strong>审核与下一步</Typography.Text>
-                <div className="podi-product-commercialization__review">
-                  <div className="podi-product-commercialization__facts">
-                    <span>审核分 {String(review.score ?? '-')}</span>
-                    <span>提示 {asArray(review.issues).length}</span>
-                    <span>{review.videoReady ? '可联动产品视频' : '需补齐视频素材'}</span>
-                  </div>
-                  <div className="podi-product-commercialization__review-grid">
-                    <div>
-                      <Typography.Text theme="secondary">审核提示</Typography.Text>
-                      <div className="podi-product-commercialization__review-list">
-                        {asArray(review.issues).length > 0 ? (
-                          asArray(review.issues).map((item, index) => {
-                            const issue = asRecord(item);
-                            return (
-                              <div key={`${String(issue.code || 'issue')}-${index}`}>
-                                <Tag theme={getReviewIssueTheme(issue.level)} variant="light">
-                                  {getReviewIssueLabel(issue.level)}
-                                </Tag>
-                                <div>
-                                  <strong>{String(issue.code || '审核提示')}</strong>
-                                  <p>{String(issue.message || '请核对商品事实后再发布。')}</p>
-                                </div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <div>
-                            <Tag theme="success" variant="light">通过</Tag>
-                            <div>
-                              <strong>暂无阻断项</strong>
-                              <p>仍需人工核对商品事实、平台规则和禁用声明。</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <Typography.Text theme="secondary">下一步</Typography.Text>
-                      <ol className="podi-product-commercialization__next-list">
-                        {(asArray(review.nextActions).map((item) => String(item || '').trim()).filter(Boolean).length > 0
-                          ? asArray(review.nextActions).map((item) => String(item || '').trim()).filter(Boolean)
-                          : isVideoMode
-                            ? ['核对脚本、分镜和执行参数后提交视频素材包任务；生成结果通过 runId 追踪。']
-                            : ['核对事实后复制文案，按需要生成配图；视频请进入产品视频能力。']
-                        ).map((item, index) => (
-                          <li key={`${item}-${index}`}>{item}</li>
-                        ))}
-                      </ol>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </Space>
-          )}
-        </div>
-      </div>
     </section>
   );
 }

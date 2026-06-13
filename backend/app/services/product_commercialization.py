@@ -715,7 +715,7 @@ class ProductCommercializationService:
 
     def _is_video_only_action(self, payload: Any) -> bool:
         action = _clean_text(getattr(payload, "action", None)).lower()
-        return action in {"video_preview", "video_generate", "compose_video"}
+        return action in {"video_preview", "video_keyframes", "video_generate", "compose_video"}
 
     def preview(self, payload: Any, *, user_id: str | None = None) -> dict[str, Any]:
         request_id = _clean_text(getattr(payload, "requestId", None)) or f"pcp_{uuid4().hex[:12]}"
@@ -769,6 +769,7 @@ class ProductCommercializationService:
             market_region=market_region,
             executor_id=getattr(payload, "executorId", None),
             extra_prompt=getattr(payload, "extraPrompt", None),
+            video_planning_context=getattr(payload, "videoPlanningContext", None),
         )
         video_asset_package_plan = self._build_video_asset_package_plan(video_plan)
         review = self._build_review(
@@ -839,24 +840,22 @@ class ProductCommercializationService:
         executor_id = _clean_text(getattr(payload, "executorId", None)) or DEFAULT_KIE_VIDEO_EXECUTOR_ID
         provider_hint = self._resolve_video_provider(executor_id)
         reference_image_url = image_url
-        generated_keyframes: list[dict[str, Any]] = []
-        normalized_first_frame: dict[str, Any] | None = None
-        if self._should_generate_normalized_first_frame(provider=provider_hint, video_plan=video_plan):
-            normalized_first_frame = self._generate_normalized_first_frame(
-                source_image_url=image_url,
-                video_plan=video_plan,
-                shot=(video_plan.get("storyboard") or [{}])[0] if isinstance(video_plan.get("storyboard"), list) else {},
-                prompt=prompt,
-                aspect_ratio=video_plan.get("aspectRatio") or "16:9",
-                segment_index=1,
-                request_id=_clean_text(preview.get("requestId")) or f"pcp_{uuid4().hex[:12]}",
-                user_id=user_id or "product-commercialization",
-            )
-            generated_keyframes.append(normalized_first_frame)
-            reference_image_url = _clean_text(normalized_first_frame.get("imageUrl")) or image_url
-            video_plan = self._attach_generated_video_keyframes(video_plan, generated_keyframes)
+        confirmed_keyframes = self._normalize_confirmed_video_keyframes(
+            getattr(payload, "confirmedVideoKeyframes", None)
+        )
+        confirmed_keyframes_used = self._validate_confirmed_video_keyframes_for_plan(
+            video_plan=video_plan,
+            confirmed_keyframes=confirmed_keyframes,
+        )
+        confirmed_first_frame = self._select_confirmed_video_keyframe(confirmed_keyframes_used, segment_index=1)
+        if confirmed_first_frame:
+            reference_image_url = _clean_text(confirmed_first_frame.get("imageUrl")) or image_url
+            video_plan = self._attach_generated_video_keyframes(video_plan, confirmed_keyframes_used)
+            video_plan["confirmedKeyframesUsed"] = confirmed_keyframes_used
             preview["videoPlan"] = video_plan
             preview["videoAssetPackagePlan"] = self._build_video_asset_package_plan(video_plan)
+        generated_keyframes: list[dict[str, Any]] = []
+        normalized_first_frame: dict[str, Any] | None = None
         result, video_urls = self._generate_segment_with_retry(
             executor_id=executor_id,
             prompt=self._build_video_execution_prompt(
@@ -877,16 +876,17 @@ class ProductCommercializationService:
         composition: dict[str, Any] | None = None
         composition_error: Any = None
         compose_enabled = False
+        first_frame_for_composition = normalized_first_frame or confirmed_first_frame
         if (
             provider == "vidu"
             and video_urls
-            and normalized_first_frame
-            and _clean_text(normalized_first_frame.get("imageUrl"))
+            and first_frame_for_composition
+            and _clean_text(first_frame_for_composition.get("imageUrl"))
         ):
             compose_enabled = True
             try:
                 composition = self._compose_opening_hold_with_segment(
-                    first_frame_url=_clean_text(normalized_first_frame.get("imageUrl")),
+                    first_frame_url=_clean_text(first_frame_for_composition.get("imageUrl")),
                     segment_video_url=video_urls[0],
                     request_id=_clean_text(preview.get("requestId")) or f"pcp_{uuid4().hex[:12]}",
                     user_id=user_id or "product-commercialization",
@@ -907,7 +907,7 @@ class ProductCommercializationService:
             ),
             duration_seconds=int(video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS),
             reference_image_url=reference_image_url,
-            normalized_first_frame=normalized_first_frame,
+            normalized_first_frame=normalized_first_frame or confirmed_first_frame,
         )
         video_asset_package = self._build_video_asset_package(
             video_plan=video_plan,
@@ -915,7 +915,7 @@ class ProductCommercializationService:
             composition=composition,
             compose_enabled=compose_enabled,
             composition_error=composition_error,
-            keyframes=generated_keyframes,
+            keyframes=[*confirmed_keyframes_used, *generated_keyframes],
         )
         cost_actions = [self._visual_cost_action(provider=DEFAULT_VISUAL_PROVIDER, model=DEFAULT_VISUAL_MODEL) for _ in generated_keyframes]
         cost_actions.append(self._video_cost_action(provider=provider, model=model))
@@ -951,6 +951,112 @@ class ProductCommercializationService:
             },
         }
 
+    def generate_video_keyframes(self, payload: Any, *, user_id: str | None = None) -> dict[str, Any]:
+        preview = self.preview(payload, user_id=user_id)
+        image_url = _primary_product_image_url(_normalize_product_image_inputs(payload))
+        if not image_url:
+            raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED")
+        video_plan = preview["videoPlan"]
+        video_plan = self._apply_video_prompt_override(video_plan, getattr(payload, "videoPromptOverride", None))
+        preview["videoPlan"] = video_plan
+        video_asset_package_plan = self._build_video_asset_package_plan(video_plan)
+        preview["videoAssetPackagePlan"] = video_asset_package_plan
+        storyboard = [item for item in _as_list(video_plan.get("storyboard")) if isinstance(item, dict)]
+        if not storyboard:
+            raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
+        keyframe_plan = [item for item in _as_list(video_asset_package_plan.get("keyframeNeeds")) if isinstance(item, dict)]
+        if not keyframe_plan:
+            keyframe_plan = [
+                {
+                    "role": "first_frame",
+                    "shot": index,
+                    "prompt": _clean_text(shot.get("firstFramePrompt") or shot.get("prompt") or video_plan.get("videoPrompt")),
+                    "reason": "Anchor the video segment before image-to-video generation.",
+                }
+                for index, shot in enumerate(storyboard, start=1)
+            ]
+        keyframe_shot_scope = self._normalize_keyframe_shot_scope(getattr(payload, "keyframeShotScope", None))
+        if keyframe_shot_scope:
+            scoped_keyframe_plan = [
+                item
+                for index, item in enumerate(keyframe_plan, start=1)
+                if self._keyframe_need_matches_shot_scope(item, keyframe_shot_scope, fallback_index=index)
+            ]
+            if not scoped_keyframe_plan:
+                raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_KEYFRAME_SCOPE_EMPTY")
+            keyframe_plan = scoped_keyframe_plan
+        request_id = _clean_text(preview.get("requestId")) or f"pcp_{uuid4().hex[:12]}"
+        aspect_ratio = _clean_text(video_plan.get("aspectRatio")) or "16:9"
+        generated_keyframes: list[dict[str, Any]] = []
+        for index, frame_need in enumerate(keyframe_plan, start=1):
+            try:
+                shot_no = int(frame_need.get("shot") or frame_need.get("segmentIndex") or index)
+            except (TypeError, ValueError):
+                shot_no = index
+            shot_no = max(1, min(shot_no, len(storyboard)))
+            shot = storyboard[shot_no - 1]
+            role = _clean_text(frame_need.get("role")) or "key_frame"
+            frame_prompt = _clean_text(frame_need.get("prompt"))
+            if not frame_prompt:
+                frame_prompt = _clean_text(
+                    shot.get("firstFramePrompt")
+                    if role in {"first_frame", "normalized_first_frame", "opening_frame"}
+                    else shot.get("lastFramePrompt")
+                )
+            frame_prompt = frame_prompt or _clean_text(shot.get("prompt") or video_plan.get("videoPrompt"))
+            if not frame_prompt:
+                raise HTTPException(status_code=400, detail="PRODUCT_COMMERCIALIZATION_VIDEO_PROMPT_REQUIRED")
+            reference_image = _clean_text(_as_record(shot.get("referenceImage")).get("url")) or image_url
+            generated_keyframes.append(
+                self._generate_video_keyframe_image(
+                    source_image_url=reference_image,
+                    video_plan=video_plan,
+                    shot=shot,
+                    role=role,
+                    prompt=frame_prompt,
+                    aspect_ratio=aspect_ratio,
+                    segment_index=shot_no,
+                    request_id=request_id,
+                    user_id=user_id or "product-commercialization",
+                )
+            )
+        video_plan = self._attach_generated_video_keyframes(video_plan, generated_keyframes)
+        preview["videoPlan"] = video_plan
+        preview["videoAssetPackagePlan"] = self._build_video_asset_package_plan(video_plan)
+        video_asset_package = self._build_video_asset_package(
+            video_plan=video_plan,
+            segments=[],
+            composition=None,
+            compose_enabled=False,
+            keyframes=generated_keyframes,
+        )
+        return {
+            **preview,
+            "status": "succeeded",
+            "videoAssetPackage": video_asset_package,
+            "videoResult": {
+                "provider": DEFAULT_VISUAL_PROVIDER,
+                "model": DEFAULT_VISUAL_MODEL,
+                "status": "keyframes_ready",
+                "videoUrls": [],
+                "segments": [],
+                "keyframes": generated_keyframes,
+                "composition": video_asset_package.get("composition"),
+            },
+            "execution": {
+                "copyGenerated": False,
+                "copyGenerationMethod": preview.get("copyGeneration", {}).get("method"),
+                "imageGenerated": bool(generated_keyframes),
+                "videoGenerated": False,
+                "costActions": [
+                    self._visual_cost_action(provider=DEFAULT_VISUAL_PROVIDER, model=DEFAULT_VISUAL_MODEL)
+                    for _ in generated_keyframes
+                ],
+                "keyframeShotScope": keyframe_shot_scope or None,
+                "note": "Video keyframe generation is an explicit cost action; video generation still requires user confirmation.",
+            },
+        }
+
     def generate_composed_video(self, payload: Any, *, user_id: str | None = None) -> dict[str, Any]:
         preview = self.preview(payload, user_id=user_id)
         image_url = _primary_product_image_url(_normalize_product_image_inputs(payload))
@@ -972,6 +1078,13 @@ class ProductCommercializationService:
         default_poll_timeout = max(float(get_settings().kie_task_timeout_seconds), 300.0)
         poll_timeout = float(getattr(payload, "pollTimeout", None) or default_poll_timeout)
         provider_hint = self._resolve_video_provider(executor_id)
+        confirmed_keyframes = self._normalize_confirmed_video_keyframes(
+            getattr(payload, "confirmedVideoKeyframes", None)
+        )
+        confirmed_keyframes_used = self._validate_confirmed_video_keyframes_for_plan(
+            video_plan=video_plan,
+            confirmed_keyframes=confirmed_keyframes,
+        )
         segment_results: list[dict[str, Any]] = []
         failed_segments: list[dict[str, Any]] = []
         generated_keyframes: list[dict[str, Any]] = []
@@ -984,20 +1097,10 @@ class ProductCommercializationService:
             duration = int(shot.get("durationSeconds") or video_plan.get("durationSeconds") or DEFAULT_VIDEO_SEGMENT_SECONDS)
             shot_reference_image = _clean_text(_as_record(shot.get("referenceImage")).get("url")) or image_url
             execution_reference_image = shot_reference_image
+            confirmed_frame = self._select_confirmed_video_keyframe(confirmed_keyframes_used, segment_index=index)
             normalized_first_frame: dict[str, Any] | None = None
-            if self._should_generate_normalized_first_frame(provider=provider_hint, video_plan=video_plan):
-                normalized_first_frame = self._generate_normalized_first_frame(
-                    source_image_url=shot_reference_image,
-                    video_plan=video_plan,
-                    shot=shot,
-                    prompt=prompt,
-                    aspect_ratio=video_plan.get("aspectRatio") or "16:9",
-                    segment_index=index,
-                    request_id=_clean_text(preview.get("requestId")) or f"pcp_{uuid4().hex[:12]}",
-                    user_id=user_id or "product-commercialization",
-                )
-                generated_keyframes.append(normalized_first_frame)
-                execution_reference_image = _clean_text(normalized_first_frame.get("imageUrl")) or shot_reference_image
+            if confirmed_frame:
+                execution_reference_image = _clean_text(confirmed_frame.get("imageUrl")) or shot_reference_image
             try:
                 execution_prompt = self._build_video_execution_prompt(
                     provider=provider_hint,
@@ -1054,14 +1157,17 @@ class ProductCommercializationService:
                     prompt=execution_prompt,
                     duration_seconds=duration,
                     reference_image_url=execution_reference_image,
-                    normalized_first_frame=normalized_first_frame,
+                    normalized_first_frame=normalized_first_frame or confirmed_frame,
                 )
             )
 
         if not segment_results:
             raise HTTPException(status_code=502, detail="PRODUCT_COMMERCIALIZATION_SEGMENT_GENERATION_FAILED")
-        if generated_keyframes:
-            video_plan = self._attach_generated_video_keyframes(video_plan, generated_keyframes)
+        all_video_keyframes = [*confirmed_keyframes_used, *generated_keyframes]
+        if all_video_keyframes:
+            video_plan = self._attach_generated_video_keyframes(video_plan, all_video_keyframes)
+            if confirmed_keyframes_used:
+                video_plan["confirmedKeyframesUsed"] = confirmed_keyframes_used
             preview["videoPlan"] = video_plan
             preview["videoAssetPackagePlan"] = self._build_video_asset_package_plan(video_plan)
 
@@ -1098,7 +1204,7 @@ class ProductCommercializationService:
             composition=composition,
             compose_enabled=compose_requested,
             composition_error=composition_error,
-            keyframes=generated_keyframes,
+            keyframes=all_video_keyframes,
         )
         return {
             **preview,
@@ -1193,18 +1299,119 @@ class ProductCommercializationService:
                     "reason": _clean_text(item.get("reason")) or "Improve controlled video generation.",
                 }
             )
-        if any(_clean_text(item.get("asset")) in {"first_last_frames", "normalized_first_frame"} for item in asset_needs):
-            if not keyframe_needs:
+        needs_controlled_frames = any(
+            _clean_text(item.get("asset")) in {"first_last_frames", "normalized_first_frame"} for item in asset_needs
+        )
+        needs_normalized_first_frame = any(
+            _clean_text(item.get("asset")) == "normalized_first_frame" and bool(item.get("required"))
+            for item in asset_needs
+        )
+        if needs_controlled_frames:
+            first_frame_roles = {"first_frame", "normalized_first_frame", "opening_frame"}
+
+            def has_first_frame_need(shot_key: str) -> bool:
+                for fallback_index, need in enumerate(keyframe_needs, start=1):
+                    if _clean_text(need.get("role")) not in first_frame_roles:
+                        continue
+                    existing_key = self._need_shot_key(need, fallback_index=fallback_index)
+                    if existing_key == shot_key:
+                        return True
+                return False
+
+            for index, shot in enumerate(storyboard or [{}], start=1):
+                if not isinstance(shot, dict):
+                    continue
+                shot_ref = shot.get("shot") or shot.get("segmentIndex") or index
+                shot_key = self._normalize_keyframe_shot_scope(shot_ref) or str(index)
+                if has_first_frame_need(shot_key):
+                    continue
+                prompt_text = _clean_text(
+                    shot.get("firstFramePrompt")
+                    or shot.get("prompt")
+                    or prompt
+                    or "Generate a factual first frame from the product image before video generation."
+                )
                 keyframe_needs.append(
                     {
-                        "role": "first_frame",
+                        "role": "normalized_first_frame" if needs_normalized_first_frame else "first_frame",
+                        "shot": shot_ref,
                         "required": True,
                         "available": False,
                         "source": "gpt_image_2_planned",
-                        "prompt": "Generate a factual first frame from the product image before video generation.",
-                        "reason": "Anchor the product image and aspect ratio before video generation.",
+                        "prompt": prompt_text,
+                        "reason": (
+                            "Required before Vidu fixed-aspect video execution; the confirmed first frame anchors the product and canvas."
+                            if needs_normalized_first_frame
+                            else "Anchor the product image and aspect ratio before video generation."
+                        ),
                     }
                 )
+        keyframes_by_shot: dict[str, list[dict[str, Any]]] = {}
+        for fallback_index, need in enumerate(keyframe_needs, start=1):
+            raw_shot = need.get("shot") or need.get("segmentIndex") or need.get("segment") or fallback_index
+            shot_key = _clean_text(raw_shot) or str(fallback_index)
+            keyframes_by_shot.setdefault(shot_key, []).append(need)
+        storyboard_items: list[dict[str, Any]] = []
+        shot_packages: list[dict[str, Any]] = []
+        for index, item in enumerate(storyboard, start=1):
+            raw_shot_no = item.get("shot") or item.get("segmentIndex") or index
+            shot_key = _clean_text(raw_shot_no) or str(index)
+            try:
+                segment_index = int(raw_shot_no)
+            except (TypeError, ValueError):
+                segment_index = index
+            segment_index = max(1, segment_index)
+            shot_keyframe_needs = keyframes_by_shot.get(shot_key) or keyframes_by_shot.get(str(index)) or []
+            required_assets = [
+                "product_image",
+                *[
+                    _clean_text(need.get("role")) or "key_frame"
+                    for need in shot_keyframe_needs
+                    if _clean_text(need.get("role")) or need.get("required")
+                ],
+            ]
+            storyboard_item = {
+                "segmentIndex": segment_index,
+                "durationSeconds": item.get("durationSeconds"),
+                "keepSeconds": item.get("keepSeconds"),
+                "label": item.get("label"),
+                "scene": item.get("scene"),
+                "goal": item.get("goal"),
+                "cameraMovement": item.get("cameraMovement") or item.get("camera"),
+                "composition": item.get("composition"),
+                "prompt": item.get("prompt"),
+                "firstFramePrompt": item.get("firstFramePrompt"),
+                "lastFramePrompt": item.get("lastFramePrompt"),
+                "negativePrompt": item.get("negativePrompt"),
+                "referenceImage": item.get("referenceImage"),
+                "requiredAssets": required_assets,
+            }
+            storyboard_items.append(storyboard_item)
+            shot_packages.append(
+                {
+                    "shotNo": segment_index,
+                    "segmentIndex": segment_index,
+                    "label": item.get("label") or f"Shot {segment_index}",
+                    "durationSeconds": item.get("durationSeconds"),
+                    "keepSeconds": item.get("keepSeconds"),
+                    "subject": item.get("subject"),
+                    "goal": item.get("goal"),
+                    "scene": item.get("scene"),
+                    "cameraMovement": item.get("cameraMovement") or item.get("camera"),
+                    "composition": item.get("composition"),
+                    "referenceImage": item.get("referenceImage"),
+                    "videoPrompt": item.get("vendorPrompt") or item.get("prompt") or prompt,
+                    "prompt": item.get("prompt") or item.get("vendorPrompt") or prompt,
+                    "firstFramePrompt": item.get("firstFramePrompt"),
+                    "lastFramePrompt": item.get("lastFramePrompt"),
+                    "negativePrompt": item.get("negativePrompt") or video_plan.get("negativePrompt"),
+                    "keyframeNeeds": shot_keyframe_needs,
+                    "requiredAssets": required_assets,
+                    "confirmationRequired": bool(shot_keyframe_needs),
+                    "executionState": "needs_keyframes" if shot_keyframe_needs else "ready_without_keyframes",
+                    "reviewStatus": "pending_keyframe_confirmation" if shot_keyframe_needs else "ready_for_video_generation",
+                }
+            )
         return {
             "deliveryMode": "segment_package",
             "script": {
@@ -1213,26 +1420,13 @@ class ProductCommercializationService:
                 "text": prompt,
                 "planner": video_plan.get("planner") if isinstance(video_plan.get("planner"), dict) else {},
             },
-            "storyboard": [
-                {
-                    "segmentIndex": int(item.get("shot") or index + 1),
-                    "durationSeconds": item.get("durationSeconds"),
-                    "keepSeconds": item.get("keepSeconds"),
-                    "label": item.get("label"),
-                    "scene": item.get("scene"),
-                    "goal": item.get("goal"),
-                    "cameraMovement": item.get("cameraMovement") or item.get("camera"),
-                    "composition": item.get("composition"),
-                    "prompt": item.get("prompt"),
-                    "firstFramePrompt": item.get("firstFramePrompt"),
-                    "lastFramePrompt": item.get("lastFramePrompt"),
-                    "negativePrompt": item.get("negativePrompt"),
-                    "referenceImage": item.get("referenceImage"),
-                    "requiredAssets": ["product_image", *([need.get("role") for need in keyframe_needs if need.get("role")])],
-                }
-                for index, item in enumerate(storyboard)
-            ],
+            "storyboard": storyboard_items,
+            "shotPackages": shot_packages,
             "keyframeNeeds": keyframe_needs,
+            "planningFieldSnapshot": {
+                "contract": video_plan.get("planningFieldContract") if isinstance(video_plan.get("planningFieldContract"), dict) else {},
+                "fields": [item for item in _as_list(video_plan.get("editablePlanningFields")) if isinstance(item, dict)],
+            },
             "compositionPlan": {
                 "enabled": False,
                 "availableAsOptionalAction": requires_composition,
@@ -1253,6 +1447,217 @@ class ProductCommercializationService:
             },
         }
 
+    @staticmethod
+    def _normalize_video_planning_context(value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, Any] = {}
+        for key in ("coreMessage", "targetAudience", "usageScene", "shotPreference", "avoid"):
+            text = _clean_text(value.get(key))
+            if text:
+                normalized[key] = text
+        fields: list[dict[str, str]] = []
+        for item in _as_list(value.get("fields")):
+            if not isinstance(item, dict):
+                continue
+            field = {
+                "id": _clean_text(item.get("id")),
+                "label": _clean_text(item.get("label")),
+                "description": _clean_text(item.get("description")),
+                "value": _clean_text(item.get("value")),
+                "source": _clean_text(item.get("source")),
+                "sourceLabel": _clean_text(item.get("sourceLabel") or item.get("source_label")),
+            }
+            if field["value"]:
+                fields.append({key: field[key] for key in field if field[key]})
+        if fields:
+            normalized["fields"] = fields
+        source = _clean_text(value.get("source"))
+        if source:
+            normalized["source"] = source
+        return normalized
+
+    @staticmethod
+    def _video_planning_context_to_text(context: dict[str, Any]) -> str:
+        if not context:
+            return ""
+        labels = {
+            "coreMessage": "核心信息",
+            "targetAudience": "目标人群",
+            "usageScene": "使用场景",
+            "shotPreference": "镜头偏好",
+            "avoid": "禁止内容",
+        }
+        lines: list[str] = []
+        for key, label in labels.items():
+            value = _clean_text(context.get(key))
+            if value:
+                lines.append(f"- {label}: {value}")
+        for item in _as_list(context.get("fields")):
+            if not isinstance(item, dict):
+                continue
+            label = _clean_text(item.get("label") or item.get("id") or "自定义要素")
+            value = _clean_text(item.get("value"))
+            line = f"- {label}: {value}" if value else ""
+            if line and line not in lines:
+                lines.append(line)
+        if not lines:
+            return ""
+        return "结构化视频规划要素：\n" + "\n".join(lines)
+
+    @staticmethod
+    def _video_context_field_value(context: dict[str, Any], field_id: str) -> tuple[str, str, str]:
+        key_map = {
+            "core_message": "coreMessage",
+            "target_audience": "targetAudience",
+            "usage_scene": "usageScene",
+            "shot_preference": "shotPreference",
+            "avoid": "avoid",
+        }
+        direct_key = key_map.get(field_id)
+        if direct_key:
+            value = _clean_text(context.get(direct_key))
+            if value:
+                return value, "manual", "业务方结构化入参"
+        for item in _as_list(context.get("fields")):
+            if not isinstance(item, dict):
+                continue
+            if _clean_text(item.get("id")) != field_id:
+                continue
+            value = _clean_text(item.get("value"))
+            if value:
+                return (
+                    value,
+                    _clean_text(item.get("source")) or "manual",
+                    _clean_text(item.get("sourceLabel") or item.get("source_label")) or "业务方编辑字段",
+                )
+        return "", "", ""
+
+    def _build_video_editable_planning_fields(
+        self,
+        *,
+        director_plan: dict[str, Any],
+        resolved_product_facts: dict[str, Any] | None,
+        video_planning_context: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        brief = director_plan.get("directorBrief") if isinstance(director_plan.get("directorBrief"), dict) else {}
+        storyboard = [item for item in _as_list(director_plan.get("storyboard")) if isinstance(item, dict)]
+        facts_summary = _clean_text(
+            resolved_product_facts.get("summary") if isinstance(resolved_product_facts, dict) else None
+        )
+
+        def join_values(values: list[Any], *, limit: int = 4) -> str:
+            result: list[str] = []
+            for value in values:
+                text = _clean_text(value)
+                if text and text not in result:
+                    result.append(text)
+                if len(result) >= limit:
+                    break
+            return "；".join(result)
+
+        field_specs = [
+            {
+                "id": "core_message",
+                "label": "核心信息",
+                "description": "这个视频最需要让用户记住什么",
+                "autoValue": join_values(
+                    [
+                        brief.get("commercialGoal"),
+                        facts_summary,
+                        *[shot.get("subject") for shot in storyboard],
+                    ],
+                    limit=3,
+                ),
+                "autoSourceLabel": "商品理解 / 导演目标 / 分镜主体",
+            },
+            {
+                "id": "target_audience",
+                "label": "目标人群",
+                "description": "给谁看，例如礼品买家、通勤人群、家居用户",
+                "autoValue": join_values([brief.get("targetAudience"), brief.get("commercialGoal")], limit=3),
+                "autoSourceLabel": "导演 brief / 市场推断",
+            },
+            {
+                "id": "usage_scene",
+                "label": "使用场景",
+                "description": "希望出现的生活、货架、详情页或广告场景",
+                "autoValue": join_values([*[shot.get("scene") for shot in storyboard], *[shot.get("goal") for shot in storyboard]], limit=4),
+                "autoSourceLabel": "分镜场景规划",
+            },
+            {
+                "id": "shot_preference",
+                "label": "镜头偏好",
+                "description": "希望强调的镜头，例如转圈、推进、材质特写",
+                "autoValue": join_values(
+                    [*[shot.get("cameraMovement") or shot.get("camera") for shot in storyboard], *[shot.get("composition") for shot in storyboard]],
+                    limit=4,
+                ),
+                "autoSourceLabel": "分镜镜头规划",
+            },
+            {
+                "id": "avoid",
+                "label": "禁止内容",
+                "description": "不要出现的元素，例如文字、水印、夸张承诺、变形",
+                "autoValue": join_values(
+                    [
+                        director_plan.get("negativePrompt"),
+                        brief.get("continuityRule"),
+                        "不要出现文字、水印、Logo、价格标签，不要改变商品形状和图案。",
+                    ],
+                    limit=3,
+                ),
+                "autoSourceLabel": "风险约束 / 商品连续性规则",
+            },
+        ]
+
+        fields: list[dict[str, Any]] = []
+        for spec in field_specs:
+            value, source, source_label = self._video_context_field_value(video_planning_context, spec["id"])
+            if not value:
+                value = _clean_text(spec.get("autoValue"))
+                source = "auto" if value else "default"
+                source_label = _clean_text(spec.get("autoSourceLabel")) if value else "待模型识别"
+            fields.append(
+                {
+                    "id": spec["id"],
+                    "label": spec["label"],
+                    "description": spec["description"],
+                    "value": value,
+                    "source": source,
+                    "sourceLabel": source_label,
+                    "editable": True,
+                    "required": spec["id"] == "avoid",
+                    "confidence": 1.0 if source == "manual" else 0.86 if source == "auto" else 0.5,
+                    "evidence": source_label,
+                }
+            )
+
+        for item in _as_list(video_planning_context.get("fields")):
+            if not isinstance(item, dict):
+                continue
+            field_id = _clean_text(item.get("id"))
+            if not field_id or any(field["id"] == field_id for field in fields):
+                continue
+            value = _clean_text(item.get("value"))
+            if not value:
+                continue
+            fields.append(
+                {
+                    "id": field_id,
+                    "label": _clean_text(item.get("label")) or field_id,
+                    "description": _clean_text(item.get("description")) or "业务方自定义视频规划要素",
+                    "value": value,
+                    "source": _clean_text(item.get("source")) or "manual",
+                    "sourceLabel": _clean_text(item.get("sourceLabel") or item.get("source_label")) or "业务方自定义字段",
+                    "editable": True,
+                    "required": False,
+                    "confidence": 1.0,
+                    "evidence": "business_custom_planning_field",
+                }
+            )
+        return fields
+
     def _build_video_director_context(
         self,
         *,
@@ -1272,6 +1677,7 @@ class ProductCommercializationService:
         output_language: str,
         market_region: str,
         user_planning_requirements: str,
+        video_planning_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "task": "Plan a POD ecommerce product video material package.",
@@ -1290,6 +1696,7 @@ class ProductCommercializationService:
                 "outputLanguage": output_language,
                 "marketRegion": market_region,
                 "userPlanningRequirements": user_planning_requirements or None,
+                "planningContext": video_planning_context or None,
             },
             "providerProfile": {
                 "provider": provider,
@@ -1763,7 +2170,11 @@ class ProductCommercializationService:
         ]
         failed_segments = [item for item in segments if _clean_text(item.get("status")) == "failed"]
         composed_url = _clean_text(composition.get("ossUrl")) if isinstance(composition, dict) else ""
-        delivery_status = "composed_ready" if composed_url else ("assets_ready" if succeeded_segments else "failed")
+        delivery_status = (
+            "composed_ready"
+            if composed_url
+            else ("assets_ready" if succeeded_segments else ("keyframes_ready" if keyframes else "failed"))
+        )
         storyboard = [item for item in _as_list(video_plan.get("storyboard")) if isinstance(item, dict)]
         prompt = _clean_text(video_plan.get("videoPrompt"))
         labels = []
@@ -1799,7 +2210,11 @@ class ProductCommercializationService:
                         if keyframes
                         else []
                     ),
-                    "Generated segment assets are reusable even when final composition is skipped or failed.",
+                    (
+                        "Generated keyframes must be reviewed before triggering video generation."
+                        if keyframes and not succeeded_segments
+                        else "Generated segment assets are reusable even when final composition is skipped or failed."
+                    ),
                 ],
             },
         }
@@ -2109,6 +2524,249 @@ class ProductCommercializationService:
         updated["generatedKeyframes"] = keyframes
         return updated
 
+    @staticmethod
+    def _normalize_confirmed_video_keyframes(value: Any) -> list[dict[str, Any]]:
+        frames: list[dict[str, Any]] = []
+        for item in _as_list(value):
+            if not isinstance(item, dict):
+                continue
+            image_url = _clean_text(
+                item.get("imageUrl")
+                or item.get("image_url")
+                or item.get("ossUrl")
+                or item.get("storedUrl")
+                or item.get("url")
+            )
+            if not image_url:
+                continue
+            raw_segment = item.get("segmentIndex") or item.get("segment_index") or item.get("shot") or item.get("segment")
+            try:
+                segment_index = int(raw_segment)
+            except (TypeError, ValueError):
+                segment_index = len(frames) + 1
+            segment_index = max(1, segment_index)
+            role = _clean_text(item.get("role")) or "confirmed_keyframe"
+            normalized = dict(item)
+            normalized.update(
+                {
+                    "role": role,
+                    "status": _clean_text(item.get("status")) or "confirmed",
+                    "shot": _clean_text(item.get("shot")) or segment_index,
+                    "segmentIndex": segment_index,
+                    "imageUrl": image_url,
+                    "ossUrl": _clean_text(item.get("ossUrl")) or image_url,
+                    "source": _clean_text(item.get("source")) or "user_confirmed_video_keyframe",
+                    "confirmed": True,
+                }
+            )
+            frames.append(normalized)
+        return frames
+
+    @classmethod
+    def _select_confirmed_video_keyframe(
+        cls,
+        keyframes: list[dict[str, Any]],
+        *,
+        segment_index: int,
+    ) -> dict[str, Any] | None:
+        if not keyframes:
+            return None
+        segment_matches = [
+            item
+            for item in keyframes
+            if cls._normalize_keyframe_shot_scope(item.get("segmentIndex") or item.get("shot") or item.get("segment"))
+            == str(segment_index)
+        ]
+        candidates = segment_matches or (keyframes if segment_index == 1 else [])
+        preferred_roles = ("normalized_first_frame", "first_frame", "opening_frame", "key_frame", "confirmed_keyframe")
+        for role in preferred_roles:
+            for item in candidates:
+                if _clean_text(item.get("role")) == role and _clean_text(item.get("imageUrl")):
+                    return item
+        for item in candidates:
+            if _clean_text(item.get("imageUrl")):
+                return item
+        return None
+
+    def _validate_confirmed_video_keyframes_for_plan(
+        self,
+        *,
+        video_plan: dict[str, Any],
+        confirmed_keyframes: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        package_plan = self._build_video_asset_package_plan(video_plan)
+        needs_by_shot: list[dict[str, Any]] = []
+        for package_index, shot_package in enumerate(_as_list(package_plan.get("shotPackages")), start=1):
+            if not isinstance(shot_package, dict):
+                continue
+            raw_shot = shot_package.get("shotNo") or shot_package.get("segmentIndex") or package_index
+            for need in _as_list(shot_package.get("keyframeNeeds")):
+                if not isinstance(need, dict):
+                    continue
+                normalized_need = dict(need)
+                normalized_need.setdefault("shot", raw_shot)
+                needs_by_shot.append(normalized_need)
+        if not needs_by_shot:
+            for fallback_index, need in enumerate(_as_list(package_plan.get("keyframeNeeds")), start=1):
+                if not isinstance(need, dict):
+                    continue
+                normalized_need = dict(need)
+                normalized_need.setdefault("shot", fallback_index)
+                needs_by_shot.append(normalized_need)
+        required_needs = [need for need in needs_by_shot if _clean_text(need.get("prompt")) or need.get("required")]
+        if not required_needs:
+            return []
+
+        used_frames: list[dict[str, Any]] = []
+        missing: list[dict[str, Any]] = []
+        used_identity: set[tuple[str, str]] = set()
+        needs_per_shot: dict[str, int] = {}
+        for index, need in enumerate(required_needs, start=1):
+            shot_key = self._need_shot_key(need, fallback_index=index)
+            needs_per_shot[shot_key] = needs_per_shot.get(shot_key, 0) + 1
+
+        for index, need in enumerate(required_needs, start=1):
+            shot_key = self._need_shot_key(need, fallback_index=index)
+            candidates = [
+                frame
+                for frame in confirmed_keyframes
+                if self._confirmed_frame_matches_shot(frame, shot_key)
+                and _clean_text(frame.get("imageUrl"))
+            ]
+            matched = self._select_confirmed_frame_for_need(
+                need=need,
+                candidates=candidates,
+                single_need_for_shot=needs_per_shot.get(shot_key, 0) == 1,
+                used_identity=used_identity,
+            )
+            if matched:
+                used_identity.add(
+                    (
+                        self._need_shot_key(matched, fallback_index=index),
+                        _clean_text(matched.get("imageUrl")),
+                    )
+                )
+                used_frames.append(matched)
+                continue
+            missing.append(
+                {
+                    "shot": shot_key,
+                    "role": _clean_text(need.get("role")) or "key_frame",
+                    "prompt": _clean_text(need.get("prompt")),
+                    "reason": _clean_text(need.get("reason")) or "This keyframe must be generated and confirmed before video generation.",
+                }
+            )
+
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "errorCode": "PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED",
+                    "message": "Video generation requires confirmed first/last-frame assets for every planned shot before triggering video cost actions.",
+                    "missingKeyframes": missing,
+                    "requiredCount": len(required_needs),
+                    "confirmedCount": len(confirmed_keyframes),
+                    "matchedCount": len(used_frames),
+                    "suggestion": "Call action=video_keyframes first, review the returned keyframes, then pass them as confirmedVideoKeyframes to action=video_generate.",
+                },
+            )
+        return used_frames
+
+    @classmethod
+    def _need_shot_key(cls, item: dict[str, Any], *, fallback_index: int) -> str:
+        return (
+            cls._normalize_keyframe_shot_scope(
+                item.get("shot") or item.get("segmentIndex") or item.get("segment_index") or item.get("segment")
+            )
+            or str(max(1, fallback_index))
+        )
+
+    @classmethod
+    def _confirmed_frame_matches_shot(cls, frame: dict[str, Any], shot_key: str) -> bool:
+        frame_key = cls._normalize_keyframe_shot_scope(
+            frame.get("segmentIndex") or frame.get("shot") or frame.get("segment_index") or frame.get("segment")
+        )
+        return bool(frame_key and shot_key and frame_key == shot_key)
+
+    @classmethod
+    def _select_confirmed_frame_for_need(
+        cls,
+        *,
+        need: dict[str, Any],
+        candidates: list[dict[str, Any]],
+        single_need_for_shot: bool,
+        used_identity: set[tuple[str, str]],
+    ) -> dict[str, Any] | None:
+        need_role = _clean_text(need.get("role")) or "key_frame"
+        unused_candidates = [
+            frame
+            for frame in candidates
+            if (
+                cls._need_shot_key(frame, fallback_index=1),
+                _clean_text(frame.get("imageUrl")),
+            )
+            not in used_identity
+        ]
+        for frame in unused_candidates:
+            if cls._video_keyframe_roles_compatible(need_role, _clean_text(frame.get("role"))):
+                return frame
+        if single_need_for_shot and len(unused_candidates) == 1:
+            return unused_candidates[0]
+        return None
+
+    @staticmethod
+    def _video_keyframe_roles_compatible(need_role: str, frame_role: str) -> bool:
+        need = _clean_text(need_role) or "key_frame"
+        frame = _clean_text(frame_role) or "confirmed_keyframe"
+        if need == frame:
+            return True
+        first_roles = {"first_frame", "normalized_first_frame", "opening_frame"}
+        last_roles = {"last_frame", "ending_frame", "closing_frame"}
+        generic_roles = {"key_frame", "confirmed_keyframe"}
+        if need in first_roles and frame in first_roles:
+            return True
+        if need in last_roles and frame in last_roles:
+            return True
+        return need in generic_roles and frame in generic_roles
+
+    @staticmethod
+    def _normalize_keyframe_shot_scope(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return ""
+        if isinstance(value, int):
+            return str(value) if value > 0 else ""
+        if isinstance(value, float):
+            return str(int(value)) if value.is_integer() and value > 0 else ""
+        text = _clean_text(value)
+        if not text:
+            return ""
+        match = re.search(r"\d+", text)
+        if match:
+            return str(int(match.group(0)))
+        return text
+
+    @classmethod
+    def _keyframe_need_matches_shot_scope(
+        cls,
+        frame_need: dict[str, Any],
+        shot_scope: str,
+        *,
+        fallback_index: int,
+    ) -> bool:
+        normalized_scope = cls._normalize_keyframe_shot_scope(shot_scope)
+        if not normalized_scope:
+            return True
+        raw_shot = (
+            frame_need.get("shot")
+            or frame_need.get("segmentIndex")
+            or frame_need.get("segment_index")
+            or frame_need.get("segment")
+            or fallback_index
+        )
+        return cls._normalize_keyframe_shot_scope(raw_shot) == normalized_scope
+
     def _generate_normalized_first_frame(
         self,
         *,
@@ -2193,6 +2851,123 @@ class ProductCommercializationService:
                 "ossKey": normalized.get("ossKey") or normalized.get("objectKey"),
             },
         }
+
+    def _generate_video_keyframe_image(
+        self,
+        *,
+        source_image_url: str,
+        video_plan: dict[str, Any],
+        shot: dict[str, Any],
+        role: str,
+        prompt: str,
+        aspect_ratio: str,
+        segment_index: int,
+        request_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        role_key = _clean_text(role) or "key_frame"
+        frame_prompt = self._build_video_keyframe_prompt(
+            video_plan=video_plan,
+            shot=shot,
+            role=role_key,
+            prompt=prompt,
+            aspect_ratio=aspect_ratio,
+            segment_index=segment_index,
+        )
+        try:
+            result = self._generate_visual_image(
+                product_image_url=source_image_url,
+                prompt=frame_prompt,
+                negative_prompt=(
+                    "text, watermark, logo, price tag, black bars, letterbox, pillarbox, border, frame, "
+                    "white mat, white border, photo frame, picture-in-picture, inset image, empty padding, "
+                    "cropped product, deformed product, wrong product category"
+                ),
+                user_id=user_id,
+                metadata={
+                    "businessKey": "product_commercialization",
+                    "source": "product_commercialization.video_keyframe",
+                    "visualRoute": "image2_video_keyframe",
+                    "segmentIndex": segment_index,
+                    "keyframeRole": role_key,
+                    "aspectRatio": aspect_ratio,
+                },
+            )
+            raw_urls = self._extract_image_urls(result)
+            raw_url = raw_urls[0] if raw_urls else ""
+            if not raw_url:
+                raise RuntimeError("GPT Image 2 did not return a usable keyframe URL")
+            normalized = self._normalize_first_frame_canvas(
+                image_url=raw_url,
+                aspect_ratio=aspect_ratio,
+                request_id=request_id,
+                segment_index=segment_index,
+                user_id=user_id,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 - fail closed before video execution
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED",
+                    "segment": segment_index,
+                    "role": role_key,
+                    "error": str(exc),
+                },
+            ) from exc
+        image_url = _clean_text(normalized.get("ossUrl") or normalized.get("url"))
+        return {
+            "role": role_key,
+            "status": "succeeded",
+            "shot": segment_index,
+            "segmentIndex": segment_index,
+            "source": "gpt_image_2_plus_canvas_normalization",
+            "provider": DEFAULT_VISUAL_PROVIDER,
+            "model": DEFAULT_VISUAL_MODEL,
+            "taskId": result.get("taskId"),
+            "imageUrl": image_url,
+            "ossUrl": image_url,
+            "rawImageUrl": raw_url,
+            "sourceImageUrl": source_image_url,
+            "aspectRatio": aspect_ratio,
+            "width": normalized.get("width"),
+            "height": normalized.get("height"),
+            "prompt": frame_prompt,
+            "normalization": {
+                "mode": "cover_blur_background_contain_product",
+                "contentType": normalized.get("contentType"),
+                "ossKey": normalized.get("ossKey") or normalized.get("objectKey"),
+            },
+        }
+
+    def _build_video_keyframe_prompt(
+        self,
+        *,
+        video_plan: dict[str, Any],
+        shot: dict[str, Any],
+        role: str,
+        prompt: str,
+        aspect_ratio: str,
+        segment_index: int,
+    ) -> str:
+        director_brief = _as_record(video_plan.get("directorBrief"))
+        subject = _clean_text(shot.get("subject") or director_brief.get("productUnderstanding")) or "the supplied product"
+        scene = _clean_text(shot.get("scene")) or "clean ecommerce product-video frame"
+        goal = _clean_text(shot.get("goal")) or _clean_text(director_brief.get("commercialGoal"))
+        composition = _clean_text(shot.get("composition")) or "product centered with the full item visible"
+        role_label = "first frame" if role in {"first_frame", "normalized_first_frame", "opening_frame"} else "last frame"
+        return (
+            f"Create the exact {role_label} for segment {segment_index} of a POD ecommerce product video. "
+            f"Target aspect ratio: {aspect_ratio}. Subject: {subject}. Scene: {scene}. "
+            f"Goal: {goal or 'show the product clearly for commercial use'}. Composition: {composition}. "
+            f"Frame direction: {prompt}. Use the supplied product image as the highest-priority factual anchor. "
+            "Preserve the visible product shape, pattern, color, material, and category. "
+            "Keep the whole product readable and suitable for image-to-video generation. "
+            "The complete product silhouette must stay inside the frame; do not crop handles, edges, bottom, or corners. "
+            "Use one edge-to-edge commercial scene that fills the entire canvas. "
+            "No letterboxing, pillarboxing, black bars, borders, text, watermark, logo, or price tag."
+        )
 
     def _build_normalized_first_frame_prompt(
         self,
@@ -4049,6 +4824,7 @@ class ProductCommercializationService:
         market_region: str,
         executor_id: Any,
         extra_prompt: Any = None,
+        video_planning_context: Any = None,
     ) -> dict[str, Any]:
         facts = (
             _as_record(resolved_product_facts.get("facts")) if isinstance(resolved_product_facts, dict) else {}
@@ -4069,7 +4845,15 @@ class ProductCommercializationService:
         total_generated_seconds = sum(segment_durations)
         requires_composition = segment_count > 1 or total_generated_seconds != target_duration
         ratio = _clean_text(aspect_ratio) or "16:9"
-        user_planning_requirements = _clean_text(extra_prompt)
+        structured_planning_context = self._normalize_video_planning_context(video_planning_context)
+        user_planning_requirements = "\n".join(
+            item
+            for item in (
+                _clean_text(extra_prompt),
+                self._video_planning_context_to_text(structured_planning_context),
+            )
+            if item
+        )
         if provider == "vidu":
             aspect_policy = {
                 "mode": "input_image_ratio",
@@ -4119,12 +4903,18 @@ class ProductCommercializationService:
             output_language=output_language,
             market_region=market_region,
             user_planning_requirements=user_planning_requirements,
+            video_planning_context=structured_planning_context,
         )
         director_plan, planner = self._generate_video_director_plan(
             context_payload=director_context,
             product_images=reference_images,
             image_url=primary_reference_url,
             fallback_plan=fallback_director_plan,
+        )
+        editable_planning_fields = self._build_video_editable_planning_fields(
+            director_plan=director_plan,
+            resolved_product_facts=resolved_product_facts,
+            video_planning_context=structured_planning_context,
         )
         storyboard = [item for item in _as_list(director_plan.get("storyboard")) if isinstance(item, dict)]
         trim_plan: list[dict[str, Any]] = []
@@ -4205,6 +4995,14 @@ class ProductCommercializationService:
             "aspectPolicy": aspect_policy,
             "planner": planner,
             "directorBrief": director_plan.get("directorBrief") if isinstance(director_plan.get("directorBrief"), dict) else {},
+            "editablePlanningFields": editable_planning_fields,
+            "planningFieldContract": {
+                "mode": "backend_structured_suggestions",
+                "frontendEditable": True,
+                "manualChangesRequireReplan": True,
+                "fields": [item["id"] for item in editable_planning_fields],
+                "sourcePriority": ["manual", "auto", "default"],
+            },
             "storyboard": storyboard,
             "assetNeeds": asset_needs,
             "keyframePlan": [item for item in _as_list(director_plan.get("keyframePlan")) if isinstance(item, dict)],
