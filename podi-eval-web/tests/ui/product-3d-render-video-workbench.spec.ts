@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const TEXTURE_IMAGE = 'http://127.0.0.1:8200/samples/product-video/mug-front.svg';
+const TEXTURE_IMAGE = 'http://127.0.0.1:8200/samples/product-video/mug-front.png';
 
 const mockJson = (body: unknown) => ({
   status: 200,

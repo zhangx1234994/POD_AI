@@ -2383,7 +2383,7 @@ Vidu 固定画幅执行补充字段：
 | `modelKey` | 是 | `cup_1660` | `cup_1660/backpack_2551`。 |
 | `textureImageUrl` | 兼容字段 | 空 | 单贴图兼容入口。新交互优先使用 `textureSlots`，只传该字段时会按 `materialSlot` 绑定到当前槽位。 |
 | `textureImageUrls` | 兼容字段 | 空 | 多贴图 URL 兼容入口。后续正式渲染以 `textureSlots` 的槽位映射为准。 |
-| `textureSlots` | 建议 | 空 | 按材质槽绑定的贴图清单，每项包含 `materialSlot/imageUrl/label`。这是 3D WYSIWYG 预览和服务端渲染 worker 的主输入。 |
+| `textureSlots` | 建议 | 空 | 按材质槽绑定的贴图清单，每项包含 `materialSlot/imageUrl/label`。这是 3D WYSIWYG 预览和服务端渲染 worker 的主输入。轻量服务端 MP4/OSS 当前只稳定支持 PNG/JPG/JPEG/WebP；SVG 可用于浏览器本地预览，但提交服务端前需转成栅格图。 |
 | `materialSlot` | 否 | 模型推荐槽 | 3D 模型的固定材质槽 / UV 区域。1660 杯子推荐 `front`；2551 背包推荐 `front`。非法槽返回 `PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID`。 |
 | `cameraPreset` | 否 | `orbit_360` | `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`。 |
 | `cameraDistance` | 否 | `wide` | `wide/standard/close`。默认 `wide`，优先保证商品完整入画。三档都会写入 `renderPlan.camera.framing.mode=fit_product_safe_bounds` 和 `renderPlan.framingSafety`，服务端轻量渲染会按安全取景合同约束镜头轨迹，避免镜头过近或轨迹变化导致主体裁切。`close` 会标记为细节补充镜头，不建议作为唯一最终交付视频。非法值返回 `PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID`。 |

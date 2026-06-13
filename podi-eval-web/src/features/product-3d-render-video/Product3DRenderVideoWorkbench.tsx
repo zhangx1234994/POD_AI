@@ -1116,6 +1116,17 @@ function getRunManifestUrls(result: BusinessRunPollResult | null): string[] {
   return Array.from(new Set(urls.map((url) => String(url || '').trim()).filter((url) => url.startsWith('http'))));
 }
 
+function isSvgTextureUrl(url: string): boolean {
+  const text = String(url || '').trim().toLowerCase();
+  if (!text) return false;
+  if (text.startsWith('data:image/svg+xml')) return true;
+  try {
+    return new URL(text).pathname.endsWith('.svg');
+  } catch {
+    return text.split('?')[0].split('#')[0].endsWith('.svg');
+  }
+}
+
 function getPreferredVideoRecorderChoice(): VideoRecorderChoice | null {
   if (typeof MediaRecorder === 'undefined') return null;
   const choices: VideoRecorderChoice[] = [
@@ -1762,6 +1773,10 @@ export function Product3DRenderVideoWorkbench() {
   );
   const activeTextureImageUrl = String(slotTextureUrls[materialSlot] || '').trim();
   const primaryTextureImageUrl = activeTextureImageUrl || textureImageUrls[0] || '';
+  const serverUnsupportedTextureUrl = useMemo(
+    () => [primaryTextureImageUrl, ...textureImageUrls].find((url) => isSvgTextureUrl(url)) || '',
+    [primaryTextureImageUrl, textureImageUrls],
+  );
   const selectedSceneProfile = sceneOptionMap[scenePreset] || sceneOptions[0] || SCENE_OPTIONS[0];
   const sceneAssetSourceProfiles = useMemo(() => buildSceneAssetSourceProfiles(catalog), [catalog]);
   const selectedDistanceProfile = cameraDistanceProfiles[cameraDistance] || cameraDistanceProfiles.wide || CAMERA_DISTANCE_PROFILES.wide;
@@ -2002,6 +2017,11 @@ export function Product3DRenderVideoWorkbench() {
     }
     if (!primaryTextureImageUrl) {
       setError('服务端生成视频必须先给至少一个材质槽绑定贴图。');
+      return;
+    }
+    if (serverUnsupportedTextureUrl) {
+      setError('服务端 MP4/OSS 渲染暂只支持 PNG、JPG、JPEG、WebP 贴图。SVG 可以用于浏览器本地预览，但请先换成栅格图再提交服务端视频。');
+      setServerRun(null);
       return;
     }
     setStatus('server_rendering');
@@ -2433,6 +2453,12 @@ export function Product3DRenderVideoWorkbench() {
               <Typography.Text theme="secondary">
                 主执行区：先检查方案，再播放镜头轨迹确认，最后生成本地预览或提交服务端 MP4/OSS。调整镜头、场景或轨迹后需要重新确认。
               </Typography.Text>
+              {serverUnsupportedTextureUrl ? (
+                <Alert
+                  theme="warning"
+                  message="当前贴图包含 SVG：本地预览可用，服务端 MP4/OSS 请换成 PNG/JPG/WebP 后再提交。"
+                />
+              ) : null}
               <div className="podi-product-3d-render__execution-status" aria-label="3D 视频输出状态">
                 <div>
                   <strong>镜头轨迹</strong>
