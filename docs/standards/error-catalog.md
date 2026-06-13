@@ -201,7 +201,7 @@
 | PRODUCT_COMMERCIALIZATION_COMPOSE_FAILED | 产品商业化视频合成失败 | 502/500，ffmpeg 裁剪/拼接或最终 OSS 上传失败 |
 | PRODUCT_3D_RENDER_VIDEO_MODEL_INVALID | 3D 渲染视频模型 key 非法 | 400，当前允许 `cup_1660` / `backpack_2551` |
 | PRODUCT_3D_RENDER_VIDEO_TEXTURE_REQUIRED | 3D 渲染视频服务端生成缺少贴图 | 400，`/preview` 可不传贴图但只能看方案；`/runs` 必须通过 `textureImageUrl` 或 `textureSlots[].imageUrl` 提供至少一张真实贴图 |
-| PRODUCT_3D_RENDER_VIDEO_TEXTURE_LOAD_FAILED | 3D 渲染视频贴图下载或读取失败 | 502/500，正式生成不能用 fallback 演示纹理伪装成功，必须让调用方修正贴图 URL 或重试；轻量服务端渲染当前只稳定支持 PNG/JPG/JPEG/WebP，SVG 应在前端本地预览后先转为栅格图再提交服务端视频 |
+| PRODUCT_3D_RENDER_VIDEO_TEXTURE_LOAD_FAILED | 3D 渲染视频贴图下载或读取失败 | 502/500，正式生成不能用 fallback 演示纹理伪装成功，必须让调用方修正贴图 URL 或重试；轻量服务端渲染当前只稳定支持 PNG/JPG/JPEG/WebP，SVG 应在前端本地预览后先转为栅格图再提交服务端视频；若历史 SVG URL 存在同名 `.png/.jpg/.jpeg/.webp` 伴随图，服务端可自动读取伴随图用于复测恢复 |
 | PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID | 3D 渲染视频材质槽非法 | 400，材质槽必须属于所选模型的 `materialSlots` |
 | PRODUCT_3D_RENDER_VIDEO_CAMERA_PRESET_INVALID | 3D 渲染视频镜头预设非法 | 400，当前允许 `orbit_360` / `hero_turntable` / `slow_push_in` / `detail_sweep` / `top_reveal` / `social_arc` |
 | PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID | 3D 渲染视频镜头远近非法 | 400，当前允许 `wide` / `standard` / `close`；默认 `wide` 优先保证商品完整入画 |

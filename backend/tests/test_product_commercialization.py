@@ -1395,6 +1395,39 @@ def test_product_3d_render_video_preview_accepts_texture_slots() -> None:
     assert result["assetReadiness"]["textureSlotCount"] == 2
 
 
+def test_product_3d_render_video_loads_svg_raster_companion(monkeypatch) -> None:
+    requested_urls: list[str] = []
+    raster = BytesIO()
+    Image.new("RGB", (24, 18), "#336699").save(raster, format="PNG")
+
+    class FakeResponse:
+        def __init__(self, content: bytes) -> None:
+            self.content = content
+
+        def raise_for_status(self) -> None:
+            return None
+
+    def fake_get(url: str, **_: object) -> FakeResponse:
+        requested_urls.append(url)
+        if url.endswith(".svg?token=sample"):
+            return FakeResponse(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+        if url.endswith(".png?token=sample"):
+            return FakeResponse(raster.getvalue())
+        raise AssertionError(f"unexpected texture URL: {url}")
+
+    monkeypatch.setattr(product_3d_render_video_module.httpx, "get", fake_get)
+
+    image = product_3d_render_video_module._load_texture_image("https://example.com/front.svg?token=sample")
+
+    assert image is not None
+    assert image.mode == "RGB"
+    assert image.size == (24, 18)
+    assert requested_urls == [
+        "https://example.com/front.svg?token=sample",
+        "https://example.com/front.png?token=sample",
+    ]
+
+
 def test_product_3d_render_video_catalog_returns_ui_contract() -> None:
     service = Product3DRenderVideoService()
 

@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
@@ -1055,9 +1056,38 @@ def _get_ffmpeg_executable() -> str:
     raise HTTPException(status_code=500, detail="PRODUCT_3D_RENDER_VIDEO_FFMPEG_MISSING")
 
 
-def _load_texture_image(url: str) -> Image.Image | None:
+def _looks_like_svg_texture(url: str, data: bytes) -> bool:
+    suffix = os.path.splitext(urlsplit(url).path if url.startswith(("http://", "https://")) else url)[1].lower()
+    if suffix == ".svg":
+        return True
+    head = data.lstrip()[:512].lower()
+    return b"<svg" in head
+
+
+def _svg_raster_companion_urls(url: str) -> list[str]:
+    candidates: list[str] = []
+    if url.startswith(("http://", "https://")):
+        parts = urlsplit(url)
+        root, ext = os.path.splitext(parts.path)
+        if ext.lower() != ".svg":
+            return []
+        for suffix in (".png", ".jpg", ".jpeg", ".webp"):
+            candidates.append(urlunsplit(parts._replace(path=f"{root}{suffix}")))
+        return candidates
+
+    root, ext = os.path.splitext(url)
+    if ext.lower() != ".svg":
+        return []
+    return [f"{root}{suffix}" for suffix in (".png", ".jpg", ".jpeg", ".webp")]
+
+
+def _load_texture_image(url: str, *, _visited: set[str] | None = None) -> Image.Image | None:
     if not url:
         return None
+    visited = _visited or set()
+    if url in visited:
+        return None
+    visited.add(url)
     try:
         if url.startswith(("http://", "https://")):
             response = httpx.get(url, timeout=10, follow_redirects=True)
@@ -1066,8 +1096,18 @@ def _load_texture_image(url: str) -> Image.Image | None:
         else:
             with open(url, "rb") as handle:  # noqa: PTH123 - explicit local render asset path
                 data = handle.read()
+        if _looks_like_svg_texture(url, data):
+            for companion_url in _svg_raster_companion_urls(url):
+                image = _load_texture_image(companion_url, _visited=visited)
+                if image is not None:
+                    return image
+            return None
         return Image.open(BytesIO(data)).convert("RGB")
     except Exception:
+        for companion_url in _svg_raster_companion_urls(url):
+            image = _load_texture_image(companion_url, _visited=visited)
+            if image is not None:
+                return image
         return None
 
 
