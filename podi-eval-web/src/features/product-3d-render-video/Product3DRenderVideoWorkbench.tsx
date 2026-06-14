@@ -2018,6 +2018,15 @@ export function Product3DRenderVideoWorkbench() {
     () => buildFramingSafetySummary(effectiveMotionPath, cameraDistance, selectedDistanceProfile),
     [cameraDistance, effectiveMotionPath, selectedDistanceProfile],
   );
+  const customShotsReady = isCompleteCameraShotPair(customCameraShots);
+  const cameraSummaryTitle = cameraMode === 'custom'
+    ? '镜头方案 · 自定义开始/结束'
+    : `镜头模板 · ${cameraOptionMap[cameraPreset]?.label || cameraPreset}`;
+  const cameraSummaryDescription = cameraMode === 'custom'
+    ? customShotsReady
+      ? `已保存开始 ${customCameraShots.start?.azimuth}°/${customCameraShots.start?.elevation}° 与结束 ${customCameraShots.end?.azimuth}°/${customCameraShots.end?.elevation}°，播放会按这两个画面过渡。`
+      : '先在 3D 画面里拖动模型，分别保存开始和结束画面。'
+    : cameraOptionMap[cameraPreset]?.desc || '按当前镜头路径录制。';
 
   useEffect(() => {
     if (modelProfiles[modelKey]) return;
@@ -2934,8 +2943,8 @@ export function Product3DRenderVideoWorkbench() {
             </div>
             <div className="podi-product-3d-render__preset-summary">
               <div>
-                <Typography.Text strong>镜头模板 · {cameraOptionMap[cameraPreset]?.label || cameraPreset}</Typography.Text>
-                <Typography.Text theme="secondary">{cameraOptionMap[cameraPreset]?.desc || '按当前镜头路径录制。'}</Typography.Text>
+                <Typography.Text strong>{cameraSummaryTitle}</Typography.Text>
+                <Typography.Text theme="secondary">{cameraSummaryDescription}</Typography.Text>
               </div>
               <div>
                 <Typography.Text strong>镜头远近 · {cameraDistanceOptionMap[cameraDistance]?.label || cameraDistance}</Typography.Text>

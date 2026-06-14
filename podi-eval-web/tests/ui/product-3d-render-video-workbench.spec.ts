@@ -472,7 +472,8 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await expect(stageMain.getByText('渲染 worker', { exact: true })).toBeVisible();
 
   await expect(stageMain.getByText('预览摄影棚')).toBeVisible();
-  await expect(stageMain.getByText(/镜头模板/)).toBeVisible();
+  await expect(stageMain.getByText('镜头方案 · 自定义开始/结束')).toBeVisible();
+  await expect(stageMain.getByText(/播放会按这两个画面过渡/)).toBeVisible();
   await expect(stageMain.getByText('场景模型', { exact: true })).toBeVisible();
   await expect(stageMain.locator('.podi-product-3d-render__scene-thumb').first()).toBeVisible();
   const sceneRail = stageMain.locator('.podi-product-3d-render__scene-rail');
