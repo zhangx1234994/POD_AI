@@ -50,7 +50,7 @@
 | 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
 | 产品推广视频素材包 | 规划 `POST /api/business/promo-video/plan`；首尾帧 `POST /api/business/promo-video/keyframes/runs`；分段视频 `POST /api/business/promo-video/runs`；可选合成 `POST /api/business/promo-video/compose/runs`；查询 `POST /api/business/runs/get` | 核心输入为 `productImageUrl` 或 `productImages`；`productFields` 是可选说明材料，不是必填事实源；成本动作必须至少有一张产品图 | `productImages`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId`、`extraPrompt`、`videoPlanningContext`、`videoPromptOverride`、`keyframeShotScope`、`confirmedVideoKeyframes` | 规划返回 `videoPlan`、`videoAssetPackagePlan`、`resolvedProductFacts`、`review`；执行返回 `runId` 且 `businessKey=promo_video`，终态查询返回 `imageUrls`、`videoUrls` 或 `resultPayload.videoAssetPackage` | 正式产品视频能力入口，拆成规划、首尾帧、分段视频和可选合成四层。MVP 内部沿用 `product_commercialization` 编排服务和计费/轮询链路，但业务方不再需要自己传 `action`，也不再看到旧聚合业务键。 |
 | 产品商业化（兼容聚合） | 视频预览 `POST /api/business/product-commercialization/preview` 且 `action=video_preview`；首尾帧/视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 同上 | 视频：`action=video_preview/video_keyframes/video_generate` 等；文案入口已从测评端撤下，后续按 `product_copy_package` 独立重做 | 同上 | 试验/兼容聚合入口。新业务接入优先使用 `promo-video` 拆分入口，避免把文案、组图、视频和合成混在一个大接口里。 |
-| 3D 渲染视频 | 能力目录 `GET /api/business/product-3d-render-video/catalog`；方案预览 `POST /api/business/product-3d-render-video/preview`；服务端渲染任务 `POST /api/business/product-3d-render-video/runs`；查询 `POST /api/business/runs/get` | `modelKey`；服务端生成必须提供贴图 `textureImageUrl` 或 `textureSlots` | `materialSlot`、`cameraPreset`、`cameraDistance`、`scenePreset`、`cameraPlan`、兼容 `motionPath`、`durationSeconds`、`aspectRatio`、`extraPrompt` | catalog 返回模型/材质槽/场景资产、`sceneAssetSources` 来源治理、镜头/远近档位；预览返回 `model`、`assetReadiness`、`renderPlan`、`review`；测评端需先播放并确认镜头轨迹，再本地导出 MP4/WebM 预览或提交服务端 MP4/OSS；`/runs` 返回标准 `runId`，终态查询返回 `videoUrls/imageUrls/resultPayload.renderAssetPackage` | 独立于 KIE/Vidu 的 3D 模型渲染视频能力。当前测评端已接入客户端 GLB/UV 预览、场景布景、镜头远近、镜头轨迹确认、本地录制和服务端轻量 MP4/OSS 输出；商品固定，轨迹驱动相机运动；高保真 Blender/headless Three.js worker 后续替换。 |
+| 3D 渲染视频 | 能力目录 `GET /api/business/product-3d-render-video/catalog`；方案预览 `POST /api/business/product-3d-render-video/preview`；服务端渲染任务 `POST /api/business/product-3d-render-video/runs`；查询 `POST /api/business/runs/get` | `modelKey`；服务端生成必须提供贴图 `textureImageUrl` 或 `textureSlots` | `materialSlot`、`cameraPreset`、`cameraDistance`、`scenePreset`、`cameraPlan`、兼容 `motionPath`、`durationSeconds`、`aspectRatio`、`extraPrompt` | catalog 返回模型/材质槽/场景资产、`sceneAssetSources` 来源治理、镜头/远近档位；预览返回 `model`、`assetReadiness`、`renderPlan`、`review`；测评端需先播放并确认镜头，再本地导出 MP4/WebM 预览或提交服务端 MP4/OSS；`/runs` 返回标准 `runId`，终态查询返回 `videoUrls/imageUrls/resultPayload.renderAssetPackage` | 独立于 KIE/Vidu 的 3D 模型渲染视频能力。当前测评端已接入客户端 GLB/UV 预览、场景布景、镜头远近、预设镜头/自定义开始结束镜头确认、本地录制和服务端轻量 MP4/OSS 输出；商品固定，镜头驱动相机运动；高保真 Blender/headless Three.js worker 后续替换。 |
 | 文字强化裂变（文生图） | `POST /api/business/text-fission/prompts` + `POST /api/business/text-fission/runs` | 第一步 `imageUrl`；第二步 `imageUrl`、`editable_prompt` | `editable_negative_prompt`、`width`、`height`、`promptDraftId` | `imageUrls` | 先用 VL 生成可编辑提示词，用户确认后再走 ComfyUI 文生图。适合原图文字要求强、图生图改不干净的场景。采样步数、提示词强度、随机种子由中台控制，不作为业务方输入。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
@@ -2070,7 +2070,7 @@ Vidu 固定画幅执行补充字段：
 
 ## 3.5) 3D 模型渲染视频预览能力
 
-业务名：3D 渲染视频。业务标识固定为 `product_3d_render_video`。它和 `product_commercialization` 的 KIE/Vidu 大模型视频生成是两条路线：这里不调用视频生成模型，也不通过文字提示词生成画面，而是把用户上传的贴图应用到 3D 模型的固定材质槽 / UV 区域，再通过场景、灯光和相机路径生成可控商品动效。
+业务名：3D 渲染视频。业务标识固定为 `product_3d_render_video`。它和 `product_commercialization` 的 KIE/Vidu 大模型视频生成是两条路线：这里不调用视频生成模型，也不通过文字提示词生成画面，而是把用户上传的贴图应用到 3D 模型的固定材质槽 / UV 区域，再通过场景、灯光和镜头运动生成可控商品动效。
 
 当前版本开放三个清晰入口：能力目录、方案预览和服务端轻量渲染任务。
 
@@ -2080,11 +2080,11 @@ Vidu 固定画幅执行补充字段：
 - 当前模型：`cup_1660`（1660 杯子）、`backpack_2551`（2551 笔记本电脑背包）
 - 当前状态：`/preview` 只返回 `model/assetReadiness/renderPlan/review`，不触发服务端视频生成，不产生第三方成本。`/runs` 已接入 `lightweight_scene_renderer_v1`：创建统一 `BusinessRun`，后台生成 MP4、封面帧和 manifest，并回填自有 OSS；高保真 Blender/headless Three.js worker 后续可在不改 API 的前提下替换。
 - 边界：客户端负责 GLB/UV/材质槽的实时 WYSIWYG 预览和本地录制；服务端负责可查询、可回调、可沉淀的 MP4、封面帧、manifest 和 OSS 回填。批量导出或高保真渲染时应独立扩容渲染 executor 池，不能混入 KIE/Vidu 队列。
-- 当前验收口径：可以验证模型是否进入受控目录、材质槽是否合法、UV 是否存在、贴图 URL 是否齐备、客户端贴图方向是否可接受、渲染参数是否可解释、场景融合规则是否明确、镜头是否遵循 `fit_product_safe_bounds` 完整入画规则、`/runs` 是否返回标准 runId、任务完成后是否有 OSS 视频/封面/manifest。
+- 当前验收口径：可以验证模型是否进入受控目录、材质槽是否合法、UV 是否存在、贴图 URL 是否齐备、客户端贴图方向是否可接受、渲染参数是否可解释、场景融合规则是否明确、预设镜头或自定义开始/结束镜头是否遵循 `fit_product_safe_bounds` 完整入画规则、`/runs` 是否返回标准 runId、任务完成后是否有 OSS 视频/封面/manifest。
 - 后续执行形态：将 `lightweight_scene_renderer_v1` 替换为 Three.js headless 或 Blender 高保真渲染 worker，保持 `/runs` -> `/api/business/runs/get` 的任务契约不变。
 - 能力拆分口径：
-  1. `product_3d_render_video.preview`：当前已开放，负责模型、贴图槽、场景、镜头、路径、时长和输出物的方案校验。
-  2. `product_3d_render_video.catalog`：当前已开放，只读返回模型、材质槽、场景资产、镜头模板、镜头远近、默认路径和渲染器边界，供业务方构建 UI。
+  1. `product_3d_render_video.preview`：当前已开放，负责模型、贴图槽、场景、镜头、时长和输出物的方案校验。
+  2. `product_3d_render_video.catalog`：当前已开放，只读返回模型、材质槽、场景资产、镜头模板、镜头远近、默认镜头运动和渲染器边界，供业务方构建 UI。
   3. `product_3d_render_video.local_preview_export`：仅测评端/客户端能力，负责浏览器本地预览录制，不作为业务 API 交付。
   4. `product_3d_render_video.render_run`：业务 API `POST /api/business/product-3d-render-video/runs`，负责异步渲染、封面帧、manifest、OSS 回填和任务查询；当前使用轻量服务端渲染器，高保真 worker 后续替换。
 
@@ -2113,6 +2113,7 @@ Vidu 固定画幅执行补充字段：
       "template": "orbit_360",
       "productMotion": "fixed",
       "cameraMotion": "path_playback",
+      "customMode": "preset_template",
       "playbackConfirmed": false,
       "confirmationRequiredBeforeRender": true,
       "path": {
@@ -2386,10 +2387,10 @@ Vidu 固定画幅执行补充字段：
 | `textureSlots` | 建议 | 空 | 按材质槽绑定的贴图清单，每项包含 `materialSlot/imageUrl/label`。这是 3D WYSIWYG 预览和服务端渲染 worker 的主输入。轻量服务端 MP4/OSS 当前只稳定支持 PNG/JPG/JPEG/WebP；SVG 可用于浏览器本地预览，但提交服务端前需转成栅格图。历史 SVG URL 如果存在同名 `.png/.jpg/.jpeg/.webp` 伴随图，服务端会尝试读取伴随图用于复测恢复，但新请求仍应直接传栅格图 URL。 |
 | `materialSlot` | 否 | 模型推荐槽 | 3D 模型的固定材质槽 / UV 区域。1660 杯子推荐 `front`；2551 背包推荐 `front`。非法槽返回 `PRODUCT_3D_RENDER_VIDEO_MATERIAL_SLOT_INVALID`。 |
 | `cameraPreset` | 否 | `orbit_360` | `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`。 |
-| `cameraDistance` | 否 | `wide` | `wide/standard/close`。默认 `wide`，优先保证商品完整入画。三档都会写入 `renderPlan.camera.framing.mode=fit_product_safe_bounds` 和 `renderPlan.framingSafety`，服务端轻量渲染会按安全取景合同约束镜头轨迹，避免镜头过近或轨迹变化导致主体裁切。`close` 会标记为细节补充镜头，不建议作为唯一最终交付视频。非法值返回 `PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID`。 |
+| `cameraDistance` | 否 | `wide` | `wide/standard/close`。默认 `wide`，优先保证商品完整入画。三档都会写入 `renderPlan.camera.framing.mode=fit_product_safe_bounds` 和 `renderPlan.framingSafety`，服务端轻量渲染会按安全取景合同约束镜头运动，避免镜头过近或运动变化导致主体裁切。`close` 会标记为细节补充镜头，不建议作为唯一最终交付视频。非法值返回 `PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID`。 |
 | `scenePreset` | 否 | `clean_studio` | `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`。每个预设都会绑定 `renderPlan.scene.asset`，包含 `assetId/assetType/license/renderFidelity/materialPolicy`；同时返回 `renderPlan.scene.fusion` 说明商品落点、比例、道具层级、遮挡规则和阴影策略，并返回 `renderPlan.sceneVisualAcceptance` 用于判断当前场景能否执行、候选场景模型卡在哪些入库门禁。测评端会将这些场景以 Three.js 基础场景模型和缩略图呈现，不只是文字说明。 |
-| `cameraPlan` | 建议 | 默认镜头方案 | 镜头方案主字段，描述 `productMotion=fixed`、`cameraMotion=path_playback`、轨迹点、焦点、取景约束和 `playbackConfirmed`。测评端必须先播放并确认镜头轨迹，`/runs` 建议携带 `playbackConfirmed=true`，避免未经确认的路径直接触发服务端视频生成。 |
-| `motionPath` | 兼容字段 | 默认轻微弧线 | 兼容旧调用的镜头轨迹点数组，每项 `{x,y}` 且范围 0-1；至少 2 点，最多取前 12 点。商品保持固定，不表示商品位移。新接入优先使用 `cameraPlan.path.points`；响应里的 `framingSafety.motionPathBounds` 记录镜头轨迹范围，`appliedMotionScale` 记录轻量渲染器的取景缩放。非法值返回 `PRODUCT_3D_RENDER_VIDEO_MOTION_PATH_INVALID`。 |
+| `cameraPlan` | 建议 | 默认镜头方案 | 镜头方案主字段，描述 `productMotion=fixed`、`cameraMotion`、焦点、取景约束和 `playbackConfirmed`。模板镜头使用 `customMode=preset_template`；手动镜头使用 `customMode=manual_start_end_capture`，并携带 `customShots.start/end`，每个快照包含相机位置、焦点、距离、方位角和俯仰角。测评端必须先播放并确认镜头，`/runs` 建议携带 `playbackConfirmed=true`，避免未经确认的镜头直接触发服务端视频生成。 |
+| `motionPath` | 兼容字段 | 默认轻微弧线 | 兼容旧调用的镜头运动点数组，每项 `{x,y}` 且范围 0-1；至少 2 点，最多取前 12 点。商品保持固定，不表示商品位移。新接入优先使用 `cameraPlan`；响应里的 `framingSafety.motionPathBounds` 记录镜头运动范围，`appliedMotionScale` 记录轻量渲染器的取景缩放。非法值返回 `PRODUCT_3D_RENDER_VIDEO_MOTION_PATH_INVALID`。 |
 | `durationSeconds` | 否 | `6` | 1-30 秒；`/preview` 只进入方案，`/runs` 用于服务端 MP4 帧数和时长。 |
 | `aspectRatio` | 否 | `16:9` | 目标画幅。 |
 | `outputMode` | 否 | `plan_only` | `/preview` 只允许 `plan_only`。`/runs` 会强制使用 `render_video` 并返回统一业务 runId。 |

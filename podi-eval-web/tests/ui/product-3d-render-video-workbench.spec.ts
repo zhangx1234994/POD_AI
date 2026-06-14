@@ -420,44 +420,57 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await stageMain.getByPlaceholder('https://...').fill(TEXTURE_IMAGE);
   await expect(page.getByText(/模型已加载|已按材质名应用/)).toBeVisible({ timeout: 20_000 });
 
-  const controlSelects = stageMain.locator('.podi-product-commercialization__controls .t-select');
-  await controlSelects.nth(0).click();
-  await page.getByText('慢速推进').click();
-  await controlSelects.nth(1).click();
-  await page.getByText('近景细节镜头').click();
+  await expect(stageMain.getByText('贴图设置')).toBeVisible();
+  await expect(stageMain.getByText('预览摄影棚')).toBeVisible();
+  await expect(stageMain.getByLabel('3D 所见即所得预览')).toBeVisible();
+  const previewControls = stageMain.getByLabel('拍摄预览控制');
+  await expect(previewControls.getByLabel('推荐镜头模板')).toBeVisible();
+  await previewControls.getByRole('button', { name: '慢速推进' }).click();
+  await previewControls.getByRole('button', { name: '近景细节镜头' }).click();
+  await previewControls.getByRole('button', { name: /自定义镜头/ }).click();
+  await expect(stageMain.getByLabel('3D 模型镜头确认')).toBeVisible();
+  await expect(stageMain.getByText('直接拖拽 3D 模型调整视角，分别保存开始和结束画面。')).toBeVisible();
+  await expect(stageMain.getByLabel('自定义镜头保存')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频生成主操作')).toBeVisible();
-  await expect(stageMain.getByText('主执行区：先检查方案，再播放镜头轨迹确认，最后生成本地预览或提交服务端 MP4/OSS。调整镜头、场景或轨迹后需要重新确认。')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频输出状态')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频输出状态').getByText('待播放确认')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频输出状态').getByText('尚未生成')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频输出状态').getByText('尚未提交')).toBeVisible();
   await expect(stageMain.locator('.podi-product-3d-render__video-output')).toHaveCount(0);
-  const checkPlanButton = stageMain.locator('.t-button').filter({ hasText: '检查 3D 贴图方案' });
-  const playCameraPathButton = stageMain.locator('.t-button').filter({ hasText: '播放并确认镜头轨迹' });
-  const localPreviewButton = stageMain.locator('.t-button').filter({ hasText: '生成本地预览视频' });
-  const serverRenderButton = stageMain.locator('.t-button').filter({ hasText: '生成服务端 MP4/OSS 视频' });
+  const checkPlanButton = stageMain.locator('.t-button').filter({ hasText: '检查方案' });
+  const playCameraPathButton = stageMain.locator('.t-button').filter({ hasText: '播放镜头' });
+  const localPreviewButton = stageMain.locator('.t-button').filter({ hasText: '本地预览 MP4' });
+  const serverRenderButton = stageMain.locator('.t-button').filter({ hasText: '服务端 MP4/OSS' });
 
   await expect(localPreviewButton).toHaveClass(/t-is-disabled/);
   await expect(serverRenderButton).toHaveClass(/t-is-disabled/);
 
-  const motionEditor = stageMain.getByLabel('3D 镜头轨迹编辑器');
-  const motionEditorPanel = stageMain.locator('.podi-product-3d-render__motion-editor');
-  await motionEditor.scrollIntoViewIfNeeded();
-  const motionBox = await motionEditor.boundingBox();
-  expect(motionBox).not.toBeNull();
-  if (!motionBox) throw new Error('motion editor box missing');
-  await page.mouse.move(motionBox.x + motionBox.width * 0.14, motionBox.y + motionBox.height * 0.74);
+  const cameraOverlay = stageMain.locator('.podi-product-3d-render__camera-overlay');
+  const modelCanvas = stageMain.locator('.podi-product-3d-render__model-canvas canvas').first();
+  await modelCanvas.scrollIntoViewIfNeeded();
+  const canvasBox = await modelCanvas.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  if (!canvasBox) throw new Error('model canvas box missing');
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.55, canvasBox.y + canvasBox.height * 0.44);
   await page.mouse.down();
-  await page.mouse.move(motionBox.x + motionBox.width * 0.38, motionBox.y + motionBox.height * 0.57);
-  await page.mouse.move(motionBox.x + motionBox.width * 0.68, motionBox.y + motionBox.height * 0.43);
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.42, canvasBox.y + canvasBox.height * 0.46);
   await page.mouse.up();
+  const customShotPanel = stageMain.getByLabel('自定义镜头保存');
+  await customShotPanel.getByRole('button', { name: '保存开始', exact: true }).click();
+  await expect(stageMain.getByText('开始/结束已保存')).toHaveCount(0);
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.52, canvasBox.y + canvasBox.height * 0.42);
+  await page.mouse.down();
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.68, canvasBox.y + canvasBox.height * 0.38);
+  await page.mouse.up();
+  await customShotPanel.getByRole('button', { name: '保存结束', exact: true }).click();
+  await expect(cameraOverlay.getByText('开始/结束已保存', { exact: true })).toBeVisible();
 
   await checkPlanButton.click();
   await expect(stageMain.getByText('准备度', { exact: true })).toBeVisible();
   await expect(stageMain.getByText(/已就绪 · podi.scene.procedural.clean_studio.v1/)).toBeVisible();
   await expect(stageMain.getByText('渲染 worker', { exact: true })).toBeVisible();
 
-  await expect(stageMain.getByText('选择镜头方案并确认轨迹')).toBeVisible();
+  await expect(stageMain.getByText('预览摄影棚')).toBeVisible();
   await expect(stageMain.getByText(/镜头模板/)).toBeVisible();
   await expect(stageMain.getByText('场景模型', { exact: true })).toBeVisible();
   await expect(stageMain.locator('.podi-product-3d-render__scene-thumb').first()).toBeVisible();
@@ -486,9 +499,9 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await expect(shootingBrief.getByText('承载面 · Matte Floor')).toBeVisible();
   await expect(shootingBrief.getByText('never_cross_product_silhouette')).toBeVisible();
   await expect(stageMain.getByText(/安全取景/)).toBeVisible();
-  await expect(motionEditorPanel.getByText('镜头轨迹预览', { exact: true })).toBeVisible();
-  await expect(motionEditorPanel.getByTitle('商品固定')).toBeVisible();
-  await expect(motionEditorPanel.getByText('待播放确认', { exact: true })).toBeVisible();
+  await expect(cameraOverlay.getByText('自定义镜头', { exact: true })).toBeVisible();
+  await expect(cameraOverlay.getByText('商品固定', { exact: true })).toBeVisible();
+  await expect(cameraOverlay.getByText('待播放确认', { exact: true })).toBeVisible();
   const resultShotList = stageMain.locator('.podi-product-commercialization__shot-list');
   await expect(resultShotList.getByText('融合规则', { exact: true })).toBeVisible();
   await expect(resultShotList.getByText('center_ellipse_floor_zone', { exact: true })).toBeVisible();
@@ -526,15 +539,22 @@ test('3d render video workbench exports a local preview video', async ({ page })
     cameraPlan: expect.objectContaining({
       template: 'slow_push_in',
       productMotion: 'fixed',
-      cameraMotion: 'path_playback',
+      cameraMotion: 'manual_start_end_playback',
+      customMode: 'manual_start_end_capture',
+      customShots: expect.objectContaining({
+        start: expect.objectContaining({ label: 'start' }),
+        end: expect.objectContaining({ label: 'end' }),
+      }),
     }),
   });
   const previewMotionPath = previewPayloads[0].motionPath as Array<{ x: number; y: number }>;
   expect(previewMotionPath.length).toBeGreaterThanOrEqual(2);
-  expect(previewMotionPath[0].x).toBeCloseTo(0.14, 1);
-  expect(previewMotionPath[0].y).toBeCloseTo(0.74, 1);
-  expect(previewMotionPath[previewMotionPath.length - 1].x).toBeCloseTo(0.68, 1);
-  expect(previewMotionPath[previewMotionPath.length - 1].y).toBeCloseTo(0.43, 1);
+  for (const point of previewMotionPath) {
+    expect(point.x).toBeGreaterThanOrEqual(0);
+    expect(point.x).toBeLessThanOrEqual(1);
+    expect(point.y).toBeGreaterThanOrEqual(0);
+    expect(point.y).toBeLessThanOrEqual(1);
+  }
   expect(serverPayloads).toHaveLength(1);
   expect(serverPayloads[0]).toMatchObject({
     modelKey: 'cup_1660',
@@ -547,7 +567,8 @@ test('3d render video workbench exports a local preview video', async ({ page })
     cameraPlan: expect.objectContaining({
       template: 'slow_push_in',
       productMotion: 'fixed',
-      cameraMotion: 'path_playback',
+      cameraMotion: 'manual_start_end_playback',
+      customMode: 'manual_start_end_capture',
       playbackConfirmed: true,
     }),
   });

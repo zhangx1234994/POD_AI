@@ -14,7 +14,7 @@
 - 所有成本动作返回统一 `runId`，查询统一走 `/api/business/runs/get`。
 - 外部供应商结果必须沉淀到自有 OSS 后再作为正式输出。
 - 失败必须返回错误码、失败阶段、可重试建议和已成功资产。
-- 确定性 3D 渲染能力必须保留场景资产、模型资产、材质槽、相机路径和 OSS manifest 证据，不能只返回一个视频 URL。
+- 确定性 3D 渲染能力必须保留场景资产、模型资产、材质槽、镜头方案和 OSS manifest 证据，不能只返回一个视频 URL。
 
 ## 1. `product_image_set` 商品组图 / 营销套图
 
@@ -475,7 +475,7 @@ POST /api/business/runs/get
 
 ### 定位
 
-面向有 3D 模型的 POD 商品，通过固定模型、材质槽 / UV 贴图、预设场景、灯光和相机路径生成可控商品动效。它不是 KIE/Vidu 大模型视频生成的子模式，也不是“文字描述生成视频”；不能混在 `promo_video` 的供应商选择里。当前开放方案预览、测评端浏览器 Three.js 本地 MP4/WebM 录制，以及服务端 `/runs` 轻量 MP4/OSS 渲染任务；后续再把 `lightweight_scene_renderer_v1` 替换为 Blender/headless Three.js 高保真 worker。
+面向有 3D 模型的 POD 商品，通过固定模型、材质槽 / UV 贴图、预设场景、灯光和镜头运动生成可控商品动效。它不是 KIE/Vidu 大模型视频生成的子模式，也不是“文字描述生成视频”；不能混在 `promo_video` 的供应商选择里。当前开放方案预览、测评端浏览器 Three.js 本地 MP4/WebM 录制，以及服务端 `/runs` 轻量 MP4/OSS 渲染任务；后续再把 `lightweight_scene_renderer_v1` 替换为 Blender/headless Three.js 高保真 worker。
 
 ### 建议入口
 
@@ -495,6 +495,14 @@ POST /api/business/runs/get
   "cameraPreset": "hero_turntable",
   "cameraDistance": "wide",
   "scenePreset": "desktop_lifestyle",
+  "cameraPlan": {
+    "version": "camera-plan-v2",
+    "template": "hero_turntable",
+    "customMode": "preset_template",
+    "productMotion": "fixed",
+    "cameraMotion": "path_playback",
+    "playbackConfirmed": false
+  },
   "motionPath": [
     {"x": 0.22, "y": 0.66},
     {"x": 0.5, "y": 0.5},
@@ -517,6 +525,7 @@ POST /api/business/runs/get
 - `preview` 当前只允许 `outputMode=plan_only`；传 `render_video` 会返回 `PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY`。
 - `/runs` 是独立服务端渲染入口，固定接收 `outputMode=render_video`；当前返回标准 `runId/taskId`，并按统一 runId 查询 OSS 视频、封面和 manifest。
 - 镜头预设包括 `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`；镜头远近包括 `wide/standard/close`，默认 `wide`，前端和服务端都必须遵守 `fit_product_safe_bounds`，保证商品主体完整入画。
+- 自定义镜头不新增 `cameraPreset`。用户在 3D 画面中拖动模型/相机，保存开始镜头和结束镜头；前端写入 `cameraPlan.customMode=manual_start_end_capture` 与 `cameraPlan.customShots.start/end`，同时折算 `motionPath` 兼容轻量渲染器和旧链路。
 - 场景预设包括 `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`，每个场景必须定义商品摆放位置、比例、安全区、阴影和道具遮挡规则，并映射到 `renderPlan.scene.asset`。
 - `renderPlan.scene.asset` 必须包含 `assetId/assetType/assetStatus/renderFidelity/source/license/geometry/materialPolicy/highFidelityTarget`。当前首版为 `mvp_procedural`，可用于交互和接口闭环；商用级效果要替换为高保真 worker 或经过授权的真实场景资产。
 - `/preview` 必须返回 `renderPlan.scene.fusion`，`/runs` 输出的 `renderAssetPackage.manifest.sceneFusion` 必须沉淀场景融合证据，至少包括 `landingZone/productScale/occlusionPolicy/propDepth/shadowPolicy`。这用于证明商品落点、道具层级和遮挡规则，不允许把场景能力降级成“换背景枚举”。

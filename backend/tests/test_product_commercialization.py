@@ -1374,6 +1374,45 @@ def test_product_3d_render_video_preview_returns_plan_without_video() -> None:
     assert result["execution"]["videoGenerated"] is False
 
 
+def test_product_3d_render_video_preview_preserves_custom_camera_shots() -> None:
+    service = Product3DRenderVideoService()
+
+    result = service.preview(
+        Product3DRenderVideoRequest(
+            modelKey="cup_1660",
+            textureImageUrl="https://example.com/pattern.png",
+            materialSlot="front",
+            cameraPreset="slow_push_in",
+            cameraDistance="wide",
+            scenePreset="clean_studio",
+            motionPath=[{"x": 0.24, "y": 0.64}, {"x": 0.68, "y": 0.42}],
+            durationSeconds=6,
+            cameraPlan={
+                "version": "camera-plan-v2",
+                "template": "slow_push_in",
+                "cameraMotion": "manual_start_end_playback",
+                "customMode": "manual_start_end_capture",
+                "path": {
+                    "coordinateSpace": "camera_shot_projection_preview",
+                    "points": [{"x": 0.24, "y": 0.64}, {"x": 0.68, "y": 0.42}],
+                },
+                "customShots": {
+                    "start": {"label": "start", "position": {"x": 0, "y": 1, "z": 4}, "target": {"x": 0, "y": 0, "z": 0}},
+                    "end": {"label": "end", "position": {"x": 1, "y": 0.8, "z": 3}, "target": {"x": 0, "y": 0, "z": 0}},
+                },
+            },
+        )
+    )
+
+    camera_plan = result["renderPlan"]["cameraPlan"]
+    assert camera_plan["template"] == "slow_push_in"
+    assert camera_plan["cameraMotion"] == "manual_start_end_playback"
+    assert camera_plan["customMode"] == "manual_start_end_capture"
+    assert camera_plan["path"]["coordinateSpace"] == "camera_shot_projection_preview"
+    assert camera_plan["customShots"]["start"]["label"] == "start"
+    assert camera_plan["customShots"]["end"]["label"] == "end"
+
+
 def test_product_3d_render_video_preview_accepts_texture_slots() -> None:
     service = Product3DRenderVideoService()
 

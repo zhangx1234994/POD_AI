@@ -7,7 +7,7 @@
 本门禁当前覆盖两个独立能力：
 
 - 产品视频素材包：产品图 + 可选产品导出字段 -> 模型画像约束下的脚本、分镜、首尾帧/关键帧、KIE/Vidu 分段视频任务、可选合成、OSS 回填。
-- 3D 渲染视频：受控 3D 模型 + 材质槽贴图 -> 场景布景、镜头远近、镜头轨迹确认、本地预览视频或服务端 MP4/OSS 视频。商品固定，轨迹驱动相机运动；当前轻量服务端 worker 已接入，高保真 Blender/headless Three.js worker 仍是后续替换项。
+- 3D 渲染视频：受控 3D 模型 + 材质槽贴图 -> 场景布景、镜头远近、镜头确认、本地预览视频或服务端 MP4/OSS 视频。商品固定，镜头驱动相机运动；当前轻量服务端 worker 已接入，高保真 Blender/headless Three.js worker 仍是后续替换项。
 
 产品文案内容包已从当前测评端主入口撤下，后续按独立 `product_copy_package` 能力重新设计，不再作为本门禁的当前交付项。
 
@@ -26,8 +26,8 @@
 | 原始目标 | 当前实现证据 | 自动化/文档门禁 | 未完成或仍需人工复测 |
 | --- | --- | --- | --- |
 | 3D 加入场景模型，让商品贴图后能和场景融合 | `GET /api/business/product-3d-render-video/catalog` 返回 `scenePresets[].asset`、`scenePresets[].fusion`、`sceneAssetSources[].candidateAssets`；`POST /api/business/product-3d-render-video/preview` 返回 `renderPlan.scene.asset/fusion`；`/runs` manifest 保留 `sceneAsset/sceneFusion` | `backend/tests/test_product_commercialization.py` 校验 `desktop_lifestyle/gift_table/retail_shelf` 场景、CC0 候选来源、具体候选资产 `Wood095/blue_photo_studio/industrial_coffee_table/wooden_display_shelves_01/steel_frame_shelves_01` 和 `sceneAssetSources.candidateAssets`；默认巡检校验场景预设、来源治理、候选资产和融合证据；`--include-live-3d-render` 额外校验 `/runs` 的 MP4、封面和 manifest OSS 回填 | 当前是 `mvp_procedural` 程序化场景，可用于流程和交互验收；商用品质仍需引入受控高保真 Blender/headless Three.js 场景资产 |
-| 3D 能控制镜头和镜头远近，避免商品显示不全 | 后端 `CAMERA_PRESETS` + `CAMERA_DISTANCE_PRESETS` 提供镜头模板和 `wide/standard/close`；`renderPlan.camera.framing.mode=fit_product_safe_bounds`；前端 STEP 4 提供镜头、镜头远近、时长和比例选择 | 后端测试校验非法 `cameraDistance` 报错；服务端轻量渲染测试用 `close + detail_sweep + 极端镜头轨迹` 逐帧检查商品主体像素安全边距；UI 测试校验镜头远近和安全取景信息；接口文档要求默认 `wide` 优先完整入画 | 仍需线上真实视频逐个场景看成片是否裁切；近景只允许作为补充细节镜头，不应作为唯一交付镜头 |
-| 3D 通过镜头轨迹确认后生成视频 | 前端 `CameraPathEditor` 支持在预览区拖动镜头轨迹；商品固定在场景中。用户必须先点击“播放并确认镜头轨迹”，确认后才能导出本地预览或提交服务端 `/runs`；后端主字段为 `cameraPlan`，`motionPath` 仅作旧调用兼容 | 后端测试覆盖非法路径；UI 测试模拟选择 `slow_push_in/close`、拖动画出新轨迹、先播放确认，再生成本地预览和服务端 MP4/OSS，断言 preview 与 server run payload 均携带 `cameraPlan.productMotion=fixed`、`cameraPlan.cameraMotion=path_playback` 和兼容 `motionPath`；巡检校验 manifest 的 `cameraPlan` 和兼容路径点 | 仍需真实浏览器人工复测用户自定义镜头轨迹后的输出视频质量，确认取景节奏、画面裁切和贴图方向正常 |
+| 3D 能控制镜头和镜头远近，避免商品显示不全 | 后端 `CAMERA_PRESETS` + `CAMERA_DISTANCE_PRESETS` 提供镜头模板和 `wide/standard/close`；`renderPlan.camera.framing.mode=fit_product_safe_bounds`；前端预览棚默认展示推荐镜头模板、镜头远近、时长和比例 | 后端测试校验非法 `cameraDistance` 报错；服务端轻量渲染测试用 `close + detail_sweep + 极端兼容 motionPath` 逐帧检查商品主体像素安全边距；UI 测试校验推荐镜头模板、镜头远近和安全取景信息；接口文档要求默认 `wide` 优先完整入画 | 仍需线上真实视频逐个场景看成片是否裁切；近景只允许作为补充细节镜头，不应作为唯一交付镜头 |
+| 3D 通过镜头确认后生成视频 | 前端默认不要求用户编辑路径，而是选择推荐镜头模板后播放确认；商品固定在场景中。用户必须先点击“播放镜头”，确认后才能导出本地预览或提交服务端 `/runs`；自定义镜头只作为明确入口，用户在 3D 模型画面中手动转动视角并保存开始镜头、结束镜头；后端主字段为 `cameraPlan`，`motionPath` 仅作旧调用兼容 | 后端测试覆盖非法路径和 `cameraPlan.customShots` 透传；UI 测试模拟选择 `slow_push_in/close`、进入“自定义镜头”、拖动 3D 画布、保存开始/结束、先播放确认，再生成本地预览和服务端 MP4/OSS，断言 preview 与 server run payload 均携带 `cameraPlan.productMotion=fixed`、`cameraPlan.cameraMotion=manual_start_end_playback`、`cameraPlan.customMode=manual_start_end_capture` 和兼容 `motionPath`；巡检校验 manifest 的 `cameraPlan` 和兼容路径点 | 仍需真实浏览器人工复测默认模板镜头和用户自定义开始/结束镜头后的输出视频质量，确认取景节奏、画面裁切和贴图方向正常 |
 | 产品视频的用户人群、镜头偏好等核心要素应由 VL/JSON 自动回填，用户可修改 | 测评端 `videoPlanningFields` 由 `resolvedProductFacts/videoPlan.directorBrief/storyboard` 推导并标注“模型回填/人工调整/默认约束”；请求持续携带 `videoPlanningContext`；后端把该对象写入视频导演模型上下文 | UI 测试校验模型回填人群和镜头偏好进入 `promo-video/runs` payload；后端测试校验规划 prompt 能看到结构化上下文；OpenAPI 和业务文档包含 `videoPlanningContext` | 第一次规划后自动回填，用户需要返回策略页调整后再重新规划；真实 VL/LLM 回填质量仍需多商品 golden case |
 | 脚本输出后，收尾帧需要用户确认，不合理可二次生成 | 确认页按 `videoAssetPackagePlan.shotPackages` 分组展示脚本意图、视频提示词、首尾帧提示词、生成数量和确认状态；可按 `keyframeShotScope` 只重生成某个镜头；提交视频前要求已确认关键帧 | UI 测试覆盖单镜头关键帧生成、确认前视频按钮禁用、确认后提交；确认后再次点击“重生成本镜头首尾帧”会清除该镜头确认状态、重新禁用视频成本按钮，复核后才允许提交；接口文档说明 `keyframeShotScope` 和 `confirmedVideoKeyframes`；巡检脚本在同时开启 `--include-live-keyframes --include-live-video` 时会从关键帧 run 提取确认帧并传给视频 run，无法提取时跳过视频扣费动作并判门禁失败 | 本机因 vendor-api 白名单无法验证真实首尾帧质量；必须在 114 或已加白后端环境跑 GPT Image 2 首尾帧链路 |
 | 脚本、收尾帧、对应提示词按列表组呈现后再生成视频 | 前端 `storyboard-groups` 每个镜头集中展示 `goal/videoPrompt/keyframeNeeds/generatedKeyframes`；后端 `shotPackages` 是业务方主消费结构 | UI 测试断言镜头组、脚本、关键帧、首尾帧提示词和生成状态可见；文档要求业务方优先消费 `shotPackages` | 真实 KIE/Vidu 多段素材包仍需线上复测，确认每段视频能和对应镜头组/关键帧正确关联 |
@@ -41,7 +41,7 @@
 | PCG-02 | 文案入口暂停 | 打开测评端主导航和产品视频分类 | 不出现可验收的产品文案主入口；如历史接口仍返回 `copyPackage`，页面不得把它展示成当前交付能力 | 当前前端仅从产品视频入口进入 `ProductCommercializationWorkbench mode=video` |
 | PCG-03 | 无 JSON 主流程 | 只传产品图，不传 `productFields`，生成视频规划 | 不阻断；结果含 `resolvedProductFacts`、缺失字段/推断来源和置信度；不要求用户必须补 JSON | 114 预览巡检通过 |
 | PCG-04 | 图片/JSON 错配 | 用明显不匹配的产品图和 JSON 生成视频规划 | 结果区展示冲突；`resolvedProductFacts` 以产品图为准；视频提示需要人工确认风险 | 114 预览巡检通过；兜底冲突提示已补 |
-| PCG-05 | 3D 本地视频闭环 | 选择模型、逐槽位贴图、选择场景/镜头/远近、划线路径并导出本地视频 | 页面提供明确生成入口；输出区显示真实格式、播放器和下载；场景卡必须有可视化缩略、商品落点、道具遮挡规则和完整入画说明；不伪装成服务端 OSS 视频 | 本地通过，待线上复测 |
+| PCG-05 | 3D 本地视频闭环 | 选择模型、逐槽位贴图、选择场景/推荐镜头/远近、播放镜头确认并导出本地视频 | 页面提供明确生成入口；默认不要求用户画轨迹；自定义模式在真实 3D 模型画面中保存开始镜头和结束镜头；输出区显示真实格式、播放器和下载；场景卡必须有可视化缩略、商品落点、道具遮挡规则和完整入画说明；贴图预览不被光照或选中态染色；不伪装成服务端 OSS 视频 | 本地通过，待线上复测 |
 | PCG-06 | 视频规划 | 分别选择 KIE 和 Vidu，生成 8 秒、13/15 秒规划 | 页面和接口返回所选模型画像；KIE 按 8 秒片段，Vidu 按 3/5/8 秒片段；Vidu 必须返回 `aspectPolicy=input_image_ratio`，不伪装成直接支持固定比例；规划结果含 `planner/directorBrief/videoAssetPackagePlan.script/storyboard/shotPackages/keyframeNeeds/compositionPlan`；业务方优先按 `shotPackages` 消费每个镜头的脚本、视频提示词、首尾帧提示词、确认状态和所需素材；每个分镜必须含 `scene/cameraMovement/firstFramePrompt/lastFramePrompt/negativePrompt`；脚本可编辑，编辑后确认状态失效 | 本地通过，待线上真实页面复测 |
 | PCG-07 | 视频素材包执行 | 提交 KIE 单段、Vidu 单段、多段素材包任务 | 未确认脚本/分镜时不能提交；有首尾帧需求时必须逐镜头生成并确认，重生成某镜头会清除该镜头确认；确认后提交成功返回统一 runId；查询口径仍是 `/api/business/runs/get`；成功后 `resultPayload.videoAssetPackage` 展示脚本、关键帧、分段视频、可选合成片；Vidu 出片比例按首帧策略验收 | 114 Vidu 8 秒单段真实 runId 通过；KIE/多段仍待复测 |
 | PCG-08 | 合成失败保留素材 | 模拟或构造合成失败，但分段视频已成功 | 顶层状态按模式判断；`composition.status=failed`，已成功 `segmentVideos` 仍可下载、可复用、可追踪 | 后端结构已补，待构造线上故障复测 |
@@ -54,7 +54,7 @@
 
 - `产品视频` 桌面端：无横向溢出，接口口径不抢占主路径，视频模型说明、脚本分镜、首尾帧确认和成本按钮层级清楚。
 - `产品视频` 移动端：无横向溢出，输入区可继续向下滚动。
-- `3D 渲染视频` 桌面端：模型预览、槽位列表、场景选择、镜头远近、镜头轨迹确认和本地视频输出不互相遮挡。
+- `3D 渲染视频` 桌面端：模型预览、槽位列表、场景选择、镜头远近、镜头确认和本地视频输出不互相遮挡。
 - `3D 渲染视频` 移动端：槽位绑定和视频输出可向下完成，不依赖横向滚动。
 
 截图目录：
@@ -76,7 +76,7 @@
 8. 视频：Vidu 3/5/8 秒单段素材包各一条，确认参数不同；若输入图不是目标比例，验收时按“比例随首帧/归一首帧”判断，不把 `aspectRatio` 当成 Vidu 直接执行参数。
 9. 视频：Vidu 13 秒或 KIE 15 秒多段素材包；合成只作为后续可选动作。
 10. 接口拆分：正式接入口径必须覆盖 `POST /api/business/promo-video/plan`、`/promo-video/keyframes/runs`、`/promo-video/runs`、`/promo-video/compose/runs`，并确认后端固定 action；`product-commercialization` 只作为兼容聚合入口。
-11. 3D 渲染视频：杯子和背包各跑一遍逐槽位贴图、场景切换、镜头远近、镜头轨迹播放确认、本地视频导出和下载。
+11. 3D 渲染视频：杯子和背包各跑一遍逐槽位贴图、场景切换、镜头远近、预设镜头/自定义开始结束镜头播放确认、本地视频导出和下载。
 12. 3D 场景融合：至少切换 `clean_studio/desktop_lifestyle/retail_shelf` 三类场景，确认页面显示场景缩略、落地区、道具层级和遮挡规则；`/preview` 的 `renderPlan.scene.fusion` 与 `/runs` 的 manifest `sceneFusion` 必须保留同一套证据。
 13. 3D 场景候选治理：检查 `desktop_lifestyle/gift_table/retail_shelf` 的 `externalCandidates`，确认 `industrial_coffee_table`、`wooden_display_shelves_01`、`steel_frame_shelves_01` 仍处于 staging/candidate 状态，并包含授权、hash、下载日期、worker 导入和无文字/无遮挡/近景安全取景等晋级门禁；不得把候选场景 URL 当作业务入参直接执行。
 14. 错误路径：缺产品图、非法 JSON、旧结果过期、上游失败、分段失败、合成失败或超时。
@@ -142,12 +142,13 @@ python3 backend/scripts/patrol_product_commercialization.py \
 - 2026-06-13：补齐产品视频结构化规划上下文：测评端从可编辑的“核心信息/目标人群/使用场景/镜头偏好/禁止内容/自定义要素”生成 `videoPlanningContext`，并在预览、首尾帧和视频生成请求中持续携带；后端把该对象写入视频导演模型上下文，并保留在业务 API 文档/OpenAPI 中。回归已覆盖：模型回填的人群和镜头偏好最终进入 `promo-video/runs` payload，后端 Volcengine 规划 prompt 能看到结构化上下文。
 - 2026-06-13：本地 8299 浏览器复测 3D 渲染视频：在 `http://127.0.0.1:8299/?view=tool&category=3D渲染视频` 选择 1660 杯子，绑定 `/samples/product-video/mug-front.png` 到 `front` 槽后，本地预览与服务端 MP4 按钮均启用；点击“生成本地预览视频”后页面生成可回放 blob 视频且无录制错误。该次复测后端 8099 未启动，所以能力目录走本地兜底配置；线上仍需复核 catalog 和 `/runs` 的 OSS 回填。
 - 2026-06-13：线上 114 复测发现 SVG 贴图会导致服务端轻量渲染 `PRODUCT_3D_RENDER_VIDEO_TEXTURE_LOAD_FAILED`，原因是浏览器 Three.js 可加载 SVG，而后端 Pillow 读取器不稳定支持 SVG。已将 3D 服务端样例和测试切到 PNG，并在测评端提交服务端 MP4/OSS 前提示 SVG 需要先转为 PNG/JPG/WebP；服务端补充历史兼容逻辑，若 SVG URL 存在同名 `.png/.jpg/.jpeg/.webp` 伴随图，可自动读取伴随图用于标准复测恢复，但不改变正式输入推荐格式。
-- 2026-06-13：巡检脚本补充 `--include-live-3d-render`，用于显式提交服务端 3D 渲染业务 run，并校验 `videoUrls/imageUrls/resultPayload.renderAssetPackage.manifest` 中的场景资产、`sceneElements` 场景结构、融合策略、安全取景、镜头距离、贴图槽和镜头轨迹。默认巡检仍不触发服务端渲染。
-- 2026-06-13：3D 渲染视频 UI 自动化补强：`product-3d-render-video-workbench.spec.ts` 不再只验证默认 `wide/orbit_360`，而是模拟用户选择 `slow_push_in`、`close`，并在“3D 镜头轨迹编辑器”里拖动画出新路径；测试断言 preview 和服务端 MP4/OSS run payload 都携带用户修改后的镜头远近和路径参数。
+- 2026-06-13：巡检脚本补充 `--include-live-3d-render`，用于显式提交服务端 3D 渲染业务 run，并校验 `videoUrls/imageUrls/resultPayload.renderAssetPackage.manifest` 中的场景资产、`sceneElements` 场景结构、融合策略、安全取景、镜头距离、贴图槽和镜头方案。默认巡检仍不触发服务端渲染。
+- 2026-06-13：3D 渲染视频 UI 自动化补强：`product-3d-render-video-workbench.spec.ts` 不再只验证默认 `wide/orbit_360`，而是模拟用户选择 `slow_push_in`、`close`，打开“在模型上调整”，并在真实 3D 模型画面 overlay 里拖动镜头终点；测试断言 preview 和服务端 MP4/OSS run payload 都携带用户修改后的镜头远近和路径参数。
 - 2026-06-13：产品视频 UI 自动化补强：`product-video-workbench.spec.ts` 覆盖单镜头首尾帧生成、确认、确认后重生成、确认状态失效、视频成本按钮重新禁用、再次确认后提交 `confirmedVideoKeyframes` 的完整路径，防止首尾帧二次生成被做成一次性任务表单。
 - 2026-06-13：收费巡检链路补强：`patrol_product_commercialization.py` 在同时开启 `--include-live-keyframes --include-live-video` 时，先校验首尾帧任务 `deliveryStatus=keyframes_ready`，再从 `resultPayload.videoAssetPackage.keyframes` 提取已确认帧写入视频任务的 `confirmedVideoKeyframes`；如果关键帧失败或无法提取，脚本会跳过视频扣费动作并给出失败门禁，防止真实验收绕过“先确认帧再生视频”的业务定义。
 - 2026-06-13：市场端工作台视觉降噪：产品视频和 3D 渲染视频不再在主内容顶部展示“测评功能列表加载失败”公共横幅；公共能力列表不可用时，主路径仍直接显示工作台，3D 页只在右侧“能力目录”提示本地兜底。普通能力页仍保留完整错误态。
 - 2026-06-13：产品视频确认页补充成本动作提示：在“生成首尾帧 / 生成视频素材”按钮组下方明确说明这两个按钮都会提交异步任务并返回 runId，页面会轮询结果，也可以复制 runId 到任务追踪继续查询。该提示用于避免用户把预览规划和真实成本任务混淆。
+- 2026-06-13：3D 渲染视频测评端继续收口交互：贴图区域只保留模型、贴图点和当前点上传/URL；预览棚合并场景、推荐镜头、远近、比例、时长、轨迹播放和本地/服务端导出。默认镜头运动改为推荐模板卡片，手动画轨迹收进“高级调整轨迹”；有贴图的材质槽改为颜色保真显示，避免被光照、材质参数或选中高亮染色。系统 Chrome 本地回归通过：`npm run lint`、`npm run build`、`PODI_EVAL_USE_SYSTEM_CHROME=1 npm run test:ui -- tests/ui/product-3d-render-video-workbench.spec.ts`；视觉截图见 `podi-eval-web/output/playwright/3d-render-studio-camera-template-color-v1.png`。
 
 ## 114 线上复测记录
 
@@ -162,10 +163,10 @@ python3 backend/scripts/patrol_product_commercialization.py \
 - 2026-06-13（历史阶段）：3D 渲染视频接口边界先补齐为受控 `/runs` 入口，未接 worker 时固定返回 `PRODUCT_3D_RENDER_VIDEO_RENDER_RUN_NOT_READY`，用于防止伪造 runId 或 OSS 视频；随后已在同日推进到轻量服务端闭环。
 - 2026-06-13：3D 渲染视频从“受控未就绪入口”推进到轻量服务端闭环：`/runs` 创建标准 `BusinessRun`，后台 `lightweight_scene_renderer_v1` 生成 MP4、封面 PNG 和 manifest 并回填 OSS；测评端增加“生成服务端 MP4/OSS 视频”按钮和 runId 轮询。当前验收重点是接口闭环、状态可见、OSS 资产齐备和镜头不过近；高保真 Blender/headless Three.js 渲染仍为下一阶段替换项。
 - 2026-06-13：3D 场景资产口径更新：`/preview` 的 `assetReadiness.renderWorkerReady=true` 代表轻量服务端 worker 可执行；`highFidelityWorkerReady=false` 代表商用品质渲染 worker 仍待替换。`renderPlan.scene.asset.externalCandidates` 只记录 Poly Haven / ambientCG 等 CC0 候选来源，不直接把第三方大文件打入仓库。
-- 2026-06-13：3D 场景融合口径补齐：测评端场景卡增加可视化缩略，当前方案显示“融合检查”；后端 `renderPlan.scene.fusion` 与服务端 manifest `sceneFusion` 记录 `landingZone/productScale/occlusionPolicy/propDepth/shadowPolicy`。验收时不能只看是否换了背景，还要看商品落点、道具是否后置、贴图槽是否被遮挡、镜头轨迹是否仍完整入画。
-- 2026-06-13：3D 服务端渲染参数传递补强：后端测试不再只验证默认 `clean_studio/wide/orbit_360`，而是用 `desktop_lifestyle/social_arc/close` 和自定义镜头轨迹捕获 `_draw_product_frame` 参数，证明场景、镜头、远近和路径会进入服务端逐帧渲染循环，并保留到 `renderAssetPackage.manifest`。
-- 2026-06-13：3D 服务端安全取景测试补强：新增轻量 `/runs` 渲染路径的真实逐帧检查，不 mock `_draw_product_frame`，在 `close + detail_sweep + retail_shelf + 极端镜头轨迹` 下校验每帧商品主体仍保留左右和上下安全边距，并确认封面帧为 16:9 有效输出。
-- 2026-06-13：3D 渲染视频交互口径修正：物品不再沿路径运动；前端改为 `CameraPathEditor`，路径代表相机运动轨迹。用户必须先播放并确认镜头轨迹，本地预览和服务端 MP4/OSS 按钮才可用。请求主字段新增 `cameraPlan`，其中 `productMotion=fixed`、`cameraMotion=path_playback`、`playbackConfirmed=true`；`motionPath` 保留为兼容路径点字段。
+- 2026-06-13：3D 场景融合口径补齐：测评端场景卡增加可视化缩略，当前方案显示“融合检查”；后端 `renderPlan.scene.fusion` 与服务端 manifest `sceneFusion` 记录 `landingZone/productScale/occlusionPolicy/propDepth/shadowPolicy`。验收时不能只看是否换了背景，还要看商品落点、道具是否后置、贴图槽是否被遮挡、镜头运动是否仍完整入画。
+- 2026-06-13：3D 服务端渲染参数传递补强：后端测试不再只验证默认 `clean_studio/wide/orbit_360`，而是用 `desktop_lifestyle/social_arc/close` 和自定义兼容 `motionPath` 捕获 `_draw_product_frame` 参数，证明场景、镜头、远近和兼容运动点会进入服务端逐帧渲染循环，并保留到 `renderAssetPackage.manifest`。
+- 2026-06-13：3D 服务端安全取景测试补强：新增轻量 `/runs` 渲染路径的真实逐帧检查，不 mock `_draw_product_frame`，在 `close + detail_sweep + retail_shelf + 极端兼容 motionPath` 下校验每帧商品主体仍保留左右和上下安全边距，并确认封面帧为 16:9 有效输出。
+- 2026-06-13：3D 渲染视频交互口径修正：物品不再沿路径运动；预设模式由镜头模板驱动相机运动，自定义模式由用户在真实 3D 画面中保存开始镜头和结束镜头。用户必须先播放并确认镜头，本地预览和服务端 MP4/OSS 按钮才可用。请求主字段为 `cameraPlan`，其中 `productMotion=fixed`、`playbackConfirmed=true`；自定义模式写入 `cameraMotion=manual_start_end_playback`、`customMode=manual_start_end_capture`、`customShots.start/end`；`motionPath` 保留为兼容路径点字段。
 - 2026-06-13：3D 轻量渲染 MP4 编码补强：新增不 mock `_encode_mp4` 的回归测试，真实调用 ffmpeg 编码 1 秒 16:9 MP4，仅 mock 贴图下载和 OSS 上传。测试会校验上传对象包含 `video/mp4`、`image/png`、`application/json`，MP4 字节头含 `ftyp`，封面为 `960x540`，manifest 保留 `scenePreset/sceneAsset/framingPolicy/textureApplication`。这证明轻量 renderer 不只是返回结构，也能实际生成可交付视频字节。
 - 2026-06-13：114 控制面候选包真实 `/api/business/product-3d-render-video/runs` 首次提交暴露 `business_runs.version` 字段长度问题：长渲染器版本 `product-3d-render-video-lightweight-v1` 写入 `String(32)` 导致 MySQL 1406。修复口径为拆分业务 run 版本和产物/渲染器版本：`business_runs.version=p3d-render-video-v1`，`resultPayload.version`、`costBreakdown.pricingVersion` 和 manifest 继续保留 `product-3d-render-video-lightweight-v1`。随后真实执行成功生成 MP4/封面但回填阶段又暴露 `business_runs.billing_unit=product_3d_render_video_lightweight` 超过 `String(32)`；同步收敛为 `p3d_render_video_lightweight`。已补接口轮询测试断言短版本和短计费单位长度均不超过 32。
 - 2026-06-13：平台复测链路补齐 `product_3d_render_video` 专用分支：失败 run 复测时不再走通用 `create_run`，而是用原始 `textureSlots/scene/camera/cameraPlan/motionPath` 重建 `Product3DRenderVideoRequest` 并调用 3D `/runs` 同一执行路径；复测成功后通过 `BusinessOperationLog(action=retest_run)` 让 usage-summary 自动把原失败样本标记为 recovered，不手工改旧任务状态。

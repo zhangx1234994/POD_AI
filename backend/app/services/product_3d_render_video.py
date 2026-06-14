@@ -1752,22 +1752,23 @@ class Product3DRenderVideoService:
         duration_seconds = int(getattr(payload, "durationSeconds", None) or 6)
         aspect_ratio = _clean_text(getattr(payload, "aspectRatio", None)) or "16:9"
         render_note = _clean_text(getattr(payload, "extraPrompt", None))
-        camera_plan = raw_camera_plan if isinstance(raw_camera_plan, dict) else {}
+        source_camera_plan = raw_camera_plan if isinstance(raw_camera_plan, dict) else {}
+        source_camera_path = source_camera_plan.get("path") if isinstance(source_camera_plan.get("path"), dict) else {}
         camera_plan = {
-            "version": _clean_text(camera_plan.get("version")) or "camera-plan-v1",
-            "template": _clean_text(camera_plan.get("template")) or camera_preset_key,
+            "version": _clean_text(source_camera_plan.get("version")) or "camera-plan-v1",
+            "template": _clean_text(source_camera_plan.get("template")) or camera_preset_key,
             "productMotion": "fixed",
-            "cameraMotion": _clean_text(camera_plan.get("cameraMotion")) or "path_playback",
-            "playbackConfirmed": bool(camera_plan.get("playbackConfirmed")),
+            "cameraMotion": _clean_text(source_camera_plan.get("cameraMotion")) or "path_playback",
+            "playbackConfirmed": bool(source_camera_plan.get("playbackConfirmed")),
             "confirmationRequiredBeforeRender": True,
             "durationSeconds": duration_seconds,
             "aspectRatio": aspect_ratio,
             "cameraDistance": camera_distance_key,
             "scenePreset": scene_preset_key,
-            "focusTarget": _clean_text(camera_plan.get("focusTarget")) or "product_center",
-            "focusSlot": _clean_text(camera_plan.get("focusSlot")) or material_slot,
+            "focusTarget": _clean_text(source_camera_plan.get("focusTarget")) or "product_center",
+            "focusSlot": _clean_text(source_camera_plan.get("focusSlot")) or material_slot,
             "path": {
-                "coordinateSpace": "normalized_camera_path_preview",
+                "coordinateSpace": _clean_text(source_camera_path.get("coordinateSpace")) or "normalized_camera_path_preview",
                 "points": motion_path,
                 "pointCount": len(motion_path),
             },
@@ -1776,8 +1777,13 @@ class Product3DRenderVideoService:
                 "keepFullProductInFrame": True,
                 "avoidTextureDistortion": True,
             },
-            "rationale": _clean_text(camera_plan.get("rationale")) or _clean_text(camera_preset.get("description")),
+            "rationale": _clean_text(source_camera_plan.get("rationale")) or _clean_text(camera_preset.get("description")),
         }
+        custom_mode = _clean_text(source_camera_plan.get("customMode"))
+        if custom_mode:
+            camera_plan["customMode"] = custom_mode
+        if isinstance(source_camera_plan.get("customShots"), dict):
+            camera_plan["customShots"] = source_camera_plan["customShots"]
 
         warnings: list[dict[str, str]] = []
         if not texture_urls and not texture_slots:

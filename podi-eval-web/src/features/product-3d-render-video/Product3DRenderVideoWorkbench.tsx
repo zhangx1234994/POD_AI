@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
@@ -20,6 +20,22 @@ type ScenePreset = string;
 type SlotTextureState = Record<string, string>;
 type TextureSlotEntry = { materialSlot: string; imageUrl: string; label: string };
 type MotionPathPoint = { x: number; y: number };
+type CameraMode = 'preset' | 'custom';
+type CameraShotLabel = 'start' | 'end';
+type Vector3Record = { x: number; y: number; z: number };
+type CameraShotSnapshot = {
+  label: CameraShotLabel;
+  position: Vector3Record;
+  target: Vector3Record;
+  distance: number;
+  azimuth: number;
+  elevation: number;
+  savedAt: number;
+};
+type CameraShotPair = {
+  start: CameraShotSnapshot | null;
+  end: CameraShotSnapshot | null;
+};
 type SelectOption = { label: string; value: string; desc?: string };
 type ModelProfile = {
   title: string;
@@ -142,13 +158,16 @@ type Product3DPreviewHandle = {
     durationSeconds: number,
     cameraPreset: CameraPreset,
     cameraDistance: CameraDistance,
+    customShots?: CameraShotPair | null,
   ) => Promise<void>;
   exportVideo: (
     durationSeconds: number,
     cameraPreset: CameraPreset,
     cameraDistance: CameraDistance,
     aspectRatio: string,
+    customShots?: CameraShotPair | null,
   ) => Promise<ExportedPreviewVideo>;
+  captureCameraShot: (label: CameraShotLabel) => CameraShotSnapshot;
 };
 
 const DEFAULT_MODEL_OPTIONS: SelectOption[] = [
@@ -458,6 +477,8 @@ const DEFAULT_MOTION_PATH: MotionPathPoint[] = [
   { x: 0.78, y: 0.42 },
 ];
 
+const CAMERA_TEMPLATE_PRIORITY = ['orbit_360', 'hero_turntable', 'slow_push_in', 'detail_sweep'];
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -593,6 +614,57 @@ function buildCameraOptions(catalog: Product3DRenderVideoCatalogResponse | null)
   return options.length ? options : CAMERA_OPTIONS;
 }
 
+function buildRecommendedCameraOptions(options: SelectOption[], activeValue: string): SelectOption[] {
+  const byValue = new Map(options.map((item) => [item.value, item]));
+  const recommended = CAMERA_TEMPLATE_PRIORITY.map((value) => byValue.get(value)).filter((item): item is SelectOption => Boolean(item));
+  for (const option of options) {
+    if (recommended.length >= 4) break;
+    if (!recommended.some((item) => item.value === option.value)) recommended.push(option);
+  }
+  const active = byValue.get(activeValue);
+  if (active && !recommended.some((item) => item.value === active.value)) return [active, ...recommended.slice(0, 3)];
+  return recommended.slice(0, 4);
+}
+
+function defaultMotionPathForCameraPreset(preset: CameraPreset, modelKey: ModelKey): MotionPathPoint[] {
+  if (preset === 'slow_push_in') {
+    return modelKey === 'backpack_2551'
+      ? [
+          { x: 0.18, y: 0.64 },
+          { x: 0.5, y: 0.52 },
+          { x: 0.62, y: 0.45 },
+        ]
+      : [
+          { x: 0.22, y: 0.66 },
+          { x: 0.48, y: 0.54 },
+          { x: 0.58, y: 0.46 },
+        ];
+  }
+  if (preset === 'detail_sweep') {
+    return [
+      { x: 0.16, y: 0.54 },
+      { x: 0.38, y: 0.46 },
+      { x: 0.64, y: 0.46 },
+      { x: 0.84, y: 0.52 },
+    ];
+  }
+  if (preset === 'top_reveal') {
+    return [
+      { x: 0.5, y: 0.22 },
+      { x: 0.5, y: 0.46 },
+      { x: 0.5, y: 0.68 },
+    ];
+  }
+  if (preset === 'social_arc') {
+    return [
+      { x: 0.18, y: 0.68 },
+      { x: 0.44, y: 0.45 },
+      { x: 0.78, y: 0.38 },
+    ];
+  }
+  return DEFAULT_MOTION_PATH;
+}
+
 function buildCameraDistanceOptions(catalog: Product3DRenderVideoCatalogResponse | null): SelectOption[] {
   const options = asArray(catalog?.cameraDistances)
     .map((item) => asRecord(item))
@@ -603,6 +675,24 @@ function buildCameraDistanceOptions(catalog: Product3DRenderVideoCatalogResponse
     }))
     .filter((item) => item.value);
   return options.length ? options : CAMERA_DISTANCE_OPTIONS;
+}
+
+function buildDurationOptions(catalog: Product3DRenderVideoCatalogResponse | null): SelectOption[] {
+  const values = Array.isArray(catalog?.durationOptions) && catalog.durationOptions.length ? catalog.durationOptions : [3, 5, 6, 8, 12];
+  const options = values
+    .map((item) => {
+      if (typeof item === 'number' || typeof item === 'string') {
+        const seconds = Number(item);
+        if (!Number.isFinite(seconds) || seconds <= 0) return null;
+        return { label: `${seconds} 秒`, value: String(seconds) };
+      }
+      const record = asRecord(item);
+      const seconds = asNumber(record.value ?? record.seconds ?? record.durationSeconds, 0);
+      if (!Number.isFinite(seconds) || seconds <= 0) return null;
+      return { label: asString(record.label, `${seconds} 秒`), value: String(seconds) };
+    })
+    .filter((item): item is SelectOption => Boolean(item));
+  return options.length ? options : [3, 5, 6, 8, 12].map((seconds) => ({ label: `${seconds} 秒`, value: String(seconds) }));
 }
 
 function buildCameraDistanceProfiles(catalog: Product3DRenderVideoCatalogResponse | null): Record<string, CameraDistanceProfile> {
@@ -892,12 +982,65 @@ function clamp01(value: number) {
   return Math.min(1, Math.max(0, value));
 }
 
+function roundMetric(value: number, precision = 3) {
+  if (!Number.isFinite(value)) return 0;
+  const scale = 10 ** precision;
+  return Math.round(value * scale) / scale;
+}
+
 function normalizeMotionPath(points: MotionPathPoint[]): MotionPathPoint[] {
   const normalized = points
     .map((point) => ({ x: clamp01(point.x), y: clamp01(point.y) }))
     .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
     .slice(0, 12);
   return normalized.length >= 2 ? normalized : DEFAULT_MOTION_PATH;
+}
+
+function emptyCameraShots(): CameraShotPair {
+  return { start: null, end: null };
+}
+
+function isCompleteCameraShotPair(value: CameraShotPair | null | undefined): value is { start: CameraShotSnapshot; end: CameraShotSnapshot } {
+  return Boolean(value?.start && value?.end);
+}
+
+function vector3RecordFromVector(value: THREE.Vector3): Vector3Record {
+  return {
+    x: roundMetric(value.x),
+    y: roundMetric(value.y),
+    z: roundMetric(value.z),
+  };
+}
+
+function vector3FromRecord(value: Vector3Record): THREE.Vector3 {
+  return new THREE.Vector3(asNumber(value.x, 0), asNumber(value.y, 0), asNumber(value.z, 0));
+}
+
+function cameraShotToMotionPoint(shot: CameraShotSnapshot): MotionPathPoint {
+  const dx = shot.position.x - shot.target.x;
+  const dz = shot.position.z - shot.target.z;
+  const dy = shot.position.y - shot.target.y;
+  const azimuth = Math.atan2(dx, dz);
+  const horizontalDistance = Math.max(0.001, Math.hypot(dx, dz));
+  const elevation = Math.atan2(dy, horizontalDistance);
+  return {
+    x: clamp01((azimuth + Math.PI) / (Math.PI * 2)),
+    y: clamp01(0.58 - elevation / Math.PI),
+  };
+}
+
+function cameraShotsToMotionPath(value: CameraShotPair | null | undefined): MotionPathPoint[] | null {
+  if (!isCompleteCameraShotPair(value)) return null;
+  const start = cameraShotToMotionPoint(value.start);
+  const end = cameraShotToMotionPoint(value.end);
+  return normalizeMotionPath([
+    start,
+    {
+      x: clamp01((start.x + end.x) / 2),
+      y: clamp01((start.y + end.y) / 2),
+    },
+    end,
+  ]);
 }
 
 function motionPathBounds(points: MotionPathPoint[]) {
@@ -941,26 +1084,30 @@ function cameraPathProfileLabel(preset: CameraPreset, modelKey: ModelKey) {
   if (preset === 'top_reveal') return '镜头从上方过渡到正面，适合结构揭示';
   if (preset === 'social_arc') return '镜头走短弧线，节奏更适合社媒素材';
   if (preset === 'hero_turntable') return '主视觉稳定弧线，适合商品页首屏动效';
-  return '按当前模板播放镜头轨迹，商品保持固定';
+  return '按当前模板播放镜头，商品保持固定';
 }
 
 function buildCameraPlanPayload(params: {
   modelKey: ModelKey;
   materialSlot: string;
   cameraPreset: CameraPreset;
+  cameraMode: CameraMode;
   cameraDistance: CameraDistance;
   scenePreset: ScenePreset;
   motionPath: MotionPathPoint[];
+  customCameraShots: CameraShotPair;
   durationSeconds: number;
   aspectRatio: string;
   confirmed: boolean;
 }) {
   const points = normalizeMotionPath(params.motionPath);
+  const hasCustomShots = params.cameraMode === 'custom' && isCompleteCameraShotPair(params.customCameraShots);
   return {
-    version: 'camera-plan-v1',
+    version: 'camera-plan-v2',
     template: params.cameraPreset,
     productMotion: 'fixed',
-    cameraMotion: 'path_playback',
+    cameraMotion: hasCustomShots ? 'manual_start_end_playback' : 'path_playback',
+    customMode: params.cameraMode === 'custom' ? 'manual_start_end_capture' : 'preset_template',
     playbackConfirmed: params.confirmed,
     confirmationRequiredBeforeRender: true,
     durationSeconds: params.durationSeconds,
@@ -970,10 +1117,17 @@ function buildCameraPlanPayload(params: {
     focusTarget: 'product_center',
     focusSlot: params.materialSlot,
     path: {
-      coordinateSpace: 'normalized_camera_path_preview',
+      coordinateSpace: hasCustomShots ? 'camera_shot_projection_preview' : 'normalized_camera_path_preview',
       points,
       pointCount: points.length,
     },
+    customShots: hasCustomShots
+      ? {
+          start: params.customCameraShots.start,
+          end: params.customCameraShots.end,
+          captureMethod: 'user_rotated_3d_view',
+        }
+      : undefined,
     constraints: {
       productFixed: true,
       keepFullProductInFrame: true,
@@ -1205,6 +1359,20 @@ function applyCameraMotion(
   controls.target.copy(originalTarget);
 }
 
+function applyCustomCameraMotion(
+  camera: THREE.PerspectiveCamera,
+  controls: OrbitControls,
+  startPosition: THREE.Vector3,
+  startTarget: THREE.Vector3,
+  endPosition: THREE.Vector3,
+  endTarget: THREE.Vector3,
+  progress: number,
+) {
+  const eased = 0.5 - Math.cos(Math.min(1, Math.max(0, progress)) * Math.PI) / 2;
+  camera.position.copy(startPosition).lerp(endPosition, eased);
+  controls.target.copy(startTarget).lerp(endTarget, eased);
+}
+
 function enforceCameraMinimumDistance(camera: THREE.PerspectiveCamera, target: THREE.Vector3, minimumDistance: number) {
   const current = camera.position.distanceTo(target);
   if (!Number.isFinite(current) || current >= minimumDistance) return;
@@ -1237,25 +1405,37 @@ function applyMaterialState(
   materialSlot: string,
   activeMaterialSlot: string,
 ): THREE.Material {
+  if (texture) {
+    const source = material as THREE.Material & {
+      alphaTest?: number;
+      opacity?: number;
+      transparent?: boolean;
+    };
+    const faithful = new THREE.MeshBasicMaterial({
+      map: texture,
+      color: 0xffffff,
+      side: material.side,
+      transparent: Boolean(source.transparent),
+      opacity: typeof source.opacity === 'number' ? source.opacity : 1,
+      alphaTest: typeof source.alphaTest === 'number' ? source.alphaTest : 0,
+    });
+    faithful.name = material.name;
+    faithful.depthTest = material.depthTest;
+    faithful.depthWrite = material.depthWrite;
+    faithful.toneMapped = false;
+    faithful.needsUpdate = true;
+    return faithful;
+  }
+
   const next = material.clone() as THREE.Material & {
     color?: THREE.Color;
     emissive?: THREE.Color;
     emissiveIntensity?: number;
-    map?: THREE.Texture | null;
-    roughness?: number;
-    metalness?: number;
   };
-
-  if (texture) {
-    next.map = texture;
-    if (next.color instanceof THREE.Color) next.color.set(0xffffff);
-    next.roughness = Math.max(0.42, Number(next.roughness ?? 0.7));
-    next.metalness = Math.min(0.08, Number(next.metalness ?? 0));
-  }
 
   if (materialSlot === activeMaterialSlot && next.emissive instanceof THREE.Color) {
     next.emissive.set(0x0f62fe);
-    next.emissiveIntensity = texture ? 0.1 : 0.18;
+    next.emissiveIntensity = 0.18;
   }
 
   next.name = material.name;
@@ -1308,6 +1488,13 @@ function Product3DModelPreview({
   scenePreset,
   cameraDistance,
   cameraDistanceProfiles,
+  cameraPreset,
+  cameraMode,
+  customCameraShots,
+  cameraPathConfirmed,
+  cameraPathPlaybackStatus,
+  onCaptureCameraShot,
+  onClearCustomCameraShots,
   onExportHandle,
 }: {
   modelKey: ModelKey;
@@ -1317,6 +1504,13 @@ function Product3DModelPreview({
   scenePreset: ScenePreset;
   cameraDistance: CameraDistance;
   cameraDistanceProfiles: Record<string, CameraDistanceProfile>;
+  cameraPreset: CameraPreset;
+  cameraMode: CameraMode;
+  customCameraShots: CameraShotPair;
+  cameraPathConfirmed: boolean;
+  cameraPathPlaybackStatus: CameraPathPlaybackStatus;
+  onCaptureCameraShot: (label: CameraShotLabel) => void;
+  onClearCustomCameraShots: () => void;
   onExportHandle?: (handle: Product3DPreviewHandle | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -1340,6 +1534,10 @@ function Product3DModelPreview({
           distance: CameraDistance;
           originalPosition: THREE.Vector3;
           originalTarget: THREE.Vector3;
+          customStartPosition?: THREE.Vector3;
+          customStartTarget?: THREE.Vector3;
+          customEndPosition?: THREE.Vector3;
+          customEndTarget?: THREE.Vector3;
           minimumCameraDistance: number;
         }
       | null = null;
@@ -1434,14 +1632,24 @@ function Product3DModelPreview({
       },
     );
 
-    const beginCameraPlayback = (seconds: number, preset: CameraPreset, distance: CameraDistance) => {
+    const beginCameraPlayback = (seconds: number, preset: CameraPreset, distance: CameraDistance, customShots?: CameraShotPair | null) => {
       if (!modelRoot) throw new Error('3D 模型还没有加载完成，请等待预览显示“已应用贴图”后再生成视频。');
       const framing = fitCameraToObject(camera, controls, modelRoot, distance, modelKey, cameraDistanceProfiles);
-      const originalPosition = framing.position.clone();
-      const originalTarget = framing.target.clone();
+      const restorePosition = camera.position.clone();
+      const restoreTarget = controls.target.clone();
+      const hasCustomShots = isCompleteCameraShotPair(customShots);
+      const originalPosition = hasCustomShots ? vector3FromRecord(customShots.start.position) : framing.position.clone();
+      const originalTarget = hasCustomShots ? vector3FromRecord(customShots.start.target) : framing.target.clone();
+      const customEndPosition = hasCustomShots ? vector3FromRecord(customShots.end.position) : undefined;
+      const customEndTarget = hasCustomShots ? vector3FromRecord(customShots.end.target) : undefined;
       const minimumCameraDistance = Math.max(2, framing.safeCameraZ * 0.82);
       const originalAutoRotate = controls.autoRotate;
       const originalAutoRotateSpeed = controls.autoRotateSpeed;
+      if (hasCustomShots) {
+        camera.position.copy(originalPosition);
+        controls.target.copy(originalTarget);
+        controls.update();
+      }
       recording = {
         startAt: performance.now(),
         durationMs: Math.max(1, seconds) * 1000,
@@ -1449,6 +1657,10 @@ function Product3DModelPreview({
         distance,
         originalPosition,
         originalTarget,
+        customStartPosition: hasCustomShots ? originalPosition.clone() : undefined,
+        customStartTarget: hasCustomShots ? originalTarget.clone() : undefined,
+        customEndPosition,
+        customEndTarget,
         minimumCameraDistance,
       };
       controls.autoRotate = false;
@@ -1460,8 +1672,8 @@ function Product3DModelPreview({
         originalAutoRotateSpeed,
         restore: () => {
           recording = null;
-          camera.position.copy(originalPosition);
-          controls.target.copy(originalTarget);
+          camera.position.copy(restorePosition);
+          controls.target.copy(restoreTarget);
           controls.autoRotate = originalAutoRotate;
           controls.autoRotateSpeed = originalAutoRotateSpeed;
           controls.update();
@@ -1469,8 +1681,8 @@ function Product3DModelPreview({
       };
     };
 
-    const playCameraPath = async (seconds: number, preset: CameraPreset, distance: CameraDistance) => {
-      const playback = beginCameraPlayback(seconds, preset, distance);
+    const playCameraPath = async (seconds: number, preset: CameraPreset, distance: CameraDistance, customShots?: CameraShotPair | null) => {
+      const playback = beginCameraPlayback(seconds, preset, distance, customShots);
       try {
         await delay(Math.max(1, seconds) * 1000 + 120);
       } finally {
@@ -1478,7 +1690,7 @@ function Product3DModelPreview({
       }
     };
 
-    const exportVideo = async (seconds: number, preset: CameraPreset, distance: CameraDistance, aspectRatio: string) => {
+    const exportVideo = async (seconds: number, preset: CameraPreset, distance: CameraDistance, aspectRatio: string, customShots?: CameraShotPair | null) => {
       if (!modelRoot) throw new Error('3D 模型还没有加载完成，请等待预览显示“已应用贴图”后再生成视频。');
       if (typeof MediaRecorder === 'undefined') throw new Error('当前浏览器不支持 MediaRecorder，无法本地录制 3D 预览视频。');
       if (!('captureStream' in renderer.domElement)) throw new Error('当前浏览器不支持 canvas.captureStream，无法导出 3D 预览视频。');
@@ -1512,7 +1724,7 @@ function Product3DModelPreview({
         };
       });
 
-      const playback = beginCameraPlayback(seconds, preset, distance);
+      const playback = beginCameraPlayback(seconds, preset, distance, customShots);
       recorder.start(100);
       try {
         await delay(Math.max(1, seconds) * 1000 + 160);
@@ -1524,12 +1736,38 @@ function Product3DModelPreview({
       }
     };
 
-    onExportHandle?.({ playCameraPath, exportVideo });
+    const captureCameraShot = (label: CameraShotLabel): CameraShotSnapshot => {
+      const offset = camera.position.clone().sub(controls.target);
+      const horizontalDistance = Math.max(0.001, Math.hypot(offset.x, offset.z));
+      return {
+        label,
+        position: vector3RecordFromVector(camera.position),
+        target: vector3RecordFromVector(controls.target),
+        distance: roundMetric(offset.length(), 3),
+        azimuth: roundMetric(THREE.MathUtils.radToDeg(Math.atan2(offset.x, offset.z)), 1),
+        elevation: roundMetric(THREE.MathUtils.radToDeg(Math.atan2(offset.y, horizontalDistance)), 1),
+        savedAt: Date.now(),
+      };
+    };
+
+    onExportHandle?.({ playCameraPath, exportVideo, captureCameraShot });
 
     const animate = () => {
       if (recording) {
         const progress = (performance.now() - recording.startAt) / recording.durationMs;
-        applyCameraMotion(camera, controls, recording.preset, recording.originalPosition, recording.originalTarget, progress);
+        if (recording.customStartPosition && recording.customStartTarget && recording.customEndPosition && recording.customEndTarget) {
+          applyCustomCameraMotion(
+            camera,
+            controls,
+            recording.customStartPosition,
+            recording.customStartTarget,
+            recording.customEndPosition,
+            recording.customEndTarget,
+            progress,
+          );
+        } else {
+          applyCameraMotion(camera, controls, recording.preset, recording.originalPosition, recording.originalTarget, progress);
+        }
         enforceCameraMinimumDistance(camera, controls.target, recording.minimumCameraDistance);
       }
       controls.update();
@@ -1554,121 +1792,98 @@ function Product3DModelPreview({
   return (
     <div className="podi-product-3d-render__model-preview">
       <div ref={hostRef} className="podi-product-3d-render__model-canvas" />
+      <CameraShotOverlay
+        cameraMode={cameraMode}
+        cameraPreset={cameraPreset}
+        modelKey={modelKey}
+        customCameraShots={customCameraShots}
+        confirmed={cameraPathConfirmed}
+        playbackStatus={cameraPathPlaybackStatus}
+        onCapture={onCaptureCameraShot}
+        onClear={onClearCustomCameraShots}
+      />
       <div className="podi-product-3d-render__model-preview-head">
         <strong>{modelProfile.title}</strong>
         <span>{textureSlotEntries.length}/{modelProfile.materialSlots.length} 个贴图点已绑定</span>
       </div>
       <div className={`podi-product-3d-render__model-preview-status is-${previewStatus.state}`}>
         <span>{previewStatus.message}</span>
-        <small>可拖拽旋转 · 自动慢转 · 材质名直连模型槽位</small>
+        <small>可拖拽旋转 · 贴图颜色保真显示 · 材质名直连模型槽位</small>
       </div>
     </div>
   );
 }
 
-function CameraPathEditor({
-  value,
-  onChange,
+function CameraShotOverlay({
+  cameraMode,
   cameraPreset,
   modelKey,
+  customCameraShots,
   confirmed,
   playbackStatus,
+  onCapture,
+  onClear,
 }: {
-  value: MotionPathPoint[];
-  onChange: (next: MotionPathPoint[]) => void;
+  cameraMode: CameraMode;
   cameraPreset: CameraPreset;
   modelKey: ModelKey;
+  customCameraShots: CameraShotPair;
   confirmed: boolean;
   playbackStatus: CameraPathPlaybackStatus;
+  onCapture: (label: CameraShotLabel) => void;
+  onClear: () => void;
 }) {
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const drawingRef = useRef(false);
-  const draftRef = useRef<MotionPathPoint[]>(value.length ? value : DEFAULT_MOTION_PATH);
-  const points = value.length ? value : DEFAULT_MOTION_PATH;
-  const polyline = points.map((point) => `${point.x * 100},${point.y * 100}`).join(' ');
-  const startPoint = points[0] || DEFAULT_MOTION_PATH[0];
-  const endPoint = points[points.length - 1] || DEFAULT_MOTION_PATH[DEFAULT_MOTION_PATH.length - 1];
-
-  useEffect(() => {
-    draftRef.current = value.length ? value : DEFAULT_MOTION_PATH;
-  }, [value]);
-
-  const readPoint = (event: ReactPointerEvent<SVGSVGElement>): MotionPathPoint => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0.5, y: 0.5 };
-    return {
-      x: clamp01((event.clientX - rect.left) / Math.max(1, rect.width)),
-      y: clamp01((event.clientY - rect.top) / Math.max(1, rect.height)),
-    };
-  };
-
-  const addPoint = (point: MotionPathPoint) => {
-    const current = draftRef.current.length ? draftRef.current : [point];
-    const last = current[current.length - 1];
-    if (Math.hypot(last.x - point.x, last.y - point.y) < 0.035) return;
-    draftRef.current = [...current, point].slice(-12);
-    onChange(draftRef.current);
-  };
+  const hasStart = Boolean(customCameraShots.start);
+  const hasEnd = Boolean(customCameraShots.end);
+  const statusLabel = confirmed ? '镜头已确认' : playbackStatus === 'playing' ? '正在播放' : '待播放确认';
+  const startMeta = customCameraShots.start ? `方位 ${customCameraShots.start.azimuth}° / 俯仰 ${customCameraShots.start.elevation}°` : '先转动到开始画面';
+  const endMeta = customCameraShots.end ? `方位 ${customCameraShots.end.azimuth}° / 俯仰 ${customCameraShots.end.elevation}°` : '再转动到结束画面';
 
   return (
-    <div className="podi-product-3d-render__motion-editor">
-      <div>
-        <Typography.Text strong>镜头轨迹预览</Typography.Text>
-        <Typography.Text theme="secondary">
-          商品固定在场景中；这里画的是相机路径和取景节奏。先播放确认镜头轨迹，再生成本地或服务端视频。
-        </Typography.Text>
+    <div className={`podi-product-3d-render__camera-overlay is-${cameraMode}`} aria-label="3D 模型镜头确认">
+      <div className="podi-product-3d-render__camera-overlay-hint">
+        <strong>{cameraMode === 'custom' ? '自定义镜头' : '当前预设镜头'}</strong>
+        <span>
+          {cameraMode === 'custom'
+            ? '直接拖拽 3D 模型调整视角，分别保存开始和结束画面。'
+            : cameraPathProfileLabel(cameraPreset, modelKey)}
+        </span>
       </div>
-      <svg
-        ref={svgRef}
-        viewBox="0 0 100 100"
-        role="img"
-        aria-label="3D 镜头轨迹编辑器"
-        onPointerDown={(event) => {
-          drawingRef.current = true;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          draftRef.current = [readPoint(event)];
-          onChange(draftRef.current);
-        }}
-        onPointerMove={(event) => {
-          if (!drawingRef.current) return;
-          addPoint(readPoint(event));
-        }}
-        onPointerUp={(event) => {
-          drawingRef.current = false;
-          event.currentTarget.releasePointerCapture(event.pointerId);
-          if (draftRef.current.length < 2) onChange(DEFAULT_MOTION_PATH);
-        }}
-      >
-        <rect className="podi-product-3d-render__motion-bg" x="0" y="0" width="100" height="100" rx="6" />
-        <rect className="podi-product-3d-render__motion-safe-zone" x="8" y="12" width="84" height="74" rx="8" />
-        <ellipse className="podi-product-3d-render__motion-floor" cx="50" cy="62" rx="24" ry="14" />
-        <circle className="podi-product-3d-render__camera-product-anchor" cx="50" cy="56" r={modelKey === 'cup_1660' ? 8 : 10} />
-        <path className="podi-product-3d-render__motion-guide" d="M 10 72 C 30 58, 58 48, 90 34" />
-        <polyline className="podi-product-3d-render__motion-line" points={polyline} />
-        {points.map((point, index) => (
-          <circle className="podi-product-3d-render__motion-point" key={`${point.x}-${point.y}-${index}`} cx={point.x * 100} cy={point.y * 100} r={index === 0 ? 3.4 : 2.6} />
-        ))}
-        <text className="podi-product-3d-render__motion-label" x={clamp01(startPoint.x) * 100 + 4} y={clamp01(startPoint.y) * 100 - 4}>
-          起点
-        </text>
-        <text className="podi-product-3d-render__motion-label" x={Math.max(6, clamp01(endPoint.x) * 100 - 18)} y={clamp01(endPoint.y) * 100 - 4}>
-          终点
-        </text>
-        <text className="podi-product-3d-render__motion-label" x="42" y="58">
-          商品固定
-        </text>
-      </svg>
-      <div className="podi-product-3d-render__motion-actions">
-        <Tag theme="primary" variant="light">{points.length} 个镜头点</Tag>
+      {cameraMode === 'custom' ? (
+        <div className="podi-product-3d-render__camera-shot-panel" aria-label="自定义镜头保存">
+          <div>
+            <strong>开始镜头</strong>
+            <span>{startMeta}</span>
+          </div>
+          <div>
+            <strong>结束镜头</strong>
+            <span>{endMeta}</span>
+          </div>
+          <Button size="small" variant={hasStart ? 'outline' : 'base'} onClick={() => onCapture('start')}>
+            {hasStart ? '重存开始' : '保存开始'}
+          </Button>
+          <Button size="small" variant={hasEnd ? 'outline' : 'base'} onClick={() => onCapture('end')}>
+            {hasEnd ? '重存结束' : '保存结束'}
+          </Button>
+          <Button size="small" variant="text" onClick={onClear}>
+            清空
+          </Button>
+        </div>
+      ) : null}
+      <div className="podi-product-3d-render__camera-overlay-status">
+        <Tag theme={cameraMode === 'custom' ? 'primary' : 'default'} variant="light">
+          {cameraMode === 'custom' ? '自定义' : '预设'}
+        </Tag>
         <Tag theme="success" variant="light">商品固定</Tag>
         <Tag theme={confirmed ? 'success' : playbackStatus === 'playing' ? 'primary' : 'warning'} variant="light">
-          {confirmed ? '轨迹已确认' : playbackStatus === 'playing' ? '正在播放' : '待播放确认'}
+          {statusLabel}
         </Tag>
-        <Button size="small" variant="outline" onClick={() => onChange(DEFAULT_MOTION_PATH)}>
-          恢复推荐轨迹
-        </Button>
+        {cameraMode === 'custom' ? (
+          <Tag theme={hasStart && hasEnd ? 'success' : 'warning'} variant="light">
+            {hasStart && hasEnd ? '开始/结束已保存' : '需保存开始/结束'}
+          </Tag>
+        ) : null}
       </div>
-      <Typography.Text theme="secondary">{cameraPathProfileLabel(cameraPreset, modelKey)}</Typography.Text>
     </div>
   );
 }
@@ -1683,9 +1898,11 @@ export function Product3DRenderVideoWorkbench() {
   const [uploadingSlot, setUploadingSlot] = useState('');
   const [materialSlot, setMaterialSlot] = useState('front');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('orbit_360');
+  const [cameraMode, setCameraMode] = useState<CameraMode>('preset');
   const [cameraDistance, setCameraDistance] = useState<CameraDistance>('wide');
   const [scenePreset, setScenePreset] = useState<ScenePreset>('clean_studio');
   const [motionPath, setMotionPath] = useState<MotionPathPoint[]>(DEFAULT_MOTION_PATH);
+  const [customCameraShots, setCustomCameraShots] = useState<CameraShotPair>(() => emptyCameraShots());
   const [durationSeconds, setDurationSeconds] = useState(6);
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [result, setResult] = useState<Product3DRenderVideoResponse | null>(null);
@@ -1740,21 +1957,15 @@ export function Product3DRenderVideoWorkbench() {
   const modelOptions = useMemo(() => buildModelOptions(modelProfiles), [modelProfiles]);
   const cameraOptions = useMemo(() => buildCameraOptions(catalog), [catalog]);
   const cameraOptionMap = useMemo(() => optionMap(cameraOptions), [cameraOptions]);
+  const recommendedCameraOptions = useMemo(() => buildRecommendedCameraOptions(cameraOptions, cameraPreset), [cameraOptions, cameraPreset]);
   const cameraDistanceOptions = useMemo(() => buildCameraDistanceOptions(catalog), [catalog]);
   const cameraDistanceOptionMap = useMemo(() => optionMap(cameraDistanceOptions), [cameraDistanceOptions]);
   const cameraDistanceProfiles = useMemo(() => buildCameraDistanceProfiles(catalog), [catalog]);
   const sceneOptions = useMemo(() => buildSceneOptions(catalog), [catalog]);
   const sceneOptionMap = useMemo(() => optionMap(sceneOptions), [sceneOptions]);
-  const durationOptions = useMemo(() => {
-    const values = Array.isArray(catalog?.durationOptions) && catalog.durationOptions.length ? catalog.durationOptions : [3, 5, 6, 8, 12];
-    return values.map((seconds) => ({ label: `${seconds} 秒`, value: String(seconds) }));
-  }, [catalog]);
+  const durationOptions = useMemo(() => buildDurationOptions(catalog), [catalog]);
   const aspectRatioOptions = useMemo(() => (catalog?.aspectRatioOptions?.length ? catalog.aspectRatioOptions : ['16:9', '1:1', '4:5', '9:16']), [catalog]);
   const modelProfile = modelProfiles[modelKey] || Object.values(modelProfiles)[0] || MODEL_PROFILES.cup_1660;
-  const materialOptions = useMemo(
-    () => modelProfile.materialSlots.map((slot) => ({ label: `${slotLabel(slot)} · ${slot}`, value: slot })),
-    [modelProfile],
-  );
 
   const textureSlotEntries = useMemo(
     () =>
@@ -1780,9 +1991,13 @@ export function Product3DRenderVideoWorkbench() {
   const selectedSceneProfile = sceneOptionMap[scenePreset] || sceneOptions[0] || SCENE_OPTIONS[0];
   const sceneAssetSourceProfiles = useMemo(() => buildSceneAssetSourceProfiles(catalog), [catalog]);
   const selectedDistanceProfile = cameraDistanceProfiles[cameraDistance] || cameraDistanceProfiles.wide || CAMERA_DISTANCE_PROFILES.wide;
+  const effectiveMotionPath = useMemo(
+    () => (cameraMode === 'custom' ? cameraShotsToMotionPath(customCameraShots) || motionPath : motionPath),
+    [cameraMode, customCameraShots, motionPath],
+  );
   const localFramingSafety = useMemo(
-    () => buildFramingSafetySummary(motionPath, cameraDistance, selectedDistanceProfile),
-    [cameraDistance, motionPath, selectedDistanceProfile],
+    () => buildFramingSafetySummary(effectiveMotionPath, cameraDistance, selectedDistanceProfile),
+    [cameraDistance, effectiveMotionPath, selectedDistanceProfile],
   );
 
   useEffect(() => {
@@ -1791,9 +2006,12 @@ export function Product3DRenderVideoWorkbench() {
     setModelKey(next);
     setMaterialSlot(modelProfiles[next]?.firstSlot || 'front');
     setSlotTextureUrls({});
+    setCameraMode('preset');
+    setCustomCameraShots(emptyCameraShots());
+    setMotionPath(defaultMotionPathForCameraPreset(cameraPreset, next));
     setResult(null);
     clearLocalVideo();
-  }, [modelKey, modelProfiles]);
+  }, [cameraPreset, modelKey, modelProfiles]);
 
   useEffect(() => {
     if (modelProfile.materialSlots.includes(materialSlot)) return;
@@ -1834,6 +2052,35 @@ export function Product3DRenderVideoWorkbench() {
     setCameraPathConfirmed(false);
     setVideoExportError('');
   }
+
+  const clearCustomCameraShots = () => {
+    setCustomCameraShots(emptyCameraShots());
+    setMotionPath(defaultMotionPathForCameraPreset(cameraPreset, modelKey));
+    setResult(null);
+    clearLocalVideo();
+  };
+
+  const captureCustomCameraShot = (label: CameraShotLabel) => {
+    setError('');
+    setVideoExportError('');
+    if (!previewHandle) {
+      setVideoExportError('3D 预览还没有准备好，请等待模型加载完成后再保存镜头。');
+      return;
+    }
+    try {
+      const shot = previewHandle.captureCameraShot(label);
+      const nextShots: CameraShotPair = { ...customCameraShots, [label]: shot };
+      const nextPath = cameraShotsToMotionPath(nextShots);
+      setCameraMode('custom');
+      setCustomCameraShots(nextShots);
+      if (nextPath) setMotionPath(nextPath);
+      setResult(null);
+      clearLocalVideo();
+      MessagePlugin.success(label === 'start' ? '开始镜头已保存' : '结束镜头已保存');
+    } catch (err) {
+      setVideoExportError(String((err as any)?.message || err || '保存镜头失败'));
+    }
+  };
 
   const updateSlotTexture = (slot: string, url: string) => {
     setSlotTextureUrls((prev) => {
@@ -1895,14 +2142,16 @@ export function Product3DRenderVideoWorkbench() {
     cameraPreset,
     cameraDistance,
     scenePreset,
-    motionPath: normalizeMotionPath(motionPath),
+    motionPath: normalizeMotionPath(effectiveMotionPath),
     cameraPlan: buildCameraPlanPayload({
       modelKey,
       materialSlot,
       cameraPreset,
+      cameraMode,
       cameraDistance,
       scenePreset,
-      motionPath,
+      motionPath: effectiveMotionPath,
+      customCameraShots,
       durationSeconds,
       aspectRatio,
       confirmed: cameraPathConfirmed,
@@ -1932,19 +2181,24 @@ export function Product3DRenderVideoWorkbench() {
     setVideoExportError('');
     if (!previewHandle) {
       setCameraPathPlaybackStatus('error');
-      setVideoExportError('3D 预览还没有准备好，请等待模型加载完成后再播放镜头轨迹。');
+      setVideoExportError('3D 预览还没有准备好，请等待模型加载完成后再播放镜头。');
+      return;
+    }
+    if (cameraMode === 'custom' && !isCompleteCameraShotPair(customCameraShots)) {
+      setCameraPathPlaybackStatus('error');
+      setVideoExportError('自定义镜头需要先保存开始镜头和结束镜头。');
       return;
     }
     setCameraPathPlaybackStatus('playing');
     setCameraPathConfirmed(false);
     try {
-      await previewHandle.playCameraPath(durationSeconds, cameraPreset, cameraDistance);
+      await previewHandle.playCameraPath(durationSeconds, cameraPreset, cameraDistance, cameraMode === 'custom' ? customCameraShots : null);
       setCameraPathConfirmed(true);
       setCameraPathPlaybackStatus('confirmed');
-      MessagePlugin.success('镜头轨迹已播放并确认，可以生成预览或服务端视频');
+      MessagePlugin.success('镜头已播放并确认，可以生成预览或服务端视频');
     } catch (err) {
       setCameraPathPlaybackStatus('error');
-      setVideoExportError(String((err as any)?.message || err || '镜头轨迹播放失败'));
+      setVideoExportError(String((err as any)?.message || err || '镜头播放失败'));
     }
   };
 
@@ -1953,7 +2207,7 @@ export function Product3DRenderVideoWorkbench() {
     setVideoExportError('');
     if (!cameraPathConfirmed) {
       setVideoExportStatus('error');
-      setVideoExportError('请先播放并确认镜头轨迹，再生成本地预览视频。');
+      setVideoExportError('请先播放并确认镜头，再生成本地预览视频。');
       return;
     }
     if (!previewHandle) {
@@ -1963,7 +2217,7 @@ export function Product3DRenderVideoWorkbench() {
     }
     setVideoExportStatus('recording');
     try {
-      const exported = await previewHandle.exportVideo(durationSeconds, cameraPreset, cameraDistance, aspectRatio);
+      const exported = await previewHandle.exportVideo(durationSeconds, cameraPreset, cameraDistance, aspectRatio, cameraMode === 'custom' ? customCameraShots : null);
       if (exported.blob.size <= 0) throw new Error('本地视频导出为空，请重新录制。');
       const url = URL.createObjectURL(exported.blob);
       setLocalVideo((prev) => {
@@ -2012,7 +2266,7 @@ export function Product3DRenderVideoWorkbench() {
     setError('');
     setVideoExportError('');
     if (!cameraPathConfirmed) {
-      setError('请先播放并确认镜头轨迹，再提交服务端 MP4/OSS 视频。');
+      setError('请先播放并确认镜头，再提交服务端 MP4/OSS 视频。');
       return;
     }
     if (!primaryTextureImageUrl) {
@@ -2233,11 +2487,11 @@ export function Product3DRenderVideoWorkbench() {
 
       <div className="podi-product-commercialization__studio">
         <main className="podi-product-commercialization__stage-main">
-          <section className="podi-product-commercialization__stage-panel">
+          <section className="podi-product-commercialization__stage-panel podi-product-3d-render__texture-panel">
             <div className="podi-product-commercialization__stage-title">
-              <span>STEP 1</span>
-              <Typography.Title level="h4">选择受控 3D 模型</Typography.Title>
-              <Typography.Text theme="secondary">模型决定可贴图区域。这里不输入“生成需求”，先选模型资产。</Typography.Text>
+              <span>TEXTURE</span>
+              <Typography.Title level="h4">贴图设置</Typography.Title>
+              <Typography.Text theme="secondary">只在这里处理模型和材质槽贴图；镜头确认和导出都在预览棚里完成。</Typography.Text>
             </div>
             <div className="podi-product-3d-render__model-row">
               <Select
@@ -2247,6 +2501,9 @@ export function Product3DRenderVideoWorkbench() {
                   const key = String(v) as ModelKey;
                   setModelKey(key);
                   setMaterialSlot(modelProfiles[key]?.firstSlot || 'front');
+                  setCameraMode('preset');
+                  setCustomCameraShots(emptyCameraShots());
+                  setMotionPath(defaultMotionPathForCameraPreset(cameraPreset, key));
                   setSlotTextureUrls({});
                   setResult(null);
                   clearLocalVideo();
@@ -2258,16 +2515,68 @@ export function Product3DRenderVideoWorkbench() {
                 <span>{modelProfile.summary}</span>
               </div>
             </div>
+            <div className="podi-product-3d-render__active-texture">
+              <div className="podi-product-commercialization__side-image">
+                {activeTextureImageUrl ? <img src={activeTextureImageUrl} alt={`${slotLabel(materialSlot)}贴图`} /> : <span>当前贴图点未绑定图片</span>}
+              </div>
+              <div className="podi-field-stack">
+                <Typography.Text strong>
+                  当前贴图点：{slotLabel(materialSlot)} · {materialSlot}
+                </Typography.Text>
+                <div className="podi-product-3d-render__texture-actions">
+                  <Input
+                    value={activeTextureImageUrl}
+                    onChange={(v) => updateSlotTexture(materialSlot, String(v))}
+                    placeholder="https://..."
+                    clearable
+                  />
+                  <input
+                    ref={uploadRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(event) => void uploadTexture(materialSlot, event.currentTarget.files?.[0])}
+                  />
+                  <Button
+                    variant="outline"
+                    loading={status === 'uploading' && uploadingSlot === materialSlot}
+                    onClick={() => uploadRef.current?.click()}
+                  >
+                    上传到当前点
+                  </Button>
+                </div>
+                <Typography.Text theme="secondary">
+                  先选贴图点，再上传图片。贴图会立即应用到右侧真实 3D 模型，拍摄预览区会同步更新。
+                </Typography.Text>
+              </div>
+            </div>
+            <div className="podi-product-3d-render__slot-list" aria-label="贴图点选择">
+              {modelProfile.materialSlots.map((slot) => (
+                <button
+                  key={slot}
+                  type="button"
+                  className={`podi-product-3d-render__slot ${slot === materialSlot ? 'is-active' : ''}`}
+                  onClick={() => {
+                    setMaterialSlot(slot);
+                    setResult(null);
+                  }}
+                >
+                  <strong>{slotLabel(slot)}</strong>
+                  <span>{slot}</span>
+                  <small>{slotTextureUrls[slot] ? '已绑定贴图' : '未贴图'}</small>
+                </button>
+              ))}
+            </div>
           </section>
 
-          <section className="podi-product-commercialization__stage-panel">
+          <section className="podi-product-commercialization__stage-panel podi-product-3d-render__preview-workbench">
             <div className="podi-product-commercialization__stage-title">
-              <span>STEP 2</span>
-              <Typography.Title level="h4">选择固定贴图区域</Typography.Title>
-              <Typography.Text theme="secondary">贴图会落到模型的材质槽上。可逐个区域绑定贴图，并在左侧确认绑定关系。</Typography.Text>
+              <span>PREVIEW</span>
+              <Typography.Title level="h4">预览摄影棚</Typography.Title>
+              <Typography.Text theme="secondary">选择预设镜头，或直接拖动模型保存自定义开始/结束画面；播放确认后再导出视频。</Typography.Text>
             </div>
-            <div className="podi-product-3d-render__slot-layout">
-              <div className="podi-product-3d-render__slot-map" aria-label="模型贴图区域示意">
+            <div className="podi-product-3d-render__preview-shell">
+              <div className="podi-product-3d-render__preview-canvas" aria-label="3D 所见即所得预览">
                 <Product3DModelPreview
                   modelKey={modelKey}
                   modelProfile={modelProfile}
@@ -2276,212 +2585,199 @@ export function Product3DRenderVideoWorkbench() {
                   scenePreset={scenePreset}
                   cameraDistance={cameraDistance}
                   cameraDistanceProfiles={cameraDistanceProfiles}
+                  cameraPreset={cameraPreset}
+                  cameraMode={cameraMode}
+                  customCameraShots={customCameraShots}
+                  cameraPathConfirmed={cameraPathConfirmed}
+                  cameraPathPlaybackStatus={cameraPathPlaybackStatus}
+                  onCaptureCameraShot={captureCustomCameraShot}
+                  onClearCustomCameraShots={clearCustomCameraShots}
                   onExportHandle={setPreviewHandle}
                 />
-                <p>当前是真实 GLB/UV 客户端预览：贴图按材质名应用到模型表面，可拖拽检查位置和方向。服务端 MP4 会复用同一组槽位、场景、镜头和路径参数。</p>
               </div>
-              <div className="podi-product-3d-render__slot-list">
-                {modelProfile.materialSlots.map((slot) => (
-                  <button
-                    key={slot}
-                    type="button"
-                    className={`podi-product-3d-render__slot ${slot === materialSlot ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setMaterialSlot(slot);
-                      setResult(null);
-                    }}
-                  >
-                    <strong>{slotLabel(slot)}</strong>
-                    <span>{slot}</span>
-                    <small>{slotTextureUrls[slot] ? '已绑定贴图' : '未贴图'}</small>
-                  </button>
-                ))}
-              </div>
-              <Select label="材质槽精确值" value={materialSlot} onChange={(v) => setMaterialSlot(String(v))} options={materialOptions} />
-            </div>
-          </section>
-
-          <section className="podi-product-commercialization__stage-panel">
-            <div className="podi-product-commercialization__stage-title">
-              <span>STEP 3</span>
-              <Typography.Title level="h4">给材质槽绑定贴图</Typography.Title>
-              <Typography.Text theme="secondary">每个固定贴图点都可以单独绑定图片；不再用一张图代表所有区域。</Typography.Text>
-            </div>
-            <div className="podi-product-commercialization__strategy-workbench">
-              <div className="podi-product-3d-render__active-texture">
-                <div className="podi-product-commercialization__side-image">
-                  {activeTextureImageUrl ? <img src={activeTextureImageUrl} alt={`${slotLabel(materialSlot)}贴图`} /> : <span>当前槽位未绑定贴图</span>}
-                </div>
-                <div className="podi-field-stack">
-                  <Typography.Text strong>
-                    当前贴图点：{slotLabel(materialSlot)} · {materialSlot}
-                  </Typography.Text>
-                  <Space align="center">
-                    <Input
-                      value={activeTextureImageUrl}
-                      onChange={(v) => updateSlotTexture(materialSlot, String(v))}
-                      placeholder="https://..."
-                      clearable
-                    />
-                    <input
-                      ref={uploadRef}
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={(event) => void uploadTexture(materialSlot, event.currentTarget.files?.[0])}
-                    />
-                    <Button
-                      variant="outline"
-                      loading={status === 'uploading' && uploadingSlot === materialSlot}
-                      onClick={() => uploadRef.current?.click()}
+              <aside className="podi-product-3d-render__preview-controls" aria-label="拍摄预览控制">
+                <div className="podi-product-3d-render__control-group podi-product-3d-render__control-group--wide">
+                  <Typography.Text theme="secondary">推荐镜头</Typography.Text>
+                  <div className="podi-product-3d-render__camera-template-grid" aria-label="推荐镜头模板">
+                    {recommendedCameraOptions.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={`podi-product-3d-render__camera-template ${cameraMode === 'preset' && item.value === cameraPreset ? 'is-active' : ''}`}
+                        onClick={() => {
+                          const nextPreset = String(item.value) as CameraPreset;
+                          setCameraMode('preset');
+                          setCameraPreset(nextPreset);
+                          setCustomCameraShots(emptyCameraShots());
+                          setMotionPath(defaultMotionPathForCameraPreset(nextPreset, modelKey));
+                          setResult(null);
+                          clearLocalVideo();
+                        }}
+                      >
+                        <strong>{item.label}</strong>
+                        <span>{item.desc || '按推荐镜头拍摄商品。'}</span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className={`podi-product-3d-render__camera-template podi-product-3d-render__camera-template--custom ${cameraMode === 'custom' ? 'is-active' : ''}`}
+                      onClick={() => {
+                        setCameraMode('custom');
+                        setResult(null);
+                        clearLocalVideo();
+                      }}
                     >
-                      上传到当前点
-                    </Button>
-                  </Space>
-                  <Typography.Text theme="secondary">
-                    先选左侧材质槽，再上传图片。贴图会立即应用到左侧真实 3D 模型，可拖拽检查位置、缩放和方向。
-                  </Typography.Text>
-                </div>
-              </div>
-              <div className="podi-product-3d-render__texture-table">
-                {modelProfile.materialSlots.map((slot) => (
-                  <div key={slot} className={slot === materialSlot ? 'is-active' : ''}>
-                    <button type="button" onClick={() => setMaterialSlot(slot)}>
-                      <strong>{slotLabel(slot)}</strong>
-                      <span>{slot}</span>
+                      <strong>自定义镜头</strong>
+                      <span>手动指定镜头首尾画面，适合特殊展示角度。</span>
                     </button>
-                    <Input
-                      value={String(slotTextureUrls[slot] || '')}
-                      onChange={(v) => updateSlotTexture(slot, String(v))}
-                      placeholder="可选贴图 URL"
-                      clearable
-                    />
                   </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <section className="podi-product-commercialization__stage-panel">
-            <div className="podi-product-commercialization__stage-title">
-              <span>STEP 4</span>
-              <Typography.Title level="h4">选择镜头方案并确认轨迹</Typography.Title>
-              <Typography.Text theme="secondary">商品保持固定，镜头按轨迹运动。先播放确认镜头，再生成本地预览或服务端视频。</Typography.Text>
-            </div>
-            <div className="podi-product-commercialization__controls">
-              <Select
-                label="镜头"
-                value={cameraPreset}
-                onChange={(v) => {
-                  setCameraPreset(String(v) as CameraPreset);
-                  setResult(null);
-                  clearLocalVideo();
-                }}
-                options={cameraOptions}
-              />
-              <Select
-                label="镜头远近"
-                value={cameraDistance}
-                onChange={(v) => {
-                  setCameraDistance(String(v) as CameraDistance);
-                  setResult(null);
-                  clearLocalVideo();
-                }}
-                options={cameraDistanceOptions}
-              />
-              <Select
-                label="场景"
-                value={scenePreset}
-                onChange={(v) => {
-                  setScenePreset(String(v) as ScenePreset);
-                  setResult(null);
-                  clearLocalVideo();
-                }}
-                options={sceneOptions}
-              />
-              <Select
-                label="时长"
-                value={String(durationSeconds)}
-                onChange={(v) => {
-                  setDurationSeconds(Number(v) || 6);
-                  setResult(null);
-                  clearLocalVideo();
-                }}
-                options={durationOptions}
-              />
-              <Select
-                label="比例"
-                value={aspectRatio}
-                onChange={(v) => {
-                  setAspectRatio(String(v));
-                  setResult(null);
-                  clearLocalVideo();
-                }}
-                options={aspectRatioOptions.map((item) => ({ label: item, value: item }))}
-              />
-            </div>
-            <div className="podi-product-3d-render__execution-panel" aria-label="3D 视频生成主操作">
-              <div className="podi-product-3d-render__video-actions">
-                <Button theme="primary" loading={status === 'previewing'} onClick={() => void previewPlan()}>
-                  1. 检查 3D 贴图方案
-                </Button>
-                <Button
-                  theme="success"
-                  loading={cameraPathPlaybackStatus === 'playing'}
-                  disabled={!previewHandle || cameraPathPlaybackStatus === 'playing'}
-                  onClick={() => void playAndConfirmCameraPath()}
-                >
-                  2. 播放并确认镜头轨迹
-                </Button>
-                <Button
-                  theme="success"
-                  loading={videoExportStatus === 'recording'}
-                  disabled={!previewHandle || !cameraPathConfirmed || videoExportStatus === 'recording'}
-                  onClick={() => void exportLocalPreviewVideo()}
-                >
-                  3. 生成本地预览视频
-                </Button>
-                <Button
-                  theme="primary"
-                  loading={status === 'server_rendering'}
-                  disabled={!primaryTextureImageUrl || !cameraPathConfirmed || status === 'server_rendering'}
-                  onClick={() => void runServerRenderVideo()}
-                >
-                  4. 生成服务端 MP4/OSS 视频
-                </Button>
-              </div>
-              <Typography.Text theme="secondary">
-                主执行区：先检查方案，再播放镜头轨迹确认，最后生成本地预览或提交服务端 MP4/OSS。调整镜头、场景或轨迹后需要重新确认。
-              </Typography.Text>
-              {serverUnsupportedTextureUrl ? (
-                <Alert
-                  theme="warning"
-                  message="当前贴图包含 SVG：本地预览可用，服务端 MP4/OSS 请换成 PNG/JPG/WebP 后再提交。"
-                />
-              ) : null}
-              <div className="podi-product-3d-render__execution-status" aria-label="3D 视频输出状态">
-                <div>
-                  <strong>镜头轨迹</strong>
-                  <span>
-                    {cameraPathConfirmed
-                      ? '已播放确认'
-                      : cameraPathPlaybackStatus === 'playing'
-                        ? `播放中 · ${durationSeconds}s`
-                        : '待播放确认'}
-                  </span>
+                  <Typography.Text theme="secondary">大多数场景直接选预设；需要特殊角度时再用自定义镜头。</Typography.Text>
                 </div>
-                <div>
-                  <strong>本地预览</strong>
-                  <span>{localVideoStatusText}</span>
+                <div className="podi-product-3d-render__control-group">
+                  <Typography.Text theme="secondary">远近</Typography.Text>
+                  <div className="podi-product-3d-render__segmented">
+                    {cameraDistanceOptions.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={item.value === cameraDistance ? 'is-active' : ''}
+                        onClick={() => {
+                          setCameraDistance(String(item.value) as CameraDistance);
+                          setResult(null);
+                          clearLocalVideo();
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <strong>服务端 OSS</strong>
-                  <span>{serverVideoStatusText}</span>
+                <div className="podi-product-3d-render__control-group">
+                  <Typography.Text theme="secondary">比例</Typography.Text>
+                  <div className="podi-product-3d-render__segmented">
+                    {aspectRatioOptions.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        className={item === aspectRatio ? 'is-active' : ''}
+                        onClick={() => {
+                          setAspectRatio(String(item));
+                          setResult(null);
+                          clearLocalVideo();
+                        }}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+                <div className="podi-product-3d-render__control-group">
+                  <Typography.Text theme="secondary">时长</Typography.Text>
+                  <div className="podi-product-3d-render__segmented">
+                    {durationOptions.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={String(item.value) === String(durationSeconds) ? 'is-active' : ''}
+                        onClick={() => {
+                          setDurationSeconds(Number(item.value) || 6);
+                          setResult(null);
+                          clearLocalVideo();
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="podi-product-3d-render__control-group podi-product-3d-render__control-group--wide">
+                  <Typography.Text theme="secondary">镜头确认</Typography.Text>
+                  <div className="podi-product-3d-render__camera-summary">
+                    <Typography.Text strong>
+                      {cameraMode === 'custom' ? '自定义开始/结束镜头' : `预设 · ${cameraOptionMap[cameraPreset]?.label || cameraPreset}`}
+                    </Typography.Text>
+                    <Typography.Text theme="secondary">
+                      {cameraMode === 'custom'
+                        ? '在左侧 3D 画面里拖动模型，保存开始和结束后再播放确认。'
+                        : '商品保持固定，镜头按模板运动；播放一遍确认构图后再导出。'}
+                    </Typography.Text>
+                    <div className="podi-product-3d-render__motion-actions">
+                      <Tag theme={cameraMode === 'custom' ? 'primary' : 'default'} variant="light">
+                        {cameraMode === 'custom' ? '自定义镜头' : '预设镜头'}
+                      </Tag>
+                      {cameraMode === 'custom' ? (
+                        <Tag theme={isCompleteCameraShotPair(customCameraShots) ? 'success' : 'warning'} variant="light">
+                          {isCompleteCameraShotPair(customCameraShots) ? '开始/结束已保存' : '需保存开始/结束'}
+                        </Tag>
+                      ) : (
+                        <Tag theme="primary" variant="light">{normalizeMotionPath(effectiveMotionPath).length} 个关键点</Tag>
+                      )}
+                      <Tag theme="success" variant="light">商品固定</Tag>
+                      <Tag theme={cameraPathConfirmed ? 'success' : cameraPathPlaybackStatus === 'playing' ? 'primary' : 'warning'} variant="light">
+                        {cameraPathConfirmed ? '镜头已确认' : cameraPathPlaybackStatus === 'playing' ? '正在播放' : '待播放确认'}
+                      </Tag>
+                    </div>
+                  </div>
+                </div>
+                <div className="podi-product-3d-render__execution-panel" aria-label="3D 视频生成主操作">
+                  <div className="podi-product-3d-render__video-actions">
+                    <Button theme="primary" loading={status === 'previewing'} onClick={() => void previewPlan()}>
+                      检查方案
+                    </Button>
+                    <Button
+                      theme="success"
+                      loading={cameraPathPlaybackStatus === 'playing'}
+                      disabled={!previewHandle || cameraPathPlaybackStatus === 'playing'}
+                      onClick={() => void playAndConfirmCameraPath()}
+                    >
+                      播放镜头
+                    </Button>
+                    <Button
+                      theme="success"
+                      loading={videoExportStatus === 'recording'}
+                      disabled={!previewHandle || !cameraPathConfirmed || videoExportStatus === 'recording'}
+                      onClick={() => void exportLocalPreviewVideo()}
+                    >
+                      本地预览 MP4
+                    </Button>
+                    <Button
+                      theme="primary"
+                      loading={status === 'server_rendering'}
+                      disabled={!primaryTextureImageUrl || !cameraPathConfirmed || status === 'server_rendering'}
+                      onClick={() => void runServerRenderVideo()}
+                    >
+                      服务端 MP4/OSS
+                    </Button>
+                  </div>
+                  {serverUnsupportedTextureUrl ? (
+                    <Alert
+                      theme="warning"
+                      message="当前贴图包含 SVG：本地预览可用，服务端 MP4/OSS 请换成 PNG/JPG/WebP 后再提交。"
+                    />
+                  ) : null}
+                  <div className="podi-product-3d-render__execution-status" aria-label="3D 视频输出状态">
+                    <div>
+                      <strong>镜头</strong>
+                      <span>
+                        {cameraPathConfirmed
+                          ? '已播放确认'
+                          : cameraPathPlaybackStatus === 'playing'
+                            ? `播放中 · ${durationSeconds}s`
+                            : '待播放确认'}
+                      </span>
+                    </div>
+                    <div>
+                      <strong>本地</strong>
+                      <span>{localVideoStatusText}</span>
+                    </div>
+                    <div>
+                      <strong>OSS</strong>
+                      <span>{serverVideoStatusText}</span>
+                    </div>
+                  </div>
+                </div>
+              </aside>
             </div>
-            {shouldShowLocalVideoPanel ? localVideoPanel : null}
-            {shouldShowServerRunPanel ? serverRunPanel : null}
             <div className="podi-product-3d-render__scene-rail" aria-label="场景模型选择">
               {sceneOptions.map((item) => (
                 <button
@@ -2509,6 +2805,8 @@ export function Product3DRenderVideoWorkbench() {
                 </button>
               ))}
             </div>
+            {shouldShowLocalVideoPanel ? localVideoPanel : null}
+            {shouldShowServerRunPanel ? serverRunPanel : null}
             <div className="podi-product-3d-render__shooting-brief" aria-label="当前 3D 拍摄方案">
               <div>
                 <Typography.Text theme="secondary">场景模型</Typography.Text>
@@ -2608,25 +2906,13 @@ export function Product3DRenderVideoWorkbench() {
                 <small>保留 {localFramingSafety.safeMarginPercent}% 呼吸空间；{localFramingSafety.label}。</small>
               </div>
               <div>
-                <Typography.Text theme="secondary">镜头轨迹范围</Typography.Text>
+                <Typography.Text theme="secondary">镜头运动范围</Typography.Text>
                 <Typography.Text strong>
                   X {Math.round(localFramingSafety.bounds.spanX * 100)}% · Y {Math.round(localFramingSafety.bounds.spanY * 100)}%
                 </Typography.Text>
-                <small>{localFramingSafety.pointCount} 个镜头点；轨迹驱动相机运动，商品固定在场景中。</small>
+                <small>{localFramingSafety.pointCount} 个关键点；镜头驱动相机运动，商品固定在场景中。</small>
               </div>
             </div>
-            <CameraPathEditor
-              value={motionPath}
-              onChange={(next) => {
-                setMotionPath(next);
-                setResult(null);
-                clearLocalVideo();
-              }}
-              cameraPreset={cameraPreset}
-              modelKey={modelKey}
-              confirmed={cameraPathConfirmed}
-              playbackStatus={cameraPathPlaybackStatus}
-            />
             <div className="podi-product-3d-render__preset-summary">
               <div>
                 <Typography.Text strong>镜头模板 · {cameraOptionMap[cameraPreset]?.label || cameraPreset}</Typography.Text>
@@ -2643,7 +2929,7 @@ export function Product3DRenderVideoWorkbench() {
             </div>
           </section>
 
-          <section className="podi-product-commercialization__stage-panel">
+          <section className="podi-product-commercialization__stage-panel podi-product-3d-render__result-panel">
             <div className="podi-product-commercialization__stage-title">
               <span>RESULT</span>
               <Typography.Title level="h4">资产准备度与下一步</Typography.Title>
@@ -2732,7 +3018,7 @@ export function Product3DRenderVideoWorkbench() {
                       {String(framingSafety.cameraDistance || cameraDistance)} · {Math.round(asNumber(framingSafety.frameHeightRatio, selectedDistanceProfile.frameHeightRatio) * 100)}% 画面高度 · 安全边距 {Math.round(asNumber(framingSafety.safeMarginRatio, selectedDistanceProfile.breathingRoom - 1) * 100)}%
                     </span>
                     <small>
-                      镜头轨迹跨度 X {Math.round(asNumber(framingSafetyBounds.spanX, localFramingSafety.bounds.spanX) * 100)}% / Y {Math.round(asNumber(framingSafetyBounds.spanY, localFramingSafety.bounds.spanY) * 100)}% · {cameraPathConfirmed ? '已播放确认' : '待播放确认'} · {framingSafety.finalDeliveryRecommended === false ? '近景仅建议作细节补充' : '可作为完整商品视频'}
+                      镜头运动跨度 X {Math.round(asNumber(framingSafetyBounds.spanX, localFramingSafety.bounds.spanX) * 100)}% / Y {Math.round(asNumber(framingSafetyBounds.spanY, localFramingSafety.bounds.spanY) * 100)}% · {cameraPathConfirmed ? '已播放确认' : '待播放确认'} · {framingSafety.finalDeliveryRecommended === false ? '近景仅建议作细节补充' : '可作为完整商品视频'}
                     </small>
                   </div>
                 </div>
