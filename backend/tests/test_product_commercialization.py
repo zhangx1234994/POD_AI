@@ -1114,6 +1114,7 @@ def test_product_commercialization_video_director_uses_volcengine_router_without
             productFields={"productNameEn": "Floral ceramic mug", "material": "ceramic"},
             targetDurationSeconds=15,
             videoPlanningContext={
+                "userRequirement": "Make it feel like a premium gifting video without adding text overlays.",
                 "targetAudience": "US gift buyers and coffee commuters",
                 "shotPreference": "gentle orbit first, then slow push-in without cropping the mug handle",
                 "avoid": "no text, no watermark, keep the mug shape stable",
@@ -1132,6 +1133,8 @@ def test_product_commercialization_video_director_uses_volcengine_router_without
     assert captured["source"] == "product-commercialization-video-planner"
     assert captured["route_source"] == "product_commercialization_video_director"
     assert captured["image_url"] == "https://example.com/mug.png"
+    assert "商品多角度展示" in str(captured["prompt"])
+    assert "premium gifting video" in str(captured["prompt"])
     assert "US gift buyers and coffee commuters" in str(captured["prompt"])
     assert "gentle orbit first" in str(captured["prompt"])
     assert "clean tabletop marketplace scene" in str(captured["prompt"])
@@ -1191,6 +1194,8 @@ def test_product_commercialization_preview_keeps_customer_duration_and_planning_
     )
 
     video_plan = result["videoPlan"]
+    assert video_plan["videoType"]["label"] == "商品多角度展示"
+    assert "不要过早裁切主体" in video_plan["videoType"]["planningReminder"]
     assert video_plan["targetDurationSeconds"] == 5
     assert video_plan["totalGeneratedSeconds"] == 8
     assert video_plan["requiresComposition"] is True
@@ -1374,7 +1379,7 @@ def test_product_3d_render_video_preview_returns_plan_without_video() -> None:
     assert result["execution"]["videoGenerated"] is False
 
 
-def test_product_3d_render_video_preview_preserves_custom_camera_shots() -> None:
+def test_product_3d_render_video_preview_preserves_custom_camera_keyframes() -> None:
     service = Product3DRenderVideoService()
 
     result = service.preview(
@@ -1388,13 +1393,59 @@ def test_product_3d_render_video_preview_preserves_custom_camera_shots() -> None
             motionPath=[{"x": 0.24, "y": 0.64}, {"x": 0.68, "y": 0.42}],
             durationSeconds=6,
             cameraPlan={
-                "version": "camera-plan-v2",
+                "version": "camera-plan-v3",
                 "template": "slow_push_in",
-                "cameraMotion": "manual_start_end_playback",
-                "customMode": "manual_start_end_capture",
+                "cameraMotion": "manual_keyframe_playback",
+                "customMode": "manual_keyframe_capture",
                 "path": {
-                    "coordinateSpace": "camera_shot_projection_preview",
-                    "points": [{"x": 0.24, "y": 0.64}, {"x": 0.68, "y": 0.42}],
+                    "coordinateSpace": "camera_keyframe_projection_preview",
+                    "points": [{"x": 0.24, "y": 0.64}, {"x": 0.46, "y": 0.5}, {"x": 0.68, "y": 0.42}],
+                },
+                "keyframes": [
+                    {
+                        "order": 1,
+                        "role": "start",
+                        "title": "开始画面",
+                        "position": {"x": 0, "y": 1, "z": 4},
+                        "target": {"x": 0, "y": 0, "z": 0},
+                        "distance": 4,
+                        "azimuth": -35,
+                        "elevation": 16,
+                    },
+                    {
+                        "order": 2,
+                        "role": "point",
+                        "title": "杯口",
+                        "position": {"x": 0.5, "y": 1.2, "z": 3.6},
+                        "target": {"x": 0, "y": 0.3, "z": 0},
+                        "distance": 3.6,
+                        "azimuth": 20,
+                        "elevation": 28,
+                        "segmentSeconds": 4,
+                        "segmentMotion": "orbit",
+                    },
+                    {
+                        "order": 3,
+                        "role": "end",
+                        "title": "细节",
+                        "position": {"x": 1, "y": 0.8, "z": 3},
+                        "target": {"x": 0, "y": 0, "z": 0},
+                        "distance": 3,
+                        "azimuth": 82,
+                        "elevation": 22,
+                        "segmentSeconds": 2,
+                        "segmentMotion": "smooth",
+                    },
+                ],
+                "segments": [
+                    {"index": 1, "fromKeyframeId": "start", "toKeyframeId": "mouth", "seconds": 4, "motion": "orbit"},
+                    {"index": 2, "fromKeyframeId": "mouth", "toKeyframeId": "detail", "seconds": 2, "motion": "smooth"},
+                ],
+                "timeline": {
+                    "keyframeCount": 3,
+                    "segmentCount": 2,
+                    "totalDurationSeconds": 6,
+                    "defaultTimingPolicy": "movement_weighted_seconds_user_adjustable",
                 },
                 "customShots": {
                     "start": {"label": "start", "position": {"x": 0, "y": 1, "z": 4}, "target": {"x": 0, "y": 0, "z": 0}},
@@ -1406,9 +1457,21 @@ def test_product_3d_render_video_preview_preserves_custom_camera_shots() -> None
 
     camera_plan = result["renderPlan"]["cameraPlan"]
     assert camera_plan["template"] == "slow_push_in"
-    assert camera_plan["cameraMotion"] == "manual_start_end_playback"
-    assert camera_plan["customMode"] == "manual_start_end_capture"
-    assert camera_plan["path"]["coordinateSpace"] == "camera_shot_projection_preview"
+    assert camera_plan["version"] == "camera-plan-v3"
+    assert camera_plan["cameraMotion"] == "manual_keyframe_playback"
+    assert camera_plan["customMode"] == "manual_keyframe_capture"
+    assert camera_plan["path"]["coordinateSpace"] == "camera_keyframe_projection_preview"
+    assert camera_plan["path"]["pointCount"] == 3
+    assert len(camera_plan["keyframes"]) == 3
+    assert camera_plan["keyframes"][0]["role"] == "start"
+    assert camera_plan["keyframes"][-1]["role"] == "end"
+    assert camera_plan["segments"] == [
+        {"index": 1, "fromKeyframeId": "start", "toKeyframeId": "mouth", "seconds": 4, "motion": "orbit"},
+        {"index": 2, "fromKeyframeId": "mouth", "toKeyframeId": "detail", "seconds": 2, "motion": "smooth"},
+    ]
+    assert camera_plan["timeline"]["keyframeCount"] == 3
+    assert camera_plan["timeline"]["segmentCount"] == 2
+    assert camera_plan["timeline"]["totalDurationSeconds"] == 6
     assert camera_plan["customShots"]["start"]["label"] == "start"
     assert camera_plan["customShots"]["end"]["label"] == "end"
 
@@ -3439,6 +3502,8 @@ def test_business_openapi_exposes_product_commercialization() -> None:
         "application/json"
     ]["schema"]
     assert promo_plan_schema["x-podi-fixed-action"] == "video_preview"
+    assert "视频类型/资产类型" in promo_plan_schema["properties"]["videoScenario"]["description"]
+    assert "兼容字段名" in promo_plan_schema["properties"]["videoScenario"]["description"]
     promo_plan_response_schema = paths["/api/business/promo-video/plan"]["post"]["responses"]["200"]["content"][
         "application/json"
     ]["schema"]
@@ -3454,6 +3519,7 @@ def test_business_openapi_exposes_product_commercialization() -> None:
     ]["schema"]
     assert promo_video_schema["x-podi-fixed-action"] == "video_generate"
     assert "videoPlanningContext" in promo_video_schema["properties"]
+    assert "userRequirement" in promo_video_schema["properties"]["videoPlanningContext"]["properties"]
     assert "shotPreference" in promo_video_schema["properties"]["videoPlanningContext"]["properties"]
     assert "confirmedVideoKeyframes" in promo_video_schema["properties"]
     assert "PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED" in paths["/api/business/promo-video/runs"]["post"][

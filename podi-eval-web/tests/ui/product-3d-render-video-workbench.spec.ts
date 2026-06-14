@@ -301,7 +301,7 @@ test('3d render video workbench exports a local preview video', async ({ page })
             textureApplication: { mode: 'slot_texture_mapping', materialSlot: 'front' },
             camera: { label: '360 环绕', description: '围绕商品一圈，适合商品展示短视频。' },
             cameraPlan: {
-              version: 'camera-plan-v1',
+              version: 'camera-plan-v2',
               template: 'slow_push_in',
               productMotion: 'fixed',
               cameraMotion: 'path_playback',

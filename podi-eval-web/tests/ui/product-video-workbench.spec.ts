@@ -123,6 +123,13 @@ test('product video workbench previews a material package without triggering pai
           copyPackage: {},
           copyScenarios: [],
           videoPlan: {
+            videoType: {
+              key: 'product_showcase_short',
+              label: '商品多角度展示',
+              assetFocus: '主体、轮廓、材质和基础角度素材',
+              planningGoal: '先建立完整商品识别，再安排全景、角度和细节镜头。',
+              planningReminder: '适合做上架页、详情页或通用商品展示素材；不要过早裁切主体。',
+            },
             provider: 'vidu',
             model: 'viduq3-turbo',
             planner: {
@@ -434,6 +441,9 @@ test('product video workbench previews a material package without triggering pai
   await expect(stageMain.getByText('视频规划不会要求你预先确认 JSON 一定正确')).toBeVisible();
   await stageMain.locator('input[placeholder="例如 15"]').fill('15');
   await expect(stageMain.getByText('8 + 5 + 3s')).toBeVisible();
+  await expect(stageMain.getByText('视频类型 / 资产类型')).toBeVisible();
+  await expect(stageMain.getByText('商品多角度展示')).toBeVisible();
+  await expect(stageMain.getByText('先选这次要交付的素材类型')).toBeVisible();
   await expect(stageMain.getByText('请先生成并确认目标画幅首帧，再提交视频素材任务')).toBeVisible();
   await expect(stageMain.getByText('提交视频前系统会先生成并归一目标画幅首帧')).toHaveCount(0);
   await stageMain.getByPlaceholder('例如：突出材质纹理和商品轮廓，不要出现文字和水印。').fill('强调杯身花纹和杯柄轮廓，适合海外礼品场景。');
@@ -452,6 +462,9 @@ test('product video workbench previews a material package without triggering pai
   await expect(stageMain.getByText('产品图 / VL 识别')).toBeVisible();
   await expect(stageMain.getByText('规划器证据')).toBeVisible();
   await expect(stageMain.getByText('模型规划')).toBeVisible();
+  await expect(stageMain.getByText('视频类型策略')).toBeVisible();
+  await expect(stageMain.getByText('类型决定素材包规划方式')).toBeVisible();
+  await expect(stageMain.getByText('主体、轮廓、材质和基础角度素材')).toBeVisible();
   await expect(stageMain.getByText('模型回填要素')).toBeVisible();
   await expect(stageMain.getByText('后端 VL 回填合同').first()).toBeVisible();
   await expect(stageMain.getByText('模型回填').first()).toBeVisible();
@@ -535,6 +548,7 @@ test('product video workbench previews a material package without triggering pai
   expect(latestPreviewPayload.copyTone).toBeUndefined();
   expect(latestPreviewPayload.visualSupportMode).toBeUndefined();
   expect(latestPreviewPayload.videoPlanningContext).toMatchObject({
+    userRequirement: '强调杯身花纹和杯柄轮廓，适合海外礼品场景。',
     shotPreference: '固定远景开场，然后慢速环绕杯身花纹。',
     avoid: expect.stringContaining('不要出现文字'),
     fields: expect.arrayContaining([
@@ -555,6 +569,7 @@ test('product video workbench previews a material package without triggering pai
   expect(runPayloads[2]).toMatchObject({
     action: 'video_generate',
     videoPlanningContext: expect.objectContaining({
+      userRequirement: '强调杯身花纹和杯柄轮廓，适合海外礼品场景。',
       targetAudience: expect.stringContaining('overseas gift buyers'),
       shotPreference: expect.stringContaining('固定远景开场'),
       fields: expect.arrayContaining([

@@ -11,6 +11,42 @@
 
 产品文案内容包已从当前测评端主入口撤下，后续按独立 `product_copy_package` 能力重新设计，不再作为本门禁的当前交付项。
 
+## 验收口径分层（2026-06-14 修订）
+
+为了避免把“已做过的功能”误认为“还要从零开发”，本门禁从 2026-06-14 起按四层判断：
+
+| 层级 | 定义 | 处理方式 | 通过口径 |
+| --- | --- | --- | --- |
+| 功能固化 | 代码路径、接口、状态流和基础自动化已经存在 | 不重做功能；补文档、补契约、补回归，防止后续改坏 | 文档、OpenAPI、UI payload、后端测试和巡检脚本能证明能力边界稳定 |
+| 体验打磨 | 功能能跑，但业务用户不容易理解或操作路径不顺 | 调整交互、文案、信息层级、默认入口和状态反馈 | 用户不用懂接口，也能看懂当前步骤、下一步、禁用原因和产物位置 |
+| 质量打磨 | 任务能成功，但输出质量、提示词、构图、时长、裁切或贴图还需要样例复测 | 用固定样例跑真实链路，记录问题标签，优化提示词/模型画像/执行策略 | 不只看 succeeded，还要看结果是否接近业务可用；失败和低质样本有归因 |
+| 新能力补齐 | 当前还没有正式能力契约或生产闭环 | 单独立项，不混入现有能力打磨；先写能力契约和验收样例 | 有独立 business key / API / 错误 / 样例 / 成本和质量口径 |
+
+### 产品视频当前分层
+
+| 项目 | 当前层级 | 本轮动作 | 不再做什么 |
+| --- | --- | --- | --- |
+| `promo-video/plan`、`keyframes/runs`、`runs`、`compose/runs` 拆分入口 | 功能固化 | 保持拆分接口；继续补 OpenAPI、错误码、巡检和业务方说明 | 不退回旧 `product_commercialization` 聚合入口作为主接入口 |
+| 产品图优先、JSON 可选、图片/字段冲突提示 | 功能固化 + 质量打磨 | 固化为事实源规则；继续用错配样例复测 VL/LLM 识别质量 | 不把导出 JSON 做回必填 |
+| 客户目标时长、模型画像拆段、Vidu 首帧比例策略 | 功能固化 + 质量打磨 | 继续验证 KIE/Vidu 单段和多段；页面解释执行策略 | 不把 Vidu/KIE 单段时长当成用户可选上限 |
+| 视频补充要求进入规划上下文 | 功能固化 | `videoPlanningContext.userRequirement` 进入规划、首尾帧和视频任务 payload | 不把它当成纯前端备注或替代结构化要素 |
+| 脚本、分镜、首尾帧/关键帧、分段视频、可选合成 | 功能固化 + 质量打磨 | 保留素材包口径；真实跑多商品样例，优化提示词和关键帧质量 | 不把最终合成片作为唯一成功口径 |
+| 视频类型选择 | 体验打磨 | 从“场景标签”打磨成“视频类型/资产类型”入口，并解释每类产物和适用场景 | 不新增一套视频执行接口；先改用户心智和规划输入 |
+| 产品组图 `product_image_set` | 新能力补齐 | 另写独立契约和样例；可被产品视频作为可选上游素材使用 | 不混进产品视频页面做成隐藏子功能 |
+
+### 3D 渲染视频当前分层
+
+| 项目 | 当前层级 | 本轮动作 | 不再做什么 |
+| --- | --- | --- | --- |
+| 受控模型目录、材质槽、逐槽贴图 | 功能固化 + 体验打磨 | 继续强化槽位可视化、当前贴图点和贴图状态 | 不退回单上传位 |
+| Three.js 预览、本地预览视频、服务端 MP4/OSS | 功能固化 + 质量打磨 | 继续用 1660 杯子、2551 背包跑真实贴图和导出视频 | 不把本地预览和服务端交付混成一个不清楚按钮 |
+| 镜头模板、远近、比例、时长、播放确认 | 功能固化 + 体验打磨 | 默认模板卡片继续保留；禁用原因和确认状态要更清楚 | 不让普通用户默认画路径 |
+| 多段自定义镜头关键帧 | 功能固化 + 体验打磨 | 保持在 3D 模型画面内保存多个镜头点；优化“操作后预览是否一致” | 不使用右侧小地图或抽象路径作为主交互 |
+| 贴图颜色、UV、透明底和区域遮罩 | 质量打磨 | 区分渲染偏色、素材底色、UV 区域和模型槽位问题 | 不把所有颜色问题归因到渲染器 |
+| 高保真 Blender/headless Three.js worker | 新能力补齐 | 单独评估 worker、算力、队列和成本 | 不把轻量服务端 worker 伪装成最终商用品质 |
+
+本轮先做“体验打磨 + 质量打磨”，不是重写两条能力。只有 `product_image_set` 和高保真 3D worker 进入“新能力补齐”池。
+
 ## 验收前提
 
 - 文案、产品视频、3D 渲染视频必须是不同能力入口，不共享前端隐藏状态。
@@ -28,7 +64,7 @@
 | 3D 加入场景模型，让商品贴图后能和场景融合 | `GET /api/business/product-3d-render-video/catalog` 返回 `scenePresets[].asset`、`scenePresets[].fusion`、`sceneAssetSources[].candidateAssets`；`POST /api/business/product-3d-render-video/preview` 返回 `renderPlan.scene.asset/fusion`；`/runs` manifest 保留 `sceneAsset/sceneFusion` | `backend/tests/test_product_commercialization.py` 校验 `desktop_lifestyle/gift_table/retail_shelf` 场景、CC0 候选来源、具体候选资产 `Wood095/blue_photo_studio/industrial_coffee_table/wooden_display_shelves_01/steel_frame_shelves_01` 和 `sceneAssetSources.candidateAssets`；默认巡检校验场景预设、来源治理、候选资产和融合证据；`--include-live-3d-render` 额外校验 `/runs` 的 MP4、封面和 manifest OSS 回填 | 当前是 `mvp_procedural` 程序化场景，可用于流程和交互验收；商用品质仍需引入受控高保真 Blender/headless Three.js 场景资产 |
 | 3D 能控制镜头和镜头远近，避免商品显示不全 | 后端 `CAMERA_PRESETS` + `CAMERA_DISTANCE_PRESETS` 提供镜头模板和 `wide/standard/close`；`renderPlan.camera.framing.mode=fit_product_safe_bounds`；前端预览棚默认展示推荐镜头模板、镜头远近、时长和比例 | 后端测试校验非法 `cameraDistance` 报错；服务端轻量渲染测试用 `close + detail_sweep + 极端兼容 motionPath` 逐帧检查商品主体像素安全边距；UI 测试校验推荐镜头模板、镜头远近和安全取景信息；接口文档要求默认 `wide` 优先完整入画 | 仍需线上真实视频逐个场景看成片是否裁切；近景只允许作为补充细节镜头，不应作为唯一交付镜头 |
 | 3D 通过镜头确认后生成视频 | 前端默认不要求用户编辑路径，而是选择推荐镜头模板后播放确认；商品固定在场景中。用户必须先点击“播放镜头”，确认后才能导出本地预览或提交服务端 `/runs`；自定义镜头只作为明确入口，用户在 3D 模型画面中手动转动视角并保存多个镜头关键帧，每段镜头有独立秒数，避免所有动作被平均分配时长；后端主字段为 `cameraPlan`，`motionPath` 仅作旧调用兼容 | 后端测试覆盖非法路径、`cameraPlan.keyframes/segments/timeline` 和 `customShots` 兼容透传；UI 测试模拟选择 `slow_push_in/close`、进入“自定义镜头”、拖动 3D 画布、保存多个镜头点、调整段时长、先播放确认，再生成本地预览和服务端 MP4/OSS，断言 preview 与 server run payload 均携带 `cameraPlan.productMotion=fixed`、`cameraPlan.cameraMotion=manual_keyframe_playback`、`cameraPlan.customMode=manual_keyframe_capture` 和兼容 `motionPath`；巡检校验 manifest 的 `cameraPlan` 和兼容路径点 | 仍需真实浏览器人工复测默认模板镜头和用户自定义多段镜头后的输出视频质量，确认取景节奏、画面裁切和贴图方向正常 |
-| 产品视频的用户人群、镜头偏好等核心要素应由 VL/JSON 自动回填，用户可修改 | 测评端 `videoPlanningFields` 由 `resolvedProductFacts/videoPlan.directorBrief/storyboard` 推导并标注“模型回填/人工调整/默认约束”；请求持续携带 `videoPlanningContext`；后端把该对象写入视频导演模型上下文 | UI 测试校验模型回填人群和镜头偏好进入 `promo-video/runs` payload；后端测试校验规划 prompt 能看到结构化上下文；OpenAPI 和业务文档包含 `videoPlanningContext` | 第一次规划后自动回填，用户需要返回策略页调整后再重新规划；真实 VL/LLM 回填质量仍需多商品 golden case |
+| 产品视频的用户人群、镜头偏好和自由补充要求等核心要素应由 VL/JSON 自动回填或由用户填写，用户可修改 | 测评端 `videoPlanningFields` 由 `resolvedProductFacts/videoPlan.directorBrief/storyboard` 推导并标注“模型回填/人工调整/默认约束”；视频补充要求进入 `videoPlanningContext.userRequirement`；请求持续携带 `videoPlanningContext`；后端把该对象写入视频导演模型上下文 | UI 测试校验模型回填人群、镜头偏好和用户自由要求进入 `promo-video/runs` payload；后端测试校验规划 prompt 能看到结构化上下文和 `userRequirement`；OpenAPI 和业务文档包含 `videoPlanningContext.userRequirement` | 第一次规划后自动回填，用户需要返回策略页调整后再重新规划；真实 VL/LLM 回填质量仍需多商品 golden case |
 | 脚本输出后，收尾帧需要用户确认，不合理可二次生成 | 确认页按 `videoAssetPackagePlan.shotPackages` 分组展示脚本意图、视频提示词、首尾帧提示词、生成数量和确认状态；可按 `keyframeShotScope` 只重生成某个镜头；提交视频前要求已确认关键帧 | UI 测试覆盖单镜头关键帧生成、确认前视频按钮禁用、确认后提交；确认后再次点击“重生成本镜头首尾帧”会清除该镜头确认状态、重新禁用视频成本按钮，复核后才允许提交；接口文档说明 `keyframeShotScope` 和 `confirmedVideoKeyframes`；巡检脚本在同时开启 `--include-live-keyframes --include-live-video` 时会从关键帧 run 提取确认帧并传给视频 run，无法提取时跳过视频扣费动作并判门禁失败 | 本机因 vendor-api 白名单无法验证真实首尾帧质量；必须在 114 或已加白后端环境跑 GPT Image 2 首尾帧链路 |
 | 脚本、收尾帧、对应提示词按列表组呈现后再生成视频 | 前端 `storyboard-groups` 每个镜头集中展示 `goal/videoPrompt/keyframeNeeds/generatedKeyframes`；后端 `shotPackages` 是业务方主消费结构 | UI 测试断言镜头组、脚本、关键帧、首尾帧提示词和生成状态可见；文档要求业务方优先消费 `shotPackages` | 真实 KIE/Vidu 多段素材包仍需线上复测，确认每段视频能和对应镜头组/关键帧正确关联 |
 | 最终向业务方提供拆分能力接口 | 正式入口已拆为 `promo-video/plan`、`promo-video/keyframes/runs`、`promo-video/runs`、`promo-video/compose/runs`；3D 拆为 `product-3d-render-video/catalog`、`preview`、`runs` | OpenAPI 测试校验固定 action、请求 schema、错误码和 catalog schema；接口文档列出请求、响应、错误和查询口径 | 旧 `product-commercialization` 聚合入口仍保留为兼容调试，不应作为新业务方主接入口 |
@@ -69,7 +105,7 @@
 1. 产品视频 preview：正常商品图 + 正常 JSON。
 2. 产品视频 preview：只有商品图，没有 JSON。
 3. 产品视频 preview：商品图与 JSON 明显不一致。
-4. 视频规划：确认返回商品理解、脚本、分镜、首尾帧/关键帧需求和可选合成策略；`核心信息/目标人群/使用场景/镜头偏好/禁止内容` 应基于产品图/VL/JSON 自动回填来源，用户修改后标记为人工调整，重新规划时作为输入。
+4. 视频规划：确认返回商品理解、脚本、分镜、首尾帧/关键帧需求和可选合成策略；`核心信息/目标人群/使用场景/镜头偏好/禁止内容` 应基于产品图/VL/JSON 自动回填来源，`视频补充要求` 作为 `videoPlanningContext.userRequirement` 进入规划上下文；用户修改后标记为人工调整，重新规划时作为输入。
 5. 分镜确认：确认页必须按 `videoAssetPackagePlan.shotPackages` 镜头组展示脚本意图、视频提示词、首尾帧提示词、计划关键帧数量和已生成数量；旧字段只做兼容回退；修改脚本后确认状态应变为待确认。
 6. 首尾帧：确认脚本和分镜后，提交 `action=video_keyframes`，结果必须在当前工作台按镜头回填图片和 runId；用户需要逐镜头确认首尾帧，不满意时只重生成对应镜头，重生成后该镜头确认状态失效；所有必需镜头未确认前不能提交视频成本动作。
 7. 视频：确认脚本、分镜和首尾帧后，提交 KIE 8 秒单段素材包；线上巡检建议同时打开 `--include-live-keyframes --include-live-video`，让脚本把关键帧结果转成 `confirmedVideoKeyframes` 后再提交视频任务。

@@ -2640,7 +2640,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             },
             "videoScenario": {
                 "type": "string",
-                "description": "视频场景；预览会结合所选模型画像返回结构化分镜、片段时长、素材需求和执行模式。",
+                "description": "视频类型/资产类型；当前兼容字段名仍为 videoScenario。预览会结合所选模型画像返回结构化分镜、片段时长、素材需求和执行模式。",
                 "enum": ["product_showcase_short", "social_ad_short", "detail_explainer"],
                 "default": "product_showcase_short",
             },
@@ -2669,13 +2669,14 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "videoPlanningContext": {
                 "type": "object",
                 "nullable": True,
-                "description": "视频规划结构化上下文。用于传递核心信息、目标人群、使用场景、镜头偏好、禁止内容和自定义要素；预览规划和后续首尾帧/视频生成都会把它作为导演模型上下文。",
+                "description": "视频规划结构化上下文。用于传递核心信息、目标人群、使用场景、镜头偏好、禁止内容、用户自由视频要求和自定义要素；预览规划和后续首尾帧/视频生成都会把它作为导演模型上下文。",
                 "properties": {
                     "coreMessage": {"type": "string", "nullable": True},
                     "targetAudience": {"type": "string", "nullable": True},
                     "usageScene": {"type": "string", "nullable": True},
                     "shotPreference": {"type": "string", "nullable": True},
                     "avoid": {"type": "string", "nullable": True},
+                    "userRequirement": {"type": "string", "nullable": True, "description": "用户对本条视频的自由补充要求；会进入导演规划上下文，但不能覆盖产品图事实和安全约束。"},
                     "fields": {
                         "type": "array",
                         "items": {
@@ -3454,7 +3455,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "scenePreset": "clean_studio",
                 "motionPath": [{"x": 0.22, "y": 0.66}, {"x": 0.5, "y": 0.5}, {"x": 0.78, "y": 0.42}],
                 "cameraPlan": {
-                    "version": "camera-plan-v1",
+                    "version": "camera-plan-v2",
                     "template": "orbit_360",
                     "productMotion": "fixed",
                     "cameraMotion": "path_playback",
@@ -3487,7 +3488,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "scenePreset": "marketplace_white",
                 "motionPath": [{"x": 0.28, "y": 0.5}, {"x": 0.72, "y": 0.5}],
                 "cameraPlan": {
-                    "version": "camera-plan-v1",
+                    "version": "camera-plan-v2",
                     "template": "detail_sweep",
                     "productMotion": "fixed",
                     "cameraMotion": "path_playback",

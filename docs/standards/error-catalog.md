@@ -178,7 +178,7 @@
 | PRODUCT_COMMERCIALIZATION_MARKET_INVALID | 产品商业化目标市场非法 | 400，允许 `US` / `UK` / `EU` / `global` |
 | PRODUCT_COMMERCIALIZATION_COPY_SCENARIO_INVALID | 产品商业化文案场景非法 | 400，允许 `listing_title` / `bullet_points` / `detail_description` / `ad_short_copy` / `keyword_pack` |
 | PRODUCT_COMMERCIALIZATION_VISUAL_MODE_INVALID | 产品商业化配图模式非法 | 400，允许 `none` / `recommendation` / `generate`；预览接口即使为 `generate` 也不隐式生图 |
-| PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID | 产品商业化视频场景非法 | 400，允许 `product_showcase_short` / `social_ad_short` / `detail_explainer` |
+| PRODUCT_COMMERCIALIZATION_VIDEO_SCENARIO_INVALID | 产品商业化视频类型非法 | 400，兼容字段名仍为 `videoScenario`，当前允许 `product_showcase_short` / `social_ad_short` / `detail_explainer` |
 | PRODUCT_COMMERCIALIZATION_TARGET_DURATION_INVALID | 产品商业化目标成片时长非法 | 400，`targetDurationSeconds` 当前允许 1-60；实际片段时长由模型画像约束。KIE Veo3.1 Fast 当前按 8 秒片段规划，Vidu viduq3-turbo 当前按 3/5/8 秒片段规划。 |
 | PRODUCT_COMMERCIALIZATION_IMAGE_REQUIRED | 产品商业化成本动作缺少产品图 | 400，预览可缺图，配图/视频执行必须传 `productImageUrl`，或在 `productImages` 中提供至少一张可用产品图 |
 | PRODUCT_COMMERCIALIZATION_KEYFRAME_SCOPE_EMPTY | 产品视频首尾帧镜头范围无匹配项 | 400，`action=video_keyframes` 传入 `keyframeShotScope` 后没有匹配到任何 `videoAssetPackagePlan.keyframeNeeds` 项；不能静默改为全量生成，前端应提示重新选择镜头或重新规划 |

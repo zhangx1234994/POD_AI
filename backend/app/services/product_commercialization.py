@@ -1452,7 +1452,7 @@ class ProductCommercializationService:
         if not isinstance(value, dict):
             return {}
         normalized: dict[str, Any] = {}
-        for key in ("coreMessage", "targetAudience", "usageScene", "shotPreference", "avoid"):
+        for key in ("coreMessage", "targetAudience", "usageScene", "shotPreference", "avoid", "userRequirement"):
             text = _clean_text(value.get(key))
             if text:
                 normalized[key] = text
@@ -1487,6 +1487,7 @@ class ProductCommercializationService:
             "usageScene": "使用场景",
             "shotPreference": "镜头偏好",
             "avoid": "禁止内容",
+            "userRequirement": "用户自由要求",
         }
         lines: list[str] = []
         for key, label in labels.items():
@@ -1679,6 +1680,7 @@ class ProductCommercializationService:
         user_planning_requirements: str,
         video_planning_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        video_type = self._video_type_profile(scenario)
         return {
             "task": "Plan a POD ecommerce product video material package.",
             "product": {
@@ -1690,6 +1692,7 @@ class ProductCommercializationService:
             },
             "videoRequest": {
                 "scenario": scenario,
+                "videoType": video_type,
                 "targetDurationSeconds": target_duration,
                 "segmentDurations": segment_durations,
                 "aspectRatio": aspect_ratio,
@@ -1709,6 +1712,7 @@ class ProductCommercializationService:
             "rules": [
                 "The product image is the highest-priority visual fact source.",
                 "Use exported fields only as explanation when they match the image.",
+                "Treat videoRequest.videoType as the asset type. Usage scene, platform, and free-form user requirements are planning context, not replacements for the asset type.",
                 "Plan exactly one storyboard item per provided segment duration.",
                 "Each shot must contain concrete camera movement, scene, first-frame prompt, last-frame prompt, and vendor prompt.",
                 "For short product-showcase videos, hold a full-product hero view before any detail move; do not crop handles, edges, bottom, or corners during the opening.",
@@ -1873,8 +1877,10 @@ class ProductCommercializationService:
         reference_images: list[dict[str, Any]],
         primary_reference_url: str,
     ) -> dict[str, Any]:
+        video_type = self._video_type_profile(scenario)
         base_prompt_parts = [
             f"Create a {target_duration}-second POD product video material package for {name}.",
+            f"Video asset type: {video_type['label']}. {video_type['planningGoal']}",
             "Use the selected product image as the exact visual reference and preserve product identity.",
             "Plan concrete camera movement, scene, first frame, ending frame, and vendor-ready prompts.",
             "Clean ecommerce lighting, stable product geometry, no extra text, no watermarks, no logos, no price tags.",
@@ -1970,6 +1976,7 @@ class ProductCommercializationService:
                 ]
             )
         return {
+            "videoType": video_type,
             "directorBrief": {
                 "productUnderstanding": f"{name} based on uploaded product image facts.",
                 "commercialGoal": self._video_commercial_goal_for_scenario(scenario),
@@ -2094,6 +2101,33 @@ class ProductCommercializationService:
         if scenario == "detail_explainer":
             return "Create detail-page explainer material that clarifies texture and construction."
         return "Create ecommerce product-showcase material for listing and marketing use."
+
+    @staticmethod
+    def _video_type_profile(scenario: str) -> dict[str, str]:
+        profiles = {
+            "product_showcase_short": {
+                "key": "product_showcase_short",
+                "label": "商品多角度展示",
+                "assetFocus": "主体、轮廓、材质和基础角度素材",
+                "planningGoal": "先建立完整商品识别，再安排全景、角度和细节镜头。",
+                "planningReminder": "适合做上架页、详情页或通用商品展示素材；不要过早裁切主体。",
+            },
+            "social_ad_short": {
+                "key": "social_ad_short",
+                "label": "广告转化短片",
+                "assetFocus": "开头吸引力、快节奏动作和投放可用片段",
+                "planningGoal": "先做强开场和清晰产品钩子，再进入可复用短镜头。",
+                "planningReminder": "适合社媒或广告初稿；不得加入文字、水印、价格或无法验证承诺。",
+            },
+            "detail_explainer": {
+                "key": "detail_explainer",
+                "label": "细节卖点讲解",
+                "assetFocus": "材质、结构、使用方式和详情页说明素材",
+                "planningGoal": "围绕可见细节规划慢速检视和局部说明镜头。",
+                "planningReminder": "适合详情页和卖点解释；仍需保留商品身份和完整轮廓锚点。",
+            },
+        }
+        return profiles.get(scenario, profiles["product_showcase_short"])
 
     def _build_video_segment_result(
         self,
@@ -4959,8 +4993,10 @@ class ProductCommercializationService:
                     "reason": "Required before Vidu execution when the final video must match the requested aspect ratio; the generated first frame is normalized to the target canvas.",
                 }
             )
+        video_type = self._video_type_profile(scenario)
         return {
             "scenario": scenario,
+            "videoType": video_type,
             "provider": provider,
             "model": model,
             "modelProfile": {

@@ -157,9 +157,9 @@ const SELLING_ANGLE_OPTIONS = [
 ];
 
 const VIDEO_SCENARIOS = [
-  { key: 'product_showcase_short', label: '商品展示短视频', desc: '展示主体、材质和轮廓' },
-  { key: 'social_ad_short', label: '社媒广告短视频', desc: '开头更吸睛，节奏更快' },
-  { key: 'detail_explainer', label: '详情讲解短视频', desc: '偏详情页和卖点解释' },
+  { key: 'product_showcase_short', label: '商品多角度展示', desc: '主体、轮廓、材质和基础角度素材' },
+  { key: 'social_ad_short', label: '广告转化短片', desc: '开头更强，节奏更快，适合投放素材' },
+  { key: 'detail_explainer', label: '细节卖点讲解', desc: '材质、结构、使用方式和详情页素材' },
 ];
 
 const PENDING_VIDEO_ROUTES = [
@@ -833,7 +833,7 @@ function buildVideoPlanningText(fields: VideoPlanningField[], targetDurationSeco
   return lines.join('\n');
 }
 
-function buildVideoPlanningContext(fields: VideoPlanningField[]): Record<string, unknown> {
+function buildVideoPlanningContext(fields: VideoPlanningField[], userRequirement?: string): Record<string, unknown> {
   const standardKeyMap: Record<string, string> = {
     core_message: 'coreMessage',
     target_audience: 'targetAudience',
@@ -855,6 +855,10 @@ function buildVideoPlanningContext(fields: VideoPlanningField[]): Record<string,
     source: 'eval-editable-video-planning-fields',
     fields: filled,
   };
+  const cleanUserRequirement = String(userRequirement || '').trim();
+  if (cleanUserRequirement) {
+    context.userRequirement = cleanUserRequirement;
+  }
   filled.forEach((field) => {
     const key = standardKeyMap[field.id];
     if (key) context[key] = field.value;
@@ -1198,7 +1202,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_VIDEO }: { mode?
     const videoPlanningText = isVideoMode
       ? buildVideoPlanningText(videoPlanningFields, targetDurationSeconds, selectedVideoProfile)
       : '';
-    const mergedExtraPrompt = [extraPrompt.trim(), videoPlanningText].filter(Boolean).join('\n\n');
+    const mergedExtraPrompt = [isVideoMode ? '' : extraPrompt.trim(), videoPlanningText].filter(Boolean).join('\n\n');
 
     const basePayload: ProductCommercializationRequest = {
       productImageUrl: productImageUrl.trim() || undefined,
@@ -1220,7 +1224,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_VIDEO }: { mode?
         durationSeconds: requestedSegmentSeconds,
         targetDurationSeconds,
         executorId,
-        videoPlanningContext: buildVideoPlanningContext(videoPlanningFields),
+        videoPlanningContext: buildVideoPlanningContext(videoPlanningFields, extraPrompt),
       };
     }
 
@@ -1670,6 +1674,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_VIDEO }: { mode?
   const productCard = asRecord(result?.productCard);
   const visualAssetPlan = asRecord(result?.visualAssetPlan);
   const videoPlan = asRecord(result?.videoPlan);
+  const videoTypePlan = asRecord(videoPlan.videoType);
   const videoAssetPackagePlan = asRecord(result?.videoAssetPackagePlan);
   const videoAssetPackage = asRecord(result?.videoAssetPackage);
   const videoStoryboardGroups = buildVideoStoryboardGroups(videoPlan, videoAssetPackagePlan, videoAssetPackage);
@@ -2142,8 +2147,11 @@ export function ProductCommercializationWorkbench({ mode = MODE_VIDEO }: { mode?
                   </>
                 ) : (
                   <div className="podi-field-stack">
-                    <Typography.Text>视频应用场景</Typography.Text>
-                    <div className="podi-product-commercialization__chips" aria-label="视频场景">
+                    <Typography.Text>视频类型 / 资产类型</Typography.Text>
+                    <Typography.Text theme="secondary">
+                      先选这次要交付的素材类型；使用场景、平台和补充要求会进入后续规划上下文。
+                    </Typography.Text>
+                    <div className="podi-product-commercialization__chips" aria-label="视频类型">
                       {VIDEO_SCENARIOS.map((item) => (
                         <button key={item.key} type="button" className={videoScenario === item.key ? 'is-active' : ''} onClick={() => setVideoScenario(item.key as any)}>
                           <strong>{item.label}</strong>
@@ -2258,7 +2266,12 @@ export function ProductCommercializationWorkbench({ mode = MODE_VIDEO }: { mode?
                 )}
 
                 <div className="podi-field-stack">
-                  <Typography.Text>补充要求</Typography.Text>
+                  <Typography.Text>{isVideoMode ? '视频补充要求' : '补充要求'}</Typography.Text>
+                  {isVideoMode ? (
+                    <Typography.Text theme="secondary">
+                      这里写给规划模型看的自由要求，会和产品图、目标时长、镜头偏好一起进入脚本和分镜上下文。
+                    </Typography.Text>
+                  ) : null}
                   <Textarea
                     value={extraPrompt}
                     onChange={(v) => setExtraPrompt(String(v))}
@@ -2383,7 +2396,7 @@ export function ProductCommercializationWorkbench({ mode = MODE_VIDEO }: { mode?
                         <Typography.Text strong>视频规划</Typography.Text>
                         <div className="podi-product-commercialization__facts">
                           <span>{videoProviderLabel(videoProvider)}</span>
-                          <span>{selectedScenario?.label || videoScenario}</span>
+                          <span>{String(videoTypePlan.label || selectedScenario?.label || videoScenario)}</span>
                           <span>{String(videoPlan.targetDurationSeconds || targetDurationSeconds)}s</span>
                           <span>{videoAspectExecutionLabel}</span>
                           <span>参考图 {String(videoReferenceImageSet.count || productImagesForPayload.length || 0)}</span>
@@ -2409,6 +2422,27 @@ export function ProductCommercializationWorkbench({ mode = MODE_VIDEO }: { mode?
                             </div>
                           );
                         })()}
+                        {Object.keys(videoTypePlan).length > 0 ? (
+                          <div className="podi-product-commercialization__planning-review" aria-label="视频类型策略">
+                            <div className="podi-product-commercialization__panel-head">
+                              <Typography.Text strong>视频类型策略</Typography.Text>
+                              <Typography.Text theme="secondary">类型决定素材包规划方式，使用场景和补充要求只作为上下文。</Typography.Text>
+                            </div>
+                            <div className="podi-product-commercialization__planning-review-grid">
+                              {[
+                                { label: '类型', value: videoTypePlan.label },
+                                { label: '产物重点', value: videoTypePlan.assetFocus },
+                                { label: '规划目标', value: videoTypePlan.planningGoal },
+                                { label: '使用提醒', value: videoTypePlan.planningReminder },
+                              ].map((item) => (
+                                <div key={item.label}>
+                                  <Typography.Text theme="secondary">{item.label}</Typography.Text>
+                                  <Typography.Text>{String(item.value || '-')}</Typography.Text>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                         {(() => {
                           const brief = asRecord(videoPlan.directorBrief);
                           return Object.keys(brief).length > 0 ? (

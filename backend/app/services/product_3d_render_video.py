@@ -1755,7 +1755,7 @@ class Product3DRenderVideoService:
         source_camera_plan = raw_camera_plan if isinstance(raw_camera_plan, dict) else {}
         source_camera_path = source_camera_plan.get("path") if isinstance(source_camera_plan.get("path"), dict) else {}
         camera_plan = {
-            "version": _clean_text(source_camera_plan.get("version")) or "camera-plan-v1",
+            "version": _clean_text(source_camera_plan.get("version")) or "camera-plan-v2",
             "template": _clean_text(source_camera_plan.get("template")) or camera_preset_key,
             "productMotion": "fixed",
             "cameraMotion": _clean_text(source_camera_plan.get("cameraMotion")) or "path_playback",
@@ -2039,7 +2039,7 @@ class Product3DRenderVideoService:
             "cameraDistance": camera_distance,
             "cameraPlan": camera_plan
             or {
-                "version": "camera-plan-v1",
+                "version": "camera-plan-v2",
                 "template": camera_preset,
                 "productMotion": "fixed",
                 "cameraMotion": "path_playback",

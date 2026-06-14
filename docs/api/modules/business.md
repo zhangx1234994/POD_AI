@@ -1564,6 +1564,7 @@ X-PODI-API-Key: podi_xxx
 - 执行视频首尾帧：`POST /api/business/product-commercialization/runs` 且 `action=video_keyframes`，立即返回 `runId`，终态查询返回 `resultPayload.videoAssetPackage.deliveryStatus=keyframes_ready` 和 `keyframes[]`。该动作默认调用 GPT Image 2，并做目标画幅归一化；成功后仍需人工确认，不能等同于视频已完成。
 - 执行视频素材包：`POST /api/business/product-commercialization/runs` 且 `action=video_generate` 或不传 `action`，必须传入已确认的 `confirmedVideoKeyframes`；缺少任一规划中的首尾帧/关键帧会返回 `PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED` 和 `missingKeyframes`，错误详情同时返回 `requiredCount/confirmedCount/matchedCount`，用于区分“传入数量”和“真正匹配到的需求数量”。不在提交阶段偷偷生成首帧，也不触发视频扣费。校验通过后立即返回 `runId`/`status`/`retryAfterSeconds`，不在提交接口等待视频生成完成。视频素材包包含脚本、分镜、首尾帧/关键帧、分段视频和可选合成片。
 - 多产品图：`productImageUrl` 是兼容主图字段；`productImages[]` 可传 `primary/front/back/side/detail/texture/lifestyle/reference` 等角色。规划层会把图组交给 VL/LLM 上下文，并在 `videoPlan.referenceImageSet` 和每个 `storyboard[].referenceImage` 中记录参考图选择。当前 KIE/Vidu 执行仍按每段一张参考图调用，不伪装成厂商原生多图视频能力。
+- 视频类型：`videoPlan.videoType` 是后端确认后的规划类型说明，用于解释本次素材包为什么按“商品多角度展示 / 广告转化短片 / 细节卖点讲解”等方式规划；`videoScenario` 只是兼容字段名。
 - 查询结果：`POST /api/business/runs/get`，请求体传 `{ "runId": "..." }` 或 `{ "taskId": "..." }`。视频查询不能只看最终合成片，必须同时查看 `resultPayload.videoAssetPackage.deliveryStatus/script/keyframes/segmentVideos/composition`；首尾帧成功标准是查询到 `status=succeeded` 且 `imageUrls` 非空；视频成功标准是 `videoUrls` 或 `resultPayload.videoAssetPackage.segmentVideos[].videoUrl` 非空；失败原因看 `errorMessage/errorCode`。
 - 计费口径：MVP 阶段关键帧按图片计量，`action=video_keyframes` 每张图记 `quotaUnits=1`，`billingUnit` 例如 `openai.gpt_image_2.image`；视频按生成片段计量，每个视频片段记 `quotaUnits=1`，`billingUnit` 会按真实供应商成本动作派生，例如 `kie_veo3_fast_video_segment` 或 `vidu_viduq3_turbo_video_segment`。当前先记录 quota 和成本证据，不虚构第三方货币单价，正式价格表后续接入模型成本策略。
 - 兼容调试：`/product-commercialization/video-keyframes`、`/product-commercialization/video` 与 `/product-commercialization/video-compose` 暂时保留给内部联调，不作为正式业务方接入口径。
@@ -1638,11 +1639,11 @@ X-PODI-API-Key: podi_xxx
 | `visualSupportMode` | 否 | `recommendation` | `none/recommendation/generate`。`generate` 只表示允许后续显式生成配图，预览接口不自动生图。 |
 | `action` | 预览建议必传；执行接口否 | 预览建议 `video_preview`；执行默认 `video_generate` | 预览支持 `video_preview/copy_preview`，当前测评端只用 `video_preview`。执行支持空值/`video_keyframes`/`video_generate`/`compose_video`/`visual_generate`；非法值返回 `PRODUCT_COMMERCIALIZATION_ACTION_INVALID`，不会静默回退。 |
 | `visualScenes` | 否 | 空 | 仅 `action=visual_generate` 使用。可传 `listing-main/social-ad-cover/detail-closeup` 等配图场景 ID；不传时按模型产出的前三个配图 brief 执行。 |
-| `videoPlanningContext` | 否 | 空 | 视频规划结构化上下文，建议包含 `coreMessage/targetAudience/usageScene/shotPreference/avoid/fields`。测评端会用产品图、VL 识别和可选 JSON 自动回填空白要素，用户可修改后重新规划；业务方也可以直接传该对象，避免把人群、镜头偏好等关键要求埋在长文本里。 |
+| `videoPlanningContext` | 否 | 空 | 视频规划结构化上下文，建议包含 `coreMessage/targetAudience/usageScene/shotPreference/avoid/userRequirement/fields`。测评端会用产品图、VL 识别和可选 JSON 自动回填空白要素，用户可修改后重新规划；业务方也可以直接传该对象，避免把人群、镜头偏好和自由补充要求等关键要求埋在长文本里。 |
 | `videoPromptOverride` | 否 | 空 | 仅视频执行使用。测评端生成规划后允许用户编辑执行脚本；如果传入该字段，视频模型按用户编辑后的脚本生成，原始规划只作为参考。 |
 | `keyframeShotScope` | 否 | 空 | 仅 `action=video_keyframes` 使用。传镜头序号（如 `1`、`2`）时只生成/重生成该镜头的首帧、尾帧或关键帧；不传则按 `videoAssetPackagePlan.keyframeNeeds` 生成全部关键帧。若没有匹配项返回 `PRODUCT_COMMERCIALIZATION_KEYFRAME_SCOPE_EMPTY`，不能静默改成全量生成。 |
 | `confirmedVideoKeyframes` | 条件必填 | 空 | 仅 `action=video_generate` 使用。测评端或业务方把已经人工确认过的关键帧传入，后端按 `shot/segmentIndex/role` 匹配对应镜头并优先作为视频参考图；当 `videoAssetPackagePlan.keyframeNeeds` 非空时，该字段必须覆盖所有镜头的首尾帧/关键帧，否则返回 `PRODUCT_COMMERCIALIZATION_KEYFRAMES_UNCONFIRMED`。数量不是通过条件，角色也必须匹配；例如同一镜头两张 `first_frame` 不能替代缺失的 `last_frame`。已确认帧不会被当成需要再次生成的图片扣费项。 |
-| `videoScenario` | 否 | `product_showcase_short` | `product_showcase_short/social_ad_short/detail_explainer`。 |
+| `videoScenario` | 否 | `product_showcase_short` | 视频类型/资产类型，兼容字段名仍为 `videoScenario`。当前允许 `product_showcase_short/social_ad_short/detail_explainer`。 |
 | `durationSeconds` | 否 | 模型默认 | 期望单段视频执行时长。合法值由所选 `executorId` 的模型画像决定，例如 KIE Veo3.1 Fast 当前按 8 秒片段执行，Vidu viduq3-turbo 当前按 3/5/8 秒片段规划。 |
 | `targetDurationSeconds` | 否 | 模型默认 | 客户目标视频素材包时长，允许 1-60。该值以客户需求为主，不按 KIE/Vidu 单段枚举限制；预览会先围绕目标时长规划脚本和分镜，再根据模型画像拆成 8 秒或 3/5/8 秒片段。正式 `/runs` 默认交付单段或多段视频素材包，显式 `action=compose_video` 才要求合成片。 |
 | `aspectRatio` | 否 | `16:9` | 视频目标画幅。KIE 当前作为厂商执行参数传入；Vidu `img2video` 不接受独立画幅参数，实际画幅跟随上传产品图/首帧，若必须稳定输出 16:9/9:16，需要先生成或补边对应比例首帧再执行。响应中的 `videoPlan.aspectPolicy` 会说明真实执行策略。 |
@@ -1724,7 +1725,7 @@ X-PODI-API-Key: podi_xxx
       }
     ]
   },
-	  "visualAssetPlan": {
+  "visualAssetPlan": {
     "mode": "recommendation",
     "hasProductImage": true,
     "recommendedScenes": [
@@ -1734,13 +1735,21 @@ X-PODI-API-Key: podi_xxx
         "generateByDefault": false
       }
     ],
-	    "generationPolicy": {
-	      "requiresExplicitAction": true,
-	      "candidateRoute": "business.product_commercialization.visual_generate",
-	      "factSource": "resolvedProductFacts"
-	    }
-	  },
+    "generationPolicy": {
+      "requiresExplicitAction": true,
+      "candidateRoute": "business.product_commercialization.visual_generate",
+      "factSource": "resolvedProductFacts"
+    }
+  },
   "videoPlan": {
+    "scenario": "product_showcase_short",
+    "videoType": {
+      "key": "product_showcase_short",
+      "label": "商品多角度展示",
+      "assetFocus": "主体、轮廓、材质和基础角度素材",
+      "planningGoal": "先建立完整商品识别，再安排全景、角度和细节镜头。",
+      "planningReminder": "适合做上架页、详情页或通用商品展示素材；不要过早裁切主体。"
+    },
     "provider": "kie",
     "model": "veo3_fast",
     "targetDurationSeconds": 15,
@@ -2109,7 +2118,7 @@ Vidu 固定画幅执行补充字段：
       { "x": 0.78, "y": 0.42 }
     ],
     "cameraPlan": {
-      "version": "camera-plan-v1",
+      "version": "camera-plan-v2",
       "template": "orbit_360",
       "productMotion": "fixed",
       "cameraMotion": "path_playback",
@@ -2415,7 +2424,7 @@ Vidu 固定画幅执行补充字段：
     { "x": 0.78, "y": 0.42 }
   ],
   "cameraPlan": {
-    "version": "camera-plan-v1",
+    "version": "camera-plan-v2",
     "template": "orbit_360",
     "productMotion": "fixed",
     "cameraMotion": "path_playback",
@@ -2649,7 +2658,7 @@ Vidu 固定画幅执行补充字段：
       "finalDeliveryRecommended": true
     },
     "cameraPlan": {
-      "version": "camera-plan-v1",
+      "version": "camera-plan-v2",
       "template": "orbit_360",
       "productMotion": "fixed",
       "cameraMotion": "path_playback",
