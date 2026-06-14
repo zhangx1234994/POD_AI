@@ -489,7 +489,7 @@ class ProductCommercializationRequest(BaseModel):
     videoScenario: str = Field(
         default="product_showcase_short",
         alias="video_scenario",
-        description="视频场景：product_showcase_short / social_ad_short / detail_explainer",
+        description="视频类型/资产类型；兼容字段名仍为 videoScenario。当前允许 product_showcase_short / social_ad_short / detail_explainer。",
     )
     durationSeconds: int | None = Field(
         default=None,
@@ -517,7 +517,23 @@ class ProductCommercializationRequest(BaseModel):
     videoPlanningContext: dict[str, Any] | None = Field(
         default=None,
         alias="video_planning_context",
-        description="视频规划结构化上下文，例如核心信息、目标人群、使用场景、镜头偏好、禁止内容和自定义要素。",
+        description="视频规划结构化上下文，例如核心信息、目标人群、使用场景、镜头偏好、禁止内容和用户自由要求。",
+        json_schema_extra={
+            "properties": {
+                "coreMessage": {"type": "string", "description": "核心信息或主打卖点"},
+                "targetAudience": {"type": "string", "description": "目标人群"},
+                "usageScene": {"type": "string", "description": "使用场景或投放场景"},
+                "shotPreference": {"type": "string", "description": "镜头偏好"},
+                "avoid": {"type": "string", "description": "禁止内容或规避项"},
+                "userRequirement": {"type": "string", "description": "用户自由视频要求，会进入规划模型上下文"},
+                "fields": {
+                    "type": "array",
+                    "description": "测评端或业务方结构化补充字段",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
+            },
+            "additionalProperties": True,
+        },
     )
     keyframeShotScope: str | int | None = Field(
         default=None,

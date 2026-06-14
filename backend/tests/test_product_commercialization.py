@@ -3468,6 +3468,15 @@ def test_product_commercialization_internal_run_is_not_route_missing() -> None:
 
 
 def test_business_openapi_exposes_product_commercialization() -> None:
+    global_resp = client.get("/openapi.json", headers={"x-real-ip": "127.0.0.1"})
+    assert global_resp.status_code == 200
+    global_schema = global_resp.json()["components"]["schemas"]["ProductCommercializationRequest"]
+    assert "视频类型/资产类型" in global_schema["properties"]["video_scenario"]["description"]
+    assert "兼容字段名" in global_schema["properties"]["video_scenario"]["description"]
+    assert "video_planning_context" in global_schema["properties"]
+    assert "userRequirement" in global_schema["properties"]["video_planning_context"]["properties"]
+    assert "shotPreference" in global_schema["properties"]["video_planning_context"]["properties"]
+
     resp = client.get("/api/business/openapi.json", headers={"x-real-ip": "127.0.0.1"})
     assert resp.status_code == 200
     paths = resp.json()["paths"]
