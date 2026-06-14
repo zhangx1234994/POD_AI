@@ -6722,7 +6722,12 @@ class BusinessRunService:
 
     @staticmethod
     def _business_route_missing(row: BusinessRun) -> bool:
-        if row.business_key in {"product_commercialization", "product_3d_render_video"} and row.version:
+        code_driven_business_keys = {
+            "product_commercialization",
+            "promo_video",
+            "product_3d_render_video",
+        }
+        if row.business_key in code_driven_business_keys and row.version:
             return False
         return not row.business_version_id or not row.version
 

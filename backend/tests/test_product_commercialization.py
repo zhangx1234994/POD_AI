@@ -3368,7 +3368,7 @@ def test_product_commercialization_keyframe_error_unwraps_upstream_detail() -> N
 
 
 def test_product_commercialization_internal_run_is_not_route_missing() -> None:
-    row = BusinessRun(
+    product_commercialization_row = BusinessRun(
         id="pc-failed-route-check",
         business_key="product_commercialization",
         version="product-commercialization-mvp-v1",
@@ -3378,8 +3378,19 @@ def test_product_commercialization_internal_run_is_not_route_missing() -> None:
     )
     service = BusinessRunService()
 
-    assert service._build_usage_run_issue_summary(row)["category"] == "executor"
-    assert service._build_run_issue_summary(row)["category"] == "executor"
+    assert service._build_usage_run_issue_summary(product_commercialization_row)["category"] == "executor"
+    assert service._build_run_issue_summary(product_commercialization_row)["category"] == "executor"
+
+    promo_video_row = BusinessRun(
+        id="promo-video-failed-route-check",
+        business_key="promo_video",
+        version="promo-video-mvp-v1",
+        status="failed",
+        source="business-api",
+        error_message="PRODUCT_COMMERCIALIZATION_KEYFRAME_GENERATION_FAILED",
+    )
+    assert service._build_usage_run_issue_summary(promo_video_row)["category"] == "executor"
+    assert service._build_run_issue_summary(promo_video_row)["category"] == "executor"
 
     product_3d_row = BusinessRun(
         id="p3d-failed-route-check",
