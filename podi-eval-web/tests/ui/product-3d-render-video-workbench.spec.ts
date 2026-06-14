@@ -429,7 +429,8 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await previewControls.getByRole('button', { name: '近景细节镜头' }).click();
   await previewControls.getByRole('button', { name: /自定义镜头/ }).click();
   await expect(stageMain.getByLabel('3D 模型镜头确认')).toBeVisible();
-  await expect(stageMain.getByText('直接拖拽 3D 模型调整视角，分别保存开始和结束画面。')).toBeVisible();
+  await expect(stageMain.getByText('已停止自动旋转。直接拖拽 3D 模型，保存开始和结束画面后可播放预览。')).toBeVisible();
+  await expect(stageMain.getByText('自定义模式已停止自动旋转 · 拖动模型后保存开始/结束 · 播放会按保存视角过渡')).toBeVisible();
   await expect(stageMain.getByLabel('自定义镜头保存')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频生成主操作')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频输出状态')).toBeVisible();
@@ -438,7 +439,7 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await expect(stageMain.getByLabel('3D 视频输出状态').getByText('尚未提交')).toBeVisible();
   await expect(stageMain.locator('.podi-product-3d-render__video-output')).toHaveCount(0);
   const checkPlanButton = stageMain.locator('.t-button').filter({ hasText: '检查方案' });
-  const playCameraPathButton = stageMain.locator('.t-button').filter({ hasText: '播放镜头' });
+  const playCameraPathButton = stageMain.locator('.t-button').filter({ hasText: '播放自定义镜头' });
   const localPreviewButton = stageMain.locator('.t-button').filter({ hasText: '本地预览 MP4' });
   const serverRenderButton = stageMain.locator('.t-button').filter({ hasText: '服务端 MP4/OSS' });
 
@@ -570,6 +571,10 @@ test('3d render video workbench exports a local preview video', async ({ page })
       cameraMotion: 'manual_start_end_playback',
       customMode: 'manual_start_end_capture',
       playbackConfirmed: true,
+      customShots: expect.objectContaining({
+        start: expect.objectContaining({ label: 'start' }),
+        end: expect.objectContaining({ label: 'end' }),
+      }),
     }),
   });
   expect(serverPayloads[0].motionPath).toEqual(previewMotionPath);

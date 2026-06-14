@@ -1514,10 +1514,15 @@ function Product3DModelPreview({
   onExportHandle?: (handle: Product3DPreviewHandle | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const cameraModeRef = useRef<CameraMode>(cameraMode);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>({
     state: 'loading',
     message: '正在加载真实 3D 模型',
   });
+
+  useEffect(() => {
+    cameraModeRef.current = cameraMode;
+  }, [cameraMode]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -1565,7 +1570,7 @@ function Product3DModelPreview({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.enablePan = false;
-    controls.autoRotate = true;
+    controls.autoRotate = cameraModeRef.current !== 'custom';
     controls.autoRotateSpeed = 0.65;
     controls.target.set(0, 0, 0);
 
@@ -1585,7 +1590,7 @@ function Product3DModelPreview({
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      if (modelRoot && !recording) fitCameraToObject(camera, controls, modelRoot, cameraDistance, modelKey, cameraDistanceProfiles);
+      if (modelRoot && !recording && cameraModeRef.current !== 'custom') fitCameraToObject(camera, controls, modelRoot, cameraDistance, modelKey, cameraDistanceProfiles);
     };
 
     const resizeObserver = new ResizeObserver(resize);
@@ -1672,10 +1677,16 @@ function Product3DModelPreview({
         originalAutoRotateSpeed,
         restore: () => {
           recording = null;
-          camera.position.copy(restorePosition);
-          controls.target.copy(restoreTarget);
-          controls.autoRotate = originalAutoRotate;
-          controls.autoRotateSpeed = originalAutoRotateSpeed;
+          if (hasCustomShots && customEndPosition && customEndTarget) {
+            camera.position.copy(customEndPosition);
+            controls.target.copy(customEndTarget);
+          } else {
+            camera.position.copy(restorePosition);
+            controls.target.copy(restoreTarget);
+          }
+          const shouldAutoRotate = cameraModeRef.current !== 'custom';
+          controls.autoRotate = shouldAutoRotate ? originalAutoRotate : false;
+          controls.autoRotateSpeed = shouldAutoRotate ? originalAutoRotateSpeed : 0;
           controls.update();
         },
       };
@@ -1769,6 +1780,10 @@ function Product3DModelPreview({
           applyCameraMotion(camera, controls, recording.preset, recording.originalPosition, recording.originalTarget, progress);
         }
         enforceCameraMinimumDistance(camera, controls.target, recording.minimumCameraDistance);
+      } else {
+        const shouldAutoRotate = cameraModeRef.current !== 'custom';
+        controls.autoRotate = shouldAutoRotate;
+        controls.autoRotateSpeed = shouldAutoRotate ? 0.65 : 0;
       }
       controls.update();
       renderer.render(scene, camera);
@@ -1808,7 +1823,11 @@ function Product3DModelPreview({
       </div>
       <div className={`podi-product-3d-render__model-preview-status is-${previewStatus.state}`}>
         <span>{previewStatus.message}</span>
-        <small>可拖拽旋转 · 贴图颜色保真显示 · 材质名直连模型槽位</small>
+        <small>
+          {cameraMode === 'custom'
+            ? '自定义模式已停止自动旋转 · 拖动模型后保存开始/结束 · 播放会按保存视角过渡'
+            : '可拖拽旋转 · 贴图颜色保真显示 · 材质名直连模型槽位'}
+        </small>
       </div>
     </div>
   );
@@ -1845,7 +1864,7 @@ function CameraShotOverlay({
         <strong>{cameraMode === 'custom' ? '自定义镜头' : '当前预设镜头'}</strong>
         <span>
           {cameraMode === 'custom'
-            ? '直接拖拽 3D 模型调整视角，分别保存开始和结束画面。'
+            ? '已停止自动旋转。直接拖拽 3D 模型，保存开始和结束画面后可播放预览。'
             : cameraPathProfileLabel(cameraPreset, modelKey)}
         </span>
       </div>
@@ -2730,7 +2749,7 @@ export function Product3DRenderVideoWorkbench() {
                       disabled={!previewHandle || cameraPathPlaybackStatus === 'playing'}
                       onClick={() => void playAndConfirmCameraPath()}
                     >
-                      播放镜头
+                      {cameraMode === 'custom' ? '播放自定义镜头' : '播放镜头'}
                     </Button>
                     <Button
                       theme="success"
