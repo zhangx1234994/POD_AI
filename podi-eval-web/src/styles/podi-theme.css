@@ -968,14 +968,15 @@ html.t-theme-dark {
 .podi-product-3d-render__camera-shot-panel {
   position: absolute;
   left: 14px;
-  top: 132px;
+  right: 14px;
+  bottom: 14px;
   z-index: 2;
-  display: grid;
-  grid-template-columns: minmax(112px, 1fr) minmax(112px, 1fr) auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  max-width: min(760px, calc(100% - 28px));
-  padding: 8px 10px;
+  gap: 10px;
+  max-width: min(720px, calc(100% - 28px));
+  padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--td-brand-color) 28%, var(--td-border-level-1-color));
   border-radius: 8px;
   background: color-mix(in srgb, var(--td-bg-color-container) 90%, transparent);
@@ -984,18 +985,19 @@ html.t-theme-dark {
   pointer-events: auto;
 }
 
-.podi-product-3d-render__camera-shot-panel div {
+.podi-product-3d-render__camera-shot-guide {
   display: grid;
   gap: 2px;
+  flex: 1 1 250px;
   min-width: 0;
 }
 
-.podi-product-3d-render__camera-shot-panel strong {
+.podi-product-3d-render__camera-shot-guide strong {
   color: var(--td-text-color-primary);
   font-size: 12px;
 }
 
-.podi-product-3d-render__camera-shot-panel span {
+.podi-product-3d-render__camera-shot-guide span {
   overflow: hidden;
   color: var(--td-text-color-secondary);
   font-size: 12px;
@@ -1004,8 +1006,12 @@ html.t-theme-dark {
 }
 
 .podi-product-3d-render__camera-shot-panel .t-button {
-  min-width: 72px;
+  min-width: 96px;
   white-space: nowrap;
+}
+
+.podi-product-3d-render__camera-overlay.is-custom .podi-product-3d-render__camera-overlay-status {
+  display: none;
 }
 
 .podi-product-3d-render__camera-overlay-status .t-button {
@@ -1058,6 +1064,13 @@ html.t-theme-dark {
   color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.podi-product-3d-render__model-preview.is-custom-camera .podi-product-3d-render__model-preview-status {
+  top: 12px;
+  right: 12px;
+  bottom: auto;
+  max-width: min(360px, calc(100% - 28px));
 }
 
 .podi-product-3d-render__model-preview-status span {

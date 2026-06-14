@@ -1369,8 +1369,31 @@ function applyCustomCameraMotion(
   progress: number,
 ) {
   const eased = 0.5 - Math.cos(Math.min(1, Math.max(0, progress)) * Math.PI) / 2;
-  camera.position.copy(startPosition).lerp(endPosition, eased);
-  controls.target.copy(startTarget).lerp(endTarget, eased);
+  const target = startTarget.clone().lerp(endTarget, eased);
+  const startOffset = startPosition.clone().sub(startTarget);
+  const endOffset = endPosition.clone().sub(endTarget);
+
+  const startRadius = Math.max(0.001, startOffset.length());
+  const endRadius = Math.max(0.001, endOffset.length());
+  const startHorizontal = Math.max(0.001, Math.hypot(startOffset.x, startOffset.z));
+  const endHorizontal = Math.max(0.001, Math.hypot(endOffset.x, endOffset.z));
+  const startAzimuth = Math.atan2(startOffset.x, startOffset.z);
+  const endAzimuth = Math.atan2(endOffset.x, endOffset.z);
+  const shortestAzimuthDelta = Math.atan2(Math.sin(endAzimuth - startAzimuth), Math.cos(endAzimuth - startAzimuth));
+  const startElevation = Math.atan2(startOffset.y, startHorizontal);
+  const endElevation = Math.atan2(endOffset.y, endHorizontal);
+
+  const radius = THREE.MathUtils.lerp(startRadius, endRadius, eased);
+  const azimuth = startAzimuth + shortestAzimuthDelta * eased;
+  const elevation = THREE.MathUtils.lerp(startElevation, endElevation, eased);
+  const horizontal = Math.max(0.001, Math.cos(elevation) * radius);
+
+  controls.target.copy(target);
+  camera.position.set(
+    target.x + Math.sin(azimuth) * horizontal,
+    target.y + Math.sin(elevation) * radius,
+    target.z + Math.cos(azimuth) * horizontal,
+  );
 }
 
 function enforceCameraMinimumDistance(camera: THREE.PerspectiveCamera, target: THREE.Vector3, minimumDistance: number) {
@@ -1805,7 +1828,7 @@ function Product3DModelPreview({
   }, [cameraDistance, cameraDistanceProfiles, materialSlot, modelKey, modelProfile, onExportHandle, scenePreset, textureSlotEntries]);
 
   return (
-    <div className="podi-product-3d-render__model-preview">
+    <div className={`podi-product-3d-render__model-preview${cameraMode === 'custom' ? ' is-custom-camera' : ''}`}>
       <div ref={hostRef} className="podi-product-3d-render__model-canvas" />
       <CameraShotOverlay
         cameraMode={cameraMode}
@@ -1825,7 +1848,7 @@ function Product3DModelPreview({
         <span>{previewStatus.message}</span>
         <small>
           {cameraMode === 'custom'
-            ? '自定义模式已停止自动旋转 · 拖动模型后保存开始/结束 · 播放会按保存视角过渡'
+            ? '自定义模式已停止自动旋转 · 拖动模型后在底部保存开始/结束 · 播放会沿商品视角弧线过渡'
             : '可拖拽旋转 · 贴图颜色保真显示 · 材质名直连模型槽位'}
         </small>
       </div>
@@ -1857,6 +1880,15 @@ function CameraShotOverlay({
   const statusLabel = confirmed ? '镜头已确认' : playbackStatus === 'playing' ? '正在播放' : '待播放确认';
   const startMeta = customCameraShots.start ? `方位 ${customCameraShots.start.azimuth}° / 俯仰 ${customCameraShots.start.elevation}°` : '先转动到开始画面';
   const endMeta = customCameraShots.end ? `方位 ${customCameraShots.end.azimuth}° / 俯仰 ${customCameraShots.end.elevation}°` : '再转动到结束画面';
+  const customInstruction = !hasStart
+    ? '拖到视频第一帧，点“设为开始画面”。'
+    : !hasEnd
+      ? '再拖到视频最后一帧，点“设为结束画面”。'
+      : confirmed
+        ? '镜头已确认，可导出本地预览或提交服务端 MP4。'
+        : playbackStatus === 'playing'
+          ? '正在按保存的开始/结束画面播放。'
+          : '开始和结束已保存，点击右侧“播放自定义镜头”确认。';
 
   return (
     <div className={`podi-product-3d-render__camera-overlay is-${cameraMode}`} aria-label="3D 模型镜头确认">
@@ -1864,28 +1896,24 @@ function CameraShotOverlay({
         <strong>{cameraMode === 'custom' ? '自定义镜头' : '当前预设镜头'}</strong>
         <span>
           {cameraMode === 'custom'
-            ? '已停止自动旋转。直接拖拽 3D 模型，保存开始和结束画面后可播放预览。'
+            ? '已停止自动旋转。直接拖动 3D 模型取景，底部按钮会保存当前画面。'
             : cameraPathProfileLabel(cameraPreset, modelKey)}
         </span>
       </div>
       {cameraMode === 'custom' ? (
         <div className="podi-product-3d-render__camera-shot-panel" aria-label="自定义镜头保存">
-          <div>
-            <strong>开始镜头</strong>
-            <span>{startMeta}</span>
+          <div className="podi-product-3d-render__camera-shot-guide">
+            <strong>{customInstruction}</strong>
+            <span>{hasStart ? `开始：${startMeta}` : '开始：未保存'} · {hasEnd ? `结束：${endMeta}` : '结束：未保存'}</span>
           </div>
-          <div>
-            <strong>结束镜头</strong>
-            <span>{endMeta}</span>
-          </div>
-          <Button size="small" variant={hasStart ? 'outline' : 'base'} onClick={() => onCapture('start')}>
-            {hasStart ? '重存开始' : '保存开始'}
+          <Button size="small" theme={hasStart ? 'default' : 'primary'} variant={hasStart ? 'outline' : 'base'} onClick={() => onCapture('start')}>
+            {hasStart ? '重设开始' : '设为开始画面'}
           </Button>
-          <Button size="small" variant={hasEnd ? 'outline' : 'base'} onClick={() => onCapture('end')}>
-            {hasEnd ? '重存结束' : '保存结束'}
+          <Button size="small" theme={hasEnd ? 'default' : 'primary'} variant={hasEnd ? 'outline' : 'base'} onClick={() => onCapture('end')}>
+            {hasEnd ? '重设结束' : '设为结束画面'}
           </Button>
           <Button size="small" variant="text" onClick={onClear}>
-            清空
+            清空镜头
           </Button>
         </div>
       ) : null}
