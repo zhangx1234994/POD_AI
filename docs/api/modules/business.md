@@ -2080,7 +2080,7 @@ Vidu 固定画幅执行补充字段：
 - 当前模型：`cup_1660`（1660 杯子）、`backpack_2551`（2551 笔记本电脑背包）
 - 当前状态：`/preview` 只返回 `model/assetReadiness/renderPlan/review`，不触发服务端视频生成，不产生第三方成本。`/runs` 已接入 `lightweight_scene_renderer_v1`：创建统一 `BusinessRun`，后台生成 MP4、封面帧和 manifest，并回填自有 OSS；高保真 Blender/headless Three.js worker 后续可在不改 API 的前提下替换。
 - 边界：客户端负责 GLB/UV/材质槽的实时 WYSIWYG 预览和本地录制；服务端负责可查询、可回调、可沉淀的 MP4、封面帧、manifest 和 OSS 回填。批量导出或高保真渲染时应独立扩容渲染 executor 池，不能混入 KIE/Vidu 队列。
-- 当前验收口径：可以验证模型是否进入受控目录、材质槽是否合法、UV 是否存在、贴图 URL 是否齐备、客户端贴图方向是否可接受、渲染参数是否可解释、场景融合规则是否明确、预设镜头或自定义开始/结束镜头是否遵循 `fit_product_safe_bounds` 完整入画规则、`/runs` 是否返回标准 runId、任务完成后是否有 OSS 视频/封面/manifest。
+- 当前验收口径：可以验证模型是否进入受控目录、材质槽是否合法、UV 是否存在、贴图 URL 是否齐备、客户端贴图方向是否可接受、渲染参数是否可解释、场景融合规则是否明确、预设镜头或自定义多段关键帧镜头是否遵循 `fit_product_safe_bounds` 完整入画规则、`/runs` 是否返回标准 runId、任务完成后是否有 OSS 视频/封面/manifest。
 - 后续执行形态：将 `lightweight_scene_renderer_v1` 替换为 Three.js headless 或 Blender 高保真渲染 worker，保持 `/runs` -> `/api/business/runs/get` 的任务契约不变。
 - 能力拆分口径：
   1. `product_3d_render_video.preview`：当前已开放，负责模型、贴图槽、场景、镜头、时长和输出物的方案校验。
@@ -2389,7 +2389,7 @@ Vidu 固定画幅执行补充字段：
 | `cameraPreset` | 否 | `orbit_360` | `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`。 |
 | `cameraDistance` | 否 | `wide` | `wide/standard/close`。默认 `wide`，优先保证商品完整入画。三档都会写入 `renderPlan.camera.framing.mode=fit_product_safe_bounds` 和 `renderPlan.framingSafety`，服务端轻量渲染会按安全取景合同约束镜头运动，避免镜头过近或运动变化导致主体裁切。`close` 会标记为细节补充镜头，不建议作为唯一最终交付视频。非法值返回 `PRODUCT_3D_RENDER_VIDEO_CAMERA_DISTANCE_INVALID`。 |
 | `scenePreset` | 否 | `clean_studio` | `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`。每个预设都会绑定 `renderPlan.scene.asset`，包含 `assetId/assetType/license/renderFidelity/materialPolicy`；同时返回 `renderPlan.scene.fusion` 说明商品落点、比例、道具层级、遮挡规则和阴影策略，并返回 `renderPlan.sceneVisualAcceptance` 用于判断当前场景能否执行、候选场景模型卡在哪些入库门禁。测评端会将这些场景以 Three.js 基础场景模型和缩略图呈现，不只是文字说明。 |
-| `cameraPlan` | 建议 | 默认镜头方案 | 镜头方案主字段，描述 `productMotion=fixed`、`cameraMotion`、焦点、取景约束和 `playbackConfirmed`。模板镜头使用 `customMode=preset_template`；手动镜头使用 `customMode=manual_start_end_capture`，并携带 `customShots.start/end`，每个快照包含相机位置、焦点、距离、方位角和俯仰角。测评端必须先播放并确认镜头，`/runs` 建议携带 `playbackConfirmed=true`，避免未经确认的镜头直接触发服务端视频生成。 |
+| `cameraPlan` | 建议 | 默认镜头方案 | 镜头方案主字段，描述 `productMotion=fixed`、`cameraMotion`、焦点、取景约束和 `playbackConfirmed`。模板镜头使用 `customMode=preset_template`；手动镜头使用 `customMode=manual_keyframe_capture`，并携带 `keyframes/segments/timeline`：每个 keyframe 保存相机位置、焦点、距离、方位角和俯仰角；每段 segment 保存 `seconds` 与 `motion=smooth/orbit`，避免所有动作被平均分配时长。`customShots.start/end` 仍保留为首尾关键帧兼容字段。测评端必须先播放并确认镜头，`/runs` 建议携带 `playbackConfirmed=true`，避免未经确认的镜头直接触发服务端视频生成。 |
 | `motionPath` | 兼容字段 | 默认轻微弧线 | 兼容旧调用的镜头运动点数组，每项 `{x,y}` 且范围 0-1；至少 2 点，最多取前 12 点。商品保持固定，不表示商品位移。新接入优先使用 `cameraPlan`；响应里的 `framingSafety.motionPathBounds` 记录镜头运动范围，`appliedMotionScale` 记录轻量渲染器的取景缩放。非法值返回 `PRODUCT_3D_RENDER_VIDEO_MOTION_PATH_INVALID`。 |
 | `durationSeconds` | 否 | `6` | 1-30 秒；`/preview` 只进入方案，`/runs` 用于服务端 MP4 帧数和时长。 |
 | `aspectRatio` | 否 | `16:9` | 目标画幅。 |

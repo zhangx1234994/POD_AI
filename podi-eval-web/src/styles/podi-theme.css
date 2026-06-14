@@ -790,6 +790,26 @@ html.t-theme-dark {
   color: var(--td-brand-color);
 }
 
+.podi-product-3d-render__derived-duration {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 24%, var(--td-border-level-1-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--td-brand-color) 5%, var(--td-bg-color-container));
+}
+
+.podi-product-3d-render__derived-duration strong {
+  color: var(--td-brand-color);
+  font-size: 16px;
+}
+
+.podi-product-3d-render__derived-duration span {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .podi-product-3d-render__model-preview {
   position: relative;
   min-height: 380px;
@@ -2116,6 +2136,98 @@ html.t-theme-dark {
 
 .podi-product-3d-render__camera-summary .t-typography {
   line-height: 1.5;
+}
+
+.podi-product-3d-render__custom-timeline {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.podi-product-3d-render__custom-timeline-head,
+.podi-product-3d-render__custom-segment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.podi-product-3d-render__custom-timeline-head {
+  justify-content: space-between;
+}
+
+.podi-product-3d-render__custom-timeline-head > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.podi-product-3d-render__custom-timeline-head strong,
+.podi-product-3d-render__custom-segment-main strong {
+  color: var(--td-text-color-primary);
+  font-size: 12px;
+}
+
+.podi-product-3d-render__custom-timeline-head span,
+.podi-product-3d-render__custom-segment-main span {
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.podi-product-3d-render__custom-segment-list {
+  display: grid;
+  gap: 6px;
+}
+
+.podi-product-3d-render__custom-segment {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--td-border-level-1-color) 80%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 82%, var(--td-bg-color-secondarycontainer));
+}
+
+.podi-product-3d-render__custom-segment-main {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.podi-product-3d-render__duration-stepper {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  min-height: 28px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 999px;
+  background: var(--td-bg-color-container);
+}
+
+.podi-product-3d-render__duration-stepper button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--td-brand-color);
+  cursor: pointer;
+}
+
+.podi-product-3d-render__duration-stepper button:hover {
+  background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
+}
+
+.podi-product-3d-render__duration-stepper strong {
+  min-width: 34px;
+  color: var(--td-text-color-primary);
+  font-size: 12px;
+  text-align: center;
 }
 
 .podi-product-3d-render__video-output {

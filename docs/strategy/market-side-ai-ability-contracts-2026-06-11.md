@@ -525,7 +525,7 @@ POST /api/business/runs/get
 - `preview` 当前只允许 `outputMode=plan_only`；传 `render_video` 会返回 `PRODUCT_3D_RENDER_VIDEO_EXECUTION_NOT_READY`。
 - `/runs` 是独立服务端渲染入口，固定接收 `outputMode=render_video`；当前返回标准 `runId/taskId`，并按统一 runId 查询 OSS 视频、封面和 manifest。
 - 镜头预设包括 `orbit_360/hero_turntable/slow_push_in/detail_sweep/top_reveal/social_arc`；镜头远近包括 `wide/standard/close`，默认 `wide`，前端和服务端都必须遵守 `fit_product_safe_bounds`，保证商品主体完整入画。
-- 自定义镜头不新增 `cameraPreset`。用户在 3D 画面中拖动模型/相机，保存开始镜头和结束镜头；前端写入 `cameraPlan.customMode=manual_start_end_capture` 与 `cameraPlan.customShots.start/end`，同时折算 `motionPath` 兼容轻量渲染器和旧链路。
+- 自定义镜头不新增 `cameraPreset`。用户在 3D 画面中拖动模型/相机，依次保存开始画面、杯口、细节等多个镜头关键帧；前端写入 `cameraPlan.customMode=manual_keyframe_capture`、`cameraPlan.keyframes/segments/timeline`，每段 segment 单独记录秒数和 `smooth/orbit` 运动类型，`customShots.start/end` 仅作为首尾关键帧兼容字段，同时折算 `motionPath` 兼容轻量渲染器和旧链路。
 - 场景预设包括 `clean_studio/marketplace_white/premium_dark/desktop_lifestyle/gift_table/retail_shelf`，每个场景必须定义商品摆放位置、比例、安全区、阴影和道具遮挡规则，并映射到 `renderPlan.scene.asset`。
 - `renderPlan.scene.asset` 必须包含 `assetId/assetType/assetStatus/renderFidelity/source/license/geometry/materialPolicy/highFidelityTarget`。当前首版为 `mvp_procedural`，可用于交互和接口闭环；商用级效果要替换为高保真 worker 或经过授权的真实场景资产。
 - `/preview` 必须返回 `renderPlan.scene.fusion`，`/runs` 输出的 `renderAssetPackage.manifest.sceneFusion` 必须沉淀场景融合证据，至少包括 `landingZone/productScale/occlusionPolicy/propDepth/shadowPolicy`。这用于证明商品落点、道具层级和遮挡规则，不允许把场景能力降级成“换背景枚举”。

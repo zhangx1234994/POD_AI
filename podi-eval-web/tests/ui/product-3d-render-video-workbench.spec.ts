@@ -429,8 +429,8 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await previewControls.getByRole('button', { name: '近景细节镜头' }).click();
   await previewControls.getByRole('button', { name: /自定义镜头/ }).click();
   await expect(stageMain.getByLabel('3D 模型镜头确认')).toBeVisible();
-  await expect(stageMain.getByText('已停止自动旋转。直接拖拽 3D 模型，保存开始和结束画面后可播放预览。')).toBeVisible();
-  await expect(stageMain.getByText('自定义模式已停止自动旋转 · 拖动模型后保存开始/结束 · 播放会按保存视角过渡')).toBeVisible();
+  await expect(stageMain.getByText('已停止自动旋转。直接拖动 3D 模型取景，底部按钮会保存当前画面为镜头点。')).toBeVisible();
+  await expect(stageMain.getByText('自定义模式已停止自动旋转 · 拖动模型后在底部保存多个镜头点 · 播放会按每段时长过渡')).toBeVisible();
   await expect(stageMain.getByLabel('自定义镜头保存')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频生成主操作')).toBeVisible();
   await expect(stageMain.getByLabel('3D 视频输出状态')).toBeVisible();
@@ -457,14 +457,23 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await page.mouse.move(canvasBox.x + canvasBox.width * 0.42, canvasBox.y + canvasBox.height * 0.46);
   await page.mouse.up();
   const customShotPanel = stageMain.getByLabel('自定义镜头保存');
-  await customShotPanel.getByRole('button', { name: '保存开始', exact: true }).click();
-  await expect(stageMain.getByText('开始/结束已保存')).toHaveCount(0);
+  await customShotPanel.getByRole('button', { name: '设为开始画面', exact: true }).click();
+  await expect(stageMain.getByText('至少 2 个镜头点')).toBeVisible();
   await page.mouse.move(canvasBox.x + canvasBox.width * 0.52, canvasBox.y + canvasBox.height * 0.42);
   await page.mouse.down();
   await page.mouse.move(canvasBox.x + canvasBox.width * 0.68, canvasBox.y + canvasBox.height * 0.38);
   await page.mouse.up();
-  await customShotPanel.getByRole('button', { name: '保存结束', exact: true }).click();
-  await expect(cameraOverlay.getByText('开始/结束已保存', { exact: true })).toBeVisible();
+  await customShotPanel.getByRole('button', { name: '添加镜头点', exact: true }).click();
+  await expect(customShotPanel.getByText(/2 个镜头点/)).toBeVisible();
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.48, canvasBox.y + canvasBox.height * 0.34);
+  await page.mouse.down();
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.58, canvasBox.y + canvasBox.height * 0.26);
+  await page.mouse.up();
+  await customShotPanel.getByRole('button', { name: '添加镜头点', exact: true }).click();
+  await expect(customShotPanel.getByText(/3 个镜头点/)).toBeVisible();
+  await expect(stageMain.getByLabel('自定义镜头段')).toBeVisible();
+  await expect(stageMain.getByText(/3 个点 · 2 段/)).toBeVisible();
+  await expect(stageMain.getByText('环绕一圈')).toBeVisible();
 
   await checkPlanButton.click();
   await expect(stageMain.getByText('准备度', { exact: true })).toBeVisible();
@@ -472,8 +481,8 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await expect(stageMain.getByText('渲染 worker', { exact: true })).toBeVisible();
 
   await expect(stageMain.getByText('预览摄影棚')).toBeVisible();
-  await expect(stageMain.getByText('镜头方案 · 自定义开始/结束')).toBeVisible();
-  await expect(stageMain.getByText(/播放会按这两个画面过渡/)).toBeVisible();
+  await expect(stageMain.getByText('镜头方案 · 自定义多段')).toBeVisible();
+  await expect(stageMain.getByText(/已保存 3 个镜头点、2 段运动/)).toBeVisible();
   await expect(stageMain.getByText('场景模型', { exact: true })).toBeVisible();
   await expect(stageMain.locator('.podi-product-3d-render__scene-thumb').first()).toBeVisible();
   const sceneRail = stageMain.locator('.podi-product-3d-render__scene-rail');
@@ -502,8 +511,9 @@ test('3d render video workbench exports a local preview video', async ({ page })
   await expect(shootingBrief.getByText('never_cross_product_silhouette')).toBeVisible();
   await expect(stageMain.getByText(/安全取景/)).toBeVisible();
   await expect(cameraOverlay.getByText('自定义镜头', { exact: true })).toBeVisible();
-  await expect(cameraOverlay.getByText('商品固定', { exact: true })).toBeVisible();
-  await expect(cameraOverlay.getByText('待播放确认', { exact: true })).toBeVisible();
+  const cameraSummary = stageMain.locator('.podi-product-3d-render__camera-summary');
+  await expect(cameraSummary.getByText('商品固定', { exact: true })).toBeVisible();
+  await expect(cameraSummary.getByText('待播放确认', { exact: true })).toBeVisible();
   const resultShotList = stageMain.locator('.podi-product-commercialization__shot-list');
   await expect(resultShotList.getByText('融合规则', { exact: true })).toBeVisible();
   await expect(resultShotList.getByText('center_ellipse_floor_zone', { exact: true })).toBeVisible();
@@ -536,13 +546,26 @@ test('3d render video workbench exports a local preview video', async ({ page })
     materialSlot: 'front',
     cameraPreset: 'slow_push_in',
     cameraDistance: 'close',
-    durationSeconds: 6,
+    durationSeconds: expect.any(Number),
     outputMode: 'plan_only',
     cameraPlan: expect.objectContaining({
       template: 'slow_push_in',
       productMotion: 'fixed',
-      cameraMotion: 'manual_start_end_playback',
-      customMode: 'manual_start_end_capture',
+      cameraMotion: 'manual_keyframe_playback',
+      customMode: 'manual_keyframe_capture',
+      keyframes: expect.arrayContaining([
+        expect.objectContaining({ order: 1, role: 'start' }),
+        expect.objectContaining({ order: 3, role: 'end' }),
+      ]),
+      segments: expect.arrayContaining([
+        expect.objectContaining({ index: 1, motion: 'orbit', seconds: expect.any(Number) }),
+        expect.objectContaining({ index: 2, motion: expect.any(String), seconds: expect.any(Number) }),
+      ]),
+      timeline: expect.objectContaining({
+        keyframeCount: 3,
+        segmentCount: 2,
+        totalDurationSeconds: expect.any(Number),
+      }),
       customShots: expect.objectContaining({
         start: expect.objectContaining({ label: 'start' }),
         end: expect.objectContaining({ label: 'end' }),
@@ -550,6 +573,8 @@ test('3d render video workbench exports a local preview video', async ({ page })
     }),
   });
   const previewMotionPath = previewPayloads[0].motionPath as Array<{ x: number; y: number }>;
+  const previewCameraPlan = previewPayloads[0].cameraPlan as Record<string, any>;
+  expect(previewPayloads[0].durationSeconds).toBe(previewCameraPlan.timeline.totalDurationSeconds);
   expect(previewMotionPath.length).toBeGreaterThanOrEqual(2);
   for (const point of previewMotionPath) {
     expect(point.x).toBeGreaterThanOrEqual(0);
@@ -564,14 +589,27 @@ test('3d render video workbench exports a local preview video', async ({ page })
     cameraPreset: 'slow_push_in',
     cameraDistance: 'close',
     scenePreset: 'clean_studio',
-    durationSeconds: 6,
+    durationSeconds: expect.any(Number),
     outputMode: 'render_video',
     cameraPlan: expect.objectContaining({
       template: 'slow_push_in',
       productMotion: 'fixed',
-      cameraMotion: 'manual_start_end_playback',
-      customMode: 'manual_start_end_capture',
+      cameraMotion: 'manual_keyframe_playback',
+      customMode: 'manual_keyframe_capture',
       playbackConfirmed: true,
+      keyframes: expect.arrayContaining([
+        expect.objectContaining({ order: 1, role: 'start' }),
+        expect.objectContaining({ order: 3, role: 'end' }),
+      ]),
+      segments: expect.arrayContaining([
+        expect.objectContaining({ index: 1, motion: 'orbit', seconds: expect.any(Number) }),
+        expect.objectContaining({ index: 2, motion: expect.any(String), seconds: expect.any(Number) }),
+      ]),
+      timeline: expect.objectContaining({
+        keyframeCount: 3,
+        segmentCount: 2,
+        totalDurationSeconds: expect.any(Number),
+      }),
       customShots: expect.objectContaining({
         start: expect.objectContaining({ label: 'start' }),
         end: expect.objectContaining({ label: 'end' }),
@@ -579,6 +617,8 @@ test('3d render video workbench exports a local preview video', async ({ page })
     }),
   });
   expect(serverPayloads[0].motionPath).toEqual(previewMotionPath);
+  const serverCameraPlan = serverPayloads[0].cameraPlan as Record<string, any>;
+  expect(serverPayloads[0].durationSeconds).toBe(serverCameraPlan.timeline.totalDurationSeconds);
   expect(serverPayloads[0].textureSlots).toEqual([
     expect.objectContaining({ materialSlot: 'front', imageUrl: TEXTURE_IMAGE }),
   ]);

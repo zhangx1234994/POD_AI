@@ -2836,17 +2836,29 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             },
             "cameraPlan": {
                 "type": "object",
-                "description": "镜头方案主字段。描述商品固定、相机轨迹、焦点、是否已播放确认和生成前确认门禁；/runs 建议携带 playbackConfirmed=true。",
+                "description": "镜头方案主字段。描述商品固定、相机轨迹、焦点、是否已播放确认和生成前确认门禁；/runs 建议携带 playbackConfirmed=true。自定义镜头可携带 keyframes/segments/timeline；customShots.start/end 仅作旧链路兼容。",
                 "properties": {
-                    "version": {"type": "string", "default": "camera-plan-v1"},
+                    "version": {"type": "string", "default": "camera-plan-v3"},
                     "template": {"type": "string", "description": "镜头模板，与 cameraPreset 对齐。"},
                     "productMotion": {"type": "string", "enum": ["fixed"], "description": "商品固定，不做物体运动。"},
-                    "cameraMotion": {"type": "string", "enum": ["path_playback"], "description": "按镜头轨迹播放。"},
+                    "cameraMotion": {"type": "string", "enum": ["path_playback", "manual_keyframe_playback"], "description": "按预设路径或用户保存的多段镜头关键帧播放。"},
                     "playbackConfirmed": {"type": "boolean", "description": "前端是否已播放并确认镜头轨迹。"},
                     "confirmationRequiredBeforeRender": {"type": "boolean", "description": "生成视频前是否必须确认镜头轨迹。"},
                     "path": {
                         "type": "object",
                         "description": "归一化镜头轨迹点；后端会同步兼容读取 motionPath。",
+                    },
+                    "keyframes": {
+                        "type": "array",
+                        "description": "自定义多段镜头关键帧。每个点保存相机位置、焦点、距离、方位角、俯仰角，以及从上一个点过渡到当前点的 segmentSeconds/segmentMotion。",
+                    },
+                    "segments": {
+                        "type": "array",
+                        "description": "自定义镜头段。每段描述 from/to、seconds 和 motion，支持 smooth/orbit，避免所有动作被平均分配时长。",
+                    },
+                    "timeline": {
+                        "type": "object",
+                        "description": "自定义镜头时间线摘要，例如 keyframeCount、segmentCount、totalDurationSeconds。",
                     },
                     "constraints": {
                         "type": "object",

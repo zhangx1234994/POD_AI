@@ -1784,6 +1784,12 @@ class Product3DRenderVideoService:
             camera_plan["customMode"] = custom_mode
         if isinstance(source_camera_plan.get("customShots"), dict):
             camera_plan["customShots"] = source_camera_plan["customShots"]
+        if isinstance(source_camera_plan.get("keyframes"), list):
+            camera_plan["keyframes"] = source_camera_plan["keyframes"]
+        if isinstance(source_camera_plan.get("segments"), list):
+            camera_plan["segments"] = source_camera_plan["segments"]
+        if isinstance(source_camera_plan.get("timeline"), dict):
+            camera_plan["timeline"] = source_camera_plan["timeline"]
 
         warnings: list[dict[str, str]] = []
         if not texture_urls and not texture_slots:

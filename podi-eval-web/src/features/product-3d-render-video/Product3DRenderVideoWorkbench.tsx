@@ -21,7 +21,9 @@ type SlotTextureState = Record<string, string>;
 type TextureSlotEntry = { materialSlot: string; imageUrl: string; label: string };
 type MotionPathPoint = { x: number; y: number };
 type CameraMode = 'preset' | 'custom';
-type CameraShotLabel = 'start' | 'end';
+type CameraShotLabel = 'start' | 'point' | 'end';
+type CameraKeyframeRole = 'start' | 'point' | 'end';
+type CameraSegmentMotion = 'smooth' | 'orbit';
 type Vector3Record = { x: number; y: number; z: number };
 type CameraShotSnapshot = {
   label: CameraShotLabel;
@@ -35,6 +37,13 @@ type CameraShotSnapshot = {
 type CameraShotPair = {
   start: CameraShotSnapshot | null;
   end: CameraShotSnapshot | null;
+};
+type CameraKeyframeSnapshot = CameraShotSnapshot & {
+  id: string;
+  title: string;
+  role: CameraKeyframeRole;
+  segmentSeconds?: number;
+  segmentMotion?: CameraSegmentMotion;
 };
 type SelectOption = { label: string; value: string; desc?: string };
 type ModelProfile = {
@@ -158,14 +167,14 @@ type Product3DPreviewHandle = {
     durationSeconds: number,
     cameraPreset: CameraPreset,
     cameraDistance: CameraDistance,
-    customShots?: CameraShotPair | null,
+    customKeyframes?: CameraKeyframeSnapshot[] | null,
   ) => Promise<void>;
   exportVideo: (
     durationSeconds: number,
     cameraPreset: CameraPreset,
     cameraDistance: CameraDistance,
     aspectRatio: string,
-    customShots?: CameraShotPair | null,
+    customKeyframes?: CameraKeyframeSnapshot[] | null,
   ) => Promise<ExportedPreviewVideo>;
   captureCameraShot: (label: CameraShotLabel) => CameraShotSnapshot;
 };
@@ -1000,8 +1009,16 @@ function emptyCameraShots(): CameraShotPair {
   return { start: null, end: null };
 }
 
+function emptyCameraKeyframes(): CameraKeyframeSnapshot[] {
+  return [];
+}
+
 function isCompleteCameraShotPair(value: CameraShotPair | null | undefined): value is { start: CameraShotSnapshot; end: CameraShotSnapshot } {
   return Boolean(value?.start && value?.end);
+}
+
+function hasCompleteCameraKeyframes(value: CameraKeyframeSnapshot[] | null | undefined): value is [CameraKeyframeSnapshot, CameraKeyframeSnapshot, ...CameraKeyframeSnapshot[]] {
+  return Boolean(value && value.length >= 2);
 }
 
 function vector3RecordFromVector(value: THREE.Vector3): Vector3Record {
@@ -1029,18 +1046,101 @@ function cameraShotToMotionPoint(shot: CameraShotSnapshot): MotionPathPoint {
   };
 }
 
-function cameraShotsToMotionPath(value: CameraShotPair | null | undefined): MotionPathPoint[] | null {
-  if (!isCompleteCameraShotPair(value)) return null;
-  const start = cameraShotToMotionPoint(value.start);
-  const end = cameraShotToMotionPoint(value.end);
-  return normalizeMotionPath([
-    start,
-    {
-      x: clamp01((start.x + end.x) / 2),
-      y: clamp01((start.y + end.y) / 2),
-    },
-    end,
-  ]);
+function cameraKeyframesToMotionPath(value: CameraKeyframeSnapshot[] | null | undefined): MotionPathPoint[] | null {
+  if (!hasCompleteCameraKeyframes(value)) return null;
+  return normalizeMotionPath(value.map((item) => cameraShotToMotionPoint(item)));
+}
+
+function cameraKeyframesToShotPair(value: CameraKeyframeSnapshot[] | null | undefined): CameraShotPair {
+  if (!hasCompleteCameraKeyframes(value)) return emptyCameraShots();
+  const last = value[value.length - 1];
+  return {
+    start: { ...value[0], label: 'start' },
+    end: { ...last, label: 'end' },
+  };
+}
+
+function angleDeltaDegrees(start: number, end: number) {
+  const startRadians = THREE.MathUtils.degToRad(start);
+  const endRadians = THREE.MathUtils.degToRad(end);
+  const delta = Math.atan2(Math.sin(endRadians - startRadians), Math.cos(endRadians - startRadians));
+  return Math.abs(THREE.MathUtils.radToDeg(delta));
+}
+
+function suggestCameraSegmentSeconds(prev: CameraKeyframeSnapshot, next: CameraShotSnapshot, segmentIndex: number, modelKey: ModelKey) {
+  const angleDelta = angleDeltaDegrees(prev.azimuth, next.azimuth);
+  const elevationDelta = Math.abs(prev.elevation - next.elevation);
+  const distanceDelta = Math.abs(prev.distance - next.distance);
+  let seconds = segmentIndex === 1 && modelKey === 'cup_1660' ? 4 : 2;
+  if (angleDelta > 120) seconds += 1;
+  if (elevationDelta > 18) seconds += 1;
+  if (distanceDelta > 0.55) seconds += 1;
+  return Math.max(2, Math.min(8, seconds));
+}
+
+function suggestCameraSegmentMotion(segmentIndex: number, modelKey: ModelKey): CameraSegmentMotion {
+  if (segmentIndex === 1 && modelKey === 'cup_1660') return 'orbit';
+  return 'smooth';
+}
+
+function buildCameraKeyframe(shot: CameraShotSnapshot, index: number, previous: CameraKeyframeSnapshot | null, modelKey: ModelKey): CameraKeyframeSnapshot {
+  const role: CameraKeyframeRole = index === 0 ? 'start' : 'point';
+  const segmentSeconds = previous ? suggestCameraSegmentSeconds(previous, shot, index, modelKey) : undefined;
+  const segmentMotion = previous ? suggestCameraSegmentMotion(index, modelKey) : undefined;
+  return {
+    ...shot,
+    id: `shot-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    label: role,
+    role,
+    title: index === 0 ? '开始画面' : `镜头点 ${index + 1}`,
+    segmentSeconds,
+    segmentMotion,
+  };
+}
+
+function cameraKeyframeSegments(value: CameraKeyframeSnapshot[] | null | undefined) {
+  if (!hasCompleteCameraKeyframes(value)) return [];
+  return value.slice(1).map((item, index) => ({
+    from: value[index],
+    to: item,
+    seconds: Math.max(1, Math.min(12, Number(item.segmentSeconds || 2))),
+    motion: item.segmentMotion || 'smooth',
+  }));
+}
+
+function cameraKeyframeDuration(value: CameraKeyframeSnapshot[] | null | undefined, fallback: number) {
+  const total = cameraKeyframeSegments(value).reduce((sum, item) => sum + item.seconds, 0);
+  return total > 0 ? total : fallback;
+}
+
+function serializeCameraKeyframes(value: CameraKeyframeSnapshot[] | null | undefined) {
+  return (value || []).map((item, index) => ({
+    id: item.id,
+    order: index + 1,
+    title: item.title,
+    role: index === 0 ? 'start' : index === (value?.length || 0) - 1 ? 'end' : item.role,
+    label: item.label,
+    position: item.position,
+    target: item.target,
+    distance: item.distance,
+    azimuth: item.azimuth,
+    elevation: item.elevation,
+    segmentSeconds: index === 0 ? undefined : Math.max(1, Math.min(12, Number(item.segmentSeconds || 2))),
+    segmentMotion: index === 0 ? undefined : item.segmentMotion || 'smooth',
+    savedAt: item.savedAt,
+  }));
+}
+
+function serializeCameraSegments(value: CameraKeyframeSnapshot[] | null | undefined) {
+  return cameraKeyframeSegments(value).map((item, index) => ({
+    index: index + 1,
+    fromKeyframeId: item.from.id,
+    toKeyframeId: item.to.id,
+    fromTitle: item.from.title,
+    toTitle: item.to.title,
+    seconds: item.seconds,
+    motion: item.motion,
+  }));
 }
 
 function motionPathBounds(points: MotionPathPoint[]) {
@@ -1095,37 +1195,52 @@ function buildCameraPlanPayload(params: {
   cameraDistance: CameraDistance;
   scenePreset: ScenePreset;
   motionPath: MotionPathPoint[];
-  customCameraShots: CameraShotPair;
+  customCameraKeyframes: CameraKeyframeSnapshot[];
   durationSeconds: number;
   aspectRatio: string;
   confirmed: boolean;
 }) {
   const points = normalizeMotionPath(params.motionPath);
-  const hasCustomShots = params.cameraMode === 'custom' && isCompleteCameraShotPair(params.customCameraShots);
+  const hasCustomKeyframes = params.cameraMode === 'custom' && hasCompleteCameraKeyframes(params.customCameraKeyframes);
+  const legacyCustomShots = cameraKeyframesToShotPair(params.customCameraKeyframes);
+  const customDurationSeconds = hasCustomKeyframes ? cameraKeyframeDuration(params.customCameraKeyframes, params.durationSeconds) : params.durationSeconds;
+  const keyframes = serializeCameraKeyframes(params.customCameraKeyframes);
+  const segments = serializeCameraSegments(params.customCameraKeyframes);
   return {
-    version: 'camera-plan-v2',
+    version: hasCustomKeyframes ? 'camera-plan-v3' : 'camera-plan-v2',
     template: params.cameraPreset,
     productMotion: 'fixed',
-    cameraMotion: hasCustomShots ? 'manual_start_end_playback' : 'path_playback',
-    customMode: params.cameraMode === 'custom' ? 'manual_start_end_capture' : 'preset_template',
+    cameraMotion: hasCustomKeyframes ? 'manual_keyframe_playback' : 'path_playback',
+    customMode: params.cameraMode === 'custom' ? 'manual_keyframe_capture' : 'preset_template',
     playbackConfirmed: params.confirmed,
     confirmationRequiredBeforeRender: true,
-    durationSeconds: params.durationSeconds,
+    durationSeconds: customDurationSeconds,
     aspectRatio: params.aspectRatio,
     cameraDistance: params.cameraDistance,
     scenePreset: params.scenePreset,
     focusTarget: 'product_center',
     focusSlot: params.materialSlot,
     path: {
-      coordinateSpace: hasCustomShots ? 'camera_shot_projection_preview' : 'normalized_camera_path_preview',
+      coordinateSpace: hasCustomKeyframes ? 'camera_keyframe_projection_preview' : 'normalized_camera_path_preview',
       points,
       pointCount: points.length,
     },
-    customShots: hasCustomShots
+    customShots: hasCustomKeyframes && isCompleteCameraShotPair(legacyCustomShots)
       ? {
-          start: params.customCameraShots.start,
-          end: params.customCameraShots.end,
+          start: legacyCustomShots.start,
+          end: legacyCustomShots.end,
           captureMethod: 'user_rotated_3d_view',
+          compatibility: 'first_and_last_keyframe',
+        }
+      : undefined,
+    keyframes: hasCustomKeyframes ? keyframes : undefined,
+    segments: hasCustomKeyframes ? segments : undefined,
+    timeline: hasCustomKeyframes
+      ? {
+          keyframeCount: keyframes.length,
+          segmentCount: segments.length,
+          totalDurationSeconds: customDurationSeconds,
+          defaultTimingPolicy: 'movement_weighted_seconds_user_adjustable',
         }
       : undefined,
     constraints: {
@@ -1367,6 +1482,7 @@ function applyCustomCameraMotion(
   endPosition: THREE.Vector3,
   endTarget: THREE.Vector3,
   progress: number,
+  motion: CameraSegmentMotion = 'smooth',
 ) {
   const eased = 0.5 - Math.cos(Math.min(1, Math.max(0, progress)) * Math.PI) / 2;
   const target = startTarget.clone().lerp(endTarget, eased);
@@ -1380,11 +1496,14 @@ function applyCustomCameraMotion(
   const startAzimuth = Math.atan2(startOffset.x, startOffset.z);
   const endAzimuth = Math.atan2(endOffset.x, endOffset.z);
   const shortestAzimuthDelta = Math.atan2(Math.sin(endAzimuth - startAzimuth), Math.cos(endAzimuth - startAzimuth));
+  const azimuthDelta = motion === 'orbit'
+    ? shortestAzimuthDelta + (shortestAzimuthDelta >= 0 ? Math.PI * 2 : -Math.PI * 2)
+    : shortestAzimuthDelta;
   const startElevation = Math.atan2(startOffset.y, startHorizontal);
   const endElevation = Math.atan2(endOffset.y, endHorizontal);
 
   const radius = THREE.MathUtils.lerp(startRadius, endRadius, eased);
-  const azimuth = startAzimuth + shortestAzimuthDelta * eased;
+  const azimuth = startAzimuth + azimuthDelta * eased;
   const elevation = THREE.MathUtils.lerp(startElevation, endElevation, eased);
   const horizontal = Math.max(0.001, Math.cos(elevation) * radius);
 
@@ -1394,6 +1513,45 @@ function applyCustomCameraMotion(
     target.y + Math.sin(elevation) * radius,
     target.z + Math.cos(azimuth) * horizontal,
   );
+}
+
+type CameraPlaybackSegment = {
+  startPosition: THREE.Vector3;
+  startTarget: THREE.Vector3;
+  endPosition: THREE.Vector3;
+  endTarget: THREE.Vector3;
+  durationMs: number;
+  motion: CameraSegmentMotion;
+};
+
+function buildCameraPlaybackSegments(keyframes: CameraKeyframeSnapshot[] | null | undefined): CameraPlaybackSegment[] {
+  return cameraKeyframeSegments(keyframes).map((item) => ({
+    startPosition: vector3FromRecord(item.from.position),
+    startTarget: vector3FromRecord(item.from.target),
+    endPosition: vector3FromRecord(item.to.position),
+    endTarget: vector3FromRecord(item.to.target),
+    durationMs: Math.max(1, item.seconds) * 1000,
+    motion: item.motion,
+  }));
+}
+
+function locateCameraPlaybackSegment(segments: CameraPlaybackSegment[], elapsedMs: number) {
+  if (!segments.length) return null;
+  let cursor = 0;
+  for (const segment of segments) {
+    const nextCursor = cursor + segment.durationMs;
+    if (elapsedMs <= nextCursor) {
+      return {
+        segment,
+        progress: (elapsedMs - cursor) / Math.max(1, segment.durationMs),
+      };
+    }
+    cursor = nextCursor;
+  }
+  return {
+    segment: segments[segments.length - 1],
+    progress: 1,
+  };
 }
 
 function enforceCameraMinimumDistance(camera: THREE.PerspectiveCamera, target: THREE.Vector3, minimumDistance: number) {
@@ -1513,11 +1671,12 @@ function Product3DModelPreview({
   cameraDistanceProfiles,
   cameraPreset,
   cameraMode,
-  customCameraShots,
+  customCameraKeyframes,
   cameraPathConfirmed,
   cameraPathPlaybackStatus,
-  onCaptureCameraShot,
-  onClearCustomCameraShots,
+  onAddCameraKeyframe,
+  onReplaceLastCameraKeyframe,
+  onClearCustomCameraKeyframes,
   onExportHandle,
 }: {
   modelKey: ModelKey;
@@ -1529,11 +1688,12 @@ function Product3DModelPreview({
   cameraDistanceProfiles: Record<string, CameraDistanceProfile>;
   cameraPreset: CameraPreset;
   cameraMode: CameraMode;
-  customCameraShots: CameraShotPair;
+  customCameraKeyframes: CameraKeyframeSnapshot[];
   cameraPathConfirmed: boolean;
   cameraPathPlaybackStatus: CameraPathPlaybackStatus;
-  onCaptureCameraShot: (label: CameraShotLabel) => void;
-  onClearCustomCameraShots: () => void;
+  onAddCameraKeyframe: () => void;
+  onReplaceLastCameraKeyframe: () => void;
+  onClearCustomCameraKeyframes: () => void;
   onExportHandle?: (handle: Product3DPreviewHandle | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -1562,10 +1722,9 @@ function Product3DModelPreview({
           distance: CameraDistance;
           originalPosition: THREE.Vector3;
           originalTarget: THREE.Vector3;
-          customStartPosition?: THREE.Vector3;
-          customStartTarget?: THREE.Vector3;
-          customEndPosition?: THREE.Vector3;
-          customEndTarget?: THREE.Vector3;
+          customSegments?: CameraPlaybackSegment[];
+          customFinalPosition?: THREE.Vector3;
+          customFinalTarget?: THREE.Vector3;
           minimumCameraDistance: number;
         }
       | null = null;
@@ -1660,35 +1819,36 @@ function Product3DModelPreview({
       },
     );
 
-    const beginCameraPlayback = (seconds: number, preset: CameraPreset, distance: CameraDistance, customShots?: CameraShotPair | null) => {
+    const beginCameraPlayback = (seconds: number, preset: CameraPreset, distance: CameraDistance, customKeyframes?: CameraKeyframeSnapshot[] | null) => {
       if (!modelRoot) throw new Error('3D 模型还没有加载完成，请等待预览显示“已应用贴图”后再生成视频。');
       const framing = fitCameraToObject(camera, controls, modelRoot, distance, modelKey, cameraDistanceProfiles);
       const restorePosition = camera.position.clone();
       const restoreTarget = controls.target.clone();
-      const hasCustomShots = isCompleteCameraShotPair(customShots);
-      const originalPosition = hasCustomShots ? vector3FromRecord(customShots.start.position) : framing.position.clone();
-      const originalTarget = hasCustomShots ? vector3FromRecord(customShots.start.target) : framing.target.clone();
-      const customEndPosition = hasCustomShots ? vector3FromRecord(customShots.end.position) : undefined;
-      const customEndTarget = hasCustomShots ? vector3FromRecord(customShots.end.target) : undefined;
+      const customSegments = hasCompleteCameraKeyframes(customKeyframes) ? buildCameraPlaybackSegments(customKeyframes) : [];
+      const hasCustomKeyframes = customSegments.length > 0;
+      const originalPosition = hasCustomKeyframes ? customSegments[0].startPosition.clone() : framing.position.clone();
+      const originalTarget = hasCustomKeyframes ? customSegments[0].startTarget.clone() : framing.target.clone();
+      const customFinalPosition = hasCustomKeyframes ? customSegments[customSegments.length - 1].endPosition.clone() : undefined;
+      const customFinalTarget = hasCustomKeyframes ? customSegments[customSegments.length - 1].endTarget.clone() : undefined;
       const minimumCameraDistance = Math.max(2, framing.safeCameraZ * 0.82);
       const originalAutoRotate = controls.autoRotate;
       const originalAutoRotateSpeed = controls.autoRotateSpeed;
-      if (hasCustomShots) {
+      const customDurationMs = customSegments.reduce((sum, item) => sum + item.durationMs, 0);
+      if (hasCustomKeyframes) {
         camera.position.copy(originalPosition);
         controls.target.copy(originalTarget);
         controls.update();
       }
       recording = {
         startAt: performance.now(),
-        durationMs: Math.max(1, seconds) * 1000,
+        durationMs: hasCustomKeyframes ? Math.max(1000, customDurationMs) : Math.max(1, seconds) * 1000,
         preset,
         distance,
         originalPosition,
         originalTarget,
-        customStartPosition: hasCustomShots ? originalPosition.clone() : undefined,
-        customStartTarget: hasCustomShots ? originalTarget.clone() : undefined,
-        customEndPosition,
-        customEndTarget,
+        customSegments: hasCustomKeyframes ? customSegments : undefined,
+        customFinalPosition,
+        customFinalTarget,
         minimumCameraDistance,
       };
       controls.autoRotate = false;
@@ -1700,9 +1860,9 @@ function Product3DModelPreview({
         originalAutoRotateSpeed,
         restore: () => {
           recording = null;
-          if (hasCustomShots && customEndPosition && customEndTarget) {
-            camera.position.copy(customEndPosition);
-            controls.target.copy(customEndTarget);
+          if (hasCustomKeyframes && customFinalPosition && customFinalTarget) {
+            camera.position.copy(customFinalPosition);
+            controls.target.copy(customFinalTarget);
           } else {
             camera.position.copy(restorePosition);
             controls.target.copy(restoreTarget);
@@ -1715,16 +1875,16 @@ function Product3DModelPreview({
       };
     };
 
-    const playCameraPath = async (seconds: number, preset: CameraPreset, distance: CameraDistance, customShots?: CameraShotPair | null) => {
-      const playback = beginCameraPlayback(seconds, preset, distance, customShots);
+    const playCameraPath = async (seconds: number, preset: CameraPreset, distance: CameraDistance, customKeyframes?: CameraKeyframeSnapshot[] | null) => {
+      const playback = beginCameraPlayback(seconds, preset, distance, customKeyframes);
       try {
-        await delay(Math.max(1, seconds) * 1000 + 120);
+        await delay(Math.max(1, cameraKeyframeDuration(customKeyframes, seconds)) * 1000 + 120);
       } finally {
         playback.restore();
       }
     };
 
-    const exportVideo = async (seconds: number, preset: CameraPreset, distance: CameraDistance, aspectRatio: string, customShots?: CameraShotPair | null) => {
+    const exportVideo = async (seconds: number, preset: CameraPreset, distance: CameraDistance, aspectRatio: string, customKeyframes?: CameraKeyframeSnapshot[] | null) => {
       if (!modelRoot) throw new Error('3D 模型还没有加载完成，请等待预览显示“已应用贴图”后再生成视频。');
       if (typeof MediaRecorder === 'undefined') throw new Error('当前浏览器不支持 MediaRecorder，无法本地录制 3D 预览视频。');
       if (!('captureStream' in renderer.domElement)) throw new Error('当前浏览器不支持 canvas.captureStream，无法导出 3D 预览视频。');
@@ -1758,10 +1918,10 @@ function Product3DModelPreview({
         };
       });
 
-      const playback = beginCameraPlayback(seconds, preset, distance, customShots);
+      const playback = beginCameraPlayback(seconds, preset, distance, customKeyframes);
       recorder.start(100);
       try {
-        await delay(Math.max(1, seconds) * 1000 + 160);
+        await delay(Math.max(1, cameraKeyframeDuration(customKeyframes, seconds)) * 1000 + 160);
         if (recorder.state !== 'inactive') recorder.stop();
         return await stopped;
       } finally {
@@ -1788,16 +1948,19 @@ function Product3DModelPreview({
 
     const animate = () => {
       if (recording) {
-        const progress = (performance.now() - recording.startAt) / recording.durationMs;
-        if (recording.customStartPosition && recording.customStartTarget && recording.customEndPosition && recording.customEndTarget) {
+        const elapsedMs = performance.now() - recording.startAt;
+        const progress = elapsedMs / recording.durationMs;
+        const customPlayback = locateCameraPlaybackSegment(recording.customSegments || [], elapsedMs);
+        if (customPlayback) {
           applyCustomCameraMotion(
             camera,
             controls,
-            recording.customStartPosition,
-            recording.customStartTarget,
-            recording.customEndPosition,
-            recording.customEndTarget,
-            progress,
+            customPlayback.segment.startPosition,
+            customPlayback.segment.startTarget,
+            customPlayback.segment.endPosition,
+            customPlayback.segment.endTarget,
+            customPlayback.progress,
+            customPlayback.segment.motion,
           );
         } else {
           applyCameraMotion(camera, controls, recording.preset, recording.originalPosition, recording.originalTarget, progress);
@@ -1834,11 +1997,12 @@ function Product3DModelPreview({
         cameraMode={cameraMode}
         cameraPreset={cameraPreset}
         modelKey={modelKey}
-        customCameraShots={customCameraShots}
+        customCameraKeyframes={customCameraKeyframes}
         confirmed={cameraPathConfirmed}
         playbackStatus={cameraPathPlaybackStatus}
-        onCapture={onCaptureCameraShot}
-        onClear={onClearCustomCameraShots}
+        onAddKeyframe={onAddCameraKeyframe}
+        onReplaceLastKeyframe={onReplaceLastCameraKeyframe}
+        onClear={onClearCustomCameraKeyframes}
       />
       <div className="podi-product-3d-render__model-preview-head">
         <strong>{modelProfile.title}</strong>
@@ -1848,7 +2012,7 @@ function Product3DModelPreview({
         <span>{previewStatus.message}</span>
         <small>
           {cameraMode === 'custom'
-            ? '自定义模式已停止自动旋转 · 拖动模型后在底部保存开始/结束 · 播放会沿商品视角弧线过渡'
+            ? '自定义模式已停止自动旋转 · 拖动模型后在底部保存多个镜头点 · 播放会按每段时长过渡'
             : '可拖拽旋转 · 贴图颜色保真显示 · 材质名直连模型槽位'}
         </small>
       </div>
@@ -1860,35 +2024,39 @@ function CameraShotOverlay({
   cameraMode,
   cameraPreset,
   modelKey,
-  customCameraShots,
+  customCameraKeyframes,
   confirmed,
   playbackStatus,
-  onCapture,
+  onAddKeyframe,
+  onReplaceLastKeyframe,
   onClear,
 }: {
   cameraMode: CameraMode;
   cameraPreset: CameraPreset;
   modelKey: ModelKey;
-  customCameraShots: CameraShotPair;
+  customCameraKeyframes: CameraKeyframeSnapshot[];
   confirmed: boolean;
   playbackStatus: CameraPathPlaybackStatus;
-  onCapture: (label: CameraShotLabel) => void;
+  onAddKeyframe: () => void;
+  onReplaceLastKeyframe: () => void;
   onClear: () => void;
 }) {
-  const hasStart = Boolean(customCameraShots.start);
-  const hasEnd = Boolean(customCameraShots.end);
+  const keyframeCount = customCameraKeyframes.length;
+  const hasStart = keyframeCount >= 1;
+  const hasEnd = keyframeCount >= 2;
   const statusLabel = confirmed ? '镜头已确认' : playbackStatus === 'playing' ? '正在播放' : '待播放确认';
-  const startMeta = customCameraShots.start ? `方位 ${customCameraShots.start.azimuth}° / 俯仰 ${customCameraShots.start.elevation}°` : '先转动到开始画面';
-  const endMeta = customCameraShots.end ? `方位 ${customCameraShots.end.azimuth}° / 俯仰 ${customCameraShots.end.elevation}°` : '再转动到结束画面';
+  const lastKeyframe = customCameraKeyframes[keyframeCount - 1];
+  const totalDuration = cameraKeyframeDuration(customCameraKeyframes, 0);
+  const lastMeta = lastKeyframe ? `最新：${lastKeyframe.azimuth}° / ${lastKeyframe.elevation}°` : '先转动到开始画面';
   const customInstruction = !hasStart
     ? '拖到视频第一帧，点“设为开始画面”。'
     : !hasEnd
-      ? '再拖到视频最后一帧，点“设为结束画面”。'
+      ? '再拖到下一段画面，点“添加镜头点”。'
       : confirmed
         ? '镜头已确认，可导出本地预览或提交服务端 MP4。'
         : playbackStatus === 'playing'
-          ? '正在按保存的开始/结束画面播放。'
-          : '开始和结束已保存，点击右侧“播放自定义镜头”确认。';
+          ? '正在按保存的镜头点和每段时长播放。'
+          : '镜头点已保存，点击右侧“播放自定义镜头”确认。';
 
   return (
     <div className={`podi-product-3d-render__camera-overlay is-${cameraMode}`} aria-label="3D 模型镜头确认">
@@ -1896,7 +2064,7 @@ function CameraShotOverlay({
         <strong>{cameraMode === 'custom' ? '自定义镜头' : '当前预设镜头'}</strong>
         <span>
           {cameraMode === 'custom'
-            ? '已停止自动旋转。直接拖动 3D 模型取景，底部按钮会保存当前画面。'
+            ? '已停止自动旋转。直接拖动 3D 模型取景，底部按钮会保存当前画面为镜头点。'
             : cameraPathProfileLabel(cameraPreset, modelKey)}
         </span>
       </div>
@@ -1904,13 +2072,13 @@ function CameraShotOverlay({
         <div className="podi-product-3d-render__camera-shot-panel" aria-label="自定义镜头保存">
           <div className="podi-product-3d-render__camera-shot-guide">
             <strong>{customInstruction}</strong>
-            <span>{hasStart ? `开始：${startMeta}` : '开始：未保存'} · {hasEnd ? `结束：${endMeta}` : '结束：未保存'}</span>
+            <span>{keyframeCount ? `${keyframeCount} 个镜头点 · ${totalDuration}s · ${lastMeta}` : '还没有镜头点'}</span>
           </div>
-          <Button size="small" theme={hasStart ? 'default' : 'primary'} variant={hasStart ? 'outline' : 'base'} onClick={() => onCapture('start')}>
-            {hasStart ? '重设开始' : '设为开始画面'}
+          <Button size="small" theme="primary" onClick={onAddKeyframe}>
+            {hasStart ? '添加镜头点' : '设为开始画面'}
           </Button>
-          <Button size="small" theme={hasEnd ? 'default' : 'primary'} variant={hasEnd ? 'outline' : 'base'} onClick={() => onCapture('end')}>
-            {hasEnd ? '重设结束' : '设为结束画面'}
+          <Button size="small" variant="outline" disabled={!hasStart} onClick={onReplaceLastKeyframe}>
+            重设最后一点
           </Button>
           <Button size="small" variant="text" onClick={onClear}>
             清空镜头
@@ -1927,10 +2095,73 @@ function CameraShotOverlay({
         </Tag>
         {cameraMode === 'custom' ? (
           <Tag theme={hasStart && hasEnd ? 'success' : 'warning'} variant="light">
-            {hasStart && hasEnd ? '开始/结束已保存' : '需保存开始/结束'}
+            {hasStart && hasEnd ? `${keyframeCount} 个镜头点` : '至少 2 个点'}
           </Tag>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function cameraSegmentMotionLabel(value: CameraSegmentMotion) {
+  return value === 'orbit' ? '环绕一圈' : '平滑过渡';
+}
+
+function CustomCameraTimeline({
+  keyframes,
+  segments,
+  totalDurationSeconds,
+  onAdjustSegmentSeconds,
+  onToggleSegmentMotion,
+  onRemoveKeyframe,
+}: {
+  keyframes: CameraKeyframeSnapshot[];
+  segments: ReturnType<typeof cameraKeyframeSegments>;
+  totalDurationSeconds: number;
+  onAdjustSegmentSeconds: (toKeyframeId: string, delta: number) => void;
+  onToggleSegmentMotion: (toKeyframeId: string) => void;
+  onRemoveKeyframe: (keyframeId: string) => void;
+}) {
+  return (
+    <div className="podi-product-3d-render__custom-timeline" aria-label="自定义镜头段">
+      <div className="podi-product-3d-render__custom-timeline-head">
+        <div>
+          <strong>镜头段</strong>
+          <span>{keyframes.length >= 2 ? `${keyframes.length} 个点 · ${segments.length} 段` : '至少保存 2 个镜头点'}</span>
+        </div>
+        <Tag theme={keyframes.length >= 2 ? 'success' : 'warning'} variant="light">
+          {keyframes.length >= 2 ? `总时长 ${totalDurationSeconds}s` : '待补点'}
+        </Tag>
+      </div>
+      {segments.length ? (
+        <div className="podi-product-3d-render__custom-segment-list">
+          {segments.map((segment, index) => (
+            <div key={`${segment.from.id}-${segment.to.id}`} className="podi-product-3d-render__custom-segment">
+              <div className="podi-product-3d-render__custom-segment-main">
+                <strong>{`${index + 1}. ${segment.from.title} -> ${segment.to.title}`}</strong>
+                <span>{cameraSegmentMotionLabel(segment.motion)} · 方位 {segment.to.azimuth}° / 俯仰 {segment.to.elevation}°</span>
+              </div>
+              <div className="podi-product-3d-render__duration-stepper" aria-label={`${segment.to.title} 时长`}>
+                <button type="button" onClick={() => onAdjustSegmentSeconds(segment.to.id, -1)} aria-label="减少 1 秒">
+                  -
+                </button>
+                <strong>{segment.seconds}s</strong>
+                <button type="button" onClick={() => onAdjustSegmentSeconds(segment.to.id, 1)} aria-label="增加 1 秒">
+                  +
+                </button>
+              </div>
+              <Button size="small" variant="text" onClick={() => onToggleSegmentMotion(segment.to.id)}>
+                {segment.motion === 'orbit' ? '改为过渡' : '改为环绕'}
+              </Button>
+              <Button size="small" variant="text" onClick={() => onRemoveKeyframe(segment.to.id)}>
+                删除
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Typography.Text theme="secondary">在左侧 3D 画面保存开始画面后，再转到杯口或细节角度添加镜头点。</Typography.Text>
+      )}
     </div>
   );
 }
@@ -1949,7 +2180,7 @@ export function Product3DRenderVideoWorkbench() {
   const [cameraDistance, setCameraDistance] = useState<CameraDistance>('wide');
   const [scenePreset, setScenePreset] = useState<ScenePreset>('clean_studio');
   const [motionPath, setMotionPath] = useState<MotionPathPoint[]>(DEFAULT_MOTION_PATH);
-  const [customCameraShots, setCustomCameraShots] = useState<CameraShotPair>(() => emptyCameraShots());
+  const [customCameraKeyframes, setCustomCameraKeyframes] = useState<CameraKeyframeSnapshot[]>(() => emptyCameraKeyframes());
   const [durationSeconds, setDurationSeconds] = useState(6);
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [result, setResult] = useState<Product3DRenderVideoResponse | null>(null);
@@ -2039,21 +2270,23 @@ export function Product3DRenderVideoWorkbench() {
   const sceneAssetSourceProfiles = useMemo(() => buildSceneAssetSourceProfiles(catalog), [catalog]);
   const selectedDistanceProfile = cameraDistanceProfiles[cameraDistance] || cameraDistanceProfiles.wide || CAMERA_DISTANCE_PROFILES.wide;
   const effectiveMotionPath = useMemo(
-    () => (cameraMode === 'custom' ? cameraShotsToMotionPath(customCameraShots) || motionPath : motionPath),
-    [cameraMode, customCameraShots, motionPath],
+    () => (cameraMode === 'custom' ? cameraKeyframesToMotionPath(customCameraKeyframes) || motionPath : motionPath),
+    [cameraMode, customCameraKeyframes, motionPath],
   );
   const localFramingSafety = useMemo(
     () => buildFramingSafetySummary(effectiveMotionPath, cameraDistance, selectedDistanceProfile),
     [cameraDistance, effectiveMotionPath, selectedDistanceProfile],
   );
-  const customShotsReady = isCompleteCameraShotPair(customCameraShots);
+  const customShotsReady = hasCompleteCameraKeyframes(customCameraKeyframes);
+  const customCameraTotalDuration = cameraMode === 'custom' ? cameraKeyframeDuration(customCameraKeyframes, durationSeconds) : durationSeconds;
+  const customCameraSegments = useMemo(() => cameraKeyframeSegments(customCameraKeyframes), [customCameraKeyframes]);
   const cameraSummaryTitle = cameraMode === 'custom'
-    ? '镜头方案 · 自定义开始/结束'
+    ? '镜头方案 · 自定义多段'
     : `镜头模板 · ${cameraOptionMap[cameraPreset]?.label || cameraPreset}`;
   const cameraSummaryDescription = cameraMode === 'custom'
     ? customShotsReady
-      ? `已保存开始 ${customCameraShots.start?.azimuth}°/${customCameraShots.start?.elevation}° 与结束 ${customCameraShots.end?.azimuth}°/${customCameraShots.end?.elevation}°，播放会按这两个画面过渡。`
-      : '先在 3D 画面里拖动模型，分别保存开始和结束画面。'
+      ? `已保存 ${customCameraKeyframes.length} 个镜头点、${customCameraSegments.length} 段运动，总时长 ${customCameraTotalDuration}s。`
+      : '先在 3D 画面里拖动模型，保存开始画面和至少一个后续镜头点。'
     : cameraOptionMap[cameraPreset]?.desc || '按当前镜头路径录制。';
 
   useEffect(() => {
@@ -2063,7 +2296,7 @@ export function Product3DRenderVideoWorkbench() {
     setMaterialSlot(modelProfiles[next]?.firstSlot || 'front');
     setSlotTextureUrls({});
     setCameraMode('preset');
-    setCustomCameraShots(emptyCameraShots());
+    setCustomCameraKeyframes(emptyCameraKeyframes());
     setMotionPath(defaultMotionPathForCameraPreset(cameraPreset, next));
     setResult(null);
     clearLocalVideo();
@@ -2110,32 +2343,105 @@ export function Product3DRenderVideoWorkbench() {
   }
 
   const clearCustomCameraShots = () => {
-    setCustomCameraShots(emptyCameraShots());
+    setCustomCameraKeyframes(emptyCameraKeyframes());
     setMotionPath(defaultMotionPathForCameraPreset(cameraPreset, modelKey));
     setResult(null);
     clearLocalVideo();
   };
 
-  const captureCustomCameraShot = (label: CameraShotLabel) => {
+  const addCustomCameraKeyframe = () => {
     setError('');
     setVideoExportError('');
     if (!previewHandle) {
-      setVideoExportError('3D 预览还没有准备好，请等待模型加载完成后再保存镜头。');
+      setVideoExportError('3D 预览还没有准备好，请等待模型加载完成后再保存镜头点。');
+      return;
+    }
+    if (customCameraKeyframes.length >= 6) {
+      setVideoExportError('自定义镜头点最多 6 个。建议用 3-4 个点完成一个短视频，避免节奏变散。');
       return;
     }
     try {
+      const label: CameraShotLabel = customCameraKeyframes.length === 0 ? 'start' : 'point';
       const shot = previewHandle.captureCameraShot(label);
-      const nextShots: CameraShotPair = { ...customCameraShots, [label]: shot };
-      const nextPath = cameraShotsToMotionPath(nextShots);
+      const previous = customCameraKeyframes[customCameraKeyframes.length - 1] || null;
+      const nextKeyframe = buildCameraKeyframe(shot, customCameraKeyframes.length, previous, modelKey);
+      const nextKeyframes = [...customCameraKeyframes, nextKeyframe];
+      const nextPath = cameraKeyframesToMotionPath(nextKeyframes);
       setCameraMode('custom');
-      setCustomCameraShots(nextShots);
+      setCustomCameraKeyframes(nextKeyframes);
       if (nextPath) setMotionPath(nextPath);
       setResult(null);
       clearLocalVideo();
-      MessagePlugin.success(label === 'start' ? '开始镜头已保存' : '结束镜头已保存');
+      MessagePlugin.success(customCameraKeyframes.length === 0 ? '开始画面已保存' : `镜头点 ${nextKeyframes.length} 已保存`);
     } catch (err) {
-      setVideoExportError(String((err as any)?.message || err || '保存镜头失败'));
+      setVideoExportError(String((err as any)?.message || err || '保存镜头点失败'));
     }
+  };
+
+  const replaceLastCustomCameraKeyframe = () => {
+    setError('');
+    setVideoExportError('');
+    if (!previewHandle) {
+      setVideoExportError('3D 预览还没有准备好，请等待模型加载完成后再重设镜头点。');
+      return;
+    }
+    if (!customCameraKeyframes.length) return;
+    try {
+      const lastIndex = customCameraKeyframes.length - 1;
+      const label: CameraShotLabel = lastIndex === 0 ? 'start' : 'point';
+      const shot = previewHandle.captureCameraShot(label);
+      const previous = customCameraKeyframes[lastIndex - 1] || null;
+      const replacement = buildCameraKeyframe(shot, lastIndex, previous, modelKey);
+      const nextKeyframes = customCameraKeyframes.map((item, index) => (index === lastIndex ? { ...replacement, title: item.title } : item));
+      const nextPath = cameraKeyframesToMotionPath(nextKeyframes);
+      setCustomCameraKeyframes(nextKeyframes);
+      if (nextPath) setMotionPath(nextPath);
+      setResult(null);
+      clearLocalVideo();
+      MessagePlugin.success('最后一个镜头点已重设');
+    } catch (err) {
+      setVideoExportError(String((err as any)?.message || err || '重设镜头点失败'));
+    }
+  };
+
+  const adjustCustomCameraSegmentSeconds = (toKeyframeId: string, delta: number) => {
+    setCustomCameraKeyframes((prev) => {
+      const next = prev.map((item) => {
+        if (item.id !== toKeyframeId) return item;
+        const seconds = Math.max(1, Math.min(12, Number(item.segmentSeconds || 2) + delta));
+        return { ...item, segmentSeconds: seconds };
+      });
+      return next;
+    });
+    setResult(null);
+    clearLocalVideo();
+  };
+
+  const toggleCustomCameraSegmentMotion = (toKeyframeId: string) => {
+    setCustomCameraKeyframes((prev) =>
+      prev.map((item) => {
+        if (item.id !== toKeyframeId) return item;
+        return { ...item, segmentMotion: (item.segmentMotion || 'smooth') === 'orbit' ? 'smooth' : 'orbit' };
+      }),
+    );
+    setResult(null);
+    clearLocalVideo();
+  };
+
+  const removeCustomCameraKeyframe = (keyframeId: string) => {
+    setCustomCameraKeyframes((prev) => {
+      if (prev.length <= 1) return emptyCameraKeyframes();
+      const next = prev.filter((item) => item.id !== keyframeId);
+      return next.map((item, index) => ({
+        ...item,
+        role: index === 0 ? 'start' : 'point',
+        title: index === 0 ? '开始画面' : `镜头点 ${index + 1}`,
+        segmentSeconds: index === 0 ? undefined : item.segmentSeconds || suggestCameraSegmentSeconds(next[index - 1], item, index, modelKey),
+        segmentMotion: index === 0 ? undefined : item.segmentMotion || suggestCameraSegmentMotion(index, modelKey),
+      }));
+    });
+    setResult(null);
+    clearLocalVideo();
   };
 
   const updateSlotTexture = (slot: string, url: string) => {
@@ -2207,12 +2513,12 @@ export function Product3DRenderVideoWorkbench() {
       cameraDistance,
       scenePreset,
       motionPath: effectiveMotionPath,
-      customCameraShots,
-      durationSeconds,
+      customCameraKeyframes,
+      durationSeconds: customCameraTotalDuration,
       aspectRatio,
       confirmed: cameraPathConfirmed,
     }),
-    durationSeconds,
+    durationSeconds: customCameraTotalDuration,
     aspectRatio,
     outputMode,
     source: 'eval-product-3d-render-video',
@@ -2240,15 +2546,15 @@ export function Product3DRenderVideoWorkbench() {
       setVideoExportError('3D 预览还没有准备好，请等待模型加载完成后再播放镜头。');
       return;
     }
-    if (cameraMode === 'custom' && !isCompleteCameraShotPair(customCameraShots)) {
+    if (cameraMode === 'custom' && !hasCompleteCameraKeyframes(customCameraKeyframes)) {
       setCameraPathPlaybackStatus('error');
-      setVideoExportError('自定义镜头需要先保存开始镜头和结束镜头。');
+      setVideoExportError('自定义镜头需要至少保存 2 个镜头点。');
       return;
     }
     setCameraPathPlaybackStatus('playing');
     setCameraPathConfirmed(false);
     try {
-      await previewHandle.playCameraPath(durationSeconds, cameraPreset, cameraDistance, cameraMode === 'custom' ? customCameraShots : null);
+      await previewHandle.playCameraPath(customCameraTotalDuration, cameraPreset, cameraDistance, cameraMode === 'custom' ? customCameraKeyframes : null);
       setCameraPathConfirmed(true);
       setCameraPathPlaybackStatus('confirmed');
       MessagePlugin.success('镜头已播放并确认，可以生成预览或服务端视频');
@@ -2273,14 +2579,14 @@ export function Product3DRenderVideoWorkbench() {
     }
     setVideoExportStatus('recording');
     try {
-      const exported = await previewHandle.exportVideo(durationSeconds, cameraPreset, cameraDistance, aspectRatio, cameraMode === 'custom' ? customCameraShots : null);
+      const exported = await previewHandle.exportVideo(customCameraTotalDuration, cameraPreset, cameraDistance, aspectRatio, cameraMode === 'custom' ? customCameraKeyframes : null);
       if (exported.blob.size <= 0) throw new Error('本地视频导出为空，请重新录制。');
       const url = URL.createObjectURL(exported.blob);
       setLocalVideo((prev) => {
         if (prev?.url) URL.revokeObjectURL(prev.url);
         return {
           url,
-          name: `podi-3d-${modelKey}-${durationSeconds}s-${Date.now()}.${exported.extension}`,
+          name: `podi-3d-${modelKey}-${customCameraTotalDuration}s-${Date.now()}.${exported.extension}`,
           size: exported.blob.size,
           mimeType: exported.mimeType,
           format: exported.format,
@@ -2399,7 +2705,7 @@ export function Product3DRenderVideoWorkbench() {
   const shouldShowServerRunPanel = Boolean(serverRun);
   const localVideoStatusText =
     videoExportStatus === 'recording'
-      ? `录制中 · ${durationSeconds}s`
+      ? `录制中 · ${customCameraTotalDuration}s`
       : localVideo
         ? `${Math.max(1, Math.round(localVideo.size / 1024))} KB · ${localVideo.label}`
         : '尚未生成';
@@ -2440,7 +2746,7 @@ export function Product3DRenderVideoWorkbench() {
       ) : (
         <Alert
           theme="info"
-          message="正在按当前镜头预设录制，请保持页面打开。"
+          message="正在按当前镜头方案录制，请保持页面打开。"
         />
       )}
     </div>
@@ -2558,7 +2864,7 @@ export function Product3DRenderVideoWorkbench() {
                   setModelKey(key);
                   setMaterialSlot(modelProfiles[key]?.firstSlot || 'front');
                   setCameraMode('preset');
-                  setCustomCameraShots(emptyCameraShots());
+                  setCustomCameraKeyframes(emptyCameraKeyframes());
                   setMotionPath(defaultMotionPathForCameraPreset(cameraPreset, key));
                   setSlotTextureUrls({});
                   setResult(null);
@@ -2629,7 +2935,7 @@ export function Product3DRenderVideoWorkbench() {
             <div className="podi-product-commercialization__stage-title">
               <span>PREVIEW</span>
               <Typography.Title level="h4">预览摄影棚</Typography.Title>
-              <Typography.Text theme="secondary">选择预设镜头，或直接拖动模型保存自定义开始/结束画面；播放确认后再导出视频。</Typography.Text>
+              <Typography.Text theme="secondary">选择预设镜头，或直接拖动模型保存多个镜头点；播放确认后再导出视频。</Typography.Text>
             </div>
             <div className="podi-product-3d-render__preview-shell">
               <div className="podi-product-3d-render__preview-canvas" aria-label="3D 所见即所得预览">
@@ -2643,11 +2949,12 @@ export function Product3DRenderVideoWorkbench() {
                   cameraDistanceProfiles={cameraDistanceProfiles}
                   cameraPreset={cameraPreset}
                   cameraMode={cameraMode}
-                  customCameraShots={customCameraShots}
+                  customCameraKeyframes={customCameraKeyframes}
                   cameraPathConfirmed={cameraPathConfirmed}
                   cameraPathPlaybackStatus={cameraPathPlaybackStatus}
-                  onCaptureCameraShot={captureCustomCameraShot}
-                  onClearCustomCameraShots={clearCustomCameraShots}
+                  onAddCameraKeyframe={addCustomCameraKeyframe}
+                  onReplaceLastCameraKeyframe={replaceLastCustomCameraKeyframe}
+                  onClearCustomCameraKeyframes={clearCustomCameraShots}
                   onExportHandle={setPreviewHandle}
                 />
               </div>
@@ -2664,7 +2971,7 @@ export function Product3DRenderVideoWorkbench() {
                           const nextPreset = String(item.value) as CameraPreset;
                           setCameraMode('preset');
                           setCameraPreset(nextPreset);
-                          setCustomCameraShots(emptyCameraShots());
+                          setCustomCameraKeyframes(emptyCameraKeyframes());
                           setMotionPath(defaultMotionPathForCameraPreset(nextPreset, modelKey));
                           setResult(null);
                           clearLocalVideo();
@@ -2684,7 +2991,7 @@ export function Product3DRenderVideoWorkbench() {
                       }}
                     >
                       <strong>自定义镜头</strong>
-                      <span>手动指定镜头首尾画面，适合特殊展示角度。</span>
+                      <span>手动保存多个镜头点，适合环绕、杯口和细节展示。</span>
                     </button>
                   </div>
                   <Typography.Text theme="secondary">大多数场景直接选预设；需要特殊角度时再用自定义镜头。</Typography.Text>
@@ -2729,32 +3036,39 @@ export function Product3DRenderVideoWorkbench() {
                 </div>
                 <div className="podi-product-3d-render__control-group">
                   <Typography.Text theme="secondary">时长</Typography.Text>
-                  <div className="podi-product-3d-render__segmented">
-                    {durationOptions.map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        className={String(item.value) === String(durationSeconds) ? 'is-active' : ''}
-                        onClick={() => {
-                          setDurationSeconds(Number(item.value) || 6);
-                          setResult(null);
-                          clearLocalVideo();
-                        }}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                  {cameraMode === 'custom' ? (
+                    <div className="podi-product-3d-render__derived-duration">
+                      <strong>{customCameraTotalDuration}s</strong>
+                      <span>自定义镜头按下方每段时长合计。</span>
+                    </div>
+                  ) : (
+                    <div className="podi-product-3d-render__segmented">
+                      {durationOptions.map((item) => (
+                        <button
+                          key={item.value}
+                          type="button"
+                          className={String(item.value) === String(durationSeconds) ? 'is-active' : ''}
+                          onClick={() => {
+                            setDurationSeconds(Number(item.value) || 6);
+                            setResult(null);
+                            clearLocalVideo();
+                          }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="podi-product-3d-render__control-group podi-product-3d-render__control-group--wide">
                   <Typography.Text theme="secondary">镜头确认</Typography.Text>
                   <div className="podi-product-3d-render__camera-summary">
                     <Typography.Text strong>
-                      {cameraMode === 'custom' ? '自定义开始/结束镜头' : `预设 · ${cameraOptionMap[cameraPreset]?.label || cameraPreset}`}
+                      {cameraMode === 'custom' ? '自定义多段镜头' : `预设 · ${cameraOptionMap[cameraPreset]?.label || cameraPreset}`}
                     </Typography.Text>
                     <Typography.Text theme="secondary">
                       {cameraMode === 'custom'
-                        ? '在左侧 3D 画面里拖动模型，保存开始和结束后再播放确认。'
+                        ? '在左侧 3D 画面里拖动模型，依次保存开始、杯口、细节等镜头点后再播放确认。'
                         : '商品保持固定，镜头按模板运动；播放一遍确认构图后再导出。'}
                     </Typography.Text>
                     <div className="podi-product-3d-render__motion-actions">
@@ -2762,8 +3076,8 @@ export function Product3DRenderVideoWorkbench() {
                         {cameraMode === 'custom' ? '自定义镜头' : '预设镜头'}
                       </Tag>
                       {cameraMode === 'custom' ? (
-                        <Tag theme={isCompleteCameraShotPair(customCameraShots) ? 'success' : 'warning'} variant="light">
-                          {isCompleteCameraShotPair(customCameraShots) ? '开始/结束已保存' : '需保存开始/结束'}
+                        <Tag theme={customShotsReady ? 'success' : 'warning'} variant="light">
+                          {customShotsReady ? `${customCameraKeyframes.length} 个镜头点` : '至少 2 个镜头点'}
                         </Tag>
                       ) : (
                         <Tag theme="primary" variant="light">{normalizeMotionPath(effectiveMotionPath).length} 个关键点</Tag>
@@ -2773,6 +3087,16 @@ export function Product3DRenderVideoWorkbench() {
                         {cameraPathConfirmed ? '镜头已确认' : cameraPathPlaybackStatus === 'playing' ? '正在播放' : '待播放确认'}
                       </Tag>
                     </div>
+                    {cameraMode === 'custom' ? (
+                      <CustomCameraTimeline
+                        keyframes={customCameraKeyframes}
+                        segments={customCameraSegments}
+                        totalDurationSeconds={customCameraTotalDuration}
+                        onAdjustSegmentSeconds={adjustCustomCameraSegmentSeconds}
+                        onToggleSegmentMotion={toggleCustomCameraSegmentMotion}
+                        onRemoveKeyframe={removeCustomCameraKeyframe}
+                      />
+                    ) : null}
                   </div>
                 </div>
                 <div className="podi-product-3d-render__execution-panel" aria-label="3D 视频生成主操作">
@@ -2818,7 +3142,7 @@ export function Product3DRenderVideoWorkbench() {
                         {cameraPathConfirmed
                           ? '已播放确认'
                           : cameraPathPlaybackStatus === 'playing'
-                            ? `播放中 · ${durationSeconds}s`
+                            ? `播放中 · ${customCameraTotalDuration}s`
                             : '待播放确认'}
                       </span>
                     </div>
@@ -3065,7 +3389,7 @@ export function Product3DRenderVideoWorkbench() {
                     <strong>镜头 · {String(camera.label || cameraPreset)}</strong>
                     <span>{String(camera.description || '')}</span>
                     <small>
-                      {durationSeconds}s · {aspectRatio} · {String(asRecord(camera.framing).mode || 'fit_product_safe_bounds')}
+                      {customCameraTotalDuration}s · {aspectRatio} · {String(asRecord(camera.framing).mode || 'fit_product_safe_bounds')}
                     </small>
                   </div>
                   <div>
@@ -3130,11 +3454,11 @@ export function Product3DRenderVideoWorkbench() {
             <Typography.Text strong>当前视频</Typography.Text>
             <p>
               {videoExportStatus === 'recording'
-                ? `正在录制 ${durationSeconds}s`
+                ? `正在录制 ${customCameraTotalDuration}s`
                 : serverRun?.videoUrls.length
                   ? `OSS 视频已生成 · runId=${serverRun.runId}`
                   : localVideo
-                    ? `已生成本地 ${durationSeconds}s ${localVideo.label}`
+                    ? `已生成本地 ${customCameraTotalDuration}s ${localVideo.label}`
                     : '待生成本地预览或服务端 MP4'}
             </p>
           </div>
