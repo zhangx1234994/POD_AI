@@ -968,7 +968,7 @@ html.t-theme-dark {
 .podi-product-3d-render__camera-shot-panel {
   position: absolute;
   left: 14px;
-  bottom: 58px;
+  top: 132px;
   z-index: 2;
   display: grid;
   grid-template-columns: minmax(112px, 1fr) minmax(112px, 1fr) auto auto auto;
