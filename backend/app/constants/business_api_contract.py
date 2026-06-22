@@ -161,6 +161,7 @@ BUSINESS_KEY_VALUES = [
     "fission_evaluate",
     "outpaint",
     "image_edit",
+    "image_stitch",
     "image_edit_chat",
     "product_design",
 ]
@@ -172,6 +173,7 @@ BUSINESS_API_ENUM_DOCS: list[dict[str, str]] = [
     {"field": "status / taskStatus", "value": "failed", "meaning": "任务失败或无法继续。", "action": "读取 errorCode / errorMessage，并按错误码处理。"},
     {"field": "businessKey", "value": "text_fission", "meaning": "文字强化裂变，两步式：先生成可编辑提示词，再提交文生图。", "action": "业务方先调 prompts，再把确认后的 editable_prompt 传给 runs。"},
     {"field": "businessKey", "value": "image_edit", "meaning": "图编辑业务，前端组件收集主图、标注、参考图和编辑指令，中台编译后调用 GPT Image 2。", "action": "提交 /api/business/image-edit/runs，拿 runId 轮询 /api/business/runs/get。"},
+    {"field": "businessKey", "value": "image_stitch", "meaning": "图案拼接业务，服务端按确定性规则平铺原图并上传 PNG 结果。", "action": "提交 /api/business/image-stitch/runs，拿 runId 轮询 /api/business/runs/get。"},
     {"field": "businessKey", "value": "image_edit_chat", "meaning": "AI 图片助手，先通过会话生成结构化计划；普通单张图片任务默认走 GPT Image 2 质量优先路径，明确批量/快速/低成本/SOP 时才分流到专项能力。", "action": "使用 /api/business/image-edit-chat/sessions 系列接口，并检查 routeEvidence.routeType。"},
     {"field": "routeEvidence.routeType", "value": "image2_quality_first", "meaning": "GPT Image 2 质量优先主路径，适合普通单张高质量图片任务。", "action": "按 targetAbility 提交 image_edit run，并保留候选专项能力证据。"},
     {"field": "routeEvidence.routeType", "value": "ability_accelerated", "meaning": "专项能力加速路径，适合明确批量、快速、低成本或固定 SOP 的任务。", "action": "按 targetAbility 提交对应专项业务 run。"},

@@ -97,6 +97,7 @@ from app.services.product_3d_render_video import product_3d_render_video_service
 from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
 from app.services.fission_control_prompt import compile_comfyui_v4_prompt
 from app.services.fission_control_prompt import extract_fission_control_card
+from app.services.image_stitch import encode_png, load_remote_rgba_image, normalize_image_stitch_options, render_image_stitch
 from app.services.media_ingest import media_ingest_service
 from app.services.pattern_fission_prompt import LEGACY_TEMPLATE_ALIASES as PATTERN_FISSION_LEGACY_TEMPLATE_ALIASES
 from app.services.pattern_fission_prompt import TEMPLATE_ALIASES as PATTERN_FISSION_TEMPLATE_ALIASES
@@ -116,6 +117,8 @@ PRODUCT_COMMERCIALIZATION_RUN_KEYS = {"product_commercialization", "promo_video"
 PRODUCT_3D_RENDER_VIDEO_RUN_VERSION = "p3d-render-video-v1"
 PRODUCT_3D_RENDER_VIDEO_RENDERER_VERSION = "product-3d-render-video-lightweight-v1"
 PRODUCT_3D_RENDER_VIDEO_BILLING_UNIT = "p3d_render_video_lightweight"
+IMAGE_STITCH_RUN_VERSION = "image-stitch-v1"
+IMAGE_STITCH_RENDERER_VERSION = "podi-image-stitch-pillow-v1"
 BUSINESS_DASHBOARD_CACHE_TTL_SECONDS = 12
 BUSINESS_DASHBOARD_CACHE_MAX_ITEMS = 64
 BUSINESS_USAGE_FLOW_EVIDENCE_RUN_LIMIT = 5
@@ -2598,6 +2601,252 @@ class BusinessRunService:
             allow_non_active_capability=False,
             selected_by="default",
         )
+
+    def create_image_stitch_run(
+        self,
+        *,
+        payload: BusinessRunCreateRequest,
+        user: User | None,
+        source: str = "business-api",
+    ) -> dict[str, Any]:
+        """创建并同步执行确定性图案拼接业务 run。
+
+        多工序需要服务端产物继续流入下一步，因此这里不走三方模型能力，而是直接下载原图、拼接、上传 OSS，
+        同时仍写入 business_runs / business_run_steps，保持 NotCoze 提交和轮询契约一致。
+        """
+        inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
+        image_url = self._first_string(
+            payload.imageUrl,
+            payload.url,
+            inputs.get("imageUrl"),
+            inputs.get("image_url"),
+            inputs.get("url"),
+            inputs.get("sourceImageUrl"),
+            inputs.get("source_image_url"),
+        )
+        if not image_url:
+            raise HTTPException(status_code=400, detail="BUSINESS_IMAGE_URL_REQUIRED")
+        options = normalize_image_stitch_options(payload, inputs)
+
+        run_id = uuid4().hex
+        trace_context = self._resolve_trace_context(
+            run_id=run_id,
+            business_key="image_stitch",
+            payload=payload,
+            source=source,
+            user=user,
+        )
+        request_payload = self._omit_large_fields(payload.model_dump(exclude_none=True))
+        request_payload["_trace"] = trace_context
+        request_payload["_imageStitch"] = {
+            "contract": "image_stitch_v1",
+            "renderer": IMAGE_STITCH_RENDERER_VERSION,
+            "queryEndpoint": "/api/business/runs/get",
+            "mode": options.mode,
+            "columns": options.columns,
+            "rows": options.rows,
+            "targetWidth": options.target_width,
+            "targetHeight": options.target_height,
+        }
+
+        now = datetime.utcnow()
+        with get_session() as session:
+            client_policy = self._check_business_client_policy(
+                session=session,
+                business_key="image_stitch",
+                payload=payload,
+                trace_context=trace_context,
+            )
+            if client_policy:
+                request_payload["_businessClient"] = client_policy
+            run = BusinessRun(
+                id=run_id,
+                business_key="image_stitch",
+                business_version_id=None,
+                version=IMAGE_STITCH_RUN_VERSION,
+                status="running",
+                source=trace_context["source"],
+                channel=trace_context.get("channel"),
+                trace_id=trace_context["traceId"],
+                request_id=trace_context["requestId"],
+                tenant_id=trace_context.get("tenantId"),
+                client_id=trace_context.get("clientId"),
+                user_id=self._resolve_business_user_id(user=user, payload=payload, trace_context=trace_context),
+                user_name=self._resolve_business_user_name(user=user, payload=payload),
+                ability_id=None,
+                request_payload=request_payload,
+                callback_url=payload.callbackUrl,
+                callback_headers=payload.callbackHeaders,
+                started_at=now,
+            )
+            session.add(run)
+            session.add(
+                BusinessRunStep(
+                    id=uuid4().hex,
+                    run_id=run.id,
+                    step_order=1,
+                    step_id="image_stitch_render",
+                    step_type="deterministic_image_ops",
+                    role="primary",
+                    display_name="图案拼接",
+                    enabled=True,
+                    status="running",
+                    request_payload=request_payload,
+                    started_at=now,
+                )
+            )
+            session.commit()
+
+        try:
+            source_image = load_remote_rgba_image(image_url)
+            stitch_result = render_image_stitch(source_image, options)
+            png_bytes = encode_png(stitch_result.image)
+            try:
+                upload = oss_service.upload_bytes(
+                    user_id=str(trace_context.get("tenantId") or "image-stitch"),
+                    filename=f"image-stitch-{run_id}.png",
+                    data=png_bytes,
+                    content_type="image/png",
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail="IMAGE_STITCH_UPLOAD_FAILED") from exc
+            image_url_result = str(upload.get("url") or "")
+            if not image_url_result:
+                raise HTTPException(status_code=502, detail="IMAGE_STITCH_UPLOAD_FAILED")
+            result_payload = self._image_stitch_result_payload(
+                result_url=image_url_result,
+                source_url=image_url,
+                options=options,
+                width=stitch_result.width,
+                height=stitch_result.height,
+                intermediate_width=stitch_result.intermediate_width,
+                intermediate_height=stitch_result.intermediate_height,
+                file_size=len(png_bytes),
+                upload=upload,
+            )
+            self._finish_image_stitch_run(
+                run_id=run_id,
+                status="succeeded",
+                result_payload=result_payload,
+                image_urls=[image_url_result],
+                error_message=None,
+                started_at=now,
+            )
+        except HTTPException as exc:
+            self._finish_image_stitch_run(
+                run_id=run_id,
+                status="failed",
+                result_payload={
+                    "errorCode": str(exc.detail or "IMAGE_STITCH_RENDER_FAILED"),
+                    "errorMessage": str(exc.detail or "IMAGE_STITCH_RENDER_FAILED"),
+                    "sourceImageUrl": image_url,
+                },
+                image_urls=None,
+                error_message=str(exc.detail or "IMAGE_STITCH_RENDER_FAILED"),
+                started_at=now,
+            )
+        except Exception as exc:  # noqa: BLE001 - business run must record unexpected render/upload failures
+            logger.exception("image stitch business run failed: run_id=%s", run_id)
+            self._finish_image_stitch_run(
+                run_id=run_id,
+                status="failed",
+                result_payload={
+                    "errorCode": "IMAGE_STITCH_RENDER_FAILED",
+                    "errorMessage": str(exc)[:500],
+                    "sourceImageUrl": image_url,
+                },
+                image_urls=None,
+                error_message="IMAGE_STITCH_RENDER_FAILED",
+                started_at=now,
+            )
+
+        return self.get_run(run_id=run_id, user=user)
+
+    @staticmethod
+    def _image_stitch_result_payload(
+        *,
+        result_url: str,
+        source_url: str,
+        options: Any,
+        width: int,
+        height: int,
+        intermediate_width: int,
+        intermediate_height: int,
+        file_size: int,
+        upload: dict[str, Any],
+    ) -> dict[str, Any]:
+        asset = {
+            "url": result_url,
+            "ossUrl": result_url,
+            "sourceUrl": source_url,
+            "contentType": "image/png",
+            "tag": "image_stitch_result",
+            "metadata": {
+                "mode": options.mode,
+                "columns": options.columns,
+                "rows": options.rows,
+                "targetWidth": options.target_width,
+                "targetHeight": options.target_height,
+                "width": width,
+                "height": height,
+                "intermediateWidth": intermediate_width,
+                "intermediateHeight": intermediate_height,
+                "fileSize": file_size,
+                "objectKey": upload.get("objectKey"),
+                "renderer": IMAGE_STITCH_RENDERER_VERSION,
+            },
+        }
+        return {
+            "images": [asset],
+            "assets": [asset],
+            "imageUrls": [result_url],
+            "resultUrls": [result_url],
+            "stitch": asset["metadata"],
+        }
+
+    def _finish_image_stitch_run(
+        self,
+        *,
+        run_id: str,
+        status: str,
+        result_payload: dict[str, Any],
+        image_urls: list[str] | None,
+        error_message: str | None,
+        started_at: datetime,
+    ) -> None:
+        finished_at = datetime.utcnow()
+        duration_ms = self._calculate_duration_ms(started_at, finished_at)
+        with get_session() as session:
+            run = session.get(BusinessRun, run_id)
+            if not run:
+                return
+            run.status = status
+            run.result_payload = self._omit_large_fields(result_payload)
+            run.image_urls = image_urls
+            run.error_message = error_message
+            run.duration_ms = duration_ms
+            run.finished_at = finished_at
+            run.updated_at = finished_at
+            step = (
+                session.execute(
+                    select(BusinessRunStep)
+                    .where(BusinessRunStep.run_id == run_id)
+                    .order_by(BusinessRunStep.step_order.asc())
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            if step:
+                step.status = status
+                step.result_payload = self._omit_large_fields(result_payload)
+                step.error_message = error_message
+                step.duration_ms = duration_ms
+                step.finished_at = finished_at
+                step.updated_at = finished_at
+                session.add(step)
+            session.add(run)
+            session.commit()
 
     def create_product_commercialization_run(
         self,
@@ -6313,7 +6562,8 @@ class BusinessRunService:
         if client.status != "active":
             raise HTTPException(status_code=403, detail="BUSINESS_CLIENT_DISABLED")
         allowed_keys = self._normalize_business_key_list(client.allowed_business_keys)
-        if allowed_keys and business_key not in allowed_keys:
+        compatibility_allowed = business_key == "image_stitch" and "image-stitch" in allowed_keys
+        if allowed_keys and business_key not in allowed_keys and not compatibility_allowed:
             raise HTTPException(status_code=403, detail="BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED")
 
         running_statuses = {"queued", "running"}

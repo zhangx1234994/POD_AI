@@ -942,6 +942,8 @@ class BusinessRunCreateRequest(BaseModel):
     expand_right: int | None = Field(default=None, description="向右扩展像素")
     expand_top: int | None = Field(default=None, description="向上扩展像素")
     expand_bottom: int | None = Field(default=None, description="向下扩展像素")
+    columns: int | None = Field(default=None, description="图案拼接横向数量，允许 1-10")
+    rows: int | None = Field(default=None, description="图案拼接纵向数量，允许 1-10")
     seed: int | None = Field(default=None, description="随机种子；为空时由底层能力随机")
     timeout: int | None = Field(default=None, description="任务超时时间，单位秒")
     source: str | None = Field(default=None, description="调用来源，例如 coze、client、partner-api")

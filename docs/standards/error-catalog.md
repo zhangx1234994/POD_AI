@@ -584,6 +584,14 @@
 | IMAGE_OPS_CONTENT_MISSING | 图像处理服务没有返回可入库内容 | 需确认上游服务是否真正产出图片或文件 |
 | IMAGE_OPS_CONTENT_INVALID | 图像处理服务返回内容无法解析 | Base64、URL 或文件内容格式异常 |
 | IMAGE_DOWNLOAD_FAILED | 下载图片失败 | |
+| IMAGE_STITCH_MODE_INVALID | 图案拼接模式非法 | 400，仅允许 `count` / `size` |
+| IMAGE_STITCH_COUNT_INVALID | 图案拼接横向或纵向数量非法 | 400，横向/纵向数量必须为 1-10 |
+| IMAGE_STITCH_SIZE_INVALID | 图案拼接目标尺寸非法 | 400，尺寸模式目标宽高必须大于 100px |
+| IMAGE_STITCH_OUTPUT_TOO_LARGE | 图案拼接输出尺寸过大 | 400，单边不超过 8000px，总像素不超过 64000000 |
+| IMAGE_STITCH_SOURCE_LOAD_FAILED | 图案拼接原图读取失败 | 400，原图 URL 不可访问或不是有效图片 |
+| IMAGE_STITCH_RENDER_FAILED | 图案拼接渲染失败 | 500，Pillow 拼接或 PNG 导出异常 |
+| IMAGE_STITCH_UPLOAD_FAILED | 图案拼接结果上传失败 | 502，OSS 上传或返回 URL 异常 |
+| IMAGE_STITCH_RUN_CREATE_FAILED | 图案拼接任务创建失败 | `/api/business/image-stitch/runs` 兜底错误 |
 | EXPAND_MASK_RENDER_FAILED | 扩边占位图渲染失败 | PODI 扩边占位工具在 Pillow/图像处理阶段异常。 |
 | EXPAND_MASK_UPLOAD_FAILED | 扩边占位图上传失败 | PODI 扩边占位工具在 OSS 上传阶段异常。 |
 | IMAGE_BASE64_INVALID | Base64 图片无效 | |

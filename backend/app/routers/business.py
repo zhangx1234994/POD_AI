@@ -296,7 +296,7 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
         "debugUrl": full.get("debugUrl"),
         "debugResponse": error_message,
         "retryAfterSeconds": 10 if status in {"queued", "running"} else None,
-        "expectedImageCount": 1 if business_key in {"fission", "image_edit", "product_design", "text_fission", "pattern_extract", "outpaint"} else None,
+        "expectedImageCount": 1 if business_key in {"fission", "image_edit", "image_stitch", "product_design", "text_fission", "pattern_extract", "outpaint"} else None,
         "logId": full.get("abilityLogId"),
         "traceId": full.get("traceId"),
         "requestId": full.get("requestId"),
@@ -817,6 +817,9 @@ def _business_key_allowed_for_api_key(request: Request, business_key: str) -> No
     # Existing business keys that were created before the public promo-video
     # split should continue to work for the new narrower entrypoint.
     compatibility_allowed = business_key == "promo_video" and "product_commercialization" in allowed_set
+    compatibility_allowed = compatibility_allowed or (
+        business_key == "image_stitch" and "image-stitch" in allowed_set
+    )
     if allowed_set and business_key not in allowed_set and not compatibility_allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED")
 
@@ -902,6 +905,38 @@ def _create_business_run_with_usage(
             status_code=500,
             business_key=business_key,
             error_code="BUSINESS_RUN_CREATE_FAILED",
+            request_payload=payload.model_dump(exclude_none=True),
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, business_key=business_key, run=result)
+    return _business_run_submit_response(result)
+
+
+def _create_image_stitch_run_with_usage(
+    *,
+    request: Request,
+    payload: schemas.BusinessRunCreateRequest,
+    user: User,
+) -> dict[str, Any]:
+    business_key = "image_stitch"
+    try:
+        _business_key_allowed_for_api_key(request, business_key)
+        result = get_business_run_service().create_image_stitch_run(payload=payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=str(exc.detail or ""),
+            request_payload=payload.model_dump(exclude_none=True),
+        )
+        _raise_business_http_exception(exc, fallback_code="IMAGE_STITCH_RUN_CREATE_FAILED")
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="IMAGE_STITCH_RUN_CREATE_FAILED",
             request_payload=payload.model_dump(exclude_none=True),
         )
         raise
@@ -1088,6 +1123,15 @@ def create_image_edit_run(
     user: User = Depends(_resolve_business_user),
 ) -> dict[str, Any]:
     return _create_business_run_with_usage(request=request, business_key="image_edit", payload=payload, user=user)
+
+
+@router.post("/image-stitch/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_image_stitch_run(
+    payload: schemas.BusinessRunCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    return _create_image_stitch_run_with_usage(request=request, payload=payload, user=user)
 
 
 @router.post("/product-design/runs", response_model=dict[str, Any], response_model_by_alias=False)
