@@ -298,6 +298,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
         history_images = outputs.get("images") if isinstance(outputs.get("images"), list) else []
         max_output_images = self._coerce_positive_int(workflow_definition.get("_max_output_images"))
+        expected_output_size = self._expected_output_size(workflow_definition)
         if max_output_images:
             history_images = history_images[:max_output_images]
         if not history_images:
@@ -317,9 +318,19 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             source_url = image.get("url") or self._build_image_url(base_url, image)
             base64_data = image.get("base64")
             if source_url:
-                asset = self._store_remote_asset(source_url, context, tag="comfyui")
+                asset = self._store_remote_asset(
+                    source_url,
+                    context,
+                    tag="comfyui",
+                    expected_size=expected_output_size,
+                )
             elif base64_data:
-                asset = self._store_base64_asset(base64_data, context, tag="comfyui")
+                asset = self._store_base64_asset(
+                    base64_data,
+                    context,
+                    tag="comfyui",
+                    expected_size=expected_output_size,
+                )
             else:
                 continue
             if asset:
@@ -603,12 +614,32 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                     )
         return {"images": images, "history": entry}
 
-    def _store_remote_asset(self, url: str, context: ExecutionContext, *, tag: str) -> dict[str, Any] | None:
+    def _store_remote_asset(
+        self,
+        url: str,
+        context: ExecutionContext,
+        *,
+        tag: str,
+        expected_size: tuple[int, int] | None = None,
+    ) -> dict[str, Any] | None:
         filename_hint = self._extract_filename_hint(url)
         # ComfyUI's /view endpoint can be flaky under load (occasionally 502 even though
         # the file becomes available moments later). Retry a few times before giving up.
         for attempt in range(4):
             try:
+                if expected_size:
+                    response = httpx.get(url, timeout=60)
+                    response.raise_for_status()
+                    asset = self._store_image_bytes_with_expected_size(
+                        response.content,
+                        context,
+                        filename_hint=filename_hint or "comfyui.png",
+                        source_url=url,
+                        tag=tag,
+                        expected_size=expected_size,
+                    )
+                    if asset:
+                        return asset
                 return media_ingest_service.ingest_from_remote_url(
                     url,
                     user_id=str(context.task.user_id or "comfyui"),
@@ -633,8 +664,27 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 return None
         return None
 
-    def _store_base64_asset(self, payload: str, context: ExecutionContext, *, tag: str) -> dict[str, Any] | None:
+    def _store_base64_asset(
+        self,
+        payload: str,
+        context: ExecutionContext,
+        *,
+        tag: str,
+        expected_size: tuple[int, int] | None = None,
+    ) -> dict[str, Any] | None:
         try:
+            if expected_size:
+                data_part = payload.split(",", 1)[1] if payload.startswith("data:") and "," in payload else payload
+                asset = self._store_image_bytes_with_expected_size(
+                    base64.b64decode(data_part),
+                    context,
+                    filename_hint="comfyui.png",
+                    source_url=None,
+                    tag=tag,
+                    expected_size=expected_size,
+                )
+                if asset:
+                    return asset
             return media_ingest_service.ingest_from_base64(
                 payload,
                 user_id=str(context.task.user_id or "comfyui"),
@@ -645,6 +695,50 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         except Exception as exc:  # pragma: no cover - defensive
             self._logger.warning("Failed to ingest base64 ComfyUI asset: %s", exc)
             return None
+
+    def _expected_output_size(self, workflow_definition: dict[str, Any]) -> tuple[int, int] | None:
+        width = self._coerce_positive_int(workflow_definition.get("_expected_output_width"))
+        height = self._coerce_positive_int(workflow_definition.get("_expected_output_height"))
+        if width and height:
+            return width, height
+        return None
+
+    def _store_image_bytes_with_expected_size(
+        self,
+        data: bytes,
+        context: ExecutionContext,
+        *,
+        filename_hint: str,
+        source_url: str | None,
+        tag: str,
+        expected_size: tuple[int, int],
+    ) -> dict[str, Any] | None:
+        target_width, target_height = expected_size
+        image = Image.open(BytesIO(data))
+        if image.size != expected_size:
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            image = image.convert("RGBA").resize((target_width, target_height), resampling)
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            data = buffer.getvalue()
+            filename_hint = str(Path(filename_hint or "comfyui.png").with_suffix(".png"))
+        upload = media_ingest_service.upload_generated_image_bytes(
+            data=data,
+            user_id=str(context.task.user_id or "comfyui"),
+            filename=filename_hint or "comfyui.png",
+            content_type="image/png",
+            tag=tag,
+        )
+        return {
+            "sourceUrl": source_url,
+            "ossUrl": upload["url"],
+            "ossKey": upload["objectKey"],
+            "contentType": upload.get("contentType"),
+            "size": upload.get("size"),
+            "tag": tag,
+            "dpi": upload.get("dpi"),
+            "normalizedSize": {"width": target_width, "height": target_height},
+        }
 
     def _build_image_url(self, base_url: str, image: dict[str, Any]) -> str | None:
         filename = image.get("filename")
@@ -1649,6 +1743,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 node_inputs["height"] = height
             if explicit_width and explicit_height:
                 node_inputs["method"] = "fill / crop"
+                workflow_definition["_expected_output_width"] = explicit_width
+                workflow_definition["_expected_output_height"] = explicit_height
             overrides["12"] = node_inputs
 
         workflow_definition["output_node_ids"] = ["27"]
@@ -1791,9 +1887,12 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             except Exception:
                 pass
 
-        target_multiple = 16 if (explicit_width or explicit_height) else 8
-        width = self._normalize_comfy_dim(width, multiple=target_multiple)
-        height = self._normalize_comfy_dim(height, multiple=target_multiple)
+        # 该 workflow 在生成前先做普通图片缩放，显式业务尺寸需要保持原值；
+        # 否则 1000px 会被 16 倍数规则静默压到 992px，导致 Podi 结果图尺寸不一致。
+        if not explicit_width:
+            width = self._normalize_comfy_dim(width)
+        if not explicit_height:
+            height = self._normalize_comfy_dim(height)
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:

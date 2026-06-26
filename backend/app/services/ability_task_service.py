@@ -58,6 +58,12 @@ def _format_task_error(code: str, message: str) -> str:
     return f"ERR|{code}|{safe_message}"
 
 
+def _is_openai_gpt_image_2_capability(provider: str | None, capability_key: str | None) -> bool:
+    provider_lower = str(provider or "").strip().lower()
+    capability_lower = str(capability_key or "").strip().lower()
+    return provider_lower in {"openai", "openai_compatible"} and "gpt_image_2" in capability_lower
+
+
 class AbilityTaskService:
     def __init__(self) -> None:
         settings = get_settings()
@@ -94,7 +100,10 @@ class AbilityTaskService:
             executor_id = payload.executorId or ability.executor_id
             if executor_id:
                 is_comfyui = provider_lower == "comfyui"
-                is_commercial = provider_lower in {"volcengine", "kie"}
+                is_commercial = provider_lower in {"volcengine", "kie"} or _is_openai_gpt_image_2_capability(
+                    ability.provider,
+                    ability.capability_key,
+                )
                 is_async_flag = bool((ability.extra_metadata or {}).get("async_mode") or (ability.extra_metadata or {}).get("callback_mode"))
                 if is_comfyui or is_commercial or is_async_flag:
                     pending_count = self.count_pending_by_executor(
@@ -560,15 +569,26 @@ class AbilityTaskService:
                 )
 
                 assets: list[dict[str, Any]] = []
+                expected_output_size = self._expected_comfyui_output_size(task)
                 for img in images:
                     if not isinstance(img, dict):
                         continue
                     source_url = img.get("url") or adapter._build_image_url(base_url.rstrip("/"), img)  # type: ignore[attr-defined]
                     base64_data = img.get("base64")
                     if source_url:
-                        asset = adapter._store_remote_asset(source_url, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                        asset = adapter._store_remote_asset(  # type: ignore[attr-defined]
+                            source_url,
+                            ctx,
+                            tag="comfyui",
+                            expected_size=expected_output_size,
+                        )
                     elif base64_data:
-                        asset = adapter._store_base64_asset(base64_data, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                        asset = adapter._store_base64_asset(  # type: ignore[attr-defined]
+                            base64_data,
+                            ctx,
+                            tag="comfyui",
+                            expected_size=expected_output_size,
+                        )
                     else:
                         asset = None
                     if asset:
@@ -613,6 +633,55 @@ class AbilityTaskService:
                 # history polling loops after repeated 502/5xx responses.
                 self._record_comfyui_finalize_error(task_id=task.id, error_message=str(exc)[:240])
                 continue
+
+    @staticmethod
+    def _coerce_positive_int(value: Any) -> int | None:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    @staticmethod
+    def _is_flux_strong_hq_softstyle_fission_key(value: Any) -> bool:
+        key = str(value or "").strip()
+        return "flux_strong_hq_softstyle_fission" in key
+
+    def _expected_comfyui_output_size(self, task: AbilityTask) -> tuple[int, int] | None:
+        if not (
+            self._is_flux_strong_hq_softstyle_fission_key(task.capability_key)
+            or self._is_flux_strong_hq_softstyle_fission_key(task.ability_id)
+        ):
+            return None
+        result_payload = task.result_payload if isinstance(task.result_payload, dict) else {}
+        meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+        meta_size = meta.get("expectedOutputSize")
+        if isinstance(meta_size, dict):
+            width = self._coerce_positive_int(meta_size.get("width"))
+            height = self._coerce_positive_int(meta_size.get("height"))
+            if width and height:
+                return width, height
+        width = self._coerce_positive_int(meta.get("expectedOutputWidth"))
+        height = self._coerce_positive_int(meta.get("expectedOutputHeight"))
+        if width and height:
+            return width, height
+        request_payload = task.request_payload if isinstance(task.request_payload, dict) else {}
+        inputs = request_payload.get("inputs") if isinstance(request_payload.get("inputs"), dict) else {}
+        width = self._coerce_positive_int(
+            inputs.get("output_width")
+            or inputs.get("width")
+            or request_payload.get("output_width")
+            or request_payload.get("width")
+        )
+        height = self._coerce_positive_int(
+            inputs.get("output_height")
+            or inputs.get("height")
+            or request_payload.get("output_height")
+            or request_payload.get("height")
+        )
+        if width and height:
+            return width, height
+        return None
 
 
     def _record_comfyui_finalize_error(self, *, task_id: str, error_message: str) -> None:

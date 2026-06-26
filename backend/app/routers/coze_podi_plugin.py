@@ -73,6 +73,50 @@ def _truthy(value: Any) -> bool:
     return False
 
 
+def _coerce_positive_int_value(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _is_flux_strong_hq_softstyle_fission_key(value: Any) -> bool:
+    key = str(value or "").strip()
+    return "flux_strong_hq_softstyle_fission" in key
+
+
+def _extract_comfyui_expected_output_size(
+    capability_key: Any,
+    request_payload: dict[str, Any] | None,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[int, int] | None:
+    if not _is_flux_strong_hq_softstyle_fission_key(capability_key):
+        return None
+    meta = metadata if isinstance(metadata, dict) else {}
+    meta_size = meta.get("expectedOutputSize")
+    if isinstance(meta_size, dict):
+        width = _coerce_positive_int_value(meta_size.get("width"))
+        height = _coerce_positive_int_value(meta_size.get("height"))
+        if width and height:
+            return width, height
+    width = _coerce_positive_int_value(meta.get("expectedOutputWidth"))
+    height = _coerce_positive_int_value(meta.get("expectedOutputHeight"))
+    if width and height:
+        return width, height
+    payload = request_payload if isinstance(request_payload, dict) else {}
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    width = _coerce_positive_int_value(
+        inputs.get("output_width") or inputs.get("width") or payload.get("output_width") or payload.get("width")
+    )
+    height = _coerce_positive_int_value(
+        inputs.get("output_height") or inputs.get("height") or payload.get("output_height") or payload.get("height")
+    )
+    if width and height:
+        return width, height
+    return None
+
+
 def _drop_none_deep(value: Any) -> Any:
     if isinstance(value, dict):
         return {k: _drop_none_deep(v) for k, v in value.items() if v is not None}
@@ -1617,8 +1661,17 @@ def invoke_tool(
         elif capability_key == "e7_flux2_liebian":
             expected_images = _coerce_positive_int(body.get("batch_size") or body.get("batch") or body.get("n")) or 1
 
-        # Persist the hint with the task so `/tasks/get` can always surface it.
-        payload.metadata = (payload.metadata or {}) | {"expectedImageCount": expected_images}
+        # 任务元数据同时记录期望数量和业务输出尺寸，供 `/tasks/get` 回填时校正最终图片。
+        metadata_patch: dict[str, Any] = {"expectedImageCount": expected_images}
+        expected_output_size = _extract_comfyui_expected_output_size(capability_key, {"inputs": body})
+        if expected_output_size:
+            metadata_patch["expectedOutputSize"] = {
+                "width": expected_output_size[0],
+                "height": expected_output_size[1],
+            }
+            metadata_patch["expectedOutputWidth"] = expected_output_size[0]
+            metadata_patch["expectedOutputHeight"] = expected_output_size[1]
+        payload.metadata = (payload.metadata or {}) | metadata_patch
 
         # Store as a system task (no user FK) to keep internal integrations simple.
         task = get_ability_task_service().enqueue(ability_id=ability.id, payload=payload, user=None)
@@ -2395,15 +2448,31 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             api_key=None,
                         )
                         assets: list[dict[str, Any]] = []
+                        request_payload = db_task.request_payload if isinstance(db_task.request_payload, dict) else {}
+                        expected_output_size = _extract_comfyui_expected_output_size(
+                            db_task.capability_key,
+                            request_payload,
+                            meta,
+                        )
                         for img in images:
                             if not isinstance(img, dict):
                                 continue
                             source_url = img.get("url") or adapter._build_image_url(base_url.rstrip("/"), img)  # type: ignore[attr-defined]
                             base64_data = img.get("base64")
                             if source_url:
-                                asset = adapter._store_remote_asset(source_url, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                                asset = adapter._store_remote_asset(  # type: ignore[attr-defined]
+                                    source_url,
+                                    ctx,
+                                    tag="comfyui",
+                                    expected_size=expected_output_size,
+                                )
                             elif base64_data:
-                                asset = adapter._store_base64_asset(base64_data, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                                asset = adapter._store_base64_asset(  # type: ignore[attr-defined]
+                                    base64_data,
+                                    ctx,
+                                    tag="comfyui",
+                                    expected_size=expected_output_size,
+                                )
                             else:
                                 asset = None
                             if asset:

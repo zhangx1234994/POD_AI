@@ -2012,6 +2012,10 @@ class IntegrationTestService:
             "workflow_key": workflow_key,
             "graph": self._get_comfyui_workflow_graph(workflow_key),
         }
+        expected_size = self._expected_comfyui_output_size(workflow_key, payload)
+        if expected_size:
+            workflow_definition["_expected_output_width"] = expected_size[0]
+            workflow_definition["_expected_output_height"] = expected_size[1]
         workflow_meta = self._get_comfyui_workflow_metadata(workflow_key)
         workflow = SimpleNamespace(
             id=f"{workflow_key}_submit",
@@ -2087,6 +2091,10 @@ class IntegrationTestService:
             "workflow_key": workflow_key,
             "graph": self._get_comfyui_workflow_graph(workflow_key),
         }
+        expected_size = self._expected_comfyui_output_size(workflow_key, payload)
+        if expected_size:
+            workflow_definition["_expected_output_width"] = expected_size[0]
+            workflow_definition["_expected_output_height"] = expected_size[1]
         workflow_meta = self._get_comfyui_workflow_metadata(workflow_key)
         if isinstance(timeout_value, (int, float)) and timeout_value > 0:
             workflow_definition["timeout"] = max(60, min(int(timeout_value), 900))
@@ -2135,6 +2143,28 @@ class IntegrationTestService:
             if isinstance(raw_ids, list):
                 result["outputNodeIds"] = [str(x) for x in raw_ids if str(x).strip()]
         return result
+
+    @staticmethod
+    def _coerce_expected_size_int(value: Any) -> int | None:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    def _expected_comfyui_output_size(
+        self,
+        workflow_key: str,
+        workflow_params: dict[str, Any] | None,
+    ) -> tuple[int, int] | None:
+        if "flux_strong_hq_softstyle_fission" not in str(workflow_key or ""):
+            return None
+        params = workflow_params if isinstance(workflow_params, dict) else {}
+        width = self._coerce_expected_size_int(params.get("output_width") or params.get("width"))
+        height = self._coerce_expected_size_int(params.get("output_height") or params.get("height"))
+        if width and height:
+            return width, height
+        return None
 
     def get_comfyui_model_catalog(self, *, executor_id: str, include_nodes: bool = False) -> dict[str, Any]:
         executor = self._get_executor(executor_id)
