@@ -717,10 +717,13 @@ class IntegrationTestService:
             }
             if params:
                 payload.update(params)
+            timeout_seconds = max(15, min(int(get_settings().volcengine_chat_timeout_seconds or 120), 900))
             try:
-                response = httpx.post(url, headers=headers, json=payload, timeout=60)
+                response = httpx.post(url, headers=headers, json=payload, timeout=timeout_seconds)
+            except httpx.ReadTimeout as exc:
+                raise HTTPException(status_code=504, detail=f"VOLCENGINE_READ_TIMEOUT:{timeout_seconds}s") from exc
             except httpx.HTTPError as exc:
-                raise HTTPException(status_code=502, detail="VOLCENGINE_HTTP_ERROR") from exc
+                raise HTTPException(status_code=502, detail=f"VOLCENGINE_HTTP_ERROR:{type(exc).__name__}") from exc
             data = response.json()
             if response.status_code >= 400:
                 detail = data.get("error", {}).get("message") if isinstance(data, dict) else None
@@ -795,10 +798,13 @@ class IntegrationTestService:
             if params:
                 payload.update(params)
 
+            timeout_seconds = max(30, min(int(get_settings().volcengine_image_timeout_seconds or 180), 900))
             try:
-                response = httpx.post(url, headers=headers, json=payload, timeout=120)
+                response = httpx.post(url, headers=headers, json=payload, timeout=timeout_seconds)
+            except httpx.ReadTimeout as exc:
+                raise HTTPException(status_code=504, detail=f"VOLCENGINE_IMAGE_READ_TIMEOUT:{timeout_seconds}s") from exc
             except httpx.HTTPError as exc:
-                raise HTTPException(status_code=502, detail="VOLCENGINE_HTTP_ERROR") from exc
+                raise HTTPException(status_code=502, detail=f"VOLCENGINE_IMAGE_HTTP_ERROR:{type(exc).__name__}") from exc
             data = response.json()
             if response.status_code >= 400:
                 detail = data.get("error", {}).get("message") if isinstance(data, dict) else None

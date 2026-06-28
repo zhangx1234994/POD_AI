@@ -25,7 +25,7 @@
 - 现阶段主要维护范围是：`backend/`、`podi-admin-web/`、`podi-eval-web/`、`image-ops-service/`、`vendor-api-ops/` 与相关文档。
 
 ## 构建、测试与开发命令
-后端：`cd backend && uv sync`（或 `pip install -r requirements.txt`），再运行 `alembic upgrade head` 初始化 MySQL 表，命令 `uvicorn app.main:app --reload --port 8099` 启动 API，后台任务使用 `celery -A app.core.celery_app worker -l info`。前端：`podi-admin-web/`、`podi-eval-web/` 分别执行 `npm install && npm run dev`（必要时加 `-- --port <port>`）；管理端另有 `npm run lint`（纯 TypeScript 类型检查）可做快速静态校验。常用诊断：`curl :8099/health`、`python -m pytest backend/tests -q`、`npm run test -- --runInBand`（Vitest）。
+后端：`cd backend && uv sync`（或 `pip install -r requirements.txt`），再运行 `alembic upgrade head` 初始化 MySQL 表，命令 `uvicorn app.main:app --reload --port 8099` 启动 API，后台任务使用 `celery -A app.core.celery_app worker -l info`。Podi 主项目本地联调时，为避免和 `ai-podi-server:8099` 冲突，使用根目录 `startup.bat` 或手工改为 `--port 8310`，并让 `ai-workflow-task` 的 `not.coze.api.url` 指向 `http://127.0.0.1:8310`。前端：`podi-admin-web/`、`podi-eval-web/` 分别执行 `npm install && npm run dev`（必要时加 `-- --port <port>`）；管理端另有 `npm run lint`（纯 TypeScript 类型检查）可做快速静态校验。常用诊断：`curl :8099/health`（POD_AI 独立/线上）或 `curl :8310/health`（Podi 本地联调）、`python -m pytest backend/tests -q`、`npm run test -- --runInBand`（Vitest）。
 
 ### 端口占用处理
 开发阶段如遇 `uvicorn` 或 Vite 端口被占用，优先清理旧进程：`lsof -i tcp:<port>` 查 PID，确认无关后直接 `kill <pid>` 并重启对应服务，避免长期切换端口导致前后端配置不一致。
@@ -126,4 +126,4 @@ Python 代码遵循 Black + Ruff（4 空格、snake_case 模块、PascalCase Pyd
 - 当前战略级待办唯一入口是 `docs/strategy/todo-master-2026q2.md`；旧 TODO、交接记录、客户端评审文档只作为历史参考。
 - 新增任务或变更优先级时，先更新唯一待办池，再同步模块文档、接口文档和错误码规范。
 - 当前恢复工作优先级：① 发版门禁与事故整改闭环；② 管理端信息架构与易用性降噪；③ 业务能力稳定化；④ 第三方能力治理；⑤ 测评端/客户端整体前端整改。
-- 所有服务启停遵循“端口占用即杀死重启”规范：`lsof -i tcp:8099` -> `kill -9 <pid>` -> `python3 -m uvicorn app.main:app --reload --port 8099`，管理端/测评端同理。
+- 所有服务启停遵循“端口占用即杀死重启”规范：POD_AI 独立/线上按 `lsof -i tcp:8099` -> `kill -9 <pid>` -> `python3 -m uvicorn app.main:app --reload --port 8099`；Podi 主项目本地联调按 `8310` 处理，避免杀掉 `ai-podi-server:8099`。管理端/测评端同理。

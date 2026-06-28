@@ -77,6 +77,10 @@ class Settings(BaseSettings):
         default="https://ark.cn-beijing.volces.com",
         env="VOLCENGINE_BASE_URL",
     )
+    # 火山 VL 前置分析在图裂变/多工序中属于同步前置步骤，模型偶发慢响应时
+    # 不能被 60 秒硬编码误判为本地链路失败。
+    volcengine_chat_timeout_seconds: int = Field(default=120, env="VOLCENGINE_CHAT_TIMEOUT_SECONDS")
+    volcengine_image_timeout_seconds: int = Field(default=180, env="VOLCENGINE_IMAGE_TIMEOUT_SECONDS")
     vendor_api_enabled: bool = Field(default=True, env="VENDOR_API_ENABLED")
     vendor_api_base_url: str = Field(default="http://117.50.80.158:8310", env="VENDOR_API_BASE_URL")
     vendor_api_token: str | None = Field(default=None, env="VENDOR_API_TOKEN")
