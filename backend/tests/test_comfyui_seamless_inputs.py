@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from app.services.executors.base import ExecutionContext
-from app.services.executors.comfyui import ComfyUIExecutorAdapter
+from app.services.executors.comfyui import ComfyUIExecutorAdapter, SEAMLESS_STABLE_SEED
 
 
 def _make_context(graph: dict):
@@ -49,6 +49,38 @@ def test_seamless_pattern_type_aliases_map_to_expected_boolean():
     assert twoway is not None and seamless is not None
     assert twoway["97"]["boolean"] is False
     assert seamless["97"]["boolean"] is True
+
+
+def test_seamless_uses_stable_seed_when_caller_does_not_provide_seed():
+    adapter = ComfyUIExecutorAdapter()
+    graph = {
+        "4": {"class_type": "KSampler", "inputs": {"seed": 1}},
+        "22": {"class_type": "RandomNoise", "inputs": {"noise_seed": 2}},
+    }
+
+    adapter._ensure_sampler_seed(graph, {}, workflow_key="sifang_lianxu")
+
+    assert graph["4"]["inputs"]["seed"] == SEAMLESS_STABLE_SEED
+    assert graph["22"]["inputs"]["noise_seed"] == SEAMLESS_STABLE_SEED
+
+
+def test_seamless_respects_explicit_seed():
+    adapter = ComfyUIExecutorAdapter()
+    graph = {"4": {"class_type": "KSampler", "inputs": {"seed": 1}}}
+
+    adapter._ensure_sampler_seed(graph, {"seed": 12345}, workflow_key="sifang_lianxu")
+
+    assert graph["4"]["inputs"]["seed"] == 12345
+
+
+def test_non_seamless_keeps_random_seed_behavior(monkeypatch):
+    adapter = ComfyUIExecutorAdapter()
+    graph = {"4": {"class_type": "KSampler", "inputs": {"seed": 1}}}
+    monkeypatch.setattr("app.services.executors.comfyui.secrets.randbits", lambda _bits: 98765)
+
+    adapter._ensure_sampler_seed(graph, {}, workflow_key="yinhua_tiqu")
+
+    assert graph["4"]["inputs"]["seed"] == 98765
 
 
 def test_seamless_explicit_custom_size_keeps_tile_boundary_and_resizes_on_store(monkeypatch):

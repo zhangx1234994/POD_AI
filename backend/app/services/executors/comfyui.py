@@ -45,6 +45,9 @@ FISSION_V4_ROUTE_MAP: dict[str, dict[str, Any]] = {
 FISSION_V4_DEFAULT_PROFILE = "pattern_risk_routed_v4"
 FISSION_V4_DEFAULT_REFERENCE_LOCK = 0.42
 FISSION_V4_DEFAULT_COLOR_LOCK = 0.90
+# 四方连续是边界敏感工作流；随机 seed 会让同一输入偶发左右边缘暗线。
+# 该 seed 来自线上干净样本 BAT-20260617-1000022，并已在本地 3090 用同 prompt 复跑验证边缘正常。
+SEAMLESS_STABLE_SEED = 53192192408090
 
 
 def _detect_lora_name_validation_nodes(payload: Any) -> set[str] | None:
@@ -156,7 +159,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         # Avoid "same inputs => same outputs" surprises when users run the same workflow
         # repeatedly (e.g. "抽卡"). Many shared ComfyUI graphs ship with a fixed seed.
         # Unless the caller explicitly provides a seed, randomize all KSampler seeds.
-        self._ensure_sampler_seed(graph_payload, context.payload or {})
+        workflow_key = str(workflow_definition.get("workflow_key") or workflow_meta.get("workflow_key") or "").strip()
+        self._ensure_sampler_seed(graph_payload, context.payload or {}, workflow_key=workflow_key)
 
         def _submit(prompt_id: str) -> tuple[dict[str, Any] | None, str | None]:
             """Return (json, error_message)."""
@@ -363,7 +367,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             },
         )
 
-    def _ensure_sampler_seed(self, graph: dict[str, Any], params: dict[str, Any]) -> None:
+    def _ensure_sampler_seed(self, graph: dict[str, Any], params: dict[str, Any], *, workflow_key: str | None = None) -> None:
         def _coerce_int(v: Any) -> int | None:
             try:
                 return int(v)
@@ -378,9 +382,16 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             or params.get("samplerSeed")
         )
         seed = _coerce_int(provided)
+        provided_seed = seed is not None
         if seed is None:
-            # Use a large positive int; ComfyUI typically supports 64-bit seeds.
-            seed = secrets.randbits(48)
+            normalized_workflow_key = str(workflow_key or params.get("workflow_key") or "").strip().lower()
+            if normalized_workflow_key == "sifang_lianxu":
+                # 四方连续需要稳定的 tile 边界；没有显式 seed 时使用已验证的稳定 seed，避免随机 seed 抽到边缘伪影。
+                seed = SEAMLESS_STABLE_SEED
+            else:
+                # Use a large positive int; ComfyUI typically supports 64-bit seeds.
+                seed = secrets.randbits(48)
+        self._logger.info("ComfyUI采样seed workflow=%s seed=%s provided=%s", workflow_key or params.get("workflow_key"), seed, provided_seed)
 
         for node in graph.values():
             if not isinstance(node, dict):
