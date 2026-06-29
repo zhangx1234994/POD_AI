@@ -570,6 +570,16 @@ class AbilityTaskService:
 
                 assets: list[dict[str, Any]] = []
                 expected_output_size = self._expected_comfyui_output_size(task)
+                expected_adjust_mode = self._expected_comfyui_adjust_mode(task)
+                if expected_output_size:
+                    logger.info(
+                        "ComfyUI任务结果收口 task_id=%s capability=%s custom=%sx%s mode=%s",
+                        task.id,
+                        task.capability_key or task.ability_id,
+                        expected_output_size[0],
+                        expected_output_size[1],
+                        expected_adjust_mode or "resize",
+                    )
                 for img in images:
                     if not isinstance(img, dict):
                         continue
@@ -581,6 +591,7 @@ class AbilityTaskService:
                             ctx,
                             tag="comfyui",
                             expected_size=expected_output_size,
+                            expected_adjust_mode=expected_adjust_mode,
                         )
                     elif base64_data:
                         asset = adapter._store_base64_asset(  # type: ignore[attr-defined]
@@ -588,6 +599,7 @@ class AbilityTaskService:
                             ctx,
                             tag="comfyui",
                             expected_size=expected_output_size,
+                            expected_adjust_mode=expected_adjust_mode,
                         )
                     else:
                         asset = None
@@ -647,10 +659,24 @@ class AbilityTaskService:
         key = str(value or "").strip()
         return "flux_strong_hq_softstyle_fission" in key
 
+    @staticmethod
+    def _is_explicit_size_comfyui_key(value: Any) -> bool:
+        key = str(value or "").strip().lower()
+        return key in {
+            "sifang_lianxu",
+            "comfyui_sifang_lianxu",
+            "yinhua_tiqu",
+            "comfyui_yinhua_tiqu",
+            "yinhua_tiqu_lora_8step",
+            "comfyui_yinhua_tiqu_lora_8step",
+        }
+
     def _expected_comfyui_output_size(self, task: AbilityTask) -> tuple[int, int] | None:
         if not (
             self._is_flux_strong_hq_softstyle_fission_key(task.capability_key)
             or self._is_flux_strong_hq_softstyle_fission_key(task.ability_id)
+            or self._is_explicit_size_comfyui_key(task.capability_key)
+            or self._is_explicit_size_comfyui_key(task.ability_id)
         ):
             return None
         result_payload = task.result_payload if isinstance(task.result_payload, dict) else {}
@@ -681,6 +707,17 @@ class AbilityTaskService:
         )
         if width and height:
             return width, height
+        return None
+
+    def _expected_comfyui_adjust_mode(self, task: AbilityTask) -> str | None:
+        # 四方连续/印花提取必须保留画面边界，不能中心裁剪；裂变类才按“等比覆盖 + 中心裁剪”收口。
+        if (
+            self._is_flux_strong_hq_softstyle_fission_key(task.capability_key)
+            or self._is_flux_strong_hq_softstyle_fission_key(task.ability_id)
+        ):
+            return "cover_crop"
+        if self._is_explicit_size_comfyui_key(task.capability_key) or self._is_explicit_size_comfyui_key(task.ability_id):
+            return "resize"
         return None
 
 

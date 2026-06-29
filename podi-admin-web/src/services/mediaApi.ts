@@ -1,7 +1,12 @@
 import type { OssCredentialRequest, OssCredentialResponse, UploadKeyResponse } from '../types/media';
 import { ADMIN_TOKEN_INVALID_EVENT, getAdminToken } from './adminApi';
 
-const MEDIA_BASE = import.meta.env.VITE_MEDIA_BASE_URL ?? '/api/media';
+function normalizeBaseUrl(value: string | undefined, fallback = '') {
+  const text = (value ?? fallback).trim();
+  return text === '/' ? '' : text.replace(/\/+$/, '');
+}
+
+const MEDIA_BASE = normalizeBaseUrl(import.meta.env.VITE_MEDIA_BASE_URL, '/api/media');
 const ACCESS_TOKEN_KEY = 'podi_admin_access_token';
 const REFRESH_TOKEN_KEY = 'podi_admin_refresh_token';
 const TOKEN_INVALID_FLAG = 'podi_admin_token_invalid';

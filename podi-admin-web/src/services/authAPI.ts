@@ -1,4 +1,9 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+function normalizeBaseUrl(value: string | undefined, fallback = '') {
+  const text = (value ?? fallback).trim();
+  return text === '/' ? '' : text.replace(/\/+$/, '');
+}
+
+const API_BASE = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const DEFAULT_TIMEOUT_MS = 15000;
 const GATEWAY_ERROR_MESSAGE = '服务不可达或网关异常，请稍后再试';
 

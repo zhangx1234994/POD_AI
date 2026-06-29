@@ -49,3 +49,86 @@ def test_seamless_pattern_type_aliases_map_to_expected_boolean():
     assert twoway is not None and seamless is not None
     assert twoway["97"]["boolean"] is False
     assert seamless["97"]["boolean"] is True
+
+
+def test_seamless_explicit_custom_size_keeps_tile_boundary_and_resizes_on_store(monkeypatch):
+    context = _make_context({"102": {"inputs": {"width": 1024, "height": 1024}}})
+    adapter = ComfyUIExecutorAdapter()
+    monkeypatch.setattr(adapter, "_load_remote_image_size", lambda _url: (1560, 1880))
+
+    overrides, error = adapter._build_seamless_inputs(
+        {"image_url": "https://example.com/input.png", "width": 1566, "height": 1885},
+        context,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["102"]["width"] == 1560
+    assert overrides["102"]["height"] == 1880
+    assert context.workflow.definition["_expected_output_width"] == 1566
+    assert context.workflow.definition["_expected_output_height"] == 1885
+    assert context.workflow.definition["_expected_output_adjust_mode"] == "resize"
+
+
+def test_pattern_extract_explicit_custom_size_resizes_on_store():
+    context = _make_context({"400": {"inputs": {"width": 1024, "height": 1024}}})
+    context.workflow.extra_metadata = {"workflow_key": "yinhua_tiqu"}
+    adapter = ComfyUIExecutorAdapter()
+
+    overrides, error = adapter._build_pattern_extract_inputs(
+        {"image_url": "https://example.com/input.png", "width": 1566, "height": 1885},
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["400"]["width"] == 1560
+    assert overrides["400"]["height"] == 1880
+    assert context.workflow.definition["_expected_output_width"] == 1566
+    assert context.workflow.definition["_expected_output_height"] == 1885
+    assert context.workflow.definition["_expected_output_adjust_mode"] == "resize"
+
+
+def test_e7_fission_explicit_custom_size_uses_source_ratio_generation_and_cover_crop(monkeypatch):
+    context = _make_context({"12": {"inputs": {"width": 1024, "height": 1024}}})
+    adapter = ComfyUIExecutorAdapter()
+    monkeypatch.setattr(adapter, "_load_remote_image_size", lambda _url: (1560, 1880))
+
+    overrides, error = adapter._build_e7_flux2_liebian_inputs(
+        {"image_url": "https://example.com/input.png", "width": 1566, "height": 1885},
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["12"]["width"] == 1568
+    assert overrides["12"]["height"] == 1888
+    assert overrides["12"]["method"] == "fill / crop"
+    assert context.workflow.definition["_expected_output_width"] == 1566
+    assert context.workflow.definition["_expected_output_height"] == 1885
+    assert context.workflow.definition["_expected_output_adjust_mode"] == "cover_crop"
+
+
+def test_flux_strong_fission_explicit_custom_size_uses_source_ratio_generation_and_cover_crop(monkeypatch):
+    context = _make_context({"12": {"inputs": {"width": 1024, "height": 1024}}})
+    context.executor.base_url = "http://comfyui.local"
+    adapter = ComfyUIExecutorAdapter()
+    monkeypatch.setattr(adapter, "_load_remote_image_size", lambda _url: (1560, 1880))
+    monkeypatch.setattr(adapter, "_upload_image_for_comfyui_loadimage", lambda **_kwargs: "input.png")
+
+    overrides, error = adapter._build_flux_strong_hq_softstyle_fission_inputs(
+        {"image_url": "https://example.com/input.png", "width": 1566, "height": 1885},
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["12"]["width"] == 1568
+    assert overrides["12"]["height"] == 1888
+    assert overrides["12"]["method"] == "fill / crop"
+    assert context.workflow.definition["_expected_output_width"] == 1566
+    assert context.workflow.definition["_expected_output_height"] == 1885
+    assert context.workflow.definition["_expected_output_adjust_mode"] == "cover_crop"

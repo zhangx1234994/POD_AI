@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -49,6 +50,7 @@ from app.services.ability_presentation import (
 
 
 router = APIRouter(prefix="/api/coze/podi", tags=["coze-plugin"])
+logger = logging.getLogger(__name__)
 
 MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
@@ -86,12 +88,27 @@ def _is_flux_strong_hq_softstyle_fission_key(value: Any) -> bool:
     return "flux_strong_hq_softstyle_fission" in key
 
 
+def _is_explicit_size_comfyui_key(value: Any) -> bool:
+    key = str(value or "").strip().lower()
+    return key in {
+        "sifang_lianxu",
+        "comfyui_sifang_lianxu",
+        "yinhua_tiqu",
+        "comfyui_yinhua_tiqu",
+        "yinhua_tiqu_lora_8step",
+        "comfyui_yinhua_tiqu_lora_8step",
+    }
+
+
 def _extract_comfyui_expected_output_size(
     capability_key: Any,
     request_payload: dict[str, Any] | None,
     metadata: dict[str, Any] | None = None,
 ) -> tuple[int, int] | None:
-    if not _is_flux_strong_hq_softstyle_fission_key(capability_key):
+    if not (
+        _is_flux_strong_hq_softstyle_fission_key(capability_key)
+        or _is_explicit_size_comfyui_key(capability_key)
+    ):
         return None
     meta = metadata if isinstance(metadata, dict) else {}
     meta_size = meta.get("expectedOutputSize")
@@ -114,6 +131,15 @@ def _extract_comfyui_expected_output_size(
     )
     if width and height:
         return width, height
+    return None
+
+
+def _extract_comfyui_expected_adjust_mode(capability_key: Any) -> str | None:
+    # Coze 轮询/回写也要跟本地执行保持一致：裂变可 crop，四方连续/印花提取按业务尺寸整体 resize。
+    if _is_flux_strong_hq_softstyle_fission_key(capability_key):
+        return "cover_crop"
+    if _is_explicit_size_comfyui_key(capability_key):
+        return "resize"
     return None
 
 
@@ -2454,6 +2480,16 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             request_payload,
                             meta,
                         )
+                        expected_adjust_mode = _extract_comfyui_expected_adjust_mode(db_task.capability_key)
+                        if expected_output_size:
+                            logger.info(
+                                "Coze任务结果收口 task_id=%s capability=%s custom=%sx%s mode=%s",
+                                db_task.id,
+                                db_task.capability_key,
+                                expected_output_size[0],
+                                expected_output_size[1],
+                                expected_adjust_mode or "resize",
+                            )
                         for img in images:
                             if not isinstance(img, dict):
                                 continue
@@ -2465,6 +2501,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                                     ctx,
                                     tag="comfyui",
                                     expected_size=expected_output_size,
+                                    expected_adjust_mode=expected_adjust_mode,
                                 )
                             elif base64_data:
                                 asset = adapter._store_base64_asset(  # type: ignore[attr-defined]
@@ -2472,6 +2509,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                                     ctx,
                                     tag="comfyui",
                                     expected_size=expected_output_size,
+                                    expected_adjust_mode=expected_adjust_mode,
                                 )
                             else:
                                 asset = None

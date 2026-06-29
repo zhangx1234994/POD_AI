@@ -256,7 +256,12 @@ type BaiduImageTestResponse = {
   raw?: JsonRecord | null;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+function normalizeBaseUrl(value: string | undefined, fallback = '') {
+  const text = (value ?? fallback).trim();
+  return text === '/' ? '' : text.replace(/\/+$/, '');
+}
+
+const API_BASE = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const ACCESS_TOKEN_KEY = 'podi_admin_access_token';
 const REFRESH_TOKEN_KEY = 'podi_admin_refresh_token';
 export const ADMIN_TOKEN_INVALID_EVENT = 'podi-admin-token-invalid';

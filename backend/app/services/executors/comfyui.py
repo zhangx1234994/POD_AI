@@ -299,6 +299,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         history_images = outputs.get("images") if isinstance(outputs.get("images"), list) else []
         max_output_images = self._coerce_positive_int(workflow_definition.get("_max_output_images"))
         expected_output_size = self._expected_output_size(workflow_definition)
+        expected_adjust_mode = self._expected_output_adjust_mode(workflow_definition)
         if max_output_images:
             history_images = history_images[:max_output_images]
         if not history_images:
@@ -323,6 +324,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                     context,
                     tag="comfyui",
                     expected_size=expected_output_size,
+                    expected_adjust_mode=expected_adjust_mode,
                 )
             elif base64_data:
                 asset = self._store_base64_asset(
@@ -330,6 +332,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                     context,
                     tag="comfyui",
                     expected_size=expected_output_size,
+                    expected_adjust_mode=expected_adjust_mode,
                 )
             else:
                 continue
@@ -402,6 +405,78 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             return None
         multiple = max(1, int(multiple))
         return max(multiple, int(value) - (int(value) % multiple))
+
+    @staticmethod
+    def _normalize_comfy_dim_ceil(value: int | float | None, *, multiple: int = 8) -> int | None:
+        """把尺寸向上对齐到 ComfyUI 可接受的倍数，避免目标尺寸被向下压小。"""
+        if value is None or value <= 0:
+            return None
+        multiple = max(1, int(multiple))
+        number = int(math.ceil(float(value)))
+        return max(multiple, number + ((multiple - (number % multiple)) % multiple))
+
+    def _load_remote_image_size(self, image_url: str) -> tuple[int, int] | None:
+        """读取输入原图尺寸，用于按原图比例计算 ComfyUI 内部生成尺寸。"""
+        try:
+            response = httpx.get(image_url, timeout=30)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content))
+            width, height = image.size
+            if width > 0 and height > 0:
+                return int(width), int(height)
+        except Exception as exc:
+            self._logger.info("Failed to inspect source image size for ComfyUI sizing: %s", exc)
+        return None
+
+    def _log_generation_size_plan(
+        self,
+        *,
+        workflow_key: str,
+        source_size: tuple[int, int] | None,
+        target_size: tuple[int, int],
+        generation_size: tuple[int, int],
+        multiple: int,
+        mode: str,
+    ) -> None:
+        """记录生成阶段尺寸规划，方便排查是否误把业务尺寸直接传给 ComfyUI。"""
+        source_text = f"{source_size[0]}x{source_size[1]}" if source_size else "unknown"
+        self._logger.info(
+            "ComfyUI尺寸规划 workflow=%s source=%s custom=%sx%s generate=%sx%s multiple=%s mode=%s",
+            workflow_key,
+            source_text,
+            target_size[0],
+            target_size[1],
+            generation_size[0],
+            generation_size[1],
+            multiple,
+            mode,
+        )
+
+    def _fit_generation_size_for_source_ratio(
+        self,
+        source_size: tuple[int, int] | None,
+        target_width: int,
+        target_height: int,
+        *,
+        multiple: int = 8,
+    ) -> tuple[int, int]:
+        # 业务自定义尺寸是最终交付尺寸；ComfyUI 内部生成尺寸保持原图比例并向上对齐倍数。
+        # 目标宽高比不一致时由最终图片收口做 cover crop，避免生成阶段拉伸边缘。
+        if not source_size:
+            return (
+                self._normalize_comfy_dim_ceil(target_width, multiple=multiple) or target_width,
+                self._normalize_comfy_dim_ceil(target_height, multiple=multiple) or target_height,
+            )
+        source_width, source_height = source_size
+        if source_width <= 0 or source_height <= 0:
+            return (
+                self._normalize_comfy_dim_ceil(target_width, multiple=multiple) or target_width,
+                self._normalize_comfy_dim_ceil(target_height, multiple=multiple) or target_height,
+            )
+        scale = max(target_width / source_width, target_height / source_height)
+        width = self._normalize_comfy_dim_ceil(source_width * scale, multiple=multiple)
+        height = self._normalize_comfy_dim_ceil(source_height * scale, multiple=multiple)
+        return width or target_width, height or target_height
 
     def _poll_history(
         self,
@@ -621,6 +696,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         *,
         tag: str,
         expected_size: tuple[int, int] | None = None,
+        expected_adjust_mode: str | None = None,
     ) -> dict[str, Any] | None:
         filename_hint = self._extract_filename_hint(url)
         # ComfyUI's /view endpoint can be flaky under load (occasionally 502 even though
@@ -637,6 +713,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                         source_url=url,
                         tag=tag,
                         expected_size=expected_size,
+                        expected_adjust_mode=expected_adjust_mode,
                     )
                     if asset:
                         return asset
@@ -671,6 +748,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         *,
         tag: str,
         expected_size: tuple[int, int] | None = None,
+        expected_adjust_mode: str | None = None,
     ) -> dict[str, Any] | None:
         try:
             if expected_size:
@@ -682,6 +760,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                     source_url=None,
                     tag=tag,
                     expected_size=expected_size,
+                    expected_adjust_mode=expected_adjust_mode,
                 )
                 if asset:
                     return asset
@@ -703,6 +782,11 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             return width, height
         return None
 
+    def _expected_output_adjust_mode(self, workflow_definition: dict[str, Any]) -> str:
+        # 默认保持旧 resize 行为；裂变类显式标记 cover_crop，四方连续/印花提取保留整体 resize。
+        mode = str(workflow_definition.get("_expected_output_adjust_mode") or "").strip().lower()
+        return mode or "resize"
+
     def _store_image_bytes_with_expected_size(
         self,
         data: bytes,
@@ -712,16 +796,45 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         source_url: str | None,
         tag: str,
         expected_size: tuple[int, int],
+        expected_adjust_mode: str | None = None,
     ) -> dict[str, Any] | None:
+        # ComfyUI 返回图尺寸可能仍是内部生成尺寸，这里统一收口到业务自定义尺寸后再上传图库。
         target_width, target_height = expected_size
         image = Image.open(BytesIO(data))
+        original_width, original_height = image.size
+        self._logger.info(
+            "ComfyUI结果尺寸收口开始 task_id=%s original=%sx%s custom=%sx%s mode=%s source_url=%s",
+            getattr(context.task, "id", None),
+            original_width,
+            original_height,
+            target_width,
+            target_height,
+            expected_adjust_mode or "resize",
+            source_url or "",
+        )
         if image.size != expected_size:
-            resampling = getattr(Image, "Resampling", Image).LANCZOS
-            image = image.convert("RGBA").resize((target_width, target_height), resampling)
+            if expected_adjust_mode == "cover_crop":
+                # cover_crop 用于自定义宽高比和原图不一致的场景：先等比覆盖，再中心裁剪。
+                image = self._fit_image_cover_crop(image, target_width, target_height)
+            else:
+                # resize 用于旧能力以及四方连续/印花提取，避免裁剪破坏 tile 边界或印花边界。
+                resampling = getattr(Image, "Resampling", Image).LANCZOS
+                image = image.convert("RGBA").resize((target_width, target_height), resampling)
             buffer = BytesIO()
             image.save(buffer, format="PNG")
             data = buffer.getvalue()
             filename_hint = str(Path(filename_hint or "comfyui.png").with_suffix(".png"))
+        self._logger.info(
+            "ComfyUI结果尺寸收口完成 task_id=%s original=%sx%s custom=%sx%s final=%sx%s mode=%s",
+            getattr(context.task, "id", None),
+            original_width,
+            original_height,
+            target_width,
+            target_height,
+            image.size[0],
+            image.size[1],
+            expected_adjust_mode or "resize",
+        )
         upload = media_ingest_service.upload_generated_image_bytes(
             data=data,
             user_id=str(context.task.user_id or "comfyui"),
@@ -738,7 +851,48 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             "tag": tag,
             "dpi": upload.get("dpi"),
             "normalizedSize": {"width": target_width, "height": target_height},
+            "normalizedMode": expected_adjust_mode or "resize",
         }
+
+    def _fit_image_cover_crop(self, image: Image.Image, target_width: int, target_height: int) -> Image.Image:
+        """按 cover 规则等比放大后中心裁剪，返回精确的业务目标尺寸。"""
+        source = image.convert("RGBA")
+        src_width, src_height = source.size
+        if src_width <= 0 or src_height <= 0:
+            resized = source.resize((target_width, target_height))
+            self._logger.info(
+                "ComfyUI cover_crop fallback source=%sx%s custom=%sx%s final=%sx%s",
+                src_width,
+                src_height,
+                target_width,
+                target_height,
+                resized.size[0],
+                resized.size[1],
+            )
+            return resized
+        resampling = getattr(Image, "Resampling", Image).LANCZOS
+        scale = max(target_width / src_width, target_height / src_height)
+        resized_width = max(target_width, int(round(src_width * scale)))
+        resized_height = max(target_height, int(round(src_height * scale)))
+        resized = source.resize((resized_width, resized_height), resampling)
+        left = max(0, (resized_width - target_width) // 2)
+        top = max(0, (resized_height - target_height) // 2)
+        crop_box = (left, top, left + target_width, top + target_height)
+        cropped = resized.crop(crop_box)
+        self._logger.info(
+            "ComfyUI cover_crop source=%sx%s custom=%sx%s scale=%.6f resized=%sx%s crop_box=%s final=%sx%s",
+            src_width,
+            src_height,
+            target_width,
+            target_height,
+            scale,
+            resized_width,
+            resized_height,
+            crop_box,
+            cropped.size[0],
+            cropped.size[1],
+        )
+        return cropped
 
     def _build_image_url(self, base_url: str, image: dict[str, Any]) -> str | None:
         filename = image.get("filename")
@@ -954,13 +1108,32 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 overrides.setdefault("97", {})["boolean"] = True
 
         size = self._coerce_positive_int(params.get("size") or params.get("output_size") or params.get("outputSize"))
-        width = self._coerce_positive_int(params.get("width"))
-        height = self._coerce_positive_int(params.get("height"))
+        explicit_width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        explicit_height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        width = explicit_width
+        height = explicit_height
         if size and not (width or height):
             width = size
             height = size
-        width = self._normalize_comfy_dim(width)
-        height = self._normalize_comfy_dim(height)
+        if explicit_width and explicit_height:
+            workflow_definition["_expected_output_width"] = explicit_width
+            workflow_definition["_expected_output_height"] = explicit_height
+            workflow_definition["_expected_output_adjust_mode"] = "resize"
+            # 四方连续必须保留 ComfyUI 生成的 tile 边界；最终中心裁剪会破坏左右/上下边缘拼接。
+            # 因此内部仍使用 8 倍数合法尺寸，落库前整体 resize 到业务自定义尺寸。
+            width = self._normalize_comfy_dim(explicit_width)
+            height = self._normalize_comfy_dim(explicit_height)
+            self._log_generation_size_plan(
+                workflow_key="sifang_lianxu",
+                source_size=None,
+                target_size=(explicit_width, explicit_height),
+                generation_size=(width or explicit_width, height or explicit_height),
+                multiple=8,
+                mode="seamless_resize",
+            )
+        else:
+            width = self._normalize_comfy_dim(width)
+            height = self._normalize_comfy_dim(height)
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:
@@ -1001,10 +1174,23 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if negative:
             overrides.setdefault("110", {})["prompt"] = negative
 
-        width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
-        height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
-        width = self._normalize_comfy_dim(width)
-        height = self._normalize_comfy_dim(height)
+        explicit_width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        explicit_height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        width = self._normalize_comfy_dim(explicit_width)
+        height = self._normalize_comfy_dim(explicit_height)
+        if explicit_width and explicit_height:
+            workflow_definition["_expected_output_width"] = explicit_width
+            workflow_definition["_expected_output_height"] = explicit_height
+            workflow_definition["_expected_output_adjust_mode"] = "resize"
+            # 印花提取的 ComfyUI 节点仍需使用 8 倍数尺寸；业务自定义尺寸在入库前统一收口。
+            self._log_generation_size_plan(
+                workflow_key="yinhua_tiqu",
+                source_size=None,
+                target_size=(explicit_width, explicit_height),
+                generation_size=(width or explicit_width, height or explicit_height),
+                multiple=8,
+                mode="pattern_extract_resize",
+            )
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:
@@ -1067,8 +1253,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             overrides.setdefault("424", {})["amount"] = batch
             workflow_definition["_expected_image_count"] = batch
 
-        width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
-        height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        explicit_width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        explicit_height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        width = explicit_width
+        height = explicit_height
 
         if not width or not height:
             try:
@@ -1083,6 +1271,19 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
         width = self._normalize_comfy_dim(width)
         height = self._normalize_comfy_dim(height)
+        if explicit_width and explicit_height:
+            workflow_definition["_expected_output_width"] = explicit_width
+            workflow_definition["_expected_output_height"] = explicit_height
+            workflow_definition["_expected_output_adjust_mode"] = "resize"
+            # 8 步 LoRA 版同样按节点合法尺寸生成，最终文件尺寸以业务参数为准。
+            self._log_generation_size_plan(
+                workflow_key="yinhua_tiqu_lora_8step",
+                source_size=None,
+                target_size=(explicit_width, explicit_height),
+                generation_size=(width or explicit_width, height or explicit_height),
+                multiple=8,
+                mode="pattern_extract_resize",
+            )
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:
@@ -1721,20 +1922,34 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         explicit_height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
         width = explicit_width
         height = explicit_height
+        source_size: tuple[int, int] | None = None
         if (width and not height) or (height and not width):
-            try:
-                resp = httpx.get(image_url, timeout=30)
-                resp.raise_for_status()
-                im = Image.open(BytesIO(resp.content))
-                src_w, src_h = im.size
+            source_size = self._load_remote_image_size(image_url)
+            if source_size:
+                src_w, src_h = source_size
                 width = width or int(src_w)
                 height = height or int(src_h)
-            except Exception:
-                pass
-
-        target_multiple = 16 if (explicit_width or explicit_height) else 8
-        width = self._normalize_comfy_dim(width, multiple=target_multiple)
-        height = self._normalize_comfy_dim(height, multiple=target_multiple)
+        if explicit_width and explicit_height:
+            source_size = source_size or self._load_remote_image_size(image_url)
+            # E7 图片裂变显式宽高按最终交付处理，生成节点尺寸按原图比例并向上对齐 16 倍数。
+            width, height = self._fit_generation_size_for_source_ratio(
+                source_size,
+                explicit_width,
+                explicit_height,
+                multiple=16,
+            )
+            self._log_generation_size_plan(
+                workflow_key="e7_flux2_liebian",
+                source_size=source_size,
+                target_size=(explicit_width, explicit_height),
+                generation_size=(width, height),
+                multiple=16,
+                mode="cover_crop",
+            )
+        else:
+            target_multiple = 16 if (explicit_width or explicit_height) else 8
+            width = self._normalize_comfy_dim(width, multiple=target_multiple)
+            height = self._normalize_comfy_dim(height, multiple=target_multiple)
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:
@@ -1745,6 +1960,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 node_inputs["method"] = "fill / crop"
                 workflow_definition["_expected_output_width"] = explicit_width
                 workflow_definition["_expected_output_height"] = explicit_height
+                workflow_definition["_expected_output_adjust_mode"] = "cover_crop"
             overrides["12"] = node_inputs
 
         workflow_definition["output_node_ids"] = ["27"]
@@ -1876,19 +2092,30 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         explicit_height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
         width = explicit_width
         height = explicit_height
+        source_size: tuple[int, int] | None = None
         if (width and not height) or (height and not width):
-            try:
-                resp = httpx.get(image_url, timeout=30)
-                resp.raise_for_status()
-                im = Image.open(BytesIO(resp.content))
-                src_w, src_h = im.size
+            source_size = self._load_remote_image_size(image_url)
+            if source_size:
+                src_w, src_h = source_size
                 width = width or int(src_w)
                 height = height or int(src_h)
-            except Exception:
-                pass
-
-        # 该 workflow 在生成前先做普通图片缩放，显式业务尺寸需要保持原值；
-        # 否则 1000px 会被 16 倍数规则静默压到 992px，导致 Podi 结果图尺寸不一致。
+        if explicit_width and explicit_height:
+            source_size = source_size or self._load_remote_image_size(image_url)
+            # Strong HQ SoftStyle 裂变同样不直接使用业务宽高生成，先保持原图比例再由收口裁剪。
+            width, height = self._fit_generation_size_for_source_ratio(
+                source_size,
+                explicit_width,
+                explicit_height,
+                multiple=16,
+            )
+            self._log_generation_size_plan(
+                workflow_key="flux_strong_hq_softstyle_fission",
+                source_size=source_size,
+                target_size=(explicit_width, explicit_height),
+                generation_size=(width, height),
+                multiple=16,
+                mode="cover_crop",
+            )
         if not explicit_width:
             width = self._normalize_comfy_dim(width)
         if not explicit_height:
@@ -1901,6 +2128,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 node_inputs["height"] = height
             if explicit_width and explicit_height:
                 node_inputs["method"] = "fill / crop"
+                workflow_definition["_expected_output_width"] = explicit_width
+                workflow_definition["_expected_output_height"] = explicit_height
+                workflow_definition["_expected_output_adjust_mode"] = "cover_crop"
             overrides["12"] = node_inputs
 
         workflow_definition["_max_output_images"] = 1
