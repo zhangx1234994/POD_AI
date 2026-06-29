@@ -4,6 +4,8 @@ from app.services.integration_test import IntegrationTestService
 
 
 class _DummyAdapter:
+    workflow_key_seen = None
+
     def _prepare_graph_inputs(self, context, workflow_definition):
         return (
             {
@@ -13,7 +15,8 @@ class _DummyAdapter:
             None,
         )
 
-    def _ensure_sampler_seed(self, graph_payload, payload):
+    def _ensure_sampler_seed(self, graph_payload, payload, *, workflow_key=None):
+        self.workflow_key_seen = workflow_key
         return None
 
 
@@ -54,7 +57,8 @@ def test_submit_comfyui_seamless_keeps_node_104(monkeypatch):
 
     from app.services import integration_test as mod
 
-    monkeypatch.setattr(mod.registry, "get", lambda executor_type: _DummyAdapter())
+    adapter = _DummyAdapter()
+    monkeypatch.setattr(mod.registry, "get", lambda executor_type: adapter)
 
     def _fake_post(url, json, timeout):
         captured["url"] = url
@@ -72,3 +76,4 @@ def test_submit_comfyui_seamless_keeps_node_104(monkeypatch):
     prompt = captured["json"]["prompt"]
     assert "104" in prompt
     assert prompt["64"]["inputs"]["image"] == ["104", 0]
+    assert adapter.workflow_key_seen == "sifang_lianxu"

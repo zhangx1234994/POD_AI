@@ -2047,7 +2047,9 @@ class IntegrationTestService:
             _apply_inputs(graph_payload, overrides)
         # Keep consistent with adapter.execute: seamless workflow keeps node 104 as a
         # fixed mask input. Do not mutate/remove it here.
-        adapter._ensure_sampler_seed(graph_payload, context.payload or {})  # type: ignore[attr-defined]
+        # 异步提交路径不会走 adapter.execute，也必须显式传 workflow_key；
+        # 否则四方连续会退回通用随机 seed，导致同图偶发边缘暗线。
+        adapter._ensure_sampler_seed(graph_payload, context.payload or {}, workflow_key=workflow_key)  # type: ignore[attr-defined]
 
         prompt_id = uuid4().hex
         submission = {"prompt": graph_payload, "prompt_id": prompt_id}
