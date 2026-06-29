@@ -1304,6 +1304,22 @@ class AbilityTaskService:
         else:
             message = str(exc or "")
         lowered = message.lower()
+        # prompt 校验失败通常是 workflow 模板或参数缺字段，换机器重试只会把真实错误包装成队列满；
+        # 只有明确缺少自定义节点/节点类型时，才允许按“节点不兼容”走换 executor 逻辑。
+        prompt_validation_markers = (
+            "prompt_outputs_failed_validation",
+            "required_input_missing",
+            "required input is missing",
+            "invalid prompt",
+        )
+        missing_node_markers = (
+            "missing_node_type",
+            "custom node may not be installed",
+        )
+        if any(marker in lowered for marker in prompt_validation_markers) and not any(
+            marker in lowered for marker in missing_node_markers
+        ):
+            return False
         markers = (
             "comfyui_submit_error",
             "comfyui_queue_status_error",

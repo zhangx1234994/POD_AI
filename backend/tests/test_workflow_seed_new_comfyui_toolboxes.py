@@ -153,6 +153,7 @@ def test_flux2_klein_9b_outpaint_uses_20260525_scale_route():
     assert graph["102"]["inputs"]["feathering"] == 20
     assert graph["104"]["class_type"] == "DrawMaskOnImage"
     assert graph["104"]["inputs"]["device"] == "gpu"
+    assert graph["104"]["inputs"]["opacity"] == 0.5
     assert graph["121"]["class_type"] == "ImageScaleToTotalPixels"
     assert graph["119"]["inputs"]["image"] == ["121", 0]
     assert graph["125"]["inputs"]["pixels"] == ["121", 0]

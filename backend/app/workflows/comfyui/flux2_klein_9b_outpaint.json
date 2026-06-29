@@ -63,6 +63,7 @@
     "inputs": {
       "color": "0, 255, 0",
       "device": "gpu",
+      "opacity": 0.5,
       "image": [
         "102",
         0

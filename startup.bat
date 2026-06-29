@@ -9,6 +9,7 @@ set "PYTHON_EXE=%BACKEND_DIR%\.venv\Scripts\python.exe"
 set "BACKEND_PORT=8310"
 set "IMAGE_OPS_PORT=8301"
 set "VENDOR_API_PORT=8311"
+set "COMFY_3090_BASE_URL=http://192.168.2.114:8079"
 set "LOCAL_EXECUTOR_CONFIG=%ROOT%.tmp-local\executors.local-startup.yaml"
 
 echo [POD_AI] Starting local services...
@@ -75,8 +76,8 @@ echo.
 exit /b 0
 
 :prepare_local_executor_config
-echo [POD_AI] Prepare local executor config for vendor-api-ops...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $root='%ROOT%'; $src=Join-Path $root 'config\executors.yaml'; $dst='%LOCAL_EXECUTOR_CONFIG%'; $dir=Split-Path -Parent $dst; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $content=Get-Content -Raw -Encoding UTF8 $src; $content=$content -replace '\$\{VENDOR_API_BASE_URL:-http://117\.50\.80\.158:8310\}', 'http://127.0.0.1:%VENDOR_API_PORT%'; Set-Content -Encoding UTF8 -Path $dst -Value $content"
+echo [POD_AI] Prepare local executor config for vendor-api-ops and 3090 ComfyUI...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $root='%ROOT%'; $src=Join-Path $root 'config\executors.yaml'; $dst='%LOCAL_EXECUTOR_CONFIG%'; $dir=Split-Path -Parent $dst; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $content=Get-Content -Raw -Encoding UTF8 $src; $content=$content -replace '\$\{VENDOR_API_BASE_URL:-http://117\.50\.80\.158:8310\}', 'http://127.0.0.1:%VENDOR_API_PORT%'; $content=$content -replace 'http://117\.50\.80\.158:8079', '%COMFY_3090_BASE_URL%'; $content=$content -replace '(?s)(id: executor_comfyui_seamless_117.*?status: )active', '${1}inactive'; Set-Content -Encoding UTF8 -Path $dst -Value $content"
 if errorlevel 1 (
   echo [ERROR] Failed to prepare local executor config: %LOCAL_EXECUTOR_CONFIG%
   exit /b 1

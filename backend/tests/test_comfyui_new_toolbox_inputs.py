@@ -102,6 +102,7 @@ def test_flux2_klein_9b_outpaint_maps_uploaded_image_expand_and_random_seed():
     assert overrides is not None
     assert overrides == {
         "76": {"image": "staged-input.png"},
+        "104": {"opacity": 0.5},
         "102": {"left": 256, "right": 128},
         "99": {"seed": overrides["99"]["seed"]},
     }
