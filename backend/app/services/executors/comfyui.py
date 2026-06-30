@@ -1362,9 +1362,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if not staged_name:
             return None, "COMFYUI_IMAGE_UPLOAD_FAILED"
         overrides["76"] = {"image": staged_name}
-        # 扩图工作流节点 104 是调试预览输出，部分 ComfyUI 节点版本把 opacity 设为必填；
-        # 这里运行时补齐，避免数据库里的旧 workflow 模板仍因缺少透明度被 /prompt 拒绝。
-        overrides["104"] = {"opacity": 0.5}
+        # 临时验证 3090 节点来源已切回 KJNodes 后，是否能和线上 4090/5090 一样不依赖 opacity。
+        # 注意：若数据库 workflow 模板本身仍包含 104.opacity，最终 prompt 仍会带该字段。
+        # overrides["104"] = {"opacity": 0.5}
 
         mapping = {
             "expand_left": "left",
