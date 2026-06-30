@@ -739,6 +739,7 @@ class AbilityInvocationService:
         settings = get_settings()
         target = max(1, int(settings.comfyui_queue_batch_size or 10))
         stats: list[tuple[int, int, int, str]] = []
+        stats_snapshot: list[dict[str, Any]] = []
         alive_without_queue: list[str] = []
         for executor_id in executor_ids:
             try:
@@ -755,8 +756,24 @@ class AbilityInvocationService:
             internal_queued = self._count_internal_comfyui_queued(executor_id)
             total = running + pending + internal_queued
             stats.append((total, pending + internal_queued, running, executor_id))
+            # 记录每次路由前的容量快照，后续可和 workflow-task 的 DispatchCapacity 日志对齐分析外层 10 是否偏保守。
+            stats_snapshot.append(
+                {
+                    "executorId": executor_id,
+                    "total": total,
+                    "running": running,
+                    "pending": pending,
+                    "internalQueued": internal_queued,
+                    "target": target,
+                }
+            )
         if not stats:
             if not alive_without_queue:
+                self._logger.info(
+                    "[ComfyUIRouteCapacity] no_available_executor target=%s requested=%s",
+                    target,
+                    executor_ids,
+                )
                 return None
             rr_key = f"alive-no-queue:{','.join(alive_without_queue)}"
             with self._rr_lock:
@@ -764,10 +781,21 @@ class AbilityInvocationService:
                 if idx >= len(alive_without_queue):
                     idx = 0
                 self._rr_cursors[rr_key] = idx
-                return alive_without_queue[idx]
+                selected = alive_without_queue[idx]
+                self._logger.info(
+                    "[ComfyUIRouteCapacity] queue_api_unsupported selected=%s target=%s alive=%s",
+                    selected,
+                    target,
+                    alive_without_queue,
+                )
+                return selected
         preferred = [item for item in stats if item[0] < target]
         if not preferred:
-            self._logger.info("All ComfyUI executors reached queue target=%s: %s", target, stats)
+            self._logger.info(
+                "[ComfyUIRouteCapacity] all_executors_reached_target target=%s stats=%s",
+                target,
+                stats_snapshot,
+            )
             return None
         pool = preferred
         min_key = min((item[0], item[1], item[2]) for item in pool)
@@ -777,14 +805,29 @@ class AbilityInvocationService:
             if (item[0], item[1], item[2]) == min_key
         )
         if len(tied_ids) == 1:
-            return tied_ids[0]
+            selected = tied_ids[0]
+            self._logger.info(
+                "[ComfyUIRouteCapacity] selected=%s target=%s stats=%s",
+                selected,
+                target,
+                stats_snapshot,
+            )
+            return selected
         rr_key = f"queue:{','.join(tied_ids)}"
         with self._rr_lock:
             idx = self._rr_cursors.get(rr_key, -1) + 1
             if idx >= len(tied_ids):
                 idx = 0
             self._rr_cursors[rr_key] = idx
-            return tied_ids[idx]
+            selected = tied_ids[idx]
+            self._logger.info(
+                "[ComfyUIRouteCapacity] selected=%s target=%s tied=%s stats=%s",
+                selected,
+                target,
+                tied_ids,
+                stats_snapshot,
+            )
+            return selected
 
     def _count_internal_comfyui_queued(self, executor_id: str) -> int:
         """Count PODI tasks selected for an executor but not yet visible in ComfyUI.
@@ -856,9 +899,26 @@ class AbilityInvocationService:
                 images=images,
                 context=context,
             )
+        wait_started_at = time.perf_counter()
         acquired = sem.acquire(timeout=120)
+        wait_ms = int((time.perf_counter() - wait_started_at) * 1000)
         if not acquired:
+            self._logger.warning(
+                "[ExecutorCapacity] executor_busy provider=%s executor_id=%s wait_ms=%s",
+                provider,
+                executor_id,
+                wait_ms,
+            )
             raise HTTPException(status_code=429, detail="EXECUTOR_BUSY")
+        # 记录执行节点信号量等待时间，用于判断瓶颈是否在 POD_AI 每节点并发门控。
+        if provider == "comfyui":
+            self._logger.info(
+                "[ExecutorCapacity] acquired provider=%s executor_id=%s wait_ms=%s max_concurrency=%s",
+                provider,
+                executor_id,
+                wait_ms,
+                self._executor_slot_sizes.get(executor_id or ""),
+            )
         try:
             return self._dispatch_provider_inner(
                 ability=ability,
