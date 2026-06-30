@@ -420,7 +420,7 @@ try {
         Write-Host "Checking remote bash syntax, running remote deploy script and verifying deployed commit..."
         # 语法检查、部署和 DEPLOYED_COMMIT 校验放到同一个 ssh 会话里执行，减少交互式密码输入次数。
         # 远端必须写入本次 commit，否则本地脚本直接失败，避免出现“窗口显示成功但线上仍是旧版本”的误判。
-        $verifyCommand = "bash -n $remoteScript && bash $remoteScript $remoteEnv && test `"$(cat $REMOTE_BASE/DEPLOYED_COMMIT 2>/dev/null)`" = '$commitSha' && echo '[deploy] verified DEPLOYED_COMMIT=$commitSha'"
+        $verifyCommand = "bash -n $remoteScript && bash $remoteScript $remoteEnv && test `"`$(cat $REMOTE_BASE/DEPLOYED_COMMIT 2>/dev/null)`" = '$commitSha' && echo '[deploy] verified DEPLOYED_COMMIT=$commitSha'"
         & ssh @sshArgs $target $verifyCommand; Assert-LastExit "remote deploy"
     }
 }
