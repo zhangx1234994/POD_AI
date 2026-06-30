@@ -306,14 +306,15 @@ if [ -n "${HEALTH_URLS}" ]; then
   for url in ${HEALTH_URLS}; do
     echo "[deploy] health check ${url}"
     HEALTH_OK=0
-    for attempt in $(seq 1 20); do
+    # FastAPI 启动时会加载工作流、执行节点和能力种子；线上偶发超过 40 秒，健康检查窗口放宽到 3 分钟。
+    for attempt in $(seq 1 60); do
       if curl -fsS "${url}"; then
         echo
         HEALTH_OK=1
         break
       fi
-      echo "[deploy] health attempt ${attempt}/20 failed, retry in 2s"
-      sleep 2
+      echo "[deploy] health attempt ${attempt}/60 failed, retry in 3s"
+      sleep 3
     done
     if [ "${HEALTH_OK}" != "1" ]; then
       echo "[deploy] health check failed: ${url}" >&2
