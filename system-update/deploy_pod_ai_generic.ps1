@@ -34,10 +34,21 @@ $LOCAL_REPO = (Resolve-Path (Join-Path $SCRIPT_DIR "..")).Path
 
 # One commit: @("9c32458")
 # Multiple commits: @("commit1", "commit2", "commit3")
-$COMMITS = @("9c32458")
+$COMMITS = @(
+    "061618e",
+    "a999751",
+    "75dece1",
+    "84155cf",
+    "4303c00",
+    "23a5d35",
+    "a8d4636",
+    "eee2baa",
+    "2d3bcf5",
+    "febd40d"
+)
 
 # Comma-separated fallback: "9c32458" or "commit1,commit2,commit3".
-$COMMIT_IDS = "9c32458"
+$COMMIT_IDS = "061618e,a999751,75dece1,84155cf,4303c00,23a5d35,a8d4636,eee2baa,2d3bcf5,febd40d"
 
 $RESTART_SERVICES = @("podi-backend.service")
 $HEALTH_CHECK_URLS = @("http://127.0.0.1:8099/health")
