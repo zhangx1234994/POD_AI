@@ -15,7 +15,7 @@
 
 当前执行焦点（2026-06-08）：
 
-- 2026-07-11：产品设计能力先以“手动 AI 工作流”作为基础，而不是把手动模式理解为无 AI 上传表单。已确认：手动模式由用户主动选择、修改和确认工作流；Agent 模式在同一批工作流之上做意图理解、追问、选流程、填参和编排，不能形成重复能力栈。当前仍在发散阶段，正式基线见 `docs/client/design/product-design-manual-ai-workflow-foundation-2026-07-11.md`；下一步先盘点多图布局、杯型设计面差异和标准样例，再收敛首批实施范围。
+- 2026-07-11：产品设计能力先以“手动 AI 工作流”作为基础，而不是把手动模式理解为无 AI 上传表单。已确认：手动模式由用户主动选择、修改和确认工作流；Agent 模式在同一批工作流之上做意图理解、追问、选流程、填参和编排，不能形成重复能力栈。当前仍在发散阶段，正式基线见 `docs/client/design/product-design-manual-ai-workflow-foundation-2026-07-11.md`，真实样例和能力门禁见 `docs/client/design/product-design-requirement-map-and-validation-2026-07-11.md`；下一步先补齐中台 VL `design_intake`、连续图像素门禁，再收敛首批实施范围。
 
 - v0.6 已以 `516ba656` 作为 114 线上封版基线，完成 smoke、真实业务巡检、图编辑抽检、测评端 production 巡检和页面回归；v0.6/v0.6.3/v0.5 文档转为阶段记录。
 - 当前正式进入 `v0.7 中台能力产品化与 Agent 编排版` 规划期，方案见 `docs/strategy/v0.7-ability-productization-agent-orchestration-plan.md`。
