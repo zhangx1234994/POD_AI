@@ -28,6 +28,8 @@ from app.routers import (
     admin_evals,
     evals_public,
     auth,
+    client,
+    production_orders,
     coze_podi_plugin,
     coze_podi_flux2_outpaint,
     tasks,
@@ -67,6 +69,9 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(client.router)
+    app.include_router(production_orders.client_router)
+    app.include_router(production_orders.admin_router, prefix="/api")
     app.include_router(media.router, prefix="/api/media", tags=["media"])
     app.include_router(wallet.router, prefix="/api/wallet", tags=["wallet"])
     app.include_router(points.router, prefix="/api/op/v1", tags=["points"])

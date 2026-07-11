@@ -162,6 +162,12 @@ class Settings(BaseSettings):
     image_ops_service_token: str | None = Field(default=None, env="IMAGE_OPS_SERVICE_TOKEN")
     image_ops_timeout_seconds: int = Field(default=120, env="IMAGE_OPS_TIMEOUT_SECONDS")
     image_ops_local_fallback_enabled: bool = Field(default=True, env="IMAGE_OPS_LOCAL_FALLBACK_ENABLED")
+    # Fengniao / Humcustom fulfillment credentials. These remain environment-only.
+    humcustom_api_base_url: str = Field(default="https://openapi.humcustom.com", env="HUMCUSTOM_API_BASE_URL")
+    humcustom_app_key: str | None = Field(default=None, env="HUMCUSTOM_APP_KEY")
+    humcustom_app_secret: str | None = Field(default=None, env="HUMCUSTOM_APP_SECRET")
+    humcustom_access_token: str | None = Field(default=None, env="HUMCUSTOM_ACCESS_TOKEN")
+    humcustom_timeout_seconds: int = Field(default=20, env="HUMCUSTOM_TIMEOUT_SECONDS")
     # Control-plane hosts (for example the future Coze+backend shared host) should not
     # run memory-heavy local image utilities. When enabled, local upscale requests fail
     # fast and must be routed to dedicated executors instead of consuming host memory.

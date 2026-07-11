@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-label="canvas tote product">
+  <rect width="900" height="700" fill="#eee8dc"/>
+  <ellipse cx="450" cy="608" rx="286" ry="34" fill="#d7cfc0"/>
+  <path d="M282 210h336l42 350H240z" fill="#f7f0df"/>
+  <path d="M342 220c10-86 46-126 108-126s98 40 108 126" fill="none" stroke="#b9ad98" stroke-width="28" stroke-linecap="round"/>
+  <path d="M320 292h260v190H320z" fill="#0f8071" opacity=".9"/>
+  <path d="M340 312l220 150M560 312L340 462" stroke="#ffe7ad" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="450" cy="388" r="52" fill="#f2563a"/>
+  <path d="M282 210h336M240 560h420" stroke="#d6ccb9" stroke-width="6"/>
+</svg>

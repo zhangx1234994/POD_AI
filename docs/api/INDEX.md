@@ -17,8 +17,11 @@
 | 总览 | `docs/api/modules/overview.md` |
 | 对外接口边界 | `docs/standards/external-api-boundary.md` |
 | 认证与用户 | `docs/api/modules/auth.md` |
+| 普通业务端 Client API | `docs/api/modules/client.md` |
+| 生产订单与供应链 | `docs/api/modules/production-orders.md` |
 | 媒资与上传 | `docs/api/modules/media.md` |
 | 业务能力接口 | `docs/api/modules/business.md` |
+| 业务交付示例入口 | `docs/api/examples/README.md` |
 | 图编辑内部接入说明 | `docs/api/examples/image-edit-internal-handoff.md` |
 | 图裂变业务接入 Demo | `docs/api/examples/business-fission-quickstart.md` |
 | 图裂变三接口交付模板 | `docs/api/examples/fission-business-delivery/README.md` |

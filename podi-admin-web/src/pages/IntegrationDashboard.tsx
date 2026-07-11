@@ -226,6 +226,7 @@ import {
   AbilityWorkbenchPanel,
   AuthPanel,
   BillingPanel,
+  ProductionOrdersPanel,
   BindingRoutesPanel,
   BusinessAbilityGovernancePanel,
   BusinessActionPanel,
@@ -6923,6 +6924,18 @@ const extractErrorMessage = (error: unknown): string => {
                   onMarkInvoiceRequestIssued={markBillingInvoiceRequestIssued}
                   formatDateTime={formatDateTime}
                 />
+              </Suspense>
+            </Section>
+          )}
+
+          {activeNav === 'production-orders' && (
+            <Section
+              id="production-orders"
+              title="生产订单"
+              description="按真实订单核对生产文件、支付结果、蜂鸟订单号和供应商回传；不在这里替用户支付供应链。"
+            >
+              <Suspense fallback={panelFallback('生产订单')}>
+                <ProductionOrdersPanel formatDateTime={formatDateTime} />
               </Suspense>
             </Section>
           )}

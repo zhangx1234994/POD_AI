@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 *.pyo
+.venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -10,21 +11,26 @@ __pycache__/
 *.log
 logs/
 backend/podi_backend.egg-info/
+backend/.venv/
 backend/alembic/__pycache__/
 backend/alembic/versions/__pycache__/
 backend/app/__pycache__/
 backend/app/**/__pycache__/
 backend/scripts/__pycache__/
 scripts/__pycache__/
+image-ops-service/.venv/
+vendor-api-ops/.venv/
 podi-admin-web/node_modules/
 podi-admin-web/dist/
 podi-eval-web/node_modules/
 podi-eval-web/dist/
+podi-client-web/node_modules/
+podi-client-web/dist/
+podi-client-web/output/
 podi-studio-preview/
 
-# Historical local client copies; current repo no longer develops these paths.
+# Historical local client copies; the current business client remains versioned.
 podi-client-v2/
-podi-client-web/
 tmp/
 .trae/
 docs/CREDENTIALS.local.md

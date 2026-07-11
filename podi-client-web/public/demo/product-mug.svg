@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-label="wrap mug product">
+  <rect width="900" height="700" fill="#efe9dd"/>
+  <ellipse cx="450" cy="585" rx="245" ry="38" fill="#d7cfc0"/>
+  <path d="M286 160c0-38 328-38 328 0v345c0 52-38 82-164 82s-164-30-164-82z" fill="#f8f7f2"/>
+  <path d="M318 184c54 18 210 18 264 0v300c0 40-42 60-132 60s-132-20-132-60z" fill="#ffffff"/>
+  <path d="M326 216h248v222H326z" fill="#f2563a" opacity=".9"/>
+  <path d="M348 252c52-38 98-28 126 21 27 47 80 58 124 30M318 370c66-52 126-44 164 20 23 38 62 48 108 20" fill="none" stroke="#fff7df" stroke-width="18" stroke-linecap="round"/>
+  <path d="M610 238c76 4 126 54 126 126 0 78-54 129-132 132v-62c40-3 66-29 66-68 0-37-24-62-60-67z" fill="#f8f7f2"/>
+  <path d="M614 259c55 8 91 47 91 105 0 62-39 101-95 110" fill="none" stroke="#d8d0c2" stroke-width="22" stroke-linecap="round"/>
+  <ellipse cx="450" cy="160" rx="164" ry="34" fill="#ffffff"/>
+  <ellipse cx="450" cy="160" rx="132" ry="18" fill="#dad3c5"/>
+  <path d="M286 160c0 38 328 38 328 0" fill="none" stroke="#d8d0c2" stroke-width="5"/>
+</svg>

@@ -78,6 +78,12 @@ export const moduleGuides: Record<IntegrationNavId, ModuleGuide> = {
     firstLook: '先看异常扣费、待定价、套餐余量和月结风险。',
     nextAction: '当前阶段只处理框架和对账，不深挖支付闭环。',
   },
+  'production-orders': {
+    audience: '运营管理员',
+    firstLook: '先核对生产图预检、支付状态和收货信息，再看蜂鸟订单号与回传。',
+    nextAction: '只有订单已支付且生产文件通过预检，才允许确认推送蜂鸟。',
+    riskHint: '效果图和物流必须以蜂鸟回传为准，不能用页面预览代替。',
+  },
   monitor: {
     audience: '平台管理员 / 开发接入方',
     firstLook: '先看排队、执行中和 ComfyUI 队列是否符合预期。',

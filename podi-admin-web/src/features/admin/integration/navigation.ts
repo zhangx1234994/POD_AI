@@ -109,6 +109,14 @@ export const integrationNavItems = [
     advanced: true,
   },
   {
+    id: 'production-orders',
+    label: '生产订单',
+    shortLabel: '单',
+    group: 'usage',
+    groupLabel: '调用与成本',
+    description: '核对生产文件、支付、蜂鸟订单和回传证据',
+  },
+  {
     id: 'monitor',
     label: '调度监控',
     shortLabel: '监',

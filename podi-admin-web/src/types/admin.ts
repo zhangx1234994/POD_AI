@@ -1003,6 +1003,33 @@ export interface PackagePurchaseOrderUpdateResponse {
   idempotent: boolean;
 }
 
+export interface ProductionFulfillmentOrderItem {
+  id: string;
+  productName: string;
+  templateNo: string;
+  sizeCode: string;
+  colorCode: string;
+  quantity: number;
+  productionAssetUrl: string;
+  supplierEffectImageUrl?: string | null;
+  preflight: JsonRecord;
+}
+
+export interface ProductionFulfillmentOrder {
+  id: string;
+  orderNo: string;
+  status: string;
+  paymentStatus: string;
+  supplierOrderId?: string | null;
+  supplierPlatformOrderId?: string | null;
+  supplierStatus?: string | null;
+  supplierEffectImageUrls: string[];
+  shippingAddress: JsonRecord;
+  items: ProductionFulfillmentOrderItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BillingInvoiceRequest {
   id: string;
   invoiceNo?: string | null;
@@ -2471,11 +2498,14 @@ export interface AbilityInvocationLog {
   callback_error?: string | null;
   callback_started_at?: string | null;
   callback_finished_at?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
   billing_unit?: string | null;
   unit_price?: number | null;
   currency?: string | null;
   cost_amount?: number | null;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export interface AbilityInvocationOutputSummary {

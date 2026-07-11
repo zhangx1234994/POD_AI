@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-label="square pillow product">
+  <rect width="900" height="700" fill="#f0eadf"/>
+  <ellipse cx="450" cy="590" rx="275" ry="38" fill="#d8d0c2"/>
+  <path d="M240 170c82 24 338 24 420 0 24 82 24 278 0 360-82-24-338-24-420 0-24-82-24-278 0-360z" fill="#fffaf0"/>
+  <path d="M280 214h340v272H280z" fill="#22355f" opacity=".92"/>
+  <path d="M300 248c56 56 112 56 168 0s112-56 168 0M300 354c56 56 112 56 168 0s112-56 168 0M300 460c56 56 112 56 168 0s112-56 168 0" fill="none" stroke="#f6c85f" stroke-width="18" stroke-linecap="round"/>
+  <path d="M240 170c82 24 338 24 420 0M240 530c82-24 338-24 420 0" fill="none" stroke="#d8d0c2" stroke-width="7"/>
+</svg>

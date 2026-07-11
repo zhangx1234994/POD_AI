@@ -596,6 +596,31 @@
 | IMAGE_REQUIRED | 缺少图片 | |
 | PODI_IMAGE_TOOLS_IMPORT_FAILED | 图像工具导入失败 | |
 | PODI_UTILITY_UNSUPPORTED | 不支持的工具/能力 | |
+| PRODUCTION_ORDER_NOT_FOUND | 生产订单不存在 | 404，客户端或运营端读取订单时使用。 |
+| PRODUCTION_ORDER_FORBIDDEN | 无权访问生产订单 | 403，订单必须属于当前用户。 |
+| PRODUCTION_ORDER_IDEMPOTENCY_CONFLICT | 生产订单幂等编号冲突 | 409，同一个请求编号不能归属不同用户。 |
+| PRODUCTION_ORDER_PAYMENT_STATUS_INVALID | 当前状态不能确认支付 | 409，支付回调不得跨状态更新订单。 |
+| PRODUCTION_ORDER_NOT_READY_FOR_SUPPLIER | 订单尚未支付或未进入运营审核 | 409，只有已支付的运营待审订单能推蜂鸟。 |
+| PRODUCTION_ORDER_OPS_CONFIRMATION_REQUIRED | 运营未明确确认生产 | 409，不能自动推供应商。 |
+| PRODUCTION_CANVAS_SOURCE_INVALID | 生产图源地址非法 | 400，仅允许可访问的 HTTP(S) 图片。 |
+| PRODUCTION_CANVAS_SOURCE_LOAD_FAILED | 无法读取生产图源文件 | 400，阻断生产图生成。 |
+| PRODUCTION_CANVAS_SIZE_INVALID | 生产尺寸超出限制 | 400，生产尺寸必须在中台限制内。 |
+| PRODUCTION_CANVAS_MODE_INVALID | 生产贴图模式不支持 | 400，仅允许 cover/tile/seamless。 |
+| PRODUCTION_CANVAS_TILED_REVIEW_REQUIRED | 连续图未完成平铺复核 | 400，连续图必须确认后才能生产。 |
+| PRODUCTION_PREFLIGHT_SOURCE_LOAD_FAILED | 无法读取待检生产文件 | 400，生产文件不可访问。 |
+| PRODUCTION_PREFLIGHT_DIMENSION_MISMATCH | 生产文件像素尺寸不符 | 400，不能静默用原图或预览图下单。 |
+| PRODUCTION_PREFLIGHT_DPI_TOO_LOW | 生产文件 DPI 低于规格 | 400，阻断不满足产品规格的生产文件。 |
+| PRODUCTION_PREFLIGHT_REQUIRED | 缺少通过的印刷预检 | 409，运营推单前必须有预检证据。 |
+| FENGNIAO_NOT_CONFIGURED | 蜂鸟供应链密钥未配置 | 503，真实密钥只允许环境变量或受控密钥系统。 |
+| FENGNIAO_TEMPLATE_NOT_VERIFIED | 蜂鸟模板工艺或颜色未验证 | 409，禁止猜测模板参数并直接生产。 |
+| FENGNIAO_ORDER_ID_REQUIRED | 蜂鸟平台订单号缺失 | 400，供应链调用前置校验。 |
+| FENGNIAO_TOKEN_FAILED | 蜂鸟授权失败 | 502，上游未返回有效 accessToken。 |
+| FENGNIAO_AUTH_INVALID | 蜂鸟授权失效 | 502，需更新受控密钥。 |
+| FENGNIAO_TIMEOUT | 蜂鸟请求超时 | 504，订单保留运营待审状态以便人工核对。 |
+| FENGNIAO_PLACE_ORDER_FAILED | 蜂鸟下单失败 | 502，保留错误事件和可安全展示的响应摘要。 |
+| FENGNIAO_ORDER_NOT_SUBMITTED | 蜂鸟订单尚未提交 | 409，未推单时不能查询供应商状态。 |
+| FENGNIAO_ORDER_NOT_FOUND | 蜂鸟未返回订单记录 | 404，保留平台订单和查询事件供运营核对。 |
+| FENGNIAO_QUERY_FAILED | 蜂鸟订单查询失败 | 502，查询或效果图同步失败。 |
 
 ---
 

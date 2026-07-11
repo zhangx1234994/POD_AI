@@ -110,6 +110,9 @@ export const VendorModelsPanel = lazy(() =>
 );
 export const AuthPanel = lazy(() => import('./auth').then((mod) => ({ default: mod.AuthPanel })));
 export const BillingPanel = lazy(() => import('./billing').then((mod) => ({ default: mod.BillingPanel })));
+export const ProductionOrdersPanel = lazy(() =>
+  import('./productionOrders').then((mod) => ({ default: mod.ProductionOrdersPanel })),
+);
 export const BindingRoutesPanel = lazy(() =>
   import('./bindings').then((mod) => ({ default: mod.BindingRoutesPanel })),
 );

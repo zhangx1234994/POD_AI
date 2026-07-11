@@ -22,6 +22,7 @@ export const integrationNavIconMap: Record<IntegrationNavId, ReactNode> = {
   executors: <ViewListIcon size="18px" />,
   'ability-logs': <TaskIcon size="18px" />,
   billing: <ChartBarIcon size="18px" />,
+  'production-orders': <TaskIcon size="18px" />,
   'comfyui-management': <FolderOpenIcon size="18px" />,
   'workflow-builder': <TaskIcon size="18px" />,
   bindings: <ViewListIcon size="18px" />,

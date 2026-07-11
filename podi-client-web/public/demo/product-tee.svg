@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-label="front t-shirt product">
+  <rect width="900" height="700" fill="#f0eadf"/>
+  <ellipse cx="450" cy="610" rx="300" ry="36" fill="#d8d0c2"/>
+  <path d="M322 120l70 42c29 18 87 18 116 0l70-42 138 94-70 132-78-36v278H332V310l-78 36-70-132z" fill="#ffffff"/>
+  <path d="M392 162c19 29 97 29 116 0 0 64-116 64-116 0z" fill="#e7dfd1"/>
+  <path d="M362 272h176v210H362z" fill="#0b4f6c" opacity=".92"/>
+  <circle cx="408" cy="338" r="38" fill="#f6c85f"/>
+  <circle cx="494" cy="338" r="38" fill="#e95d3c"/>
+  <path d="M389 420c47-46 91-46 138 0" fill="none" stroke="#fff7df" stroke-width="22" stroke-linecap="round"/>
+  <path d="M254 346l-70-132 138-94 44 27-83 205zM646 346l70-132-138-94-44 27 83 205z" fill="#f8f7f2"/>
+</svg>

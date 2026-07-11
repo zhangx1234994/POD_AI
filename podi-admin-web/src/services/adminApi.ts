@@ -26,6 +26,7 @@ import type {
   BillingInvoiceRequestListResponse,
   BillingInvoiceRequestUpdatePayload,
   BillingInvoiceRequest,
+  ProductionFulfillmentOrder,
   BillingCommercialReportResponse,
   BillingOverviewResponse,
   BillingUserDetailResponse,
@@ -1629,6 +1630,28 @@ export const adminApi = {
       headers: { Accept: 'text/csv' },
     });
   },
+  // Production fulfillment. Payment confirmation is only for controlled pre-payment tests;
+  // a WeChat Pay callback will replace this action before public launch.
+  listProductionFulfillmentOrders: (status?: string) => {
+    const params = new URLSearchParams();
+    if (status && status !== 'all') params.set('status', status);
+    params.set('limit', '200');
+    return request<ProductionFulfillmentOrder[]>(`/api/admin/production-orders?${params.toString()}`);
+  },
+  markProductionOrderPaidForTest: (orderId: string, paymentReference?: string) =>
+    request<ProductionFulfillmentOrder>(`/api/admin/production-orders/${encodeURIComponent(orderId)}/mark-paid`, {
+      method: 'POST',
+      body: JSON.stringify({ paymentReference: paymentReference || null }),
+    }),
+  submitProductionOrderToFengniao: (orderId: string) =>
+    request<ProductionFulfillmentOrder>(`/api/admin/production-orders/${encodeURIComponent(orderId)}/submit-fengniao`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmProduction: true }),
+    }),
+  syncProductionOrderFromFengniao: (orderId: string) =>
+    request<ProductionFulfillmentOrder>(`/api/admin/production-orders/${encodeURIComponent(orderId)}/sync-fengniao`, {
+      method: 'POST',
+    }),
   // Abilities
   listAbilities: () => request<Ability[]>('/api/admin/abilities'),
   getAbilityHealthSummary: (options?: AbilityHealthQueryOptions) => {

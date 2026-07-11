@@ -56,6 +56,9 @@ type PatrolHealthEvidence = PatrolFailedItem & {
   callbackStatus: string;
   cozeExecuteId: string;
   imageCount: number;
+  videoCount: number;
+  textCount: number;
+  assetCount: number;
   hasOutput: boolean;
   issueCode: string;
   healthStatus: string;
@@ -70,6 +73,10 @@ function patrolText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return '';
+}
+
+function patrolCount(value: unknown): number {
+  return typeof value === 'number' ? value : Number(value || 0) || 0;
 }
 
 function patrolNumber(record: ReleasePatrolRecordResponse, key: string): number {
@@ -106,8 +113,10 @@ function patrolHealthEvidence(record: ReleasePatrolRecordResponse): PatrolHealth
   for (const rawItem of rawItems) {
     if (!isPlainRecord(rawItem)) continue;
     const item = rawItem as Record<string, unknown>;
-    const imageCountValue = item.imageCount;
-    const imageCount = typeof imageCountValue === 'number' ? imageCountValue : Number(imageCountValue || 0) || 0;
+    const imageCount = patrolCount(item.imageCount);
+    const videoCount = patrolCount(item.videoCount);
+    const textCount = patrolCount(item.textCount);
+    const assetCount = patrolCount(item.assetCount);
     const hasOutputValue = item.hasOutput;
     const evidence = {
       name: patrolText(item.name),
@@ -119,7 +128,10 @@ function patrolHealthEvidence(record: ReleasePatrolRecordResponse): PatrolHealth
       cozeExecuteId: patrolText(item.cozeExecuteId),
       podiTaskId: patrolText(item.podiTaskId),
       imageCount,
-      hasOutput: typeof hasOutputValue === 'boolean' ? hasOutputValue : imageCount > 0,
+      videoCount,
+      textCount,
+      assetCount,
+      hasOutput: typeof hasOutputValue === 'boolean' ? hasOutputValue : imageCount + videoCount + textCount + assetCount > 0,
       issueCode: patrolText(item.issueCode) || 'UNKNOWN',
       healthStatus: patrolText(item.healthStatus) || 'unknown',
       error: patrolText(item.error),
@@ -135,6 +147,16 @@ function patrolHealthTag(item: PatrolHealthEvidence): { theme: 'success' | 'dang
   if (item.issueCode === 'OK' || item.healthStatus === 'healthy') return { theme: 'success', text: '通过' };
   if (item.issueCode === 'EVAL_SUCCEEDED_WITHOUT_OUTPUT') return { theme: 'warning', text: '无结果' };
   return { theme: 'danger', text: '失败' };
+}
+
+function patrolOutputLabel(item: PatrolHealthEvidence): string {
+  const parts = [
+    item.imageCount > 0 ? `${item.imageCount} 张图` : '',
+    item.videoCount > 0 ? `${item.videoCount} 个视频` : '',
+    item.textCount > 0 ? `${item.textCount} 段文字` : '',
+    item.assetCount > 0 ? `${item.assetCount} 个资源` : '',
+  ].filter(Boolean);
+  return parts.join(' · ') || '暂无媒资产物';
 }
 
 function weeklyReportStatusLabel(status: string): string {
@@ -1111,6 +1133,7 @@ export function OverviewPanel({
       status: billingPendingCount > 0 || walletRiskCount > 0 ? '需核对' : '雏形已露出',
       theme: billingPendingCount > 0 || walletRiskCount > 0 ? 'warning' : 'default',
     },
+    'production-orders': { status: '履约入口', theme: 'success' },
     monitor: {
       status: pendingQueueTotal > 0 ? `排队 ${pendingQueueTotal}` : '队列正常',
       theme: pendingQueueTotal > 0 ? 'warning' : 'success',
@@ -2294,7 +2317,7 @@ export function OverviewPanel({
                             </td>
                             <td className="px-3 py-2">
                               <Tag theme={item.hasOutput ? 'success' : 'warning'} variant="light">
-                                {item.hasOutput ? `${item.imageCount || 1} 个结果` : '未入库'}
+                                {patrolOutputLabel(item)}
                               </Tag>
                             </td>
                             <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
