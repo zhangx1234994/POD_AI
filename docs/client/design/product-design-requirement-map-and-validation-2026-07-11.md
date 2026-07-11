@@ -205,6 +205,13 @@ VL 候选业务流与置信度：
 - 确定性连续化验证：新增内部 `seamless_normalizer`，不增加模型或节点，只对候选图执行边界锁定与像素测量。对同一输出处理后，四边最大差均为 `0`，平铺预览未出现由锁边导致的新视觉变化。
 - 结论：**替代链路可作为四方连续候选生成主路径，且应固定路由到 158/5090。** 生产路径必须追加 `seamless_production_normalize`、目标产品画布适配和平铺预览审核；不能把 Flux2 的结果直接发往生产。
 
+### `same-style-wildflower-cup` 第四阶段：Flux2 8 步两方连续候选
+
+- 调用：`flux2_9b_liebian_sifang`，输入明确“左右连续、适合圆柱杯身环绕、不要求上下连续”的提示词；实际执行节点为 `executor_comfyui_pattern_extract_158`（158/5090/`117.50.80.158`）。
+- 输出：`1024×1024` PNG，约 `36s`，ComfyUI prompt ID `f9e61acaa52e4dde84d59bc3f852c915`。横向三连平铺预览未见明显语义断层。
+- 锁边：调用 `podi_seamless_production_normalize` 且 `repeat_axis=horizontal`。左右边缘平均差 `26.125/255`、最大差 `175` 处理为 `0/0`；上下边缘保持约 `24.98/255`、最大差 `179`，符合两方连续只承诺横向接缝的定义。
+- 结论：**两方候选链路可行，且 5090 空闲时速度正常。** 当前业务默认 `/api/business/seamless` 不能直接切到该候选能力，因为它仍接收用户指定 `width/height`，而 Flux2 候选固定输出 `1024×1024`。先补 `production_canvas_compose` 和 `print_preflight`，把用户规格落实到生产图后再发布业务版本；禁止为了切流而静默忽略目标尺寸。
+
 ### `same-style-wildflower-cup` 第零阶段：VL 真实调用前置检查
 
 - 业务端现有产品设计 Agent 已对该样例给出“提取花纹并制作环绕图”的建议，但响应明确标注为本地规则分析，原因是业务服务没有配置直接火山视觉 Key。
