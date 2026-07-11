@@ -122,11 +122,11 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
             workflow_key="flux2_9b_liebian_sifang",
             metadata={
                 "workflow_key": "flux2_9b_liebian_sifang",
-                "description": "ComfyUI workflow for FLUX2-9b image fission + seamless output.",
+                "description": "ComfyUI workflow for FLUX2-9b image fission + four-way repeat candidate generation. Production requires deterministic seamless normalization after generation.",
                 "output_node_ids": ["111"],
                 "required_node_keys": ["String", "SaveImage"],
-                "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
-                "routing_note": "2026-05-16: 233 String node restored and forced 233 run passed; use queue routing across 233/158.",
+                "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+                "routing_note": "2026-07-11: Flux2 8-step candidate generation is pinned to 158/5090; production requires deterministic seamless normalization after generation.",
             },
         ),
         WorkflowSeed(
@@ -326,8 +326,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_flux2_9b_liebian_sifang_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=98,
-            enabled=True,
-            metadata={"notes": "Restored 2026-05-16: 233 custom String node recovered and forced 233 FLUX2 fission run passed."},
+            enabled=False,
+            metadata={"notes": "2026-07-11: disabled. 233/4090 is not a reliable fallback execution surface for production-bound continuous-pattern candidates."},
         ),
         WorkflowBindingSeed(
             id="binding_flux2_9b_liebian_sifang_comfyui_158_v1",

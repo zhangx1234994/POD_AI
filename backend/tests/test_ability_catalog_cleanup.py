@@ -27,6 +27,10 @@ def test_cleanup_registry_returns_known_overrides() -> None:
     assert upscale_resize["governance"]["scopes"] == ["internal", "admin"]
     assert upscale_resize["presentation"]["operation_label"] == "内部尺寸处理"
 
+    seamless = get_cleanup_overrides(provider="podi", capability_key="seamless_production_normalize")
+    assert seamless["governance"]["scopes"] == ["internal", "admin", "business-workflow"]
+    assert seamless["presentation"]["visible"] is False
+
 
 def test_seed_applies_cleanup_for_overridden_abilities() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
@@ -36,7 +40,13 @@ def test_seed_applies_cleanup_for_overridden_abilities() -> None:
         abilities = {
             row.capability_key: row
             for row in session.execute(select(Ability)).scalars().all()
-            if row.capability_key in {"huawen_kuotu", "expand_mask_color", "set_dpi", "upscale_resize"}
+            if row.capability_key in {
+                "huawen_kuotu",
+                "expand_mask_color",
+                "set_dpi",
+                "upscale_resize",
+                "seamless_production_normalize",
+            }
         }
 
     huawen = abilities["huawen_kuotu"]
@@ -67,6 +77,12 @@ def test_seed_applies_cleanup_for_overridden_abilities() -> None:
     assert upscale_resize_metadata["execution_target"] == "image_ops"
     assert upscale_resize_metadata["image_ops"]["operation"] == "upscale-resize"
     assert upscale_resize_metadata["image_ops"]["heavy"] is True
+
+    seamless = abilities["seamless_production_normalize"]
+    seamless_metadata = seamless.extra_metadata or {}
+    assert seamless_metadata["governance"]["scopes"] == ["internal", "admin", "business-workflow"]
+    assert seamless_metadata["presentation"]["visible"] is False
+    assert seamless_metadata["presentation"]["operation_label"] == "连续图生产锁边"
 
 
 def test_seed_repairs_stale_comfyui_allowed_executor_ids() -> None:
@@ -114,6 +130,39 @@ def test_seed_repairs_stale_comfyui_allowed_executor_ids() -> None:
     ]
     assert metadata["routing"]["selection_policy"] == "queue"
     assert metadata["custom_note"] == "keep me"
+
+
+def test_seed_refreshes_controlled_description_when_seed_version_increases() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(
+            Ability(
+                id="comfyui_flux2_9b_liebian_sifang",
+                provider="comfyui",
+                category="image_generation",
+                capability_key="flux2_9b_liebian_sifang",
+                display_name="旧名称",
+                description="旧文案：最终拼缝结果。",
+                status="active",
+                ability_type="comfyui",
+                default_params={},
+                input_schema={},
+                extra_metadata={"seed_version": 3},
+            )
+        )
+        session.commit()
+
+        ensure_default_abilities(session)
+
+        refreshed = session.get(Ability, "comfyui_flux2_9b_liebian_sifang")
+        assert refreshed is not None
+        metadata = refreshed.extra_metadata or {}
+
+    assert refreshed.display_name == "ComfyUI · FLUX2裂变+四方"
+    assert "连续图候选" in refreshed.description
+    assert metadata["seed_version"] == 3
+    assert metadata["catalog_text_seed_version"] == 3
 
 
 def test_seed_repairs_empty_schema_field_list() -> None:

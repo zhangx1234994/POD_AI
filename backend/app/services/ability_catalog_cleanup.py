@@ -72,6 +72,19 @@ _OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
             "operation_label": "内部尺寸处理",
         },
     },
+    ("podi", "seamless_production_normalize"): {
+        "governance": {
+            "scopes": ["internal", "admin", "business-workflow"],
+            "release_status": "internal_ready",
+            "quality_status": "usable_with_tiled_review",
+        },
+        "presentation": {
+            "visible": False,
+            "category_label": "生产后处理",
+            "usage_hint": "只允许由已完成平铺审核的连续图业务流调用；锁边通过不等于生产校验通过。",
+            "operation_label": "连续图生产锁边",
+        },
+    },
 }
 
 

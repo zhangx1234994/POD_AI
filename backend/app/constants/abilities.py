@@ -2328,6 +2328,110 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
                 },
             ]
         }
+    if capability_key == "gpt_image_2_text_to_image":
+        return {
+            "fields": [
+                {
+                    "name": "prompt",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("提示词", "Prompt"),
+                    "placeholder": _compose_bilingual_label("例如：高级感植物花纹海报，柔和自然光，适合面料印花", "Describe the image to generate"),
+                    "required": True,
+                },
+                {
+                    "name": "aspect_ratio",
+                    "type": "select",
+                    "label": _compose_bilingual_label("画幅比例", "Aspect Ratio"),
+                    "options": ["auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+                    "default": "auto",
+                    "description": _compose_bilingual_label("默认 auto，由模型按提示词自动决定。", "Default auto; the model decides from the prompt."),
+                },
+                {
+                    "name": "callBackUrl",
+                    "type": "text",
+                    "label": _compose_bilingual_label("回调地址", "Callback URL"),
+                    "placeholder": "https://your-domain.com/api/callback",
+                },
+            ]
+        }
+    if capability_key == "gpt_image_2_image_to_image":
+        return {
+            "fields": [
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("主图 URL", "Primary Image URL"),
+                    "description": _compose_bilingual_label("上传/填写 1 张主图。", "Upload/provide one primary image."),
+                    "required": True,
+                },
+                {
+                    "name": "prompt",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("编辑说明", "Edit Prompt"),
+                    "placeholder": _compose_bilingual_label("例如：保持主体不变，把背景换成浅色影棚风格", "Describe what to edit and what to keep"),
+                    "required": True,
+                },
+                {
+                    "name": "image_urls",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("补充参考图 URL 列表", "Additional Reference Image URLs"),
+                    "description": _compose_bilingual_label("可选：每行一张补充参考图。", "Optional: one additional reference image per line."),
+                },
+                {
+                    "name": "aspect_ratio",
+                    "type": "select",
+                    "label": _compose_bilingual_label("画幅比例", "Aspect Ratio"),
+                    "options": ["auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+                    "default": "auto",
+                    "description": _compose_bilingual_label("默认 auto；如需固定比例再选择。", "Default auto; choose a ratio only when needed."),
+                },
+                {
+                    "name": "callBackUrl",
+                    "type": "text",
+                    "label": _compose_bilingual_label("回调地址", "Callback URL"),
+                    "placeholder": "https://your-domain.com/api/callback",
+                },
+            ]
+        }
+    if capability_key == "nano_banana_2_lite_image_to_image":
+        return {
+            "fields": [
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("主图 URL", "Primary Image URL"),
+                    "description": _compose_bilingual_label("上传/填写 1 张主图。", "Upload/provide one primary image."),
+                    "required": True,
+                },
+                {
+                    "name": "prompt",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("编辑说明", "Edit Prompt"),
+                    "placeholder": _compose_bilingual_label("例如：在草地上生成一只小猪，电影感光照", "Describe the desired edit"),
+                    "required": True,
+                },
+                {
+                    "name": "image_urls",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("补充参考图 URL 列表", "Additional Reference Image URLs"),
+                    "description": _compose_bilingual_label("可选：每行一个 URL。", "Optional: one URL per line."),
+                },
+                {
+                    "name": "aspect_ratio",
+                    "type": "select",
+                    "label": _compose_bilingual_label("画幅比例", "Aspect Ratio"),
+                    "options": ["auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+                    "default": "auto",
+                    "description": _compose_bilingual_label("默认 auto。", "Default auto."),
+                },
+                {
+                    "name": "callBackUrl",
+                    "type": "text",
+                    "label": _compose_bilingual_label("回调地址", "Callback URL"),
+                    "placeholder": "https://your-domain.com/api/callback",
+                },
+            ]
+        }
     if capability_key == "sora2_pro_text_to_video":
         return {
             "fields": [
@@ -3111,6 +3215,120 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
             ),
         },
     },
+    "nano_banana_2_lite_image_to_image": {
+        "endpoint": "/api/v1/jobs/createTask",
+        "defaults": {
+            "model": "nano-banana-2-lite",
+            "aspect_ratio": "auto",
+        },
+        "display_name": "KIE · Nano Banana 2 Lite 图生图",
+        "description": "Google Nano Banana 2 Lite 图生图/轻量编辑能力，适合低成本快速试图。",
+        "category": "image_generation",
+        "input_schema": _build_kie_schema("nano_banana_2_lite_image_to_image"),
+        "metadata": _kie_metadata(
+            capability_key="nano_banana_2_lite_image_to_image",
+            endpoint="/api/v1/jobs/createTask",
+            api_type="market_image_to_image",
+            model_id="nano-banana-2-lite",
+            requires_image_input=True,
+            input_array_target="image_urls",
+            supports_vision=True,
+            auto_fill_size=True,
+        )
+        | {
+            "pricing": {
+                "currency": "USD",
+                "unit": "per_image",
+                "note": "以 KIE 实时价格为准",
+            },
+            "presentation": _presentation(
+                name="轻量改图",
+                summary="用更轻的商业模型快速验证单图编辑方向。",
+                form_intro="上传主图并写清想修改的目标，适合低成本预览。",
+                expected_output="产出 1 张编辑结果图。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(label="主图"),
+                    "prompt": _presentation_field(
+                        label="编辑说明",
+                        placeholder="例如：保留主体，把背景换成干净电商棚拍。",
+                    ),
+                    "image_urls": _presentation_field(label="补充参考图（可选）", advanced=True),
+                    "aspect_ratio": _presentation_field(label="出图比例"),
+                    "callBackUrl": _presentation_field(label="回调地址", advanced=True),
+                },
+            ),
+        },
+    },
+    "gpt_image_2_text_to_image": {
+        "endpoint": "/api/v1/jobs/createTask",
+        "defaults": {
+            "model": "gpt-image-2-text-to-image",
+            "aspect_ratio": "auto",
+        },
+        "display_name": "KIE · GPT Image 2 文生图",
+        "description": "通过 KIE 中转调用 GPT Image 2 文生图，作为 OpenAI 官方直连能力的商业模型备选链路。",
+        "category": "image_generation",
+        "input_schema": _build_kie_schema("gpt_image_2_text_to_image"),
+        "metadata": _kie_metadata(
+            capability_key="gpt_image_2_text_to_image",
+            endpoint="/api/v1/jobs/createTask",
+            api_type="market_text_to_image",
+            model_id="gpt-image-2-text-to-image",
+            requires_image_input=False,
+        )
+        | {
+            "presentation": _presentation(
+                name="GPT Image 2 文生图",
+                summary="通过 KIE 中转调用 GPT Image 2 生成图片。",
+                form_intro="输入生成目标和画幅比例，适合商业模型链路备选和成本对比。",
+                expected_output="产出 1 张生成结果图。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "prompt": _presentation_field(label="生成说明"),
+                    "aspect_ratio": _presentation_field(label="出图比例"),
+                    "callBackUrl": _presentation_field(label="回调地址", advanced=True),
+                },
+            ),
+        },
+    },
+    "gpt_image_2_image_to_image": {
+        "endpoint": "/api/v1/jobs/createTask",
+        "defaults": {
+            "model": "gpt-image-2-image-to-image",
+            "aspect_ratio": "auto",
+        },
+        "display_name": "KIE · GPT Image 2 图生图",
+        "description": "通过 KIE 中转调用 GPT Image 2 图生图/图片编辑，作为图编辑和商业模型链路的备选执行面。",
+        "category": "image_generation",
+        "input_schema": _build_kie_schema("gpt_image_2_image_to_image"),
+        "metadata": _kie_metadata(
+            capability_key="gpt_image_2_image_to_image",
+            endpoint="/api/v1/jobs/createTask",
+            api_type="market_image_to_image",
+            model_id="gpt-image-2-image-to-image",
+            requires_image_input=True,
+            input_array_target="input_urls",
+            supports_vision=True,
+            auto_fill_size=True,
+        )
+        | {
+            "presentation": _presentation(
+                name="GPT Image 2 改图",
+                summary="通过 KIE 中转调用 GPT Image 2 完成单图编辑。",
+                form_intro="上传主图并写清要修改的位置、内容和保留项。",
+                expected_output="产出 1 张编辑结果图。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(label="主图"),
+                    "prompt": _presentation_field(label="编辑说明"),
+                    "image_urls": _presentation_field(label="补充参考图（可选）", advanced=True),
+                    "aspect_ratio": _presentation_field(label="出图比例"),
+                    "callBackUrl": _presentation_field(label="回调地址", advanced=True),
+                },
+            ),
+        },
+    },
     "sora2_pro_text_to_video": {
         "endpoint": "/api/v1/jobs/createTask",
         "defaults": {
@@ -3421,7 +3639,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "timeout": 420,
         },
         "display_name": "ComfyUI · FLUX2裂变+四方",
-        "description": "输入图片 URL 与主提示词，走 FLUX2-9b 裂变+四方 workflow，输出最终拼缝结果。",
+        "description": "输入图片 URL 与主提示词，走 FLUX2-9b 裂变+四方 workflow，输出可供审核的连续图候选；进入生产前必须再做确定性无缝化与生产校验。",
         "category": "image_generation",
         "input_schema": _comfyui_flux2_9b_liebian_sifang_schema(),
         "metadata": {
@@ -3433,11 +3651,13 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["111"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            # Four-way Flux2 candidate generation is pinned to 158/5090.
+            # 233/4090 is no longer a reliable fallback execution surface.
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
             "required_node_keys": ["String", "SaveImage"],
-            "routing_note": "2026-05-16: 233 String node restored and forced 233 run passed; route by queue across 233/158.",
-            "routing_policy": "queue",
-            "seed_version": 2,
+            "routing_note": "2026-07-11: validated Flux2 8-step candidate generation on 158/5090; production requires deterministic seamless normalization after generation.",
+            "routing_policy": "fixed",
+            "seed_version": 3,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -3445,10 +3665,10 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                 "discount_price": 0.35,
             },
             "presentation": _presentation(
-                name="AI扩图",
-                summary="在不破坏原有风格的前提下延展画布和边缘。",
-                form_intro="说明向哪个方向扩、希望保持什么风格。",
-                expected_output="产出更完整画面，可继续做 AI 超清或营销套图。",
+                name="四方连续候选",
+                summary="把花纹裂变为可平铺审核的四方连续候选，保留原有视觉方向。",
+                form_intro="上传已确认的平面花纹，并说明希望保留的主题、元素和色彩。",
+                expected_output="产出连续图候选；确认后仍需执行像素锁边、目标画布适配和生产校验。",
                 surfaces={"client": True, "coze": False, "admin": True, "eval": True},
                 fields={
                     "image_url": _presentation_field(
@@ -4126,6 +4346,66 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
                     "image_url": _presentation_field(label="原图"),
                     "max_long_edge": _presentation_field(label="目标长边"),
                     "output_format": _presentation_field(label="输出格式"),
+                },
+            ),
+        },
+    },
+    "seamless_production_normalize": {
+        "defaults": {
+            "repeat_axis": "both",
+            "tiled_review_confirmed": False,
+        },
+        "display_name": "PODI · 连续图生产锁边",
+        "description": "对已审核的二方/四方连续候选图做确定性边缘锁定，输出边缘差值证据和 OSS 图。它不生成内容，也不替代平铺视觉审核或生产校验。",
+        "category": "utilities",
+        "input_schema": {
+            "fields": [
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("连续图候选 URL", "Repeat Candidate URL"),
+                    "required": True,
+                },
+                {
+                    "name": "repeat_axis",
+                    "type": "select",
+                    "label": _compose_bilingual_label("重复方向", "Repeat Axis"),
+                    "options": ["horizontal", "vertical", "both"],
+                    "default": "both",
+                    "description": _compose_bilingual_label("二方连续选择单方向，四方连续选择 both。", "Choose one axis for two-way repeat and both for four-way repeat."),
+                },
+                {
+                    "name": "tiled_review_confirmed",
+                    "type": "switch",
+                    "label": _compose_bilingual_label("已审核平铺预览", "Tiled Preview Reviewed"),
+                    "default": False,
+                    "required": True,
+                    "description": _compose_bilingual_label("必须先确认平铺预览没有明显语义接缝，才允许锁边导出。", "Confirm that the tiled preview has no obvious visual seam before locking edges."),
+                },
+            ]
+        },
+        "metadata": {
+            "api_type": "podi_utility",
+            "action": "seamless_production_normalize",
+            "requires_image_input": True,
+            "supports_vision": False,
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.03,
+                "discount_price": 0.02,
+            },
+            "presentation": _presentation(
+                name="连续图生产锁边",
+                summary="将通过平铺审核的候选图锁定为像素边缘一致的生产后处理图。",
+                form_intro="这是内部生产步骤，不展示给普通用户；必须保留审核记录。",
+                expected_output="产出锁边图与前后边缘差值证据，供后续尺寸适配和生产校验使用。",
+                surfaces={"client": False, "coze": False, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(label="连续图候选"),
+                    "repeat_axis": _presentation_field(label="重复方向"),
+                    "tiled_review_confirmed": _presentation_field(label="平铺预览审核确认"),
                 },
             ),
         },

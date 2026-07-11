@@ -208,6 +208,25 @@
 | `metadata` | 轻量信息：模型 ID、KIE 任务 state、ComfyUI promptId 等。 |
 | `raw` | 厂商原始响应（必要字段已脱敏/截断）。 |
 
+### PODI 内部能力：连续图生产锁边
+
+- 能力 ID：`podi_seamless_production_normalize`
+- 用途：仅接收已通过平铺预览审核的二方/四方连续图候选，确定性锁定指定轴的首尾像素；它不负责生成花纹，也不能替代视觉接缝检查、目标尺寸适配或印刷生产校验。
+- 请求：
+
+```json
+{
+  "inputs": {
+    "repeat_axis": "both",
+    "tiled_review_confirmed": true
+  },
+  "imageUrl": "https://aichuangpin.oss-cn-hangzhou.aliyuncs.com/example/repeat-candidate.png"
+}
+```
+
+- 响应：`images[0].ossUrl` 是锁边后的 PNG；`raw.request.edgeEvidence` 给出 horizontal/vertical 的 `before.meanAbs`、`before.maxAbs`、`after.meanAbs`、`after.maxAbs` 与 `lockedAxes`。只有处理后的目标轴 `maxAbs=0` 时才允许进入下一步生产画布适配。
+- 错误：`SEAMLESS_REPEAT_AXIS_INVALID`、`SEAMLESS_TILED_REVIEW_REQUIRED`、`SEAMLESS_IMAGE_TOO_SMALL`、`SEAMLESS_IMAGE_TOO_LARGE`、`SEAMLESS_NORMALIZE_FAILED`、`SEAMLESS_NORMALIZE_UPLOAD_FAILED`。错误含义以 [错误码总表](../standards/error-catalog.md) 为准。
+
 ## 3. 异步任务模式
 
 当一次要提交大量任务，或单次调用需要较长时间时，可使用任务队列接口。后端会将任务排队到线程池（默认 4 并发，可通过环境变量 `ABILITY_TASK_MAX_WORKERS` 调整），任务完成后可以轮询查询，也可以配置回调 URL。
@@ -338,10 +357,13 @@
 | Ability ID | 类型 | 必填字段 | 可选字段 | 特性 |
 | --- | --- | --- | --- | --- |
 | `kie_nano_banana_pro_image_to_image` | 图生图 | `prompt` + `image_url` 至少 1 张 | `image_urls`（可选多参考图）、`aspect_ratio`、`resolution`、`output_format`、`callBackUrl` | 支持 1~多张参考图；输出 `resultUrls` |
+| `kie_nano_banana_2_lite_image_to_image` | 图生图（轻量编辑） | `prompt` + `image_url` | `image_urls`、`aspect_ratio`、`callBackUrl` | KIE Nano Banana 2 Lite，适合低成本快速试图 |
+| `kie_gpt_image_2_text_to_image` | 文生图 | `prompt` | `aspect_ratio`、`callBackUrl` | KIE 中转 GPT Image 2 文生图；不替代 OpenAI 官方直连能力 |
+| `kie_gpt_image_2_image_to_image` | 图生图 / 图片编辑 | `prompt` + `image_url` | `image_urls`、`aspect_ratio`、`callBackUrl` | KIE 中转 GPT Image 2 图生图，主图和补充参考图会写入 `input_urls` |
 | `kie_flux2_pro_image_to_image` | 图生图（Flux-2） | `prompt` + `image_urls/input_urls` 至少 1 条 | `aspect_ratio`、`resolution`、`callBackUrl` | 必须提供 1~8 张参考图 |
 | `kie_sora2_pro_text_to_video` | 文生视频 | `prompt` | `aspect_ratio`、`n_frames`、`size`、`remove_watermark`、`character_ids`、`callBackUrl` | 输出视频 URL + 任务状态 |
 
-> `image_urls` / `input_urls` 字段允许多行或 JSON 数组，接口会拆成数组并写入 `input_array_target`。返回体 `metadata` 携带 KIE 任务 `taskId/state`，`resultUrls` 为官方 CDN，`assets` 为落地后的 OSS。
+> `image_url` 会作为主图；`image_urls` / `input_urls` 字段允许多行或 JSON 数组，接口会拆成数组并写入对应模型的输入数组（例如 GPT Image 2 图生图为 `input_urls`，Nano Banana 2 Lite 为 `image_urls`）。返回体 `metadata` 携带 KIE 任务 `taskId/state`，`resultUrls` / `imageUrls` 为官方 CDN，`assets` 为落地后的 OSS。
 >
 > 成本字段（估算，USD，已写入 `metadata.pricing/pricing_tiers`）：
 > - Nano Banana Pro：1K/2K `$0.04`，4K `$0.07`

@@ -9,6 +9,7 @@ import random
 import threading
 import time
 import base64
+from collections import deque
 from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -43,12 +44,15 @@ from app.services.api_key_selector import build_vendor_credentials, bump_usage, 
 from app.services.coze_client import coze_client
 from app.services.oss import oss_service
 from app.services.routing_governance import normalize_ability_routing
+from app.services.seamless_normalizer import lock_periodic_edges
 from app.services.vendor_api_client import vendor_api_client
 from app.services.vendor_media import persist_vendor_media_payload
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
 
 VENDOR_API_PROVIDERS = {"baidu", "volcengine", "kie", "openai", "openai_compatible"}
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
+OPENAI_GPT_IMAGE_2_RATE_LIMIT_PER_MINUTE = 5
+OPENAI_GPT_IMAGE_2_RATE_WINDOW_SECONDS = 60.0
 
 
 def _format_invocation_error(code: str, message: str) -> str:
@@ -71,6 +75,23 @@ class _InvocationContext:
     payload: schemas.AbilityInvokeRequest
 
 
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _edge_difference_payload(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        "meanAbs": round(float(value.mean_abs), 6),
+        "maxAbs": int(value.max_abs),
+    }
+
+
 class AbilityInvocationService:
     """Expose a uniform invoke/list API over capability catalogue."""
 
@@ -85,6 +106,8 @@ class AbilityInvocationService:
         self._executor_slots_lock = threading.Lock()
         self._rr_lock = threading.Lock()
         self._rr_cursors: dict[str, int] = {}
+        self._openai_gpt_image_2_rate_lock = threading.Lock()
+        self._openai_gpt_image_2_rate_events: deque[float] = deque()
 
     def _get_executor_slot(self, executor_id: str) -> threading.BoundedSemaphore | None:
         eid = (executor_id or "").strip()
@@ -998,6 +1021,13 @@ class AbilityInvocationService:
         max_attempts = self._vendor_api_retry_attempts(ability)
         result: dict[str, Any] | None = None
         for attempt in range(max_attempts):
+            self._wait_for_openai_gpt_image_2_window(
+                ability=ability,
+                payload_inputs=payload_inputs,
+                assets=assets,
+                request_id=context.request_id,
+                attempt=attempt + 1,
+            )
             result = vendor_api_client.invoke(
                 executor=executor,
                 ability=ability,
@@ -1009,7 +1039,7 @@ class AbilityInvocationService:
             )
             if attempt >= max_attempts - 1 or not self._is_retryable_vendor_api_result(result):
                 break
-            delay = self._vendor_retry_delay_seconds(attempt)
+            delay = self._vendor_retry_delay_seconds(attempt, result)
             self._logger.warning(
                 "Retrying vendor-api invocation after retryable failure: provider=%s ability=%s executor=%s "
                 "attempt=%s/%s delay=%.2fs reason=%s",
@@ -1042,6 +1072,86 @@ class AbilityInvocationService:
         result["executor"] = executor.id
         result["baseUrl"] = executor.base_url
         return result
+
+    @staticmethod
+    def _is_openai_gpt_image_2_ability(ability: Ability) -> bool:
+        provider = str(ability.provider or "").strip().lower()
+        capability_key = str(ability.capability_key or "").strip().lower()
+        return provider in {"openai", "openai_compatible"} and "gpt_image_2" in capability_key
+
+    def _count_openai_gpt_image_2_input_units(
+        self,
+        *,
+        ability: Ability,
+        payload_inputs: dict[str, Any],
+        assets: list[dict[str, Any]],
+    ) -> int:
+        if not self._is_openai_gpt_image_2_ability(ability):
+            return 0
+        count = 0
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            if str(asset.get("role") or "").strip().lower() != "input":
+                continue
+            if any(asset.get(key) for key in ("url", "b64", "imageUrl", "image_url", "base64", "image_base64")):
+                count += 1
+        if count > 0:
+            return count
+        if any(payload_inputs.get(key) for key in ("image_url", "imageUrl", "image_base64", "imageBase64")):
+            return 1
+        return 1
+
+    def _wait_for_openai_gpt_image_2_window(
+        self,
+        *,
+        ability: Ability,
+        payload_inputs: dict[str, Any],
+        assets: list[dict[str, Any]],
+        request_id: str,
+        attempt: int,
+    ) -> None:
+        requested_units = self._count_openai_gpt_image_2_input_units(
+            ability=ability,
+            payload_inputs=payload_inputs,
+            assets=assets,
+        )
+        if requested_units <= 0:
+            return
+        effective_units = min(requested_units, OPENAI_GPT_IMAGE_2_RATE_LIMIT_PER_MINUTE)
+        if requested_units > OPENAI_GPT_IMAGE_2_RATE_LIMIT_PER_MINUTE:
+            self._logger.warning(
+                "OpenAI GPT Image 2 request uses more input images than the configured minute gate tracks exactly: "
+                "requestId=%s requestedUnits=%s gateUnits=%s",
+                request_id,
+                requested_units,
+                effective_units,
+            )
+        while True:
+            now = time.monotonic()
+            wait_seconds = 0.0
+            with self._openai_gpt_image_2_rate_lock:
+                while self._openai_gpt_image_2_rate_events and (
+                    now - self._openai_gpt_image_2_rate_events[0]
+                ) >= OPENAI_GPT_IMAGE_2_RATE_WINDOW_SECONDS:
+                    self._openai_gpt_image_2_rate_events.popleft()
+                current_units = len(self._openai_gpt_image_2_rate_events)
+                if current_units + effective_units <= OPENAI_GPT_IMAGE_2_RATE_LIMIT_PER_MINUTE:
+                    self._openai_gpt_image_2_rate_events.extend([now] * effective_units)
+                    return
+                oldest = self._openai_gpt_image_2_rate_events[0]
+                wait_seconds = max(0.25, OPENAI_GPT_IMAGE_2_RATE_WINDOW_SECONDS - (now - oldest) + 0.05)
+            self._logger.info(
+                "OpenAI GPT Image 2 minute gate waiting: requestId=%s attempt=%s currentUnits=%s requestedUnits=%s "
+                "limit=%s wait=%.2fs",
+                request_id,
+                attempt,
+                current_units,
+                effective_units,
+                OPENAI_GPT_IMAGE_2_RATE_LIMIT_PER_MINUTE,
+                wait_seconds,
+            )
+            time.sleep(wait_seconds)
 
     def _desired_vendor_image_size(
         self,
@@ -1130,6 +1240,8 @@ class AbilityInvocationService:
         capability_key = str(ability.capability_key or "").lower()
         if provider == "volcengine" and capability_key in {"doubao_seed_2_0_lite", "doubao_seed_1_8_vl"}:
             return 3
+        if provider in {"openai", "openai_compatible"} and "gpt_image_2" in capability_key:
+            return 4
         if provider in {"openai", "openai_compatible", "kie"}:
             return 2
         return 2
@@ -1162,10 +1274,65 @@ class AbilityInvocationService:
         )
         return any(marker in code or marker in message for marker in retry_markers)
 
-    def _vendor_retry_delay_seconds(self, attempt: int) -> float:
+    def _vendor_retry_delay_seconds(self, attempt: int, result: dict[str, Any] | None = None) -> float:
+        retry_after = self._extract_vendor_retry_after_seconds(result)
+        if retry_after is not None:
+            return min(60.0, max(1.0, retry_after + random.uniform(0.5, 2.0)))
         base = 1.5 * (2 ** max(0, attempt))
         jitter = random.uniform(0.2, 1.5)
         return min(15.0, base + jitter)
+
+    @staticmethod
+    def _extract_vendor_retry_after_seconds(result: dict[str, Any] | None) -> float | None:
+        if not isinstance(result, dict):
+            return None
+        candidates: list[Any] = []
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        error = result.get("error")
+        vendor_error = metadata.get("vendorError") or metadata.get("vendor_error")
+        if isinstance(vendor_error, dict):
+            candidates.extend(
+                [
+                    vendor_error.get("retryAfterSeconds"),
+                    vendor_error.get("retry_after_seconds"),
+                    vendor_error.get("retryAfter"),
+                    vendor_error.get("retry_after"),
+                    vendor_error.get("message"),
+                ]
+            )
+        if isinstance(error, dict):
+            candidates.extend(
+                [
+                    error.get("retryAfterSeconds"),
+                    error.get("retry_after_seconds"),
+                    error.get("retryAfter"),
+                    error.get("retry_after"),
+                    error.get("message"),
+                ]
+            )
+        candidates.extend(
+            [
+                result.get("retryAfterSeconds"),
+                result.get("retry_after_seconds"),
+                result.get("retryAfter"),
+                result.get("retry_after"),
+                result.get("message"),
+                error if isinstance(error, str) else None,
+            ]
+        )
+        for value in candidates:
+            if isinstance(value, (int, float)) and value > 0:
+                return float(value)
+            if isinstance(value, str):
+                match = re.search(r"(?:try again|retry|after)\D{0,24}(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?", value, re.IGNORECASE)
+                if match:
+                    try:
+                        seconds = float(match.group(1))
+                    except Exception:
+                        continue
+                    if seconds > 0:
+                        return seconds
+        return None
 
     def _vendor_retry_reason(self, result: dict[str, Any] | None) -> str:
         if not isinstance(result, dict):
@@ -1192,7 +1359,7 @@ class AbilityInvocationService:
             raise HTTPException(status_code=500, detail=f"PODI_IMAGE_TOOLS_IMPORT_FAILED:{exc}") from exc
 
         key = ability.capability_key
-        if key not in {"expand_mask_color", "set_dpi", "upscale_resize"}:
+        if key not in {"expand_mask_color", "set_dpi", "upscale_resize", "seamless_production_normalize"}:
             raise HTTPException(status_code=400, detail="PODI_UTILITY_UNSUPPORTED")
         if key == "upscale_resize" and get_settings().disable_local_heavy_image_tasks:
             raise HTTPException(status_code=503, detail="LOCAL_HEAVY_IMAGE_TASK_DISABLED")
@@ -1368,6 +1535,71 @@ class AbilityInvocationService:
                 "contentType": content_type,
                 "tag": "podi-upscale-resize",
             }
+        elif key == "seamless_production_normalize":
+            repeat_axis = str(merged_inputs.get("repeat_axis") or "both").strip().lower()
+            axis_map = {
+                "horizontal": (True, False),
+                "vertical": (False, True),
+                "both": (True, True),
+            }
+            if repeat_axis not in axis_map:
+                raise HTTPException(status_code=400, detail="SEAMLESS_REPEAT_AXIS_INVALID")
+            if not _as_bool(merged_inputs.get("tiled_review_confirmed")):
+                raise HTTPException(status_code=409, detail="SEAMLESS_TILED_REVIEW_REQUIRED")
+
+            try:
+                source_image = Image.open(BytesIO(src_bytes))
+                width, height = source_image.size
+                if width < 2 or height < 2:
+                    raise HTTPException(status_code=400, detail="SEAMLESS_IMAGE_TOO_SMALL")
+                if width > 8192 or height > 8192 or width * height > 40_000_000:
+                    raise HTTPException(status_code=400, detail="SEAMLESS_IMAGE_TOO_LARGE")
+                horizontal, vertical = axis_map[repeat_axis]
+                normalized = lock_periodic_edges(
+                    source_image,
+                    horizontal=horizontal,
+                    vertical=vertical,
+                )
+                output = BytesIO()
+                normalized.image.save(output, format="PNG")
+            except HTTPException:
+                raise
+            except ValueError as exc:
+                if str(exc) == "SEAMLESS_IMAGE_TOO_SMALL":
+                    raise HTTPException(status_code=400, detail="SEAMLESS_IMAGE_TOO_SMALL") from exc
+                raise HTTPException(status_code=422, detail="SEAMLESS_NORMALIZE_FAILED") from exc
+            except Exception as exc:
+                self._logger.exception(
+                    "seamless production normalize failed request_id=%s image_url=%s",
+                    context.request_id,
+                    src_source_url,
+                )
+                raise HTTPException(status_code=422, detail="SEAMLESS_NORMALIZE_FAILED") from exc
+
+            try:
+                upload = media_ingest_service.upload_generated_image_bytes(
+                    user_id=user_id,
+                    filename=f"seamless_{repeat_axis}_normalized.png",
+                    data=output.getvalue(),
+                    content_type="image/png",
+                    tag="podi-seamless-production-normalize",
+                )
+            except Exception as exc:
+                self._logger.exception(
+                    "seamless production normalize upload failed request_id=%s image_url=%s",
+                    context.request_id,
+                    src_source_url,
+                )
+                raise HTTPException(status_code=502, detail="SEAMLESS_NORMALIZE_UPLOAD_FAILED") from exc
+            asset = {
+                "sourceUrl": src_source_url,
+                "ossUrl": upload.get("url"),
+                "ossKey": upload.get("objectKey"),
+                "contentType": "image/png",
+                "tag": "podi-seamless-production-normalize",
+                "width": width,
+                "height": height,
+            }
 
         stored_url = asset.get("ossUrl") if isinstance(asset, dict) else None
         return {
@@ -1387,6 +1619,23 @@ class AbilityInvocationService:
                     "inputHeight": in_h if key == "expand_mask_color" else None,
                     "outputWidth": out_w if key == "expand_mask_color" else None,
                     "outputHeight": out_h if key == "expand_mask_color" else None,
+                    "repeatAxis": repeat_axis if key == "seamless_production_normalize" else None,
+                    "tiledReviewConfirmed": _as_bool(merged_inputs.get("tiled_review_confirmed"))
+                    if key == "seamless_production_normalize"
+                    else None,
+                    "edgeEvidence": {
+                        "horizontal": {
+                            "before": _edge_difference_payload(normalized.horizontal_before),
+                            "after": _edge_difference_payload(normalized.horizontal_after),
+                        },
+                        "vertical": {
+                            "before": _edge_difference_payload(normalized.vertical_before),
+                            "after": _edge_difference_payload(normalized.vertical_after),
+                        },
+                        "lockedAxes": list(normalized.locked_axes),
+                    }
+                    if key == "seamless_production_normalize"
+                    else None,
                 }
             },
         }

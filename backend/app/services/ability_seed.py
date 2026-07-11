@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -271,12 +271,23 @@ def ensure_default_abilities(session: Session) -> bool:
             seed_version = _as_int((seed_metadata or {}).get("seed_version"))
             existing_metadata = existing.extra_metadata if isinstance(existing.extra_metadata, dict) else {}
             existing_version = _as_int(existing_metadata.get("seed_version"))
+            existing_catalog_text_version = _as_int(existing_metadata.get("catalog_text_seed_version"))
             if seed_version and seed_version > existing_version:
+                # A seed version is the controlled catalogue revision. Keep the
+                # user-facing name and description aligned with the executable
+                # route so stale text cannot claim a candidate is final output.
+                existing.category = seed.category
+                existing.display_name = seed.display_name
+                existing.description = seed.description
+                existing.status = seed.status
+                existing.ability_type = seed.ability_type or "api"
+                existing.workflow_id = seed.workflow_id
                 if seed.input_schema:
                     existing.input_schema = seed.input_schema
                 if seed.default_params:
                     existing.default_params = seed.default_params
                 merged_metadata = _merge_dict(existing_metadata, seed_metadata or {})
+                merged_metadata["catalog_text_seed_version"] = seed_version
                 existing.extra_metadata = merged_metadata
                 existing_metadata = merged_metadata
                 updated = True
@@ -293,6 +304,20 @@ def ensure_default_abilities(session: Session) -> bool:
                         existing.extra_metadata = merged_metadata
                         existing_metadata = merged_metadata
                         updated = True
+                if seed_version and seed_version > existing_catalog_text_version:
+                    # Prior releases only refreshed metadata and schemas. Keep a
+                    # dedicated text revision so corrected user-facing language
+                    # is not skipped after a metadata-only rollout.
+                    existing.category = seed.category
+                    existing.display_name = seed.display_name
+                    existing.description = seed.description
+                    existing.status = seed.status
+                    existing.ability_type = seed.ability_type or "api"
+                    existing.workflow_id = seed.workflow_id
+                    existing_metadata = deepcopy(existing_metadata)
+                    existing_metadata["catalog_text_seed_version"] = seed_version
+                    existing.extra_metadata = existing_metadata
+                    updated = True
             if seed.provider == "comfyui":
                 repaired_metadata, repaired = _repair_comfyui_routing_metadata(existing_metadata, seed_metadata)
                 if repaired:
