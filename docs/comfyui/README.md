@@ -21,7 +21,7 @@
 | `toubu_kouxiang` | `comfyui.toubu_kouxiang` / `head_extract` | `url` | `140` | 线上在用 |
 | `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` / `outpaint` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | `9` | 当前扩图主线；2026-05-25 已替换为 ComfyUI 团队 `Flux 2 klein 9b-222` 链路 |
 | `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，158 / 233 均可按队列路由；颜色锁定 v2 复用该 workflow；自有业务接口在大比例变化时会先生成比例重构引导图 |
-| `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；233/158 双机 |
+| `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 四方连续候选生成；固定 158/5090，后续必须接生产锁边 |
 | `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
 | `qwen2512_text2img_text_allowed` | `comfyui.qwen2512_text2img_text_allowed` / `text_to_image` | 对外业务只暴露 `editable_prompt`、`editable_negative_prompt`、`width`、`height`；`steps/cfg/seed` 由中台控制 | `21` | 2026-05-19 新增，文字强化裂变（文生图）两步式生图 |
 | `yinhua_tiqu` | `comfyui.yinhua_tiqu` / `pattern_extract` | `url`、`prompt`、`negative_prompt`、`output_width`、`output_height`、`lora_name` | `421` | 线上在用 |
@@ -30,7 +30,7 @@
 
 - 业务链路统一先走 OSS URL，再交给 ComfyUI；不要把外部临时链接当正式输入口径。
 - 233 白名单后同构恢复任务记录见 `docs/comfyui/233-recovery-2026-05-16.md`；该任务的原则是补齐服务器节点和模型，不为 233 单点问题长期增加平台特殊分支。
-- `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 依赖 `String` 自定义节点。2026-05-16 233 已恢复 `String` 并强制跑通三条旧工作流，当前恢复 233/158 双机队列路由。
+- `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 依赖 `String` 自定义节点。2026-05-16 的 233 恢复记录仅用于历史追溯；自 2026-07-11 起，`flux2_9b_liebian_sifang` 固定 158/5090 运行，233 不再作为它的降级节点。
 - `qwen2512_print_shape_text_enhance` 当前执行链路已验证可跑通，主要待优化点是上游 Coze/VL 提示词质量，不是中台或评测执行接口。
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`；`文字强化文生图` 正式回填只认 `21`。
@@ -298,7 +298,9 @@
 
 **调试备注**
 
-- 2026-05-16：233 已恢复 `String` 自定义节点，并强制 233 跑通该 workflow，可恢复双机路由。
+- 2026-05-16：233 已恢复 `String` 自定义节点，并强制 233 跑通该 workflow；该记录仅作历史参考。
+- 2026-07-11：以自有 OSS 花纹样例实跑 158/5090，`flux-2-klein-9b-fp8.safetensors` + Qwen CLIP + Flux2 VAE 的 8 步采样约 `89s`，输出 `1024×1024` 四方连续候选。233/4090 已移交且会出现异常满负载，`binding_flux2_9b_liebian_sifang_comfyui_117_v1` 已禁用。
+- 该 workflow 的结果只定义为“候选图”，不能直发生产。必须按 `PODI · 连续图生产锁边`（`podi_seamless_production_normalize`）输出像素边缘证据，目标轴 `maxAbs=0` 后继续做目标画布适配、DPI 和印刷校验；锁边本身也不替代平铺视觉审核。
 - 工具箱只覆写 `141.url` 和 `132.inStr`。
 - 节点 `104`、`97`、`99`、`100`、`102`、`121`、`122`、`130`、`137` 等内部默认参数保持不变。
 - 最终输出固定取 `111 · SaveImage`。
