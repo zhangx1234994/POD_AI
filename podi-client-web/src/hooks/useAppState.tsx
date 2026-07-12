@@ -151,23 +151,32 @@ const viewRoutes: Record<AppView, string> = {
   profile: "/profile",
 };
 
+const legacyViewRoutes: Record<string, AppView> = {
+  "/products/design": "products",
+};
+
 const viewMeta: Record<AppView, { title: string; desc: string }> = {
-  home: { title: "PODI · 批量图片处理与定制杯子", desc: "上传图片，批量处理素材，也可以选择杯型试做实物。" },
-  process: { title: "图片批量处理 · PODI", desc: "清理、扩图、提取花纹和裂变生成，一批图片一次处理。" },
-  tasks: { title: "处理任务 · PODI", desc: "查看 AI 图片处理任务进度和结果。" },
-  assets: { title: "素材库 · PODI", desc: "管理处理后的图片、花纹和裂变结果。" },
-  products: { title: "定制杯子 · PODI", desc: "选择杯型和图片，生成预览后试做实物。" },
-  editor: { title: "图编辑器 · PODI", desc: "单图精修。" },
-  account: { title: "个人中心 · PODI", desc: "管理任务、订单、钱包、素材和公开主页。" },
-  orders: { title: "制作订单 · PODI", desc: "查看制作进度。" },
-  wallet: { title: "钱包 · PODI", desc: "管理 AI 积分、产品券和站内抵扣。" },
-  inspire: { title: "灵感广场 · PODI", desc: "浏览公开作品。" },
-  publish: { title: "公开申请 · PODI", desc: "提交作品公开审核。" },
-  profile: { title: "作者主页 · PODI", desc: "展示公开作品。" },
+  home: { title: "AI创品 · 有品，不必一样", desc: "上传图片，批量处理素材，也可以选择杯型试做实物。" },
+  process: { title: "图片批量处理 · AI创品", desc: "清理、扩图、提取花纹和裂变生成，一批图片一次处理。" },
+  tasks: { title: "处理任务 · AI创品", desc: "查看 AI 图片处理任务进度和结果。" },
+  assets: { title: "素材库 · AI创品", desc: "管理处理后的图片、花纹和裂变结果。" },
+  products: { title: "定制杯子 · AI创品", desc: "选择杯型和图片，生成预览后试做实物。" },
+  editor: { title: "图编辑器 · AI创品", desc: "单图精修。" },
+  account: { title: "个人中心 · AI创品", desc: "管理任务、订单、钱包、素材和公开主页。" },
+  orders: { title: "制作订单 · AI创品", desc: "查看制作进度。" },
+  wallet: { title: "钱包 · AI创品", desc: "管理 AI 积分、产品券和站内抵扣。" },
+  inspire: { title: "灵感广场 · AI创品", desc: "浏览公开作品。" },
+  publish: { title: "公开申请 · AI创品", desc: "提交作品公开审核。" },
+  profile: { title: "作者主页 · AI创品", desc: "展示公开作品。" },
 };
 
 function viewFromLocation(): AppView {
   const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
+  const legacyView = legacyViewRoutes[currentPath];
+  if (legacyView) {
+    window.history.replaceState({ view: legacyView }, "", viewRoutes[legacyView]);
+    return legacyView;
+  }
   const match = (Object.entries(viewRoutes) as Array<[AppView, string]>).find(
     ([, path]) => path === currentPath
   );
