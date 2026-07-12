@@ -35,3 +35,27 @@ def test_extract_response_error_message_from_vendor_raw():
         )
         == "The model does not exist."
     )
+
+
+def test_extract_image_assets_prefers_persisted_oss_url():
+    oss_url = "https://aichuangpin.oss-cn-hangzhou.aliyuncs.com/prelaunch/service/example.png"
+    vendor_url = "https://vendor.example.com/result.png"
+
+    images = ability_invocation_service._extract_output_assets(
+        {
+            "resultUrls": [oss_url],
+            "assets": [
+                {
+                    "ossUrl": oss_url,
+                    "sourceUrl": vendor_url,
+                    "contentType": "image/png",
+                    "tag": "vendor-output",
+                }
+            ],
+        },
+        target="image",
+    )
+
+    assert len(images) == 1
+    assert images[0].ossUrl == oss_url
+    assert images[0].sourceUrl == vendor_url

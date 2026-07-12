@@ -2917,6 +2917,26 @@ class AbilityInvocationService:
     def _extract_output_assets(self, payload: dict[str, Any], target: str) -> list[schemas.AbilityOutputAsset]:
         assets: list[schemas.AbilityOutputAsset] = []
 
+        def _append_unique(asset: schemas.AbilityOutputAsset) -> None:
+            """Keep a provider URL and its persisted OSS asset as one public result."""
+            identity = asset.ossUrl or asset.sourceUrl or asset.base64
+            for index, current in enumerate(assets):
+                current_identity = current.ossUrl or current.sourceUrl or current.base64
+                if identity and current_identity == identity:
+                    preferred_source_url = current.sourceUrl
+                    if not preferred_source_url or preferred_source_url == current.ossUrl:
+                        preferred_source_url = asset.sourceUrl
+                    assets[index] = schemas.AbilityOutputAsset(
+                        ossUrl=asset.ossUrl or current.ossUrl,
+                        sourceUrl=preferred_source_url,
+                        base64=asset.base64 or current.base64,
+                        type=asset.type or current.type,
+                        description=asset.description or current.description,
+                        tag=asset.tag or current.tag,
+                    )
+                    return
+            assets.append(asset)
+
         def _looks_like_video_url(url: Any) -> bool:
             if not isinstance(url, str):
                 return False
@@ -2930,7 +2950,7 @@ class AbilityInvocationService:
             result_urls = payload.get("resultUrls")
             has_video_outputs = bool(payload.get("videoUrls") or payload.get("videos"))
             if stored_url or image_url or image_base64:
-                assets.append(
+                _append_unique(
                     schemas.AbilityOutputAsset(
                         ossUrl=stored_url,
                         sourceUrl=image_url,
@@ -2938,35 +2958,34 @@ class AbilityInvocationService:
                         type="image",
                     )
                 )
+            # Media persistence normalizes vendor responses into `assets`. Read it first so
+            # `images[]` preserves the self-owned OSS URL instead of exposing only resultUrls.
+            generic_assets = payload.get("assets") or payload.get("storedAssets")
+            if isinstance(generic_assets, list):
+                for item in generic_assets:
+                    if not isinstance(item, dict):
+                        continue
+                    content_type = (item.get("contentType") or item.get("mimeType") or item.get("type") or "").lower()
+                    base64_value = item.get("base64") or item.get("b64")
+                    if (
+                        content_type.startswith("image/")
+                        or base64_value
+                        or item.get("type") == "image"
+                        or item.get("tag") in {"comfyui", "comfyui-input"}
+                    ):
+                        _append_unique(
+                            schemas.AbilityOutputAsset(
+                                ossUrl=item.get("ossUrl") or item.get("url"),
+                                sourceUrl=item.get("sourceUrl") or item.get("url"),
+                                base64=base64_value,
+                                type="image",
+                                tag=item.get("tag"),
+                            )
+                        )
             if isinstance(result_urls, list) and not has_video_outputs:
                 for url in result_urls:
                     if isinstance(url, str) and not _looks_like_video_url(url):
-                        assets.append(schemas.AbilityOutputAsset(sourceUrl=url, type="image"))
-            # Providers like ComfyUI return a generic `assets` list; surface image assets in `images`
-            # so Coze (and our UI) can display them without custom parsing.
-            if not assets:
-                generic_assets = payload.get("assets") or payload.get("storedAssets")
-                if isinstance(generic_assets, list):
-                    for item in generic_assets:
-                        if not isinstance(item, dict):
-                            continue
-                        content_type = (item.get("contentType") or item.get("mimeType") or item.get("type") or "").lower()
-                        base64_value = item.get("base64") or item.get("b64")
-                        if (
-                            content_type.startswith("image/")
-                            or base64_value
-                            or item.get("type") == "image"
-                            or item.get("tag") in {"comfyui", "comfyui-input"}
-                        ):
-                            assets.append(
-                                schemas.AbilityOutputAsset(
-                                    ossUrl=item.get("ossUrl") or item.get("url"),
-                                    sourceUrl=item.get("sourceUrl") or item.get("url"),
-                                    base64=base64_value,
-                                    type="image",
-                                    tag=item.get("tag"),
-                                )
-                            )
+                        _append_unique(schemas.AbilityOutputAsset(sourceUrl=url, type="image"))
         elif target == "video":
             video_urls = payload.get("videoUrls") or payload.get("videos")
             if isinstance(video_urls, list):
