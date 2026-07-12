@@ -59,3 +59,18 @@ def test_extract_image_assets_prefers_persisted_oss_url():
     assert len(images) == 1
     assert images[0].ossUrl == oss_url
     assert images[0].sourceUrl == vendor_url
+
+
+def test_public_raw_removes_vendor_base64_payloads():
+    raw = ability_invocation_service._sanitize_public_raw(
+        {
+            "vendorApi": {
+                "response": {
+                    "data": [{"b64_json": "a" * 5000, "url": "https://vendor.example.com/output.png"}]
+                }
+            }
+        }
+    )
+
+    assert raw["vendorApi"]["response"]["data"][0]["b64_json"] == "[omitted]"
+    assert raw["vendorApi"]["response"]["data"][0]["url"] == "https://vendor.example.com/output.png"

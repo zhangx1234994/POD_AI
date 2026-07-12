@@ -2856,7 +2856,7 @@ class AbilityInvocationService:
                 value = provider_meta.get(key)
                 if value not in (None, "", []):
                     metadata[key] = value
-        raw_payload = provider_result.get("raw")
+        raw_payload = self._sanitize_public_raw(provider_result.get("raw"))
         return schemas.AbilityInvokeResponse(
             abilityId=ability.id,
             provider=provider,
@@ -3283,14 +3283,27 @@ class AbilityInvocationService:
             workflow_params.pop("loraName", None)
 
     @staticmethod
+    def _sanitize_public_raw(value: Any) -> Any:
+        """Prevent binary vendor payloads from leaking into public API responses or logs."""
+        sensitive_binary_keys = {"base64", "b64", "b64_json", "imagebase64", "image_base64", "resultimage"}
+        if isinstance(value, dict):
+            sanitized: dict[str, Any] = {}
+            for key, nested in value.items():
+                if key.lower() in sensitive_binary_keys and isinstance(nested, str):
+                    sanitized[key] = "[omitted]"
+                else:
+                    sanitized[key] = AbilityInvocationService._sanitize_public_raw(nested)
+            return sanitized
+        if isinstance(value, list):
+            return [AbilityInvocationService._sanitize_public_raw(item) for item in value]
+        if isinstance(value, str) and len(value) > 4096:
+            return "[omitted-large-value]"
+        return value
+
+    @staticmethod
     def _omit_large_fields(payload: dict[str, Any]) -> dict[str, Any]:
-        sanitized = {}
-        for key, value in payload.items():
-            if key.lower() in {"imagebase64", "image_base64"} and isinstance(value, str):
-                sanitized[key] = "[omitted]"
-            else:
-                sanitized[key] = value
-        return sanitized
+        sanitized = AbilityInvocationService._sanitize_public_raw(payload)
+        return sanitized if isinstance(sanitized, dict) else {}
 
     @staticmethod
     def _deduplicate_urls(urls: list[str]) -> list[str]:
