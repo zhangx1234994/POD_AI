@@ -78,7 +78,7 @@ class Settings(BaseSettings):
         env="VOLCENGINE_BASE_URL",
     )
     vendor_api_enabled: bool = Field(default=True, env="VENDOR_API_ENABLED")
-    vendor_api_base_url: str = Field(default="http://117.50.80.158:8310", env="VENDOR_API_BASE_URL")
+    vendor_api_base_url: str = Field(default="http://127.0.0.1:8310", env="VENDOR_API_BASE_URL")
     vendor_api_token: str | None = Field(default=None, env="VENDOR_API_TOKEN")
     vendor_api_timeout_seconds: int = Field(default=180, env="VENDOR_API_TIMEOUT_SECONDS")
     # Keep a deploy-time escape hatch while migrating existing Baidu/Volcengine/KIE

@@ -2,27 +2,27 @@ executors:
   - id: executor_vendor_api_domestic_default
     name: "Vendor API Ops · Domestic Node"
     type: vendor_api
-    base_url: "${VENDOR_API_BASE_URL:-http://117.50.80.158:8310}"
+    base_url: "${VENDOR_API_BASE_URL:-http://127.0.0.1:8310}"
     status: active
     weight: 10
     max_concurrency: 8
     config:
       provider: "vendor_api"
       providers: ["baidu", "volcengine", "kie"]
-      baseUrl: "${VENDOR_API_BASE_URL:-http://117.50.80.158:8310}"
+      baseUrl: "${VENDOR_API_BASE_URL:-http://127.0.0.1:8310}"
       tags: ["vendor-api", "domestic-egress"]
       fallbackToLegacy: false
   - id: executor_vendor_api_global_default
     name: "Vendor API Ops · Global Egress Node"
     type: vendor_api
-    base_url: "${VENDOR_API_BASE_URL:-http://117.50.80.158:8310}"
+    base_url: "${VENDOR_API_BASE_URL:-http://127.0.0.1:8310}"
     status: active
     weight: 9
     max_concurrency: 4
     config:
       provider: "vendor_api"
       providers: ["openai", "openai_compatible"]
-      baseUrl: "${VENDOR_API_BASE_URL:-http://117.50.80.158:8310}"
+      baseUrl: "${VENDOR_API_BASE_URL:-http://127.0.0.1:8310}"
       tags: ["vendor-api", "global-egress"]
       fallbackToLegacy: false
   - id: executor_baidu_image_default

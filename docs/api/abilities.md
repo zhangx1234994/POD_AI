@@ -136,6 +136,15 @@
 
 中台会在模型候选图回填到自有 OSS 后，统一归一为精确像素和 DPI，并执行预检。只有该步骤成功，异步能力任务才会进入 `succeeded`；结果会带 `_productionCanvas` 证据。配置非法或输出缺图时返回 `PRODUCTION_CANVAS_CONFIG_INVALID` / `PRODUCTION_CANVAS_SOURCE_MISSING`；归一或预检失败时任务保持失败，不扣成功费用，也不得进入设计篮或生产订单。
 
+#### Packy · GPT Image 2（中台托管）
+
+- 能力 ID：`packy_gpt_image_2_generate`、`packy_gpt_image_2_edit`；provider 固定为 `openai_compatible`，经本机 `vendor-api-ops` 调用。
+- 配置：仅在中台运行环境设置 `OPENAI_COMPATIBLE_BASE_URL=https://www.packyapi.com` 与 `OPENAI_COMPATIBLE_API_KEY`。业务客户端不得持有或请求该密钥。
+- 文生图：调用 `/v1/images/generations`，当前受控模型为 `gpt-image-2`，单次固定生成 1 张。
+- 图片编辑：调用 `/v1/images/edits`，Packy 要求 multipart 字段名为 `image`，当前能力只接受 1 张主图。若输入额外参考图，返回 `VENDOR_API_INPUT_LIMIT_EXCEEDED`，不会静默忽略。
+- 可选尺寸由能力 schema 限定为 Packy 已验证预设；进入实物生产仍必须通过生产画布交付门禁，不能用模型输出尺寸替代最终生产尺寸。
+- 参考：[Packy GPT Image 文档](https://docs.packyapi.com/docs/paint/GPTImage.html)。
+
 ### KIE · Veo3.1 Fast 视频生成
 
 - 能力：`provider=kie`，`capabilityKey=veo3_1_fast_video`

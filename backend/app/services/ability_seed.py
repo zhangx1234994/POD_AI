@@ -14,6 +14,7 @@ from app.constants.abilities import (
     COMFYUI_ABILITIES,
     KIE_MARKET_ABILITIES,
     OPENAI_IMAGE_ABILITIES,
+    PACKY_IMAGE_ABILITIES,
     PODI_UTILITY_ABILITIES,
     VL_ABILITIES,
     VOLCENGINE_IMAGE_ABILITIES,
@@ -134,6 +135,21 @@ def _build_default_seeds() -> list[AbilitySeed]:
                 category=definition.get("category", "image_generation"),
                 capability_key=capability_key,
                 display_name=definition.get("display_name") or f"OpenAI · {capability_key}",
+                description=definition.get("description") or "",
+                status="active",
+                default_params=definition.get("defaults") or None,
+                input_schema=definition.get("input_schema"),
+                metadata=definition.get("metadata") or {"executor_type": "vendor_api"},
+            )
+        )
+    for capability_key, definition in PACKY_IMAGE_ABILITIES.items():
+        seeds.append(
+            AbilitySeed(
+                id=f"packy_{capability_key}",
+                provider="openai_compatible",
+                category=definition.get("category", "image_generation"),
+                capability_key=capability_key,
+                display_name=definition.get("display_name") or f"Packy · {capability_key}",
                 description=definition.get("description") or "",
                 status="active",
                 default_params=definition.get("defaults") or None,

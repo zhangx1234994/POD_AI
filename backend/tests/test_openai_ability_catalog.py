@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.constants.abilities import OPENAI_IMAGE_ABILITIES
+from app.constants.abilities import OPENAI_IMAGE_ABILITIES, PACKY_IMAGE_ABILITIES
 
 
 def test_openai_gpt_image_2_generation_ability_is_seeded() -> None:
@@ -47,3 +47,18 @@ def test_openai_gpt_image_2_edit_ability_keeps_mask_without_unsupported_fidelity
     assert fields["size"]["default"] == "auto"
     assert "input_fidelity" not in fields
     assert "transparent" not in {option["value"] for option in fields["background"]["options"]}
+
+
+def test_packy_gpt_image_2_edit_is_single_image_openai_compatible() -> None:
+    ability = PACKY_IMAGE_ABILITIES["gpt_image_2_edit"]
+    fields = {item["name"]: item for item in ability["input_schema"]["fields"]}
+
+    assert ability["endpoint"] == "/v1/images/edits"
+    assert ability["defaults"]["multipart_image_field"] == "image"
+    assert ability["defaults"]["max_input_images"] == 1
+    assert ability["metadata"]["provider_family"] == "openai_compatible"
+    assert ability["metadata"]["supports_multiple_images"] is False
+    assert ability["metadata"]["max_input_images"] == 1
+    assert ability["metadata"]["multipart_image_field"] == "image"
+    assert "image_url" in fields
+    assert "image_urls" not in fields

@@ -29,6 +29,9 @@ class OpenAIAdapter:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        input_limit_error = _validate_image_edit_input_limit(request)
+        if input_limit_error is not None:
+            return InvocationResult(), input_limit_error, {"request": _safe_request(payload)}
         try:
             if api_type == "image_edit":
                 response, raw_request = _post_image_edit(
@@ -414,11 +417,12 @@ def _post_image_edit(
     files: list[tuple[str, tuple[str, bytes, str]]] = []
     raw_request = _safe_request(payload)
     image_urls = _input_urls(inputs, request.assets)
+    image_field = _first_str(inputs.get("multipart_image_field") or inputs.get("multipartImageField")) or "image[]"
     for index, image_url in enumerate(image_urls):
         file_payload = _download_file(image_url, fallback_name=f"image_{index}.png")
         if file_payload is None:
             raise httpx.RequestError(f"Failed to download OpenAI edit image: {image_url}")
-        files.append(("image[]", file_payload))
+        files.append((image_field, file_payload))
     mask_url = _first_str(inputs.get("mask_url") or inputs.get("maskUrl"))
     if mask_url:
         file_payload = _download_file(mask_url, fallback_name="mask.png")
@@ -430,10 +434,29 @@ def _post_image_edit(
 
     data = _multipart_fields(payload)
     raw_request["image_count"] = len(image_urls)
+    raw_request["multipart_image_field"] = image_field
     raw_request["mask_present"] = bool(mask_url)
     headers = {"Authorization": f"Bearer {api_key}"}
     response = httpx.post(url, headers=headers, data=data, files=files, timeout=timeout)
     return response, raw_request
+
+
+def _validate_image_edit_input_limit(request: Any) -> InvocationError | None:
+    """Reject incompatible image counts before a provider sees a partial edit request."""
+
+    inputs = dict(request.inputs or {})
+    limit = _positive_int(inputs.get("max_input_images") or inputs.get("maxInputImages"))
+    if not limit:
+        return None
+    image_urls = _input_urls(inputs, request.assets)
+    if len(image_urls) <= limit:
+        return None
+    return InvocationError(
+        code="VENDOR_API_INPUT_LIMIT_EXCEEDED",
+        message=f"This provider accepts at most {limit} input image(s); received {len(image_urls)}.",
+        retryable=False,
+        suggestion="Use a multi-image capability or merge references before retrying.",
+    )
 
 
 def _multipart_fields(payload: dict[str, Any]) -> dict[str, str]:
@@ -665,6 +688,14 @@ def _first_str(value: Any) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 openai_adapter = OpenAIAdapter()

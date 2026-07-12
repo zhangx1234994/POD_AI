@@ -517,6 +517,93 @@ def test_openai_image_edit_calls_real_contract(monkeypatch) -> None:
     assert [item[0] for item in captured["files"]] == ["image[]", "mask"]
 
 
+def test_openai_compatible_image_edit_uses_provider_multipart_field(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post(
+        "/v1/keys",
+        json={"provider": "openai_compatible", "alias": "packy-image-edit", "key": "sk-test-packy-image-edit"},
+    )
+    captured = {}
+
+    def fake_get(url, timeout=None):
+        return httpx.Response(
+            200,
+            content=b"image-bytes",
+            headers={"content-type": "image/png"},
+            request=httpx.Request("GET", url),
+        )
+
+    def fake_post(url, headers=None, json=None, data=None, files=None, timeout=None):
+        captured["url"] = url
+        captured["data"] = data
+        captured["files"] = files
+        return httpx.Response(
+            200,
+            json={"data": [{"url": "https://example.com/packy-edited.png"}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    response = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "openai_compatible",
+            "capabilityKey": "gpt_image_2_edit",
+            "model": "gpt-image-2",
+            "apiType": "image_edit",
+            "inputs": {
+                "prompt": "turn this into a seamless botanical pattern",
+                "image_url": "https://example.com/source.png",
+                "size": "1536x864",
+                "quality": "high",
+                "output_format": "png",
+                "multipart_image_field": "image",
+                "max_input_images": 1,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result"]["images"][0]["url"] == "https://example.com/packy-edited.png"
+    assert captured["url"].endswith("/v1/images/edits")
+    assert [item[0] for item in captured["files"]] == ["image"]
+    assert "multipart_image_field" not in captured["data"]
+    assert "max_input_images" not in captured["data"]
+
+
+def test_openai_compatible_image_edit_rejects_excess_input_images(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post(
+        "/v1/keys",
+        json={"provider": "openai_compatible", "alias": "packy-image-limit", "key": "sk-test-packy-image-limit"},
+    )
+
+    response = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "openai_compatible",
+            "capabilityKey": "gpt_image_2_edit",
+            "model": "gpt-image-2",
+            "apiType": "image_edit",
+            "inputs": {
+                "prompt": "edit the image",
+                "image_url": "https://example.com/source.png",
+                "image_urls": ["https://example.com/reference.png"],
+                "max_input_images": 1,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["status"] == "failed"
+    assert body["error"]["code"] == "VENDOR_API_INPUT_LIMIT_EXCEEDED"
+    assert body["error"]["retryable"] is False
+
+
 def test_openai_image_generation_calls_real_contract(monkeypatch) -> None:
     client = TestClient(app)
     client.post("/v1/keys", json={"provider": "openai", "alias": "image-generate", "key": "sk-test-image-generate"})

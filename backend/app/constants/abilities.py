@@ -1104,6 +1104,95 @@ def _openai_metadata(
     }
 
 
+def _packy_image_generation_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("提示词", "Prompt"),
+                "placeholder": _compose_bilingual_label("描述要生成的图案或设计", "Describe the design to generate"),
+                "required": True,
+            },
+            {
+                "name": "size",
+                "type": "select",
+                "label": _compose_bilingual_label("输出尺寸", "Output Size"),
+                "options": [
+                    {"label": "1024x1024", "value": "1024x1024"},
+                    {"label": "1536x864", "value": "1536x864"},
+                    {"label": "1536x1024", "value": "1536x1024"},
+                    {"label": "1024x1536", "value": "1024x1536"},
+                    {"label": "3840x2160", "value": "3840x2160"},
+                ],
+                "default": "1536x864",
+            },
+            {
+                "name": "quality",
+                "type": "select",
+                "label": _compose_bilingual_label("质量", "Quality"),
+                "options": [
+                    {"label": "auto", "value": "auto"},
+                    {"label": "high", "value": "high"},
+                    {"label": "medium", "value": "medium"},
+                    {"label": "low", "value": "low"},
+                ],
+                "default": "high",
+            },
+            {
+                "name": "output_format",
+                "type": "select",
+                "label": _compose_bilingual_label("输出格式", "Output Format"),
+                "options": [{"label": "png", "value": "png"}, {"label": "jpeg", "value": "jpeg"}],
+                "default": "png",
+            },
+        ]
+    }
+
+
+def _packy_image_edit_schema() -> dict[str, Any]:
+    schema = _packy_image_generation_schema()
+    fields = list(schema["fields"])
+    fields.insert(
+        1,
+        {
+            "name": "image_url",
+            "type": "image",
+            "label": _compose_bilingual_label("主图 URL", "Source Image URL"),
+            "description": _compose_bilingual_label(
+                "Packy GPT Image 2 单次只接收 1 张主图；多图请改用支持多参考图的能力。",
+                "Packy GPT Image 2 accepts one source image per edit; use a multi-reference ability for more images.",
+            ),
+            "required": True,
+        },
+    )
+    schema["fields"] = fields
+    return schema
+
+
+def _packy_metadata(*, api_type: str) -> dict[str, Any]:
+    endpoint = "/v1/images/edits" if api_type == "image_edit" else "/v1/images/generations"
+    return {
+        "executor_type": "vendor_api",
+        "executor_tag": "global-egress",
+        "provider_family": "openai_compatible",
+        "vendor": "packyapi",
+        "model_id": "gpt-image-2",
+        "api_type": api_type,
+        "execution_mode": "sync_then_store",
+        "requires_image_input": api_type == "image_edit",
+        "supports_vision": True,
+        "supports_mask": False,
+        "supports_multiple_images": False,
+        "max_input_images": 1 if api_type == "image_edit" else 0,
+        "multipart_image_field": "image" if api_type == "image_edit" else None,
+        "request_endpoint": endpoint,
+        "timeoutSeconds": 300 if api_type == "image_edit" else 240,
+        "seed_version": 1,
+        "reference": "https://docs.packyapi.com/docs/paint/GPTImage.html",
+    }
+
+
 def _comfyui_seamless_schema() -> dict[str, Any]:
     return {
         "fields": [
@@ -2718,6 +2807,42 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
             execution_mode="batch_submit_poll",
             seed_version=1,
         ),
+    },
+}
+
+
+PACKY_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
+    "gpt_image_2_generate": {
+        "endpoint": "/v1/images/generations",
+        "defaults": {
+            "model": "gpt-image-2",
+            "size": "1536x864",
+            "quality": "high",
+            "output_format": "png",
+            "n": 1,
+        },
+        "display_name": "Packy · GPT Image 2 文生图",
+        "description": "Packy OpenAI-compatible GPT Image 2 文生图能力；密钥与调用统一托管在 vendor-api-ops。",
+        "category": "image_generation",
+        "input_schema": _packy_image_generation_schema(),
+        "metadata": _packy_metadata(api_type="image_generation"),
+    },
+    "gpt_image_2_edit": {
+        "endpoint": "/v1/images/edits",
+        "defaults": {
+            "model": "gpt-image-2",
+            "size": "1536x864",
+            "quality": "high",
+            "output_format": "png",
+            "n": 1,
+            "multipart_image_field": "image",
+            "max_input_images": 1,
+        },
+        "display_name": "Packy · GPT Image 2 图片编辑",
+        "description": "Packy OpenAI-compatible GPT Image 2 单主图编辑能力；多参考图不会被静默截断。",
+        "category": "image_generation",
+        "input_schema": _packy_image_edit_schema(),
+        "metadata": _packy_metadata(api_type="image_edit"),
     },
 }
 
