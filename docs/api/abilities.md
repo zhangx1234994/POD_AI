@@ -119,6 +119,23 @@
 > - `metadata`：调用方自定义上下文（日志可见，不参与能力逻辑）。
 > - **执行器必须配置**：每个能力都要在管理端（或 `/api/admin/abilities/{id}`）绑定一个可用的 `executor_id`，否则调用会返回 `400 ABILITY_EXECUTOR_NOT_CONFIGURED`。常见原因是执行节点尚未创建或被禁用。
 
+#### 生产画布交付门禁
+
+对需要进入实物生产的图片任务，业务端可在 `metadata.productionCanvas` 声明最终生产文件：
+
+```json
+{
+  "enabled": true,
+  "targetWidth": 2717,
+  "targetHeight": 1476,
+  "targetDpi": 150,
+  "mode": "cover",
+  "purpose": "agent_design_surface"
+}
+```
+
+中台会在模型候选图回填到自有 OSS 后，统一归一为精确像素和 DPI，并执行预检。只有该步骤成功，异步能力任务才会进入 `succeeded`；结果会带 `_productionCanvas` 证据。配置非法或输出缺图时返回 `PRODUCTION_CANVAS_CONFIG_INVALID` / `PRODUCTION_CANVAS_SOURCE_MISSING`；归一或预检失败时任务保持失败，不扣成功费用，也不得进入设计篮或生产订单。
+
 ### KIE · Veo3.1 Fast 视频生成
 
 - 能力：`provider=kie`，`capabilityKey=veo3_1_fast_video`

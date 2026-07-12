@@ -328,6 +328,7 @@ curl -X POST "$PODI_BACKEND/api/business/image-edit-chat/sessions/ags_xxx/confir
 | 业务版本或配方不可用 | `BUSINESS_CAPABILITY_NOT_FOUND`、`BUSINESS_RECIPE_INVALID`、`BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE` | 暂停调用该业务版本，保留 `traceId/requestId` 给平台排查。 | 检查默认版本、配方步骤、能力启停、模型门禁和回滚版本。 |
 | 业务方额度或并发限制 | `BUSINESS_CLIENT_DISABLED`、`BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`、`BUSINESS_CLIENT_CONCURRENCY_LIMITED`、`BUSINESS_CLIENT_DAILY_RUN_LIMITED`、`BUSINESS_CLIENT_DAILY_QUOTA_LIMITED` | 不要高频重试；等并发释放或联系平台调整策略。 | 管理端业务方配置页必须能看到限制来源。 |
 | 执行节点、队列或上游失败 | `COMFYUI_IMAGE_REQUIRED`、`COMFYUI_TIMEOUT`、`ABILITY_TASK_FAILED`、`VENDOR_API_EXECUTION_FAILED` | 可按业务策略稍后重试一次；连续失败时保留 `runId/taskId` 排查。 | 检查执行节点健康、队列、模型 Key、出网、OSS 回填和能力调用日志。 |
+| 生成候选图但生产画布未验收 | `PRODUCTION_CANVAS_CONFIG_INVALID`、`PRODUCTION_CANVAS_SOURCE_MISSING`、`PRODUCTION_CANVAS_*`、`PRODUCTION_PREFLIGHT_*` | 不展示为可下单设计，也不自动扣费；保留方案，待当前通道重试或切换已批准的备用通道。 | 先将候选图精确归一到声明的像素/DPI，再通过预检；任一环节失败都必须把任务置为失败并写入可追溯证据。 |
 | 查询不到任务 | `BUSINESS_RUN_NOT_FOUND`、`BUSINESS_RUN_FORBIDDEN` | 确认 `runId` 是否属于当前业务方，不要把底层 `taskId` 当 `runId` 使用。 | 排查租户隔离、任务写入和历史数据迁移。 |
 | 查询临时不可用 | `BUSINESS_RUN_TEMPORARY_UNAVAILABLE` | 稍后重试查询，不需要重新提交任务；持续出现时把 `runId/traceId` 发给平台。 | 检查数据库、索引、连接池和业务步骤查询链路，禁止把 SQL 原文返回给业务方。 |
 | 兼容调用上下文非法 | `PROJECT_NOT_FOUND`、`PROJECT_FORBIDDEN`、`PROJECT_RUN_LINK_INVALID` | 旧链路检查 `projectId/inputAssetIds/tenantId/clientId` 是否属于同一个业务方；新链路优先改用 `clientContextId`。 | 任务提交前拦截，不允许把跨上下文资产串到同一个 run。 |

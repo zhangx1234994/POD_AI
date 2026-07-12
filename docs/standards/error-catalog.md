@@ -603,6 +603,7 @@
 | PRODUCTION_ORDER_NOT_READY_FOR_SUPPLIER | 订单尚未支付或未进入运营审核 | 409，只有已支付的运营待审订单能推蜂鸟。 |
 | PRODUCTION_ORDER_OPS_CONFIRMATION_REQUIRED | 运营未明确确认生产 | 409，不能自动推供应商。 |
 | PRODUCTION_CANVAS_SOURCE_INVALID | 生产图源地址非法 | 400，仅允许可访问的 HTTP(S) 图片。 |
+| PRODUCTION_CANVAS_CONFIG_INVALID | 生产画布声明不完整或非法 | 400，调用方已要求生产画布时，不允许静默跳过尺寸/DPI/模式门禁。 |
 | PRODUCTION_CANVAS_SOURCE_LOAD_FAILED | 无法读取生产图源文件 | 400，阻断生产图生成。 |
 | PRODUCTION_CANVAS_SIZE_INVALID | 生产尺寸超出限制 | 400，生产尺寸必须在中台限制内。 |
 | PRODUCTION_CANVAS_MODE_INVALID | 生产贴图模式不支持 | 400，仅允许 cover/tile/seamless。 |
@@ -610,6 +611,8 @@
 | PRODUCTION_PREFLIGHT_SOURCE_LOAD_FAILED | 无法读取待检生产文件 | 400，生产文件不可访问。 |
 | PRODUCTION_PREFLIGHT_DIMENSION_MISMATCH | 生产文件像素尺寸不符 | 400，不能静默用原图或预览图下单。 |
 | PRODUCTION_PREFLIGHT_DPI_TOO_LOW | 生产文件 DPI 低于规格 | 400，阻断不满足产品规格的生产文件。 |
+| PRODUCTION_CANVAS_SOURCE_MISSING | 模型任务未返回可归一化的图片 | 422，异步任务不得标记成功或进入设计篮。 |
+| PRODUCTION_CANVAS_NORMALIZATION_FAILED | 生产画布归一化发生未分类故障 | 502，不扣费、不进入设计篮；保留任务证据以便重试或切换通道。 |
 | PRODUCTION_PREFLIGHT_REQUIRED | 缺少通过的印刷预检 | 409，运营推单前必须有预检证据。 |
 | FENGNIAO_NOT_CONFIGURED | 蜂鸟供应链密钥未配置 | 503，真实密钥只允许环境变量或受控密钥系统。 |
 | FENGNIAO_TEMPLATE_NOT_VERIFIED | 蜂鸟模板工艺或颜色未验证 | 409，禁止猜测模板参数并直接生产。 |

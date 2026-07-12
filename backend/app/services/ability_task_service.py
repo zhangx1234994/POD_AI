@@ -31,6 +31,7 @@ from app.services.task_status_contract import derive_ability_task_status
 from app.services.vendor_api_client import vendor_api_client
 from app.services.vendor_media import persist_vendor_media_payload
 from app.services.wallet import wallet_service
+from app.services.production_canvas import ProductionCanvasError, production_canvas_service
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,12 @@ def _format_task_error(code: str, message: str) -> str:
     safe_message = " ".join(str(message).strip().split())
     safe_message = safe_message.replace("|", "/")
     return f"ERR|{code}|{safe_message}"
+
+
+def _is_openai_gpt_image_2_capability(provider: str | None, capability_key: str | None) -> bool:
+    provider_lower = str(provider or "").strip().lower()
+    capability_lower = str(capability_key or "").strip().lower()
+    return provider_lower in {"openai", "openai_compatible"} and "gpt_image_2" in capability_lower
 
 
 class AbilityTaskService:
@@ -94,7 +101,10 @@ class AbilityTaskService:
             executor_id = payload.executorId or ability.executor_id
             if executor_id:
                 is_comfyui = provider_lower == "comfyui"
-                is_commercial = provider_lower in {"volcengine", "kie"}
+                is_commercial = provider_lower in {"volcengine", "kie"} or _is_openai_gpt_image_2_capability(
+                    ability.provider,
+                    ability.capability_key,
+                )
                 is_async_flag = bool((ability.extra_metadata or {}).get("async_mode") or (ability.extra_metadata or {}).get("callback_mode"))
                 if is_comfyui or is_commercial or is_async_flag:
                     pending_count = self.count_pending_by_executor(
@@ -335,13 +345,19 @@ class AbilityTaskService:
                 next_payload["texts"] = fetched.get("texts") or []
                 next_payload["assets"] = fetched.get("assets") or []
                 next_payload["raw"] = fetched.get("raw")
+                production_error: str | None = None
                 if next_payload["status"] == "succeeded":
+                    next_payload, production_error = self._apply_production_canvas_if_requested(
+                        task=task,
+                        payload=next_payload,
+                    )
+                if next_payload["status"] == "succeeded" and not production_error:
                     db_task.status = "succeeded"
                     db_task.error_message = None
                 else:
                     db_task.status = "failed"
                     err = fetched.get("error") if isinstance(fetched.get("error"), dict) else {}
-                    db_task.error_message = err.get("message") or err.get("code") or "VENDOR_API_TASK_FAILED"
+                    db_task.error_message = production_error or err.get("message") or err.get("code") or "VENDOR_API_TASK_FAILED"
                 db_task.result_payload = next_payload
                 db_task.finished_at = finished_at
                 if not db_task.duration_ms and db_task.started_at:
@@ -560,15 +576,26 @@ class AbilityTaskService:
                 )
 
                 assets: list[dict[str, Any]] = []
+                expected_output_size = self._expected_comfyui_output_size(task)
                 for img in images:
                     if not isinstance(img, dict):
                         continue
                     source_url = img.get("url") or adapter._build_image_url(base_url.rstrip("/"), img)  # type: ignore[attr-defined]
                     base64_data = img.get("base64")
                     if source_url:
-                        asset = adapter._store_remote_asset(source_url, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                        asset = adapter._store_remote_asset(  # type: ignore[attr-defined]
+                            source_url,
+                            ctx,
+                            tag="comfyui",
+                            expected_size=expected_output_size,
+                        )
                     elif base64_data:
-                        asset = adapter._store_base64_asset(base64_data, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                        asset = adapter._store_base64_asset(  # type: ignore[attr-defined]
+                            base64_data,
+                            ctx,
+                            tag="comfyui",
+                            expected_size=expected_output_size,
+                        )
                     else:
                         asset = None
                     if asset:
@@ -614,6 +641,54 @@ class AbilityTaskService:
                 self._record_comfyui_finalize_error(task_id=task.id, error_message=str(exc)[:240])
                 continue
 
+    @staticmethod
+    def _coerce_positive_int(value: Any) -> int | None:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    @staticmethod
+    def _is_flux_strong_hq_softstyle_fission_key(value: Any) -> bool:
+        key = str(value or "").strip()
+        return "flux_strong_hq_softstyle_fission" in key
+
+    def _expected_comfyui_output_size(self, task: AbilityTask) -> tuple[int, int] | None:
+        if not (
+            self._is_flux_strong_hq_softstyle_fission_key(task.capability_key)
+            or self._is_flux_strong_hq_softstyle_fission_key(task.ability_id)
+        ):
+            return None
+        result_payload = task.result_payload if isinstance(task.result_payload, dict) else {}
+        meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+        meta_size = meta.get("expectedOutputSize")
+        if isinstance(meta_size, dict):
+            width = self._coerce_positive_int(meta_size.get("width"))
+            height = self._coerce_positive_int(meta_size.get("height"))
+            if width and height:
+                return width, height
+        width = self._coerce_positive_int(meta.get("expectedOutputWidth"))
+        height = self._coerce_positive_int(meta.get("expectedOutputHeight"))
+        if width and height:
+            return width, height
+        request_payload = task.request_payload if isinstance(task.request_payload, dict) else {}
+        inputs = request_payload.get("inputs") if isinstance(request_payload.get("inputs"), dict) else {}
+        width = self._coerce_positive_int(
+            inputs.get("output_width")
+            or inputs.get("width")
+            or request_payload.get("output_width")
+            or request_payload.get("width")
+        )
+        height = self._coerce_positive_int(
+            inputs.get("output_height")
+            or inputs.get("height")
+            or request_payload.get("output_height")
+            or request_payload.get("height")
+        )
+        if width and height:
+            return width, height
+        return None
 
     def _record_comfyui_finalize_error(self, *, task_id: str, error_message: str) -> None:
         now = datetime.utcnow()
@@ -773,14 +848,19 @@ class AbilityTaskService:
                 next_payload["assets"] = assets
                 next_payload["status"] = "succeeded"
                 next_payload["state"] = state
+                next_payload, production_error = self._apply_production_canvas_if_requested(
+                    task=task,
+                    payload=next_payload,
+                )
                 finished_at = datetime.utcnow()
                 with get_session() as session:
                     db_task = session.get(AbilityTask, task.id)
                     if not db_task:
                         continue
-                    db_task.status = "succeeded"
+                    db_task.status = "failed" if production_error else "succeeded"
                     db_task.result_payload = next_payload
                     db_task.finished_at = finished_at
+                    db_task.error_message = production_error
                     if not db_task.duration_ms and db_task.started_at:
                         try:
                             db_task.duration_ms = int((finished_at - db_task.started_at).total_seconds() * 1000)
@@ -789,14 +869,23 @@ class AbilityTaskService:
                     session.add(db_task)
                     session.commit()
                     try:
-                        ability_log_service.finish_success(
-                            db_task.log_id,
-                            response_payload=next_payload,
-                            duration_ms=db_task.duration_ms,
-                        )
+                        if production_error:
+                            ability_log_service.finish_failure(
+                                db_task.log_id,
+                                error_message=production_error,
+                                response_payload=next_payload,
+                                duration_ms=db_task.duration_ms,
+                            )
+                        else:
+                            ability_log_service.finish_success(
+                                db_task.log_id,
+                                response_payload=next_payload,
+                                duration_ms=db_task.duration_ms,
+                            )
                     except Exception:
                         pass
-                    self._settle_success_wallet(task_id=task.id, db_task=db_task)
+                    if not production_error:
+                        self._settle_success_wallet(task_id=task.id, db_task=db_task)
                 continue
 
             if state == "fail":
@@ -1009,6 +1098,10 @@ class AbilityTaskService:
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("record task cost snapshot failed for ability task %s: %s", task_id, exc)
 
+        metadata = request_payload.get("metadata") if isinstance(request_payload.get("metadata"), dict) else {}
+        if str(metadata.get("billingOwner") or "").strip() == "business_run":
+            return
+
         points = 0
         if total_cost is not None and total_cost > 0:
             rate = max(1, int(getattr(settings, "wallet_points_per_usd", 100) or 100))
@@ -1031,6 +1124,162 @@ class AbilityTaskService:
             logger.warning("wallet settle rejected for ability task %s: %s", task_id, exc.detail)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("wallet settle failed for ability task %s: %s", task_id, exc)
+
+    @staticmethod
+    def _production_canvas_config(task: AbilityTask) -> dict[str, Any] | None:
+        request_payload = task.request_payload if isinstance(task.request_payload, dict) else {}
+        metadata = request_payload.get("metadata") if isinstance(request_payload.get("metadata"), dict) else {}
+        raw = metadata.get("productionCanvas") or metadata.get("production_canvas")
+        if not isinstance(raw, dict) or not bool(raw.get("enabled")):
+            return None
+        try:
+            width = int(raw.get("targetWidth") or raw.get("target_width") or 0)
+            height = int(raw.get("targetHeight") or raw.get("target_height") or 0)
+            dpi = int(raw.get("targetDpi") or raw.get("target_dpi") or 150)
+        except (TypeError, ValueError):
+            return None
+        if width <= 0 or height <= 0 or dpi <= 0:
+            return None
+        mode = str(raw.get("mode") or "cover").strip().lower()
+        return {
+            "width": width,
+            "height": height,
+            "dpi": dpi,
+            "mode": mode,
+            "tiledReviewConfirmed": bool(raw.get("tiledReviewConfirmed") or raw.get("tiled_review_confirmed")),
+            "purpose": str(raw.get("purpose") or "design_surface"),
+        }
+
+    @staticmethod
+    def _first_image_url(payload: dict[str, Any]) -> str | None:
+        def visit(value: Any) -> str | None:
+            if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
+                return value.strip()
+            if isinstance(value, dict):
+                for key in ("ossUrl", "storedUrl", "url", "imageUrl", "image_url"):
+                    resolved = visit(value.get(key))
+                    if resolved:
+                        return resolved
+            if isinstance(value, list):
+                for item in value:
+                    resolved = visit(item)
+                    if resolved:
+                        return resolved
+            return None
+
+        for key in ("images", "assets", "imageUrls", "resultUrls"):
+            resolved = visit(payload.get(key))
+            if resolved:
+                return resolved
+        return None
+
+    def _apply_production_canvas_if_requested(
+        self,
+        *,
+        task: AbilityTask,
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], str | None]:
+        """Replace a generated candidate with the verified print-ready canvas.
+
+        The business client only opts in for design-surface tasks. This keeps
+        generic image editing untouched while ensuring all Agent Image 2 paths
+        use one deterministic production export gate.
+        """
+
+        config = self._production_canvas_config(task)
+        if config is None:
+            request_payload = task.request_payload if isinstance(task.request_payload, dict) else {}
+            metadata = request_payload.get("metadata") if isinstance(request_payload.get("metadata"), dict) else {}
+            raw_config = metadata.get("productionCanvas") or metadata.get("production_canvas")
+            if isinstance(raw_config, dict) and bool(raw_config.get("enabled")):
+                next_payload = dict(payload)
+                next_payload["_productionCanvas"] = {
+                    "status": "failed",
+                    "errorCode": "PRODUCTION_CANVAS_CONFIG_INVALID",
+                }
+                return next_payload, "PRODUCTION_CANVAS_CONFIG_INVALID"
+            return payload, None
+        existing = payload.get("_productionCanvas") if isinstance(payload.get("_productionCanvas"), dict) else {}
+        if existing.get("status") == "succeeded":
+            return payload, None
+        source_url = self._first_image_url(payload)
+        if not source_url:
+            next_payload = dict(payload)
+            next_payload["_productionCanvas"] = {
+                "status": "failed",
+                "errorCode": "PRODUCTION_CANVAS_SOURCE_MISSING",
+            }
+            return next_payload, "PRODUCTION_CANVAS_SOURCE_MISSING"
+
+        user_id = str(task.user_id or "system")
+        try:
+            result = production_canvas_service.compose(
+                source_url=source_url,
+                target_width=config["width"],
+                target_height=config["height"],
+                target_dpi=config["dpi"],
+                mode=config["mode"],
+                user_id=user_id,
+                filename=f"production-canvas-{task.id[:12]}.png",
+                tiled_review_confirmed=config["tiledReviewConfirmed"],
+            )
+            preflight = production_canvas_service.preflight(
+                image_url=result.url,
+                target_width=config["width"],
+                target_height=config["height"],
+                target_dpi=config["dpi"],
+            )
+        except ProductionCanvasError as exc:
+            logger.warning("production canvas failed: task=%s code=%s", task.id, exc.error_code)
+            next_payload = dict(payload)
+            next_payload["_productionCanvas"] = {
+                "status": "failed",
+                "errorCode": exc.error_code,
+            }
+            return next_payload, exc.error_code
+        except Exception:  # pragma: no cover - defensive OSS/network guard
+            logger.exception("production canvas unexpected failure: task=%s", task.id)
+            next_payload = dict(payload)
+            next_payload["_productionCanvas"] = {
+                "status": "failed",
+                "errorCode": "PRODUCTION_CANVAS_NORMALIZATION_FAILED",
+            }
+            return next_payload, "PRODUCTION_CANVAS_NORMALIZATION_FAILED"
+
+        final_asset = {
+            "url": result.url,
+            "ossUrl": result.url,
+            "objectKey": result.object_key,
+            "contentType": "image/png",
+            "tag": "production-canvas",
+            "metadata": {
+                "sourceUrl": source_url,
+                "sourceWidth": result.source_width,
+                "sourceHeight": result.source_height,
+                "targetWidth": result.width,
+                "targetHeight": result.height,
+                "targetDpi": result.dpi,
+                "mode": result.mode,
+                "purpose": config["purpose"],
+                "preflight": preflight,
+            },
+        }
+        next_payload = dict(payload)
+        next_payload["images"] = [final_asset]
+        next_payload["assets"] = [final_asset]
+        next_payload["imageUrls"] = [result.url]
+        next_payload["resultUrls"] = [result.url]
+        next_payload["_productionCanvas"] = {
+            "status": "succeeded",
+            "sourceUrl": source_url,
+            "finalImageUrl": result.url,
+            "width": result.width,
+            "height": result.height,
+            "dpi": result.dpi,
+            "mode": result.mode,
+            "preflight": preflight,
+        }
+        return next_payload, None
 
     def _run_task(self, task_id: str) -> None:
         started_at = datetime.utcnow()
@@ -1083,6 +1332,13 @@ class AbilityTaskService:
             duration = response.durationMs
             if duration is None:
                 duration = int((finished_at - started_at).total_seconds() * 1000)
+            final_payload = response.model_dump()
+            production_error: str | None = None
+            if self._resolve_invoke_status(response.status) == "succeeded":
+                final_payload, production_error = self._apply_production_canvas_if_requested(
+                    task=task,
+                    payload=final_payload,
+                )
             with get_session() as session:
                 db_task = session.get(AbilityTask, task_id)
                 if not db_task:
@@ -1113,13 +1369,13 @@ class AbilityTaskService:
                     db_task.log_id = response.logId
                     db_task.error_message = "ABILITY_TASK_CANCELLED"
                 else:
-                    db_task.status = "succeeded"
+                    db_task.status = "failed" if production_error else "succeeded"
                     db_task.finished_at = finished_at
                     db_task.duration_ms = duration
-                    db_task.result_payload = response.model_dump()
+                    db_task.result_payload = final_payload
                     db_task.log_id = response.logId
-                    db_task.error_message = None
-                    should_settle = True
+                    db_task.error_message = production_error
+                    should_settle = not production_error
                 session.add(db_task)
                 session.commit()
                 if should_settle:
