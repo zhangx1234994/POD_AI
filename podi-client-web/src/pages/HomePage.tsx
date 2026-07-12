@@ -15,42 +15,35 @@ import { inspirationWorks } from "../data/mock-data";
 
 const categoryTiles = [
   { label: "手柄杯", image: "/demo/market/image2-tumbler-product.webp", tag: "热门", desc: "通勤、礼物、活动款" },
-  { label: "马克杯", image: "/demo/market/product-mug-coral-navy.png", tag: "礼物", desc: "办公室和家庭常用" },
   { label: "保温杯", image: "/demo/market/product-tumbler-blue-botanical.png", tag: "通勤", desc: "冬季和户外场景" },
   { label: "运动水壶", image: "/demo/market/product-tumbler-blue-botanical.png", tag: "户外", desc: "社团、运动队、露营" },
-  { label: "咖啡杯", image: "/demo/market/product-mug-coral-navy.png", tag: "门店", desc: "咖啡店和轻礼品" },
+  { label: "冰霸杯", image: "/demo/market/product-can-cooler-dark-botanical.png", tag: "日常", desc: "大容量饮品和礼品" },
   { label: "杯套配件", image: "/demo/market/product-can-cooler-dark-botanical.png", tag: "套装", desc: "组合售卖和增购" },
 ];
 
 const productPreviewImages = [
   "/demo/market/image2-tumbler-product.webp",
-  "/demo/market/product-mug-coral-navy.png",
   "/demo/market/product-tumbler-blue-botanical.png",
   "/demo/market/product-can-cooler-dark-botanical.png",
+  "/demo/market/image2-tumbler-product.webp",
 ];
 
 const creationScenes = [
   {
     title: "只处理图片",
-    desc: "批量清理、扩图、提取花纹，结果可直接下载。",
+    desc: "批量扩图、提取花纹、裂变或连续化，结果可直接下载。",
     image: "/demo/market/pattern-dark-botanical.webp",
   },
   {
     title: "先做样品",
     desc: "选一张图和一款杯子，做一件看实际效果。",
-    image: "/demo/market/product-mug-coral-navy.png",
+    image: "/demo/market/image2-tumbler-product.webp",
   },
   {
     title: "做活动礼品",
     desc: "同一套图案用到多款杯子，适合小批量送礼。",
     image: "/demo/market/product-can-cooler-dark-botanical.png",
   },
-];
-
-const userIntents = [
-  { label: "我想批量处理图片", view: "process" as const },
-  { label: "我想做一件杯子", view: "products" as const },
-  { label: "我想做活动伴手礼", view: "products" as const },
 ];
 
 export default function HomePage() {
@@ -64,41 +57,28 @@ export default function HomePage() {
   return (
     <main className="market-home">
       <section className="market-hero">
-        <div className="hero-intent-row">
-          {userIntents.map((intent, index) => (
-            <button
-              key={intent.label}
-              className={index === 0 ? "active" : ""}
-              onClick={() => navigate(intent.view)}
-            >
-              {intent.label}
-            </button>
-          ))}
-        </div>
-
         <div className="market-hero-copy">
-          <p className="eyebrow">AI 图片批处理 + 定制杯子</p>
+          <p className="eyebrow">AI创品 · 有品，不必一样</p>
           <h1>
-            <span>批量处理图片</span>
-            也能做成定制杯子
+            <span>把你的想法</span>
+            做成属于你的产品
           </h1>
           <p>
-            上传一批图，先清理、扩图、提取花纹或做裂变；喜欢的结果可以保存下载，也可以选杯型先做一件实物。
+            上传一张喜欢的图，或说说你的想法。AI 协助完成设计，供应链把它做成可以收到的实物。
           </p>
           <div className="hero-value-line">
-            <span>批量处理</span>
-            <span>素材可下载</span>
-            <span>1 件起做</span>
-            <span>产品券试做</span>
+            <span>定义个性</span>
+            <span>AI 协作</span>
+            <span>一件起做</span>
           </div>
           <div className="market-hero-actions">
             <button className="primary" onClick={() => navigate("process")}>
               <Wand2 size={18} />
-              上传图片试试
+              开始创作
             </button>
             <button className="secondary" onClick={() => navigate("products")}>
               <ShoppingBag size={18} />
-              查看可做杯型
+              选择杯型
             </button>
           </div>
         </div>
@@ -110,8 +90,8 @@ export default function HomePage() {
 
           <div className="hero-proof">
             <BadgeCheck size={18} />
-            <strong>先把图片处理好，再决定是否做产品</strong>
-            <span>不想下单也可以只保存和下载结果图。</span>
+            <strong>从一张图，到一件只属于你的产品</strong>
+            <span>先看设计效果，再决定是否制作。</span>
           </div>
         </div>
       </section>
@@ -119,23 +99,23 @@ export default function HomePage() {
       <section className="quick-paths">
         {[
           {
-            title: "批量处理图片",
-            desc: "清理、扩图、提花纹、做裂变，一次处理多张图。",
-            action: "上传图片",
+            title: "把图片变成设计素材",
+            desc: "提取花纹、扩展画面或生成连续图，让想法更适合做成产品。",
+            action: "处理图片",
             icon: Images,
             onClick: () => navigate("process"),
           },
           {
-            title: "选杯型做样品",
-            desc: "把喜欢的图片放到杯子上，先做一件看实物。",
-            action: "选杯型",
+            title: "选择一件想做的产品",
+            desc: "把喜欢的图案放上去，先看效果，再决定是否试做。",
+            action: "选择产品",
             icon: Gift,
             onClick: () => navigate("products"),
           },
           {
-            title: "用产品券试做",
-            desc: "有券时先做样品，适合自用、送人或推广验证。",
-            action: "看权益",
+            title: "让创意成为实物",
+            desc: "从一件开始，做给自己、送人，或验证你的新想法。",
+            action: "查看权益",
             icon: PackageCheck,
             onClick: () => navigate("wallet"),
           },
@@ -155,7 +135,7 @@ export default function HomePage() {
       <section className="market-section product-market">
         <div className="market-section-heading">
           <div>
-            <p className="eyebrow">AI创品杯子款式</p>
+            <p className="eyebrow">POD 杯子款式</p>
             <h2>选一款杯子，先做成实物。</h2>
             <span>当前先开放杯子类。选款式、选图案，生成预览后可以试做一件。</span>
           </div>
@@ -181,7 +161,7 @@ export default function HomePage() {
           <h2>一批图，一次处理好。</h2>
           <div className="workflow-list">
             {[
-              ["01 选择处理方式", "清理、扩图、提花纹、做裂变，需要哪个选哪个。"],
+              ["01 选择处理方式", "扩图、提花纹、做裂变或连续图，需要哪个选哪个。"],
               ["02 上传多张图片", "一次处理一批，不用一张张重复操作。"],
               ["03 保存喜欢的结果", "可以直接下载，也可以放到杯子上看效果。"],
               ["04 先做一件实物", "拿到样品看效果，合适了再继续做更多。"],
@@ -212,7 +192,10 @@ export default function HomePage() {
                 <button key={product.id} onClick={() => navigate("products")}>
                   <img src={productPreviewImages[index % productPreviewImages.length]} alt={product.name} />
                   <strong>{product.name}</strong>
-                  <span>{surface?.width ? `设计尺寸 ${surface.width}×${surface.height}px` : "支持上传图片定制"}</span>
+                  <span>
+                    {product.sizes[0]?.label || "杯型"}
+                    {surface?.width ? ` · 设计面 ${surface.width}×${surface.height}px` : ""}
+                  </span>
                 </button>
               );
             })}

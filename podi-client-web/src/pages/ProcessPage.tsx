@@ -1,29 +1,18 @@
 /**
  * 图片批处理页 — 能力入口 → 单能力批量处理
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  AlertCircle,
   ArrowLeft,
   ArrowRight,
-  CheckCircle2,
 } from "lucide-react";
 import ImageUploader from "../components/ImageUploader";
 import PageHeader from "../components/PageHeader";
 import { useApp } from "../hooks/useAppState";
-import { demo } from "../data/mock-data";
+import { demo, productDemo } from "../data/mock-data";
 import { abilities, assetTypeLabels } from "../utils/constants";
-import {
-  clientAssetToAssetItem,
-  createClientAsset,
-  hasAccessToken,
-  hasApiKey,
-  fetchClientWallet,
-  getBusinessRun,
-  submitBusinessRun,
-  uploadClientImage,
-} from "../api";
-import type { ApiResult, AssetItem, AssetType, BatchGoalId } from "../types";
+import type { AssetType, BatchGoalId, ProcessTask } from "../types";
+import { createClientProcessTask, uploadClientImage, type ClientBootstrap } from "../api";
 
 type SizeMode = "preset" | "custom";
 
@@ -86,10 +75,10 @@ const abilityPresentation: Record<
     summary: "适合从衣服、杯子、抱枕、场景照片里提取图案。提取后的花纹可以继续裂变、连续化或直接套到产品上。",
     entryCopy: "喜欢某张图的花纹，就把它提出来沉淀成素材。",
     bestFor: ["产品图提花", "参考图提花", "素材沉淀"],
-    productFits: ["杯子", "T 恤", "毛毯", "抱枕"],
+    productFits: ["杯子", "服饰", "毛毯", "抱枕"],
     params: [
       { label: "输出尺寸", value: "默认 1800×1800" },
-      { label: "模型", value: "默认花纹提取" },
+      { label: "提取方案", value: "平台默认" },
       { label: "尺寸", value: "原图 / 常用 / 自定义" },
     ],
     presets: [],
@@ -107,7 +96,7 @@ const abilityPresentation: Record<
     productFits: ["杯子系列", "伴手礼套装", "节日主题图"],
     params: [
       { label: "重绘幅度", value: "30 / 60 / 80%" },
-      { label: "路由配置", value: "智能风险路由" },
+      { label: "处理方式", value: "稳定优先" },
       { label: "锁定策略", value: "颜色 / 结构可控" },
     ],
     presets: ["保守同款", "同系列变化", "创意扩展"],
@@ -154,7 +143,61 @@ const abilityPresentation: Record<
   },
 };
 
-const demoImages = [demo("floral-pattern"), demo("geometric-pattern"), demo("stripe-pattern"), demo("floral-pattern")];
+const visibleAbilities = abilities.filter((ability) => ability.id !== "clean");
+
+const capabilityVisualExamples: Record<
+  BatchGoalId,
+  {
+    source: string;
+    results: string[];
+    mode: "single" | "multi" | "tile" | "extend";
+    sourceLabel: string;
+    resultLabel: string;
+  }
+> = {
+  clean: {
+    source: demo("floral-pattern"),
+    results: [demo("floral-pattern")],
+    mode: "single",
+    sourceLabel: "杂乱原图",
+    resultLabel: "统一素材",
+  },
+  extend: {
+    source: demo("stripe-pattern"),
+    results: [demo("stripe-pattern")],
+    mode: "extend",
+    sourceLabel: "原图",
+    resultLabel: "四周补边",
+  },
+  extract: {
+    source: productDemo("product-tote"),
+    results: [demo("geometric-pattern")],
+    mode: "single",
+    sourceLabel: "产品图",
+    resultLabel: "花纹素材",
+  },
+  variation: {
+    source: demo("floral-pattern"),
+    results: [demo("floral-pattern"), demo("stripe-pattern"), demo("geometric-pattern"), productDemo("product-pillow")],
+    mode: "multi",
+    sourceLabel: "参考图",
+    resultLabel: "4 张候选",
+  },
+  seamless2: {
+    source: demo("stripe-pattern"),
+    results: [demo("stripe-pattern"), demo("stripe-pattern")],
+    mode: "tile",
+    sourceLabel: "原图",
+    resultLabel: "左右连续",
+  },
+  seamless4: {
+    source: demo("geometric-pattern"),
+    results: [demo("geometric-pattern"), demo("geometric-pattern"), demo("geometric-pattern"), demo("geometric-pattern")],
+    mode: "tile",
+    sourceLabel: "原图",
+    resultLabel: "四方平铺",
+  },
+};
 
 const extendPresetPaddings: Record<string, { top: string; right: string; bottom: string; left: string }> = {
   四周等距: { top: "256", right: "256", bottom: "256", left: "256" },
@@ -163,97 +206,65 @@ const extendPresetPaddings: Record<string, { top: string; right: string; bottom:
   上下扩高: { top: "512", right: "0", bottom: "512", left: "0" },
 };
 
-const realBusinessEntries: Partial<Record<BatchGoalId, string>> = {
-  extend: "/api/business/outpaint/runs",
-  extract: "/api/business/pattern-extract/runs",
-  variation: "/api/business/fission/runs",
-  seamless2: "/api/business/seamless/runs",
-  seamless4: "/api/business/seamless/runs",
+function parsePixel(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+}
+
+function parseSizePreset(value: string): { width?: number; height?: number } {
+  if (!value || value.includes("原图尺寸")) return {};
+  const match = value.match(/(\d{2,5})\s*[×xX]\s*(\d{2,5})/);
+  if (!match) return {};
+  const width = parsePixel(match[1]);
+  const height = parsePixel(match[2]);
+  return width > 0 && height > 0 ? { width, height } : {};
+}
+
+function renderCapabilityVisual(goal: BatchGoalId) {
+  const visual = capabilityVisualExamples[goal];
+  return (
+    <div className={`process-flow-visual ${visual.mode}`}>
+      <div className="process-flow-cell source">
+        <img src={visual.source} alt={`${abilityPresentation[goal].headline}原图示例`} />
+        <small>{visual.sourceLabel}</small>
+      </div>
+      <span className="process-flow-arrow">→</span>
+      <div className={`process-flow-results ${visual.mode}`}>
+        {visual.results.map((image, index) => (
+          <div className="process-flow-cell result" key={`${goal}-result-${index}`}>
+            <img src={image} alt={`${abilityPresentation[goal].headline}结果示例 ${index + 1}`} />
+            <small>{index === 0 ? visual.resultLabel : `候选 ${index + 1}`}</small>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const realBusinessAbilityConfig: Partial<Record<BatchGoalId, { businessKey: string; label: string }>> = {
+  extend: { businessKey: "outpaint", label: "可真实生成" },
+  extract: { businessKey: "pattern_extract", label: "可真实生成" },
+  variation: { businessKey: "fission", label: "可真实生成" },
+  seamless2: { businessKey: "seamless", label: "可真实生成" },
+  seamless4: { businessKey: "seamless", label: "可真实生成" },
 };
 
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function parsePixel(value: string) {
-  const numberValue = Number.parseInt(value, 10);
-  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : undefined;
-}
-
-function parseSelectedSize(mode: SizeMode, selectedSize: string, customSize: { width: string; height: string }) {
-  if (mode === "custom") {
-    return {
-      width: parsePixel(customSize.width),
-      height: parsePixel(customSize.height),
-    };
-  }
-  const match = selectedSize.match(/(\d{3,5})\s*×\s*(\d{3,5})/);
-  if (!match) return {};
-  return {
-    width: parsePixel(match[1]),
-    height: parsePixel(match[2]),
-  };
-}
-
-function normalizeBusinessStatus(status: string | undefined) {
-  const value = String(status || "").toLowerCase();
-  if (["succeeded", "success", "completed", "done"].includes(value)) return "completed";
-  if (["failed", "error", "cancelled", "canceled", "timeout"].includes(value)) return "failed";
-  if (["running", "processing", "in_progress", "submitted"].includes(value)) return "processing";
-  return "pending";
-}
-
-function mapWalletForState(wallet: Awaited<ReturnType<typeof fetchClientWallet>>) {
-  return {
-    aiCredits: wallet.pointBalance,
-    productCouponCount: wallet.productCouponCount,
-    coupons: wallet.productCoupons.map((coupon) => ({
-      id: coupon.id,
-      type: "product" as const,
-      name: coupon.name || "产品券",
-      scope: coupon.businessKey || coupon.packageKey,
-      value: `${coupon.remainingUnits} ${coupon.unitName || "张"}`,
-      status: coupon.remainingUnits > 0 ? ("available" as const) : ("used" as const),
-      expiresAt: coupon.expiresAt || "长期有效",
-      source: coupon.source || "账户权益",
-    })),
-    ledger: wallet.ledger.map((entry) => ({
-      id: entry.id,
-      time: entry.createdAt || "",
-      action: entry.description || "账户变动",
-      amount: entry.points,
-      note: entry.traceId || entry.taskId || "",
-    })),
-  };
-}
-
-async function pollBusinessRun(runId: string): Promise<ApiResult> {
-  for (let index = 0; index < 80; index += 1) {
-    const result = await getBusinessRun(runId);
-    const status = normalizeBusinessStatus(result.status);
-    if (!result.ok || status === "failed" || status === "completed") {
-      return result;
-    }
-    await wait(index < 6 ? 1800 : 3200);
-  }
-  return {
-    ok: false,
-    runId,
-    status: "timeout",
-    imageUrls: [],
-    videoUrls: [],
-    error: "任务轮询超时，请在任务中心稍后刷新或到管理端查看 runId。",
-  };
-}
+const pendingBusinessAbilityReason: Partial<Record<BatchGoalId, string>> = {};
+type ProcessTaskWithWallet = ProcessTask & { wallet?: ClientBootstrap["wallet"] };
+const processCreditCostByAbility: Record<BatchGoalId, number> = {
+  clean: 1,
+  extend: 2,
+  extract: 3,
+  variation: 3,
+  seamless2: 2,
+  seamless4: 3,
+};
 
 export default function ProcessPage() {
-  const { state, navigate, dispatch } = useApp();
+  const { state, navigate, dispatch, activeUserId, isAuthenticated } = useApp();
   const [activeAbilityId, setActiveAbilityId] = useState<BatchGoalId | null>(null);
   const [uploaded, setUploaded] = useState(false);
   const [uploadedCount, setUploadedCount] = useState(0);
-  const [uploadedAssets, setUploadedAssets] = useState<AssetItem[]>([]);
-  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "ready" | "error">("idle");
-  const [uploadMessage, setUploadMessage] = useState("");
   const [selectedPreset, setSelectedPreset] = useState("");
   const [sizeMode, setSizeMode] = useState<SizeMode>("preset");
   const [selectedSize, setSelectedSize] = useState("");
@@ -262,6 +273,10 @@ export default function ProcessPage() {
   const [outputCount, setOutputCount] = useState("4");
   const [lockStrategy, setLockStrategy] = useState("颜色和结构");
   const [extendPadding, setExtendPadding] = useState(extendPresetPaddings.四周等距);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const submitLockRef = useRef(false);
 
   const activeAbility = useMemo(
     () => abilities.find((ability) => ability.id === activeAbilityId) ?? null,
@@ -270,9 +285,7 @@ export default function ProcessPage() {
   const sameStyleWork = state.sameStyleWork?.kind === "图片作品" ? state.sameStyleWork : null;
 
   const activePresentation = activeAbilityId ? abilityPresentation[activeAbilityId] : null;
-  const UploadStatusIcon = uploadStatus === "error" ? AlertCircle : CheckCircle2;
-  const businessApiReady = hasAccessToken() || hasApiKey();
-  const supportsRealBusinessRun = activeAbilityId ? Boolean(realBusinessEntries[activeAbilityId]) : false;
+  const activeRealConfig = activeAbilityId ? realBusinessAbilityConfig[activeAbilityId] : null;
   const activeSizeLabel =
     activeAbilityId === "extend"
       ? `上${extendPadding.top}px / 右${extendPadding.right}px / 下${extendPadding.bottom}px / 左${extendPadding.left}px`
@@ -286,33 +299,22 @@ export default function ProcessPage() {
         ? selectedPreset || "自定义扩图"
         : activeAbilityId === "clean"
           ? selectedPreset || "默认标准化"
-          : "默认处理";
+          : activeAbility?.title || "图片处理";
   const canSubmit =
     uploaded &&
-    businessApiReady &&
-    supportsRealBusinessRun &&
     (activeAbilityId === "extend"
       ? Object.values(extendPadding).some((value) => Number(value) > 0)
       : sizeMode === "preset" || (Number(customSize.width) > 0 && Number(customSize.height) > 0));
-
-  const refreshWallet = useCallback(async () => {
-    if (!hasAccessToken()) return;
-    try {
-      const wallet = await fetchClientWallet();
-      dispatch({ type: "SET_CLIENT_WALLET", ...mapWalletForState(wallet) });
-    } catch {
-      // Wallet refresh is best-effort; task state should still finish visibly.
-    }
-  }, [dispatch]);
+  const estimatedCreditCost = activeAbilityId ? uploadedCount * processCreditCostByAbility[activeAbilityId] : 0;
+  const creditBalanceAfterSubmit = state.aiCredits - estimatedCreditCost;
 
   const openAbility = (goal: BatchGoalId) => {
     const presentation = abilityPresentation[goal];
     setActiveAbilityId(goal);
     setUploaded(false);
     setUploadedCount(0);
-    setUploadedAssets([]);
-    setUploadStatus("idle");
-    setUploadMessage("");
+    setSelectedFiles([]);
+    setSubmitError("");
     setSelectedPreset(presentation.presets[0] ?? "");
     setSelectedSize(presentation.sizePresets[0] ?? "");
     setCustomSize(presentation.defaultCustomSize);
@@ -328,297 +330,70 @@ export default function ProcessPage() {
     setActiveAbilityId(null);
     setUploaded(false);
     setUploadedCount(0);
-    setUploadedAssets([]);
-    setUploadStatus("idle");
-    setUploadMessage("");
+    setSelectedFiles([]);
+    setSubmitError("");
   };
 
-  const handleFilesSelected = useCallback(async (files: File[]) => {
-    setUploadedAssets([]);
-    setUploadMessage("");
+  const handleFilesSelected = useCallback((files: File[]) => {
     setUploaded(true);
     setUploadedCount(files.length);
-
-    if (!businessApiReady) {
-      setUploadStatus("error");
-      setUploadMessage("请先登录账户，再提交真实中台任务。");
-      return;
-    }
-
-    setUploaded(false);
-    setUploadStatus("uploading");
-    setUploadMessage(`正在保存 ${files.length} 张图片`);
-
-    try {
-      const savedAssets = await Promise.all(
-        files.map(async (file) => {
-          const upload = await uploadClientImage(file);
-          if (hasAccessToken()) {
-            const asset = await createClientAsset({
-              assetType: "input_image",
-              url: upload.url,
-              contentType: file.type || "application/octet-stream",
-              fileName: file.name,
-              inputTags: [activeAbilityId || "process"],
-              metadata: {
-                size: file.size,
-                objectKey: upload.objectKey,
-                uploadName: upload.name,
-              },
-            });
-            return {
-              ...clientAssetToAssetItem(asset),
-              selected: true,
-              source: "本次上传",
-            };
-          }
-          return {
-            id: `upload-${upload.objectKey}`,
-            type: "original" as const,
-            title: file.name || "上传图片",
-            url: upload.url,
-            thumbnailUrl: upload.url,
-            createdAt: new Date().toLocaleString("zh-CN"),
-            selected: true,
-            source: "本次上传",
-            favorite: false,
-            visibility: "private" as const,
-          };
-        })
-      );
-
-      dispatch({ type: "ADD_ASSETS", assets: savedAssets });
-      setUploadedAssets(savedAssets);
-      setUploaded(true);
-      setUploadedCount(savedAssets.length);
-      setUploadStatus("ready");
-      setUploadMessage(`已保存 ${savedAssets.length} 张图片`);
-    } catch (error) {
-      setUploaded(false);
-      setUploadStatus("error");
-      setUploadMessage(error instanceof Error ? error.message : "图片保存失败");
-    }
-  }, [activeAbilityId, dispatch]);
-
-  const buildBusinessPayload = (asset: AssetItem, requestIndex: number) => {
-    if (!activeAbilityId) return null;
-    const size = parseSelectedSize(sizeMode, selectedSize, customSize);
-    const basePayload: Record<string, unknown> = {
-      imageUrl: asset.url,
-      source: "podi-client-web",
-      channel: "client-web",
-      traceId: `client-${Date.now()}-${requestIndex}`,
-      requestId: `podi-client-${Date.now()}-${requestIndex}`,
-      metadata: {
-        clientTaskType: activeAbilityId,
-        optionLabel: activeOptionLabel,
-        sizeLabel: activeSizeLabel,
-      },
-    };
-
-    if (activeAbilityId === "extract") {
-      return {
-        ...basePayload,
-        ...size,
-        batch: 1,
-        timeout: 600,
-      };
-    }
-
-    if (activeAbilityId === "extend") {
-      return {
-        ...basePayload,
-        prompt: "在原图基础上自然补全外扩区域，保持主体、纹理走势和色彩密度一致。",
-        expand_top: parsePixel(extendPadding.top) || 0,
-        expand_right: parsePixel(extendPadding.right) || 0,
-        expand_bottom: parsePixel(extendPadding.bottom) || 0,
-        expand_left: parsePixel(extendPadding.left) || 0,
-        timeout: 600,
-      };
-    }
-
-    if (activeAbilityId === "variation") {
-      return {
-        ...basePayload,
-        ...size,
-        mode: "fission",
-        bili: `${variationStrength}%`,
-        profile: "pattern_risk_routed_v4",
-        reference_lock: lockStrategy === "自由探索" ? 0.3 : lockStrategy === "只锁定结构" ? 0.46 : 0.42,
-        color_lock: lockStrategy === "自由探索" ? 0.55 : lockStrategy === "只锁定结构" ? 0.65 : 0.86,
-        timeout: 600,
-      };
-    }
-
-    if (activeAbilityId === "seamless2" || activeAbilityId === "seamless4") {
-      const patternType = activeAbilityId === "seamless2" ? "twoway" : "seamless";
-      return {
-        ...basePayload,
-        ...size,
-        patternType,
-        pattern_type: patternType,
-        prompt:
-          activeAbilityId === "seamless2"
-            ? "保持花纹主体、颜色和纹理密度，让左右边缘自然连续，适合杯身环绕贴图。"
-            : "保持花纹主体、颜色和纹理密度，让上下左右边缘自然连续，适合布料和壁纸平铺。",
-        timeout: 600,
-      };
-    }
-
-    return null;
-  };
+    setSelectedFiles(files);
+    setSubmitError("");
+  }, []);
 
   const startProcessing = async () => {
-    if (!activeAbility || !activeAbilityId || !activePresentation || !canSubmit) return;
-    const endpoint = realBusinessEntries[activeAbilityId];
-    if (!endpoint) {
-      setUploadStatus("error");
-      setUploadMessage("这个能力还没有真实业务入口，不能用演示数据代替。");
+    if (!activeAbility || !activeAbilityId || !activePresentation || !canSubmit || submitting || submitLockRef.current) return;
+    if (!isAuthenticated) {
+      setSubmitError("请先登录，任务结果会保存到你的素材库。");
+      window.setTimeout(() => navigate("account"), 600);
       return;
     }
-
-    const sourceAssets = uploadedAssets.filter((asset) => asset.url);
-    if (sourceAssets.length === 0) {
-      setUploadStatus("error");
-      setUploadMessage("图片还没有保存到 OSS，不能提交真实业务任务。请重新上传。");
+    if (estimatedCreditCost > state.aiCredits) {
+      setSubmitError(`积分不足：本次需要 ${estimatedCreditCost} 积分，当前可用 ${state.aiCredits} 积分。请先充值后再提交。`);
+      window.setTimeout(() => navigate("wallet"), 900);
       return;
     }
-
-    const nextTaskId = `PODI-${Date.now().toString().slice(-8)}`;
-    const createdAt = new Date().toLocaleString("zh-CN");
-    const variationRunsPerImage = activeAbilityId === "variation" ? Number(outputCount) : 1;
-    const taskResultCount = sourceAssets.length * Math.max(1, variationRunsPerImage);
-    const taskInputImages = sourceAssets.slice(0, 6).map((asset) => asset.thumbnailUrl);
-
-    dispatch({
-      type: "ADD_PROCESS_TASK",
-      task: {
-        id: nextTaskId,
-        runIds: [],
-        type: activeAbilityId,
-        status: "pending",
-        inputAssetIds: sourceAssets.map((asset) => asset.id),
-        outputAssetIds: [],
-        createdAt,
-        abilityTitle: activeAbility.title,
-        outputLabel: activeAbility.output,
-        inputCount: sourceAssets.length,
-        resultCount: taskResultCount,
-        optionLabel: activeOptionLabel,
-        sizeLabel: activeSizeLabel,
-        resultType: activePresentation.resultType,
-        inputImages: taskInputImages,
-        resultImages: [],
-        executionMode: "business",
-      },
-    });
-
-    navigate("tasks");
-
+    submitLockRef.current = true;
+    setSubmitting(true);
+    setSubmitError("");
     try {
-      const requests = sourceAssets.flatMap((asset) =>
-        Array.from({ length: Math.max(1, variationRunsPerImage) }).map((_, index) => ({
-          asset,
-          payload: buildBusinessPayload(asset, index),
-        }))
-      );
-      const invalidRequest = requests.find((item) => !item.payload);
-      if (invalidRequest) {
-        throw new Error("任务参数生成失败，请检查能力配置。");
+      const uploads = selectedFiles.length > 0
+        ? await Promise.all(selectedFiles.map((file) => uploadClientImage(file, activeUserId)))
+        : [];
+      const inputImages = uploads.map((item) => item.url);
+      if (!activeRealConfig) {
+        throw new Error(`${activeAbility.title}暂未开放真实生成。本版本不会返回本地假结果，开放后可在这里直接提交。`);
       }
-
-      dispatch({
-        type: "UPDATE_PROCESS_TASK",
-        id: nextTaskId,
-        patch: { status: "processing" },
-      });
-
-      const submitted = [];
-      for (const [index, request] of requests.entries()) {
-        const submitResult = await submitBusinessRun(endpoint, request.payload || {});
-        if (!submitResult.ok || !submitResult.runId) {
-          throw new Error(submitResult.error || "业务任务提交失败，未返回 runId。");
-        }
-        submitted.push(submitResult.runId);
+      const task = await submitRealBusinessTask(inputImages, activeRealConfig);
+      dispatch({ type: "ADD_PROCESS_TASK", task });
+      if (task.wallet) dispatch({ type: "SET_WALLET", wallet: task.wallet });
+      if (task.resultImages?.length) {
+        const createdAt = task.completedAt || new Date().toLocaleString("zh-CN");
         dispatch({
-          type: "UPDATE_PROCESS_TASK",
-          id: nextTaskId,
-          patch: { runIds: submitted },
+          type: "ADD_ASSETS",
+          assets: task.resultImages.map((image, index) => ({
+            id: task.outputAssetIds[index] || `asset-${task.id}-${index}`,
+            type: task.resultType || activePresentation.resultType,
+            title: `${assetTypeLabels[task.resultType || activePresentation.resultType]} · ${activeAbility.title} ${String(index + 1).padStart(2, "0")}`,
+            url: image,
+            thumbnailUrl: image,
+            source: activeAbility.title,
+            createdAt,
+            selected: false,
+            favorite: false,
+            visibility: "private" as const,
+            batchId: task.id,
+          })),
         });
-        if (index < requests.length - 1) await wait(350);
       }
-
-      const finalResults = await Promise.all(submitted.map((runId) => pollBusinessRun(runId)));
-      const failed = finalResults.find((result) => !result.ok || normalizeBusinessStatus(result.status) === "failed");
-      if (failed) {
-        throw new Error(failed.error || `业务任务失败：${failed.runId || "unknown run"}`);
-      }
-
-      const resultImages = Array.from(new Set(finalResults.flatMap((result) => result.imageUrls))).slice(0, 24);
-      if (resultImages.length === 0) {
-        throw new Error("业务任务已返回，但没有拿到图片结果 URL。");
-      }
-
-      const completedAt = new Date().toLocaleString("zh-CN");
-      const outputAssets = resultImages.map((image, index) => ({
-        id: `business-${nextTaskId}-${index}`,
-        type: activePresentation.resultType,
-        title: `${assetTypeLabels[activePresentation.resultType]} · ${activeAbility.title} ${String(index + 1).padStart(2, "0")}`,
-        url: image,
-        thumbnailUrl: image,
-        source: activeAbility.title,
-        createdAt: completedAt,
-        selected: false,
-        favorite: false,
-        visibility: "private" as const,
-        batchId: nextTaskId,
-      }));
-
-      dispatch({
-        type: "ADD_ASSETS",
-        assets: outputAssets,
-      });
-      dispatch({
-        type: "UPDATE_PROCESS_TASK",
-        id: nextTaskId,
-        patch: {
-          status: "completed",
-          completedAt,
-          outputAssetIds: outputAssets.map((asset) => asset.id),
-          resultImages,
-        },
-      });
-      await refreshWallet();
+      navigate("tasks");
     } catch (error) {
-      dispatch({
-        type: "UPDATE_PROCESS_TASK",
-        id: nextTaskId,
-        patch: {
-          status: "failed",
-          completedAt: new Date().toLocaleString("zh-CN"),
-          errorMessage: error instanceof Error ? error.message : "真实业务任务执行失败",
-        },
-      });
-      await refreshWallet();
+      setSubmitError(error instanceof Error ? error.message : "任务提交失败，请稍后重试。");
+    } finally {
+      submitLockRef.current = false;
+      setSubmitting(false);
     }
   };
-
-  const passiveAbilityNote =
-    activeAbilityId === "extract"
-      ? "花纹提取使用默认花纹提取模型。这里不需要选择 LoRA，先确定输出尺寸即可。"
-      : activeAbilityId === "seamless2"
-        ? "两方连续固定处理左右接缝。核心决策是输出尺寸，适合杯身、瓶身这类横向环绕产品。"
-        : activeAbilityId === "seamless4"
-          ? "四方连续固定处理上下左右平铺。核心决策是输出尺寸，适合布料、壁纸和大面积印花。"
-          : "";
-  const configIntro =
-    activeAbilityId === "extend"
-      ? "选择扩图预设，或直接填写上、右、下、左各扩多少像素。"
-      : activeAbilityId === "variation"
-        ? "先确定输出尺寸，再设置裂变幅度、候选张数和锁定策略。"
-        : activeAbilityId === "clean"
-          ? "先确定输出尺寸，再选择标准化方式、DPI 和输出格式。"
-          : "先确定输出尺寸。常用尺寸后续会跟产品模板和设计面数据联动。";
 
   const applyExtendPreset = (preset: string) => {
     setSelectedPreset(preset);
@@ -628,6 +403,102 @@ export default function ProcessPage() {
   const updateExtendPadding = (side: keyof typeof extendPadding, value: string) => {
     setSelectedPreset("自定义扩图");
     setExtendPadding((padding) => ({ ...padding, [side]: value }));
+  };
+
+  const submitRealBusinessTask = async (
+    inputImages: string[],
+    config: { businessKey: string; label: string }
+  ): Promise<ProcessTaskWithWallet> => {
+    if (!activeAbilityId) throw new Error("请先选择图片处理能力。");
+    const perImageOutputCount = activeAbilityId === "variation" ? Math.max(1, Number(outputCount) || 1) : 1;
+    const expectedOutputCount = Math.max(inputImages.length, 1) * perImageOutputCount;
+
+    const padding = {
+      expand_top: parsePixel(extendPadding.top),
+      expand_right: parsePixel(extendPadding.right),
+      expand_bottom: parsePixel(extendPadding.bottom),
+      expand_left: parsePixel(extendPadding.left),
+    };
+    const extendPayload =
+      activeAbilityId === "extend"
+        ? {
+            preserveOriginal: true,
+            ...padding,
+          }
+        : {};
+    const outputSize =
+      sizeMode === "custom"
+        ? { width: parsePixel(customSize.width), height: parsePixel(customSize.height) }
+        : parseSizePreset(selectedSize || activeSizeLabel);
+    const normalizedOutputSize =
+      outputSize.width && outputSize.height ? outputSize : {};
+    const seamlessPayload =
+      activeAbilityId === "seamless2" || activeAbilityId === "seamless4"
+        ? {
+            patternType: activeAbilityId === "seamless2" ? "twoway" : "seamless",
+            mode: activeAbilityId === "seamless2" ? "twoway" : "seamless",
+          }
+        : {};
+    return createClientProcessTask({
+      userId: activeUserId,
+      type: activeAbilityId,
+      abilityTitle: activeAbility?.title || activeOptionLabel,
+      outputLabel: activePresentation?.resultType === "pattern" ? "花纹素材" : "处理结果",
+      inputImages,
+      optionLabel: activeOptionLabel,
+      sizeLabel: activeSizeLabel,
+      outputCount: expectedOutputCount,
+      params: {
+        realBusinessRun: true,
+        businessKey: config.businessKey,
+        candidateCount: perImageOutputCount,
+        expectedOutputCount,
+        costCredits: estimatedCreditCost,
+        businessRunIds: [],
+        resultImages: [],
+        submitMode: `real-${config.businessKey}`,
+        requestPayloadTemplate: {
+          prompt:
+            activeAbilityId === "extend"
+              ? "自然补全外扩区域，保持原图主体、颜色、纹理和构图关系一致；不要改动原图核心内容。"
+              : activeAbilityId === "extract"
+                ? "提取图中可复用花纹和图案，去除拍摄背景、模特、透视和无关物体，保留可用于 POD 产品的平面设计素材。"
+                : activeAbilityId === "seamless2"
+                  ? "生成左右无缝连续图，适配杯身环绕，避免明显接缝。"
+                  : activeAbilityId === "seamless4"
+                    ? "生成上下左右无缝连续图，适配布料、壁纸和可无限平铺纹理。"
+                    : "基于参考图生成同系列图案，保持主体风格、色彩气质和商业可用性，避免直接复制原图细节。",
+          version: undefined,
+          quality: "preview",
+          size: activeSizeLabel,
+          ...normalizedOutputSize,
+          bili: activeAbilityId === "variation" ? variationStrength : undefined,
+          variation_strength: activeAbilityId === "variation" ? String(variationStrength) : undefined,
+          outputCount: 1,
+          ...extendPayload,
+          ...seamlessPayload,
+          inputs: {
+            ...extendPayload,
+            ...seamlessPayload,
+            ...normalizedOutputSize,
+            optionLabel: activeOptionLabel,
+            sizeLabel: activeSizeLabel,
+            sizeMode,
+            selectedSize,
+            customSize,
+            variationStrength,
+            candidateCount: perImageOutputCount,
+            lockStrategy,
+          },
+        },
+        extendPadding,
+        variationStrength,
+        lockStrategy,
+        sizeMode,
+        selectedSize,
+        customSize,
+      },
+    });
   };
 
   const renderAbilityControls = () => {
@@ -723,29 +594,36 @@ export default function ProcessPage() {
         )}
 
         <PageHeader
-          eyebrow="图片素材批量处理"
-          title="先选能力，再批量处理。"
-          desc="每个能力都有独立页面。只处理图片也可以，结果会进入素材库，不强制做产品。"
+          eyebrow="图片处理"
+          title="把图片变成可以继续创作的素材。"
+          desc="提取花纹、扩展画面或生成连续图。处理结果会保存到你的素材库。"
         />
 
         <section className="process-capability-hero">
           <div>
-            <span>能力入口</span>
-            <strong>选择处理能力</strong>
-            <p>花纹提取、裂变、两方连续和四方连续分别解决不同生产问题。先选能力，后续上传、参数和结果都会围绕该能力展开。</p>
+            <span>选择一种处理方式</span>
+            <strong>先把喜欢的图，变成更好用的设计素材。</strong>
+            <p>每种能力只解决一个问题。选择后再上传图片和调整参数，不需要先理解复杂的生产术语。</p>
           </div>
           <img src="/demo/market/podi-ai-workflow.webp" alt="图片批处理示例" />
         </section>
 
         <section className="process-capability-grid" aria-label="图片批处理能力">
-          {abilities.map((ability) => {
+          {visibleAbilities.map((ability) => {
             const Icon = ability.icon;
             const presentation = abilityPresentation[ability.id];
+            const realConfig = realBusinessAbilityConfig[ability.id];
             return (
-              <button key={ability.id} className="process-capability-card" onClick={() => openAbility(ability.id)}>
+              <button
+                key={ability.id}
+                className={`process-capability-card${realConfig ? "" : " unavailable"}`}
+                onClick={() => realConfig && openAbility(ability.id)}
+                disabled={!realConfig}
+                aria-disabled={!realConfig}
+              >
                 <div className="process-capability-visual">
-                  <img src={presentation.cover} alt={`${ability.title} 示例`} />
-                  <span>
+                  {renderCapabilityVisual(ability.id)}
+                  <span className="process-capability-badge">
                     <Icon size={18} />
                     {presentation.eyebrow}
                   </span>
@@ -755,24 +633,13 @@ export default function ProcessPage() {
                   <strong>{ability.title}</strong>
                   <p>{presentation.entryCopy}</p>
                   <div className="process-card-tags">
-                    {presentation.bestFor.map((item) => (
-                      <em key={item}>{item}</em>
-                    ))}
+                    <em>{presentation.bestFor.slice(0, 2).join(" · ")}</em>
                   </div>
-                  <div className="process-card-scenes">
-                    <b>适合</b>
-                    <span>{presentation.productFits.join(" / ")}</span>
-                  </div>
-                  <div className="process-card-params">
-                    {presentation.params.slice(0, 2).map((param) => (
-                      <span key={param.label}>
-                        <b>{param.label}</b>
-                        {param.value}
-                      </span>
-                    ))}
+                  <div className={realConfig ? "process-card-runtime real" : "process-card-runtime pending"}>
+                    {realConfig?.label ?? pendingBusinessAbilityReason[ability.id] ?? "待开放"}
                   </div>
                   <span className="process-card-action">
-                    进入功能 <ArrowRight size={15} />
+                    开始处理 <ArrowRight size={15} />
                   </span>
                 </div>
               </button>
@@ -793,38 +660,26 @@ export default function ProcessPage() {
       <PageHeader
         eyebrow={activePresentation.eyebrow}
         title={activePresentation.headline}
-        desc={activePresentation.summary}
+        desc={activePresentation.entryCopy}
       />
 
       <section className="process-run-layout">
         <div className="process-run-main">
           <section className="process-upload-section">
-            <div className="process-section-label">
-              <small>STEP 1</small>
-              <strong>上传要处理的图片</strong>
-              <span>支持多张图片。当前只会调用「{activeAbility.title}」，不会混用其他能力。</span>
-            </div>
-            <ImageUploader onFilesSelected={handleFilesSelected} />
-            {uploadStatus !== "idle" && (
-              <div className={`process-upload-status ${uploadStatus}`} role={uploadStatus === "error" ? "alert" : "status"}>
-                <UploadStatusIcon size={16} />
-                <span>{uploadMessage || (uploadStatus === "uploading" ? "正在保存图片" : "图片已就绪")}</span>
-              </div>
-            )}
+            <ImageUploader compact onFilesSelected={handleFilesSelected} />
+            {submitError && <p className="process-submit-error">{submitError}</p>}
           </section>
 
           <section className="process-config-section">
-            <div className="process-section-label">
-              <small>STEP 2</small>
-              <strong>设置本次处理参数</strong>
-              <span>{configIntro}</span>
+            <div className="process-compact-head">
+              <strong>{activeAbilityId === "extend" ? "扩图范围" : "输出尺寸"}</strong>
             </div>
 
             {activeAbilityId === "extend" ? (
               <div className="process-setting-block">
                 <div className="setting-block-head">
-                  <strong>扩图范围</strong>
-                  <span>扩图是在原图基础上向四个方向补画面。填 0 表示该方向不扩。</span>
+                  <strong>扩图预设</strong>
+                  <span>0 表示不扩</span>
                 </div>
                 <div className="process-preset-row strategy">
                   {activePresentation.presets.map((preset) => (
@@ -868,7 +723,6 @@ export default function ProcessPage() {
               <div className="process-setting-block">
                 <div className="setting-block-head">
                   <strong>输出尺寸</strong>
-                  <span>可以沿用原图，也可以选常用产品尺寸或自定义像素。</span>
                 </div>
                 <div className="size-mode-tabs">
                   <button className={sizeMode === "preset" ? "active" : ""} onClick={() => setSizeMode("preset")}>
@@ -919,7 +773,6 @@ export default function ProcessPage() {
               <div className="process-setting-block">
                 <div className="setting-block-head">
                   <strong>{activeAbilityId === "variation" ? "裂变策略" : "标准化选项"}</strong>
-                  <span>{activeAbilityId === "variation" ? "控制裂变相似度、变化幅度和输出数量。" : "只做基础整理，不改变图片创意方向。"}</span>
                 </div>
                 <div className="process-preset-row strategy">
                   {activePresentation.presets.map((preset) => (
@@ -936,51 +789,11 @@ export default function ProcessPage() {
               </div>
             )}
 
-            {passiveAbilityNote && <div className="process-ability-note">{passiveAbilityNote}</div>}
           </section>
 
-          <section className="process-action-section">
-            <div className="process-section-label compact">
-              <small>STEP 3</small>
-              <strong>提交批处理任务</strong>
-              <span>
-                {!businessApiReady
-                  ? "请先登录账户，再提交真实中台任务。"
-                  : !supportsRealBusinessRun
-                    ? "这个能力还没有真实业务入口，暂不允许用演示结果代替。"
-                    : !uploaded
-                  ? "上传图片后即可提交任务。"
-                  : `将使用「${activeAbility.title} / ${activeOptionLabel} / ${activeSizeLabel}」处理 ${uploadedCount} 张图片，结果会自动进入素材库。`}
-              </span>
-            </div>
-            <button className="primary" disabled={!canSubmit} onClick={startProcessing}>
-              提交真实任务
-              <ArrowRight size={18} />
-            </button>
-          </section>
         </div>
 
         <aside className="process-run-aside">
-          <div className="process-ability-summary">
-            <span>当前能力</span>
-            <strong>{activeAbility.title}</strong>
-            <p>{activeAbility.desc}</p>
-            <div>
-              <em>输出：{activeAbility.output}</em>
-              <em>{activeAbility.cost}</em>
-            </div>
-          </div>
-
-          <div className="process-ability-checklist">
-            <strong>适合处理</strong>
-            {activePresentation.bestFor.map((item) => (
-              <span key={item}>
-                <CheckCircle2 size={14} />
-                {item}
-              </span>
-            ))}
-          </div>
-
           <div className="process-job-summary">
             <strong>本次任务</strong>
             <span>
@@ -993,9 +806,29 @@ export default function ProcessPage() {
               参数 <b>{activeOptionLabel}</b>
             </span>
             <span>
-              状态 <b>{uploadStatus === "uploading" ? "保存图片中" : uploaded ? "可提交" : "等待上传"}</b>
+              状态 <b>{submitting ? "正在上传并提交" : uploaded ? "可提交" : "等待上传"}</b>
             </span>
-            <p>提交后会创建中台业务 run，并在任务页轮询真实结果。</p>
+            <span>
+              积分 <b>{uploaded ? `${estimatedCreditCost} 积分` : "待计算"}</b>
+            </span>
+            {uploaded && (
+              <p className={creditBalanceAfterSubmit < 0 ? "process-credit-note warning" : "process-credit-note"}>
+                当前可用 {state.aiCredits} 积分，本次预计扣 {estimatedCreditCost} 积分
+                {creditBalanceAfterSubmit >= 0 ? `，提交后剩余 ${creditBalanceAfterSubmit} 积分。` : "，积分不足。"}
+              </p>
+            )}
+            <p>完成后在任务中心查看结果。</p>
+            <button className="primary full process-aside-submit" disabled={!canSubmit || submitting} onClick={startProcessing}>
+              {submitting ? "正在提交" : "提交任务"}
+              <ArrowRight size={16} />
+            </button>
+          </div>
+
+          <div className="process-ability-mini">
+            <strong>{activeAbility.title}</strong>
+            <span>输出：{activeAbility.output}</span>
+            <span>{activeAbility.cost}</span>
+            <em>{activeRealConfig?.label ?? "暂未开放"}</em>
           </div>
         </aside>
       </section>

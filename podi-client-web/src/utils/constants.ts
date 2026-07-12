@@ -2,7 +2,7 @@
  * 全局常量
  */
 import { Wand2, Images, Palette, Sparkles } from "lucide-react";
-import type { AbilityDefinition, BatchGoalId } from "../types";
+import type { AbilityDefinition, BatchGoalId, ProcessTaskType } from "../types";
 
 export const abilities: AbilityDefinition[] = [
   {
@@ -15,7 +15,7 @@ export const abilities: AbilityDefinition[] = [
   },
   {
     id: "extend",
-    title: "扩展画面",
+    title: "扩图",
     desc: "按目标比例补边扩图，保持主体不变",
     icon: Images,
     cost: "2 AI 积分/张",
@@ -64,16 +64,43 @@ export const abilityOutputLabels: Record<BatchGoalId, string> = {
   seamless4: "连续花纹",
 };
 
+export const processTaskTypeLabels: Record<ProcessTaskType, string> = {
+  clean: "图片标准化",
+  extend: "扩图",
+  extract: "花纹提取",
+  variation: "裂变生成",
+  seamless2: "两方连续",
+  seamless4: "四方连续",
+  image_edit: "单图精修",
+};
+
 export const assetTypeLabels: Record<string, string> = {
   original: "原图",
   processed: "处理图",
   variation: "裂变图",
   pattern: "花纹",
   ai_generated: "AI 生成",
+  product_preview: "产品预览",
 };
 
 export const visibilityLabels: Record<string, string> = {
   private: "私有",
   reviewing: "审核中",
   public: "已公开",
+  removed: "已移除",
+};
+
+export const licenseModeLabels: Record<string, string> = {
+  private: "仅自己可用",
+  display_only: "仅展示",
+  free_reuse: "免费复用",
+  paid_points: "积分授权",
+};
+
+export const licenseSourceLabels: Record<string, string> = {
+  created: "自己生成",
+  uploaded: "自己上传",
+  free_reuse: "免费获得",
+  purchased: "已购授权",
+  product_snapshot: "产品预览",
 };

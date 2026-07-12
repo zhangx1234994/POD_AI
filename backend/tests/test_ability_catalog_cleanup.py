@@ -85,6 +85,24 @@ def test_seed_applies_cleanup_for_overridden_abilities() -> None:
     assert seamless_metadata["presentation"]["operation_label"] == "连续图生产锁边"
 
 
+def test_seed_retires_unconfigured_openai_and_seedream_image_routes() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        ensure_default_abilities(session)
+        records = {
+            (row.provider, row.capability_key): row.status
+            for row in session.execute(select(Ability)).scalars().all()
+        }
+
+    assert records[("openai", "gpt_image_2_generate")] == "inactive"
+    assert records[("openai", "gpt_image_2_edit")] == "inactive"
+    assert records[("volcengine", "doubao_seedream_4_5")] == "inactive"
+    assert records[("volcengine", "doubao_seedream_4_0")] == "inactive"
+    assert records[("openai_compatible", "gpt_image_2_generate")] == "active"
+    assert records[("openai_compatible", "gpt_image_2_edit")] == "active"
+
+
 def test_seed_repairs_stale_comfyui_allowed_executor_ids() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)

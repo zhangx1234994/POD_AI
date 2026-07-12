@@ -28,6 +28,7 @@ podi-client-web/node_modules/
 podi-client-web/dist/
 podi-client-web/output/
 podi-studio-preview/
+podi-business-api/.data/
 
 # Historical local client copies; the current business client remains versioned.
 podi-client-v2/

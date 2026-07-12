@@ -2743,7 +2743,7 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "description": "OpenAI GPT Image 2 官方文生图能力；经 vendor-api-ops 统一代理、Key 管理和结果落库。",
         "category": "image_generation",
         "input_schema": _openai_image_generation_schema(),
-        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_generation", seed_version=1),
+        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_generation", seed_version=2),
     },
     "gpt_image_2_generate_batch": {
         "endpoint": "/v1/images/generations",
@@ -2763,7 +2763,7 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
             model_id="gpt-image-2",
             api_type="image_generation",
             execution_mode="batch_submit_poll",
-            seed_version=1,
+            seed_version=2,
         ),
     },
     "gpt_image_2_edit": {
@@ -2781,7 +2781,7 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "category": "image_generation",
         "input_schema": _openai_image_edit_schema(),
         "metadata": {
-            **_openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=4),
+            **_openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=5),
             # Real-time GPT Image 2 edits regularly exceed the generic vendor-api
             # 180s ceiling. Keep this as orchestration policy, not a model input.
             "timeoutSeconds": 420,
@@ -2805,7 +2805,7 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
             model_id="gpt-image-2",
             api_type="image_edit",
             execution_mode="batch_submit_poll",
-            seed_version=1,
+            seed_version=2,
         ),
     },
 }
@@ -3079,7 +3079,7 @@ VOLCENGINE_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
             api_type="image_generation",
             supports_vision=True,
             reference="https://www.volcengine.com/docs/82379/1541523",
-            seed_version=10,
+            seed_version=11,
         )
         | {
             "presentation": _presentation(
@@ -3135,7 +3135,7 @@ VOLCENGINE_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
             api_type="image_generation",
             supports_vision=True,
             reference="https://www.volcengine.com/docs/82379/1541523",
-            seed_version=10,
+            seed_version=11,
         ),
     },
 }

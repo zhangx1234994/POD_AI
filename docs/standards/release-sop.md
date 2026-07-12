@@ -2,6 +2,18 @@
 
 本 SOP 固化 114 控制面发布流程，目标是减少每次上线的手工尝试、网络等待和漏检。除非明确标记为紧急修复，否则所有 backend / 管理端 / 测评端上线都按本文执行。
 
+## 0A. AI创品生产发布真源（2026-07-13 起）
+
+AI创品生产环境运行在 `47.110.231.222`，部署根目录为 `/srv/podi/prelaunch/app`。当前正式发布范围包括 `podi-client-web/`、`podi-business-api/`、`backend/`、`vendor-api-ops/` 及其必要静态产物。
+
+- `origin/main` 是唯一可发布源码；不得直接在服务器修改业务源文件后只重启服务。
+- 每次发布必须从已推送的干净 Git 提交构建或同步，完成后把该提交写入 `/srv/podi/prelaunch/app/DEPLOYED_COMMIT`；线上目录不是第二份开发真源。
+- 发布前必须核对：`git rev-parse HEAD`、`git rev-parse origin/main`、服务端 `DEPLOYED_COMMIT` 三者一致；不一致先收口源码再发布。
+- `podi-business-api/` 和 `podi-client-web/` 必须随同一次提交发布。业务 API 的供应商凭证、Image 2 路由和用户会话不能只留在线上 `.env` 或未受控目录。
+- 发布后至少验证 `http://127.0.0.1:8099/health`、`http://127.0.0.1:8240/health` 和生产站首页、产品设计页、登录页；涉及 AI 路由时，还要确认主路径能力 ID 与中台激活目录一致。
+
+以下 114 控制面步骤仅保留为历史参考；新生产发布不得复用其主机和目录口径。
+
 ## 1. 发布原则
 
 - **origin/main 是正式发版真源**：正式上线前必须确认本地 `HEAD` 与 `origin/main` 一致。

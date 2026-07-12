@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## 项目结构与模块组织
-`backend/` 是 FastAPI 服务，`app/routers` 暴露任务、调度、管理端接口，`app/models`/`schemas` 定义任务、执行器、能力（`Ability`）等 ORM/DTO，`app/services`/`workers` 实现业务逻辑与 Celery 任务，数据库迁移位于 `backend/alembic/`。`podi-eval-web/` 为内部“能力评测”站点；`podi-admin-web/` 为独立管理端（端口 8199），负责执行节点、能力、密钥、评测配置的维护。历史客户端（`podi-design-web-dev/`）已移除，后续将以新的客户端形态重构。顶层 `docs/`、`架构实施计划.md`、`后端架构与业务模型.md` 记录决策与路线图。
+`backend/` 是 FastAPI 中台，`app/routers` 暴露任务、调度、管理端接口，`app/models`/`schemas` 定义任务、执行器、能力（`Ability`）等 ORM/DTO，`app/services`/`workers` 实现业务逻辑与 Celery 任务，数据库迁移位于 `backend/alembic/`。`podi-client-web/` 是 AI创品业务客户端；`podi-business-api/` 负责主站登录、素材、设计篮、订单和对中台能力的受控编排；`podi-eval-web/` 为内部能力评测站；`podi-admin-web/` 为独立管理端（端口 8199），负责执行节点、能力、密钥、评测配置的维护。顶层 `docs/`、`架构实施计划.md`、`后端架构与业务模型.md` 记录决策与路线图。
 
 ### Git 远程与接管约定
 - 当前仓库采用双远程：`github=https://github.com/zhangx1234994/POD_AI` 作为外部上游，只用于 `fetch/pull/merge`；`origin=http://192.168.2.210:8888/podi1/pod_ai.git` 作为局域网主仓库，用于日常分支、提交和推送。
@@ -20,12 +20,12 @@
 - 图片尺寸相关改动必须同时核对请求参数、实际 ability payload、metadata、最终图片像素和页面展示；任务成功不代表尺寸正确。
 
 ### 客户端版本说明（重要）
-- 当前仓库已不再包含 `podi-client-web/`、`podi-client-v2/`、`podi-design-web-dev/` 等客户端目录。
-- `docs/client/` 与 `docs/handover/` 下的客户端资料仅作为历史参考，不再代表当前开发主线。
-- 现阶段主要维护范围是：`backend/`、`podi-admin-web/`、`podi-eval-web/`、`image-ops-service/`、`vendor-api-ops/` 与相关文档。
+- 当前业务客户端为 `podi-client-web/`，线上业务 API 为 `podi-business-api/`；二者与中台 `backend/` 必须同一 Git 提交发布。
+- `docs/handover/` 下资料默认只作历史参考；`docs/client/` 资料需按当前业务入口复核。
+- 现阶段主要维护范围是：`backend/`、`podi-client-web/`、`podi-business-api/`、`podi-admin-web/`、`podi-eval-web/`、`image-ops-service/`、`vendor-api-ops/` 与相关文档。
 
 ## 构建、测试与开发命令
-后端：`cd backend && uv sync`（或 `pip install -r requirements.txt`），再运行 `alembic upgrade head` 初始化 MySQL 表，命令 `uvicorn app.main:app --reload --port 8099` 启动 API，后台任务使用 `celery -A app.core.celery_app worker -l info`。前端：`podi-admin-web/`、`podi-eval-web/` 分别执行 `npm install && npm run dev`（必要时加 `-- --port <port>`）；管理端另有 `npm run lint`（纯 TypeScript 类型检查）可做快速静态校验。常用诊断：`curl :8099/health`、`python -m pytest backend/tests -q`、`npm run test -- --runInBand`（Vitest）。
+后端：`cd backend && uv sync`（或 `pip install -r requirements.txt`），再运行 `alembic upgrade head` 初始化 MySQL 表，命令 `uvicorn app.main:app --reload --port 8099` 启动 API，后台任务使用 `celery -A app.core.celery_app worker -l info`。业务端：`cd podi-client-web && npm ci && npm run dev -- --port 5180`，业务 API：`python3 podi-business-api/server.py --port 8240`。管理端与测评端分别执行 `npm install && npm run dev`（必要时加 `-- --port <port>`）；管理端另有 `npm run lint`（纯 TypeScript 类型检查）可做快速静态校验。常用诊断：`curl :8099/health`、`curl :8240/health`、`python -m pytest backend/tests -q`、`npm run test -- --runInBand`（Vitest）。
 
 ### 端口占用处理
 开发阶段如遇 `uvicorn` 或 Vite 端口被占用，优先清理旧进程：`lsof -i tcp:<port>` 查 PID，确认无关后直接 `kill <pid>` 并重启对应服务，避免长期切换端口导致前后端配置不一致。

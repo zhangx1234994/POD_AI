@@ -8,7 +8,6 @@ import {
   ClipboardList,
   Star,
   WalletCards,
-  Upload,
   Home,
   UserRound,
   PackageCheck,
@@ -16,9 +15,8 @@ import {
   ShieldCheck,
   Settings,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { loginRequiredEventName, useApp } from "../hooks/useAppState";
-import { hasAccessToken, hasApiKey, loginClient, logoutClient } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { useApp } from "../hooks/useAppState";
 import type { AppView } from "../types";
 
 const navItems: Array<{ id: AppView; label: string }> = [
@@ -38,68 +36,68 @@ const mobileNavItems: Array<{ id: AppView; label: string; icon: typeof Home }> =
   { id: "account", label: "我的", icon: UserRound },
 ];
 
-const accountLinks: Array<{ id: AppView; label: string; desc: string; icon: typeof Home }> = [
-  { id: "tasks", label: "任务中心", desc: "批处理进度和结果", icon: ClipboardList },
-  { id: "orders", label: "我的订单", desc: "制作、物流和售后", icon: PackageCheck },
-  { id: "wallet", label: "钱包与权益", desc: "积分、产品券、抵扣", icon: WalletCards },
-  { id: "assets", label: "我的素材", desc: "图片资产和处理结果", icon: Grid3X3 },
-  { id: "publish", label: "公开审核", desc: "申请进入灵感广场", icon: ShieldCheck },
-  { id: "profile", label: "公开主页", desc: "可分享的作品空间", icon: Star },
+const accountLinks: Array<{ id: AppView; label: string; icon: typeof Home }> = [
+  { id: "tasks", label: "任务中心", icon: ClipboardList },
+  { id: "orders", label: "我的订单", icon: PackageCheck },
+  { id: "wallet", label: "钱包与权益", icon: WalletCards },
+  { id: "assets", label: "我的素材", icon: Grid3X3 },
 ];
 
 export default function AppHeader() {
-  const { state, navigate } = useApp();
+  const { state, navigate, isAuthenticated, logout } = useApp();
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [taskNoticeCount, setTaskNoticeCount] = useState(0);
+  const taskStatusRef = useRef<Record<string, string>>({});
+  const taskNoticeReadyRef = useRef(false);
   const { currentView, aiCredits } = state;
-  const signedIn = hasAccessToken();
-  const [loginOpen, setLoginOpen] = useState(false);
-  const [loginUsername, setLoginUsername] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [loginLoading, setLoginLoading] = useState(false);
   const runningTaskCount = state.processTasks.filter((task) => task.status === "pending" || task.status === "processing").length;
   const taskCount = runningTaskCount || state.processTasks.length;
+  const draftCount = state.orderDrafts.length;
   const accountActive = ["account", "tasks", "orders", "wallet", "publish", "profile"].includes(currentView);
-  const businessApiReady = hasApiKey();
-  const runtimeReady = signedIn && (state.clientSyncStatus === "synced" || businessApiReady);
-  const syncLabel =
-    state.clientSyncStatus === "synced"
-      ? state.clientWorkspaceName
-      : state.clientSyncStatus === "syncing"
-        ? "同步中"
-      : state.clientSyncStatus === "error"
-        ? "本地数据"
-        : businessApiReady
-          ? "真实业务"
-          : "未配置";
+  const showMobileTabBar = !["productDesign", "checkout", "imageEditor"].includes(currentView);
+  const isNavActive = (id: AppView) =>
+    currentView === id || (id === "products" && ["productDesign", "checkout"].includes(currentView));
+  const displayName = state.currentUser?.displayName || state.currentUser?.username || "登录";
+  const avatarLabel = (displayName.trim()[0] || "我").toUpperCase();
+  const go = (view: AppView) => {
+    setAccountOpen(false);
+    navigate(view);
+  };
+  const goTasks = () => {
+    setTaskNoticeCount(0);
+    go("tasks");
+  };
 
   useEffect(() => {
-    const openLogin = () => {
-      setLoginError(null);
-      setLoginOpen(true);
-    };
-    window.addEventListener(loginRequiredEventName, openLogin);
-    return () => window.removeEventListener(loginRequiredEventName, openLogin);
-  }, []);
+    const nextStatuses = Object.fromEntries(state.processTasks.map((task) => [task.id, task.status]));
+    if (!taskNoticeReadyRef.current) {
+      taskStatusRef.current = nextStatuses;
+      taskNoticeReadyRef.current = true;
+      return;
+    }
+    const completedNow = state.processTasks.filter((task) => {
+      const previousStatus = taskStatusRef.current[task.id];
+      return task.status === "completed" && previousStatus && previousStatus !== "completed";
+    }).length;
+    if (completedNow > 0) {
+      setTaskNoticeCount((count) => count + completedNow);
+    }
+    taskStatusRef.current = nextStatuses;
+  }, [state.processTasks]);
 
   return (
     <>
-      <div className="site-promo-bar">
-        <strong>AI创品 · 有品，不必一样</strong>
-        <span>从图片到实物 · 1 件起做 · 结果可保存</span>
-        <button onClick={() => navigate("products")}>查看可做杯型</button>
-      </div>
-
       {/* 桌面端顶部导航 */}
       <header className="site-header">
         <button
           className="brand-button"
-          onClick={() => navigate("home")}
+          onClick={() => go("home")}
           aria-label="返回首页"
         >
-          <span className="brand-symbol">品</span>
+          <img className="brand-symbol" src="/brand/ai-chuangpin-mark.png" alt="" />
           <span>
             <strong>AI创品</strong>
-            <small>有品，不必一样</small>
+            <small>把想法做成产品</small>
           </span>
         </button>
 
@@ -107,8 +105,8 @@ export default function AppHeader() {
           {navItems.map((item) => (
             <button
               key={item.id}
-              className={currentView === item.id ? "active" : ""}
-              onClick={() => navigate(item.id)}
+              className={isNavActive(item.id) ? "active" : ""}
+              onClick={() => go(item.id)}
             >
               {item.label}
             </button>
@@ -116,140 +114,113 @@ export default function AppHeader() {
         </nav>
 
         <div className="header-actions">
-          {signedIn ? (
-            <>
-              <span className={`runtime-chip ${runtimeReady ? "synced" : "demo"}`}>
-                {state.clientSyncStatus === "synced" ? "账户已连接" : "同步中"}
+          {isAuthenticated && draftCount > 0 && (
+            <button className="pending-cart-chip" onClick={() => go("checkout")} aria-label={`设计篮有 ${draftCount} 件产品`}>
+              <ShoppingBag size={16} />
+              <strong>{draftCount}</strong>
+              <span>设计篮</span>
+            </button>
+          )}
+          {isAuthenticated && (
+            <button
+              className={`task-chip ${runningTaskCount > 0 ? "active" : ""} ${taskNoticeCount > 0 ? "has-notice" : ""}`}
+              onClick={goTasks}
+              title="查看任务中心"
+              aria-label={runningTaskCount > 0 ? `有 ${runningTaskCount} 个任务进行中` : "查看任务中心"}
+            >
+              <ClipboardList size={16} />
+              <span>任务</span>
+              {runningTaskCount > 0 && <strong>{runningTaskCount}</strong>}
+              {taskNoticeCount > 0 && <em>{taskNoticeCount} 个已完成</em>}
+            </button>
+          )}
+          {isAuthenticated && (
+            <button
+              className="credit-chip"
+              onClick={() => go("wallet")}
+              title="查看钱包与权益"
+            >
+              <WalletCards size={16} />
+              {aiCredits} 积分
+            </button>
+          )}
+          {!isAuthenticated ? (
+            <button
+              className={`account-trigger ${accountActive ? "active" : ""}`}
+              onClick={() => go("account")}
+              aria-label="登录 AI创品"
+            >
+              <span className="account-avatar">登</span>
+              <span>
+                <strong>登录</strong>
+                <small>保存素材和订单</small>
               </span>
-              <button className="credit-chip" onClick={() => navigate("wallet")}>
-                <WalletCards size={16} />
-                {aiCredits} 积分
-              </button>
-              <button className="primary small" onClick={() => navigate("process")}>
-                <Upload size={16} />
-                开始处理
-              </button>
-              <div className={`account-menu ${accountActive ? "active" : ""}`}>
-                <button className="account-trigger" onClick={() => navigate("account")} aria-label="打开个人中心">
-                  <span className="account-avatar">{state.clientUserInitial}</span>
-                  <span>
-                    <strong>我的</strong>
-                    {taskCount > 0 && <small>{taskCount} 个任务</small>}
-                  </span>
-                  <ChevronDown size={15} />
-                </button>
-                <div className="account-popover" aria-label="个人中心菜单">
-                  <div className="account-popover-head">
-                    <span className="account-avatar large">{state.clientUserInitial}</span>
-                    <div>
-                      <strong>{state.clientUserName}</strong>
-                      <small>{aiCredits} 积分 · {state.productCouponCount} 张产品券 · {syncLabel}</small>
-                    </div>
-                  </div>
-                  <div className="account-popover-grid">
-                    {accountLinks.map(({ id, label, desc, icon: Icon }) => (
-                      <button key={id} onClick={() => navigate(id)}>
-                        <Icon size={16} />
-                        <span>
-                          <strong>{label}</strong>
-                          <small>{desc}</small>
-                        </span>
-                        {id === "tasks" && taskCount > 0 && <em>{taskCount}</em>}
-                      </button>
-                    ))}
-                  </div>
-                  <button className="account-settings" onClick={() => navigate("account")}>
-                    <Settings size={15} />
-                    账号设置与资料
-                  </button>
-                  <button
-                    className="account-settings danger"
-                    onClick={() => {
-                      logoutClient();
-                      window.location.reload();
-                    }}
-                  >
-                    退出登录
-                  </button>
+            </button>
+          ) : (
+          <div className={`account-menu ${accountActive ? "active" : ""} ${accountOpen ? "open" : ""}`}>
+            <button
+              className="account-trigger"
+              onClick={() => setAccountOpen((open) => !open)}
+              aria-expanded={accountOpen}
+              aria-label="打开个人中心"
+            >
+              <span className="account-avatar">{avatarLabel}</span>
+              <span>
+                <strong>{displayName}</strong>
+                {taskCount > 0 && <small>{taskCount} 个任务</small>}
+              </span>
+              <ChevronDown size={15} />
+            </button>
+            <div className="account-popover" aria-label="个人中心菜单">
+              <div className="account-popover-head">
+                <span className="account-avatar large">{avatarLabel}</span>
+                <div>
+                  <strong>{displayName}</strong>
+                  <small>{aiCredits} 积分 · {state.productCouponCount} 张产品券</small>
                 </div>
               </div>
-            </>
-          ) : (
-            <button className="account-trigger standalone" onClick={() => setLoginOpen(true)}>
-              <UserRound size={16} />
-              登录
-            </button>
+              <div className="account-popover-grid">
+                {accountLinks.map(({ id, label, icon: Icon }) => (
+                  <button key={id} onClick={() => go(id)}>
+                    <Icon size={16} />
+                    <span>
+                      <strong>{label}</strong>
+                    </span>
+                    {id === "tasks" && taskCount > 0 && <em>{taskCount}</em>}
+                  </button>
+                ))}
+              </div>
+              <button className="account-settings" onClick={() => go("account")}>
+                <Settings size={15} />
+                账号设置与资料
+              </button>
+              <button className="account-settings danger" onClick={() => { setAccountOpen(false); void logout(); }}>
+                退出登录
+              </button>
+            </div>
+          </div>
           )}
         </div>
       </header>
 
       {/* 移动端底部 Tab 栏 */}
-      <nav className="mobile-tab-bar" aria-label="移动端导航">
-        {mobileNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentView === item.id;
-          return (
-            <button
-              key={item.id}
-              className={isActive ? "tab-active" : ""}
-              onClick={() => navigate(item.id)}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-      </nav>
-      {loginOpen && (
-        <div className="login-overlay" role="dialog" aria-modal="true" aria-label="登录">
-          <form
-            className="login-dialog"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              setLoginError(null);
-              setLoginLoading(true);
-              try {
-                await loginClient(loginUsername, loginPassword);
-                window.location.reload();
-              } catch (error) {
-                setLoginError(error instanceof Error ? error.message : "登录失败");
-              } finally {
-                setLoginLoading(false);
-              }
-            }}
-          >
-            <div className="login-dialog-head">
-              <span>账号登录</span>
-              <button type="button" onClick={() => setLoginOpen(false)} aria-label="关闭登录">
-                ×
+      {showMobileTabBar && (
+        <nav className="mobile-tab-bar" aria-label="移动端导航">
+          {mobileNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = isNavActive(item.id);
+            return (
+              <button
+                key={item.id}
+                className={isActive ? "tab-active" : ""}
+                onClick={() => go(item.id)}
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
               </button>
-            </div>
-            <label>
-              <span>账号</span>
-              <input
-                autoFocus
-                value={loginUsername}
-                onChange={(event) => setLoginUsername(event.target.value)}
-                placeholder="请输入账号"
-                autoComplete="username"
-              />
-            </label>
-            <label>
-              <span>密码</span>
-              <input
-                type="password"
-                value={loginPassword}
-                onChange={(event) => setLoginPassword(event.target.value)}
-                placeholder="请输入密码"
-                autoComplete="current-password"
-              />
-            </label>
-            {loginError && <p className="login-error">{loginError}</p>}
-            <button className="primary" type="submit" disabled={loginLoading || !loginUsername.trim() || !loginPassword}>
-              {loginLoading ? "登录中" : "登录"}
-            </button>
-          </form>
-        </div>
+            );
+          })}
+        </nav>
       )}
     </>
   );

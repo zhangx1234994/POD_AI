@@ -5,13 +5,14 @@ import { useState } from "react";
 import { CheckCircle2, Gift, Share2, Ticket, WalletCards } from "lucide-react";
 import { useApp } from "../hooks/useAppState";
 import PageHeader from "../components/PageHeader";
+import { redeemClientCouponCode } from "../api";
 
 export default function WalletPage() {
-  const { state, dispatch } = useApp();
-  const { aiCredits, productCouponCount, shareBalance, latestWalletEvent } = state;
+  const { state, dispatch, navigate, isAuthenticated } = useApp();
+  const { aiCredits, productCouponCount, shareBalance, latestWalletEvent, walletCoupons } = state;
 
   const creditPackages = [
-    { title: "轻量试用", amount: 100, credits: "100 AI 积分", price: 19, note: "适合少量洗图和裂变" },
+    { title: "轻量试用", amount: 100, credits: "100 AI 积分", price: 19, note: "适合少量图片处理和裂变" },
     { title: "常用处理", amount: 600, credits: "600 AI 积分", price: 99, note: "适合批量处理一批素材" },
     { title: "创作者包", amount: 1500, credits: "1500 AI 积分", price: 199, note: "适合频繁生成产品样例" },
   ];
@@ -19,7 +20,8 @@ export default function WalletPage() {
   const [selectedPack, setSelectedPack] = useState(creditPackages[1]);
   const [purchaseConfirmed, setPurchaseConfirmed] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
-  const [redeemed, setRedeemed] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemResult, setRedeemResult] = useState("");
   const [useShareCredit, setUseShareCredit] = useState(true);
   const [walletFocus, setWalletFocus] = useState<"coupon" | "redeem" | "share" | null>(null);
 
@@ -57,10 +59,20 @@ export default function WalletPage() {
     scrollToRecharge();
   };
 
-  const handleRedeem = () => {
+  const handleRedeem = async () => {
     if (!redeemCode.trim()) return;
-    dispatch({ type: "ADD_REDEEM_REWARD" });
-    setRedeemed(true);
+    setRedeeming(true);
+    setRedeemResult("");
+    try {
+      const response = await redeemClientCouponCode({ userId: state.currentUser?.id || "", code: redeemCode.trim() });
+      dispatch({ type: "SET_WALLET", wallet: response.wallet });
+      setRedeemResult(`已领取 ${response.coupon.name}，可抵扣 ${response.coupon.valuePoints} 积分。`);
+      setRedeemCode("");
+    } catch (error) {
+      setRedeemResult(error instanceof Error ? error.message : "兑换失败，请稍后再试。");
+    } finally {
+      setRedeeming(false);
+    }
   };
 
   const handleCreditPurchase = () => {
@@ -73,20 +85,32 @@ export default function WalletPage() {
   };
 
   const shareBalanceText = `¥${shareBalance.toFixed(2)}`;
-  const couponRows =
-    state.walletCoupons.length > 0
-      ? state.walletCoupons.map((coupon) => [coupon.name, coupon.scope, coupon.expiresAt] as [string, string, string])
-      : ([
-          ["新人产品券", "可试做一件 T 恤", productCouponCount > 0 ? "7 天后过期" : "已使用"],
-          ["创作者体验券", "可生成 5 组产品样例", productCouponCount > 1 ? "30 天后过期" : "暂无可用"],
-          ["社群体验券", "可试做一件马克杯", productCouponCount > 2 ? "12 天后过期" : "暂无可用"],
-        ] as Array<[string, string, string]>);
+
+  if (!isAuthenticated) {
+    return (
+      <main className="page-shell">
+        <PageHeader
+          eyebrow="钱包"
+          title="登录后查看积分、产品券和抵扣。"
+          desc="钱包属于账号权益；注册后可保存兑换码、产品券和公开作品带来的站内抵扣。"
+        />
+        <section className="auth-required-panel">
+          <WalletCards size={28} />
+          <div>
+            <strong>钱包需要账号</strong>
+            <p>登录后再购买积分、兑换产品券或查看站内抵扣，避免权益丢失。</p>
+          </div>
+          <button className="primary" onClick={() => navigate("account")}>去登录</button>
+        </section>
+      </main>
+    );
+  }
 
   const walletAssets = [
     {
       title: "AI 积分",
       value: String(aiCredits),
-      body: "用于批量洗图、扩图、提取、裂变和产品样例生成。",
+      body: "用于批量图片处理、扩图、提取花纹、裂变和产品样例生成。",
       rule: "未产出不消耗",
       icon: WalletCards,
       action: "购买积分",
@@ -191,7 +215,7 @@ export default function WalletPage() {
         <div className="checkout-breakdown">
           {(
             [
-              ["基础短袖 T 恤", "50 件", "¥2,450"],
+              ["活动马克杯", "50 件", "¥2,450"],
               ["产品券抵扣", "创作者体验券", "-¥49"],
               ["站内抵扣权益", useShareCredit ? `已使用 ${shareBalanceText}` : "未使用", useShareCredit ? `-${shareBalanceText}` : "-¥0"],
               ["待支付", "制作前确认", `¥${payableAmount.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`],
@@ -218,30 +242,30 @@ export default function WalletPage() {
               value={redeemCode}
               onChange={(event) => {
                 setRedeemCode(event.target.value);
-                setRedeemed(false);
+                setRedeemResult("");
               }}
               placeholder="输入兑换码"
             />
-            <button className="primary" disabled={!redeemCode.trim() || redeemed} onClick={handleRedeem}>
-              {redeemed ? "已兑换" : "兑换"}
+            <button className="primary" disabled={!redeemCode.trim() || redeeming} onClick={() => void handleRedeem()}>
+              {redeeming ? "兑换中" : "兑换"}
             </button>
           </div>
-          {redeemed && (
+          {redeemResult && (
             <div className="wallet-success">
               <CheckCircle2 size={18} />
-              <span>兑换成功，已加入 100 AI 积分和 1 张产品券。</span>
+              <span>{redeemResult}</span>
             </div>
           )}
         </section>
         <section className={`wallet-panel coupon-panel ${walletFocus === "coupon" ? "wallet-focus" : ""}`}>
           <h2>产品券</h2>
-          {couponRows.map(([name, scope, time]) => (
-            <div key={name} className="coupon-row">
+          {walletCoupons.filter((coupon) => coupon.status === "available").length > 0 ? walletCoupons.filter((coupon) => coupon.status === "available").map((coupon) => (
+            <div key={coupon.id} className="coupon-row">
               <Gift size={18} />
-              <div><strong>{name}</strong><span>{scope}</span></div>
-              <em>{time}</em>
+              <div><strong>{coupon.name}</strong><span>{coupon.scope} · 抵扣 {coupon.valuePoints} 积分</span></div>
+              <em>{coupon.expiresAt || "可用"}</em>
             </div>
-          ))}
+          )) : <p className="coupon-empty">暂无可用产品券，可输入运营发放的兑换码领取。</p>}
         </section>
       </div>
       <section className="wallet-rules">

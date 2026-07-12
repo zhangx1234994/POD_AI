@@ -136,7 +136,10 @@ def _build_default_seeds() -> list[AbilitySeed]:
                 capability_key=capability_key,
                 display_name=definition.get("display_name") or f"OpenAI · {capability_key}",
                 description=definition.get("description") or "",
-                status="active",
+                # Official OpenAI credentials are intentionally not configured
+                # in this deployment. Keep the historical definitions visible
+                # for audit, but prevent them from entering automatic routing.
+                status="inactive",
                 default_params=definition.get("defaults") or None,
                 input_schema=definition.get("input_schema"),
                 metadata=definition.get("metadata") or {"executor_type": "vendor_api"},
@@ -196,7 +199,9 @@ def _build_default_seeds() -> list[AbilitySeed]:
                 capability_key=capability_key,
                 display_name=definition.get("display_name") or f"Doubao {capability_key}",
                 description=definition.get("description") or "",
-                status="active",
+                # Image generation has moved to the governed Image 2 route.
+                # Keep Seedream definitions as historical catalog entries only.
+                status="inactive",
                 default_params=definition.get("defaults") or None,
                 input_schema=definition.get("input_schema"),
                 metadata=definition.get("metadata"),

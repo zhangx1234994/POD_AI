@@ -10,7 +10,10 @@ export type AppView =
   | "tasks"
   | "assets"
   | "products"
+  | "productDesign"
+  | "checkout"
   | "editor"
+  | "imageEditor"
   | "account"
   | "orders"
   | "wallet"
@@ -27,9 +30,12 @@ export type AssetType =
   | "processed"      // AI 处理图
   | "variation"      // 裂变图
   | "pattern"        // 花纹
-  | "ai_generated";  // AI 生成图
+  | "ai_generated"   // AI 生成图
+  | "product_preview"; // 产品预览图
 
-export type AssetVisibility = "private" | "reviewing" | "public";
+export type AssetVisibility = "private" | "reviewing" | "public" | "removed";
+export type AssetLicenseMode = "private" | "display_only" | "free_reuse" | "paid_points";
+export type AssetLicenseSource = "created" | "uploaded" | "free_reuse" | "purchased" | "product_snapshot";
 
 export interface AssetItem {
   id: string;
@@ -44,6 +50,17 @@ export interface AssetItem {
   selected: boolean;
   favorite: boolean;
   visibility: AssetVisibility;
+  licenseMode?: AssetLicenseMode;
+  licenseSource?: AssetLicenseSource;
+  licensePoints?: number | null;
+  author?: string | null;
+  acquiredAt?: string | null;
+  removedAt?: string | null;
+  usedInProducts?: number;
+  width?: number | null;
+  height?: number | null;
+  dpi?: number | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ProductSample {
@@ -56,15 +73,176 @@ export interface ProductSample {
 }
 
 /* ────────────────────────────────────────────
+ * AI 产品设计助手
+ * ──────────────────────────────────────────── */
+
+export type ProductDesignAgentIntent =
+  | "print_as_is"
+  | "clean_and_print"
+  | "extract_pattern"
+  | "make_seamless_wrap"
+  | "generate_variations"
+  | "ai_recreate"
+  | "compose_product_design"
+  | "clarify";
+
+export type ProductDesignAgentStepAction =
+  | "vl_analyze"
+  | "pattern_extract"
+  | "variation"
+  | "two_way_seamless"
+  | "four_way_seamless"
+  | "image2_recreate"
+  | "postprocess_to_surface"
+  | "render_product_preview"
+  | "ask_user";
+
+export interface ProductDesignAgentStep {
+  stepId: string;
+  type: string;
+  title: string;
+  targetAbility: ProductDesignAgentStepAction;
+  status: "pending" | "waiting_confirmation" | "needs_user" | "queued" | "running" | "completed" | "failed";
+  userStatus?: string;
+  costCredits?: number;
+  idempotencyKey?: string;
+  failureFallback?: string;
+  requiresConfirmationBefore?: boolean;
+  requiresConfirmationAfter?: boolean;
+  summary?: string;
+  completedAt?: string | null;
+}
+
+export interface ProductDesignAgentSurfaceAssignment {
+  surfaceId: string;
+  surfaceLabel?: string;
+  assetRef?: string | null;
+  mode?: "wrap" | "fit" | "cover" | "decal" | string;
+  scale?: number;
+  position?: { x: number; y: number };
+  fullBleed?: boolean;
+  needsSeamless?: boolean;
+}
+
+export interface ProductDesignAgentPlan {
+  planId: string;
+  sessionId: string;
+  intent: ProductDesignAgentIntent;
+  confidence: number;
+  needsUserConfirmation: boolean;
+  status: "clarifying" | "needs_confirmation" | "preview_ready" | "completed" | "failed" | string;
+  summaryForUser: string;
+  questions?: string[];
+  steps: ProductDesignAgentStep[];
+  layoutPlan: {
+    surfaceAssignments: ProductDesignAgentSurfaceAssignment[];
+    postprocess?: Record<string, unknown>;
+  };
+  risk?: {
+    level?: "low" | "medium" | "high" | string;
+    reasons?: string[];
+  };
+  rejectedRoutes?: Array<Record<string, unknown>>;
+  contextTrace?: {
+    source?: string;
+    baseAssetRole?: "source_asset" | "previous_result" | "accepted_asset" | "prompt_only" | string;
+    assetIds?: string[];
+    sourceAssetId?: string | null;
+    previousIntent?: ProductDesignAgentIntent | string | null;
+    isFollowup?: boolean;
+  };
+  qualityChecklist?: {
+    intentMatched?: boolean;
+    productSurfaceKnown?: boolean;
+    usesWorkingMemory?: boolean;
+    requiresCostConfirmation?: boolean;
+    hidesSystemTerms?: boolean;
+    sizePostprocessRequired?: boolean;
+    hasVisionEvidence?: boolean;
+  };
+  visionAnalysis?: {
+    provider?: string;
+    model?: string;
+    imageType?: string;
+    qualityRisk?: string;
+    recommendedIntent?: ProductDesignAgentIntent | string;
+    recommendedSurfaceId?: string;
+    layoutMode?: string;
+    needsSeamless?: boolean;
+    needsImage2?: boolean;
+    confidence?: number;
+    observations?: string[];
+    risks?: string[];
+    questions?: string[];
+    skippedReason?: string | null;
+    fallback?: string | null;
+    modelError?: string | null;
+  };
+  modelRouting?: {
+    vlProvider?: string;
+    vlModel?: string;
+    planner?: string;
+    controlPlane?: string;
+  };
+  createdAt?: string;
+}
+
+export interface ProductDesignAgentMessage {
+  messageId: string;
+  role: "user" | "assistant" | "system";
+  type: "text" | "plan" | "result" | "preview" | "notice" | string;
+  content: string;
+  assetIds?: string[];
+  planId?: string | null;
+  createdAt: string;
+}
+
+export interface ProductDesignAgentSession {
+  sessionId: string;
+  userId: string;
+  productId: string;
+  productName: string;
+  productContext: Record<string, unknown>;
+  sourceAssetIds: string[];
+  sourceImageUrls?: string[];
+  status: string;
+  currentPlanId?: string | null;
+  messages: ProductDesignAgentMessage[];
+  plans: ProductDesignAgentPlan[];
+  steps: ProductDesignAgentStep[];
+  toolCalls?: Array<Record<string, unknown>>;
+  workingMemory?: Record<string, unknown>;
+  resultAssetIds: string[];
+  currentPreviewAssetId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resultAssets?: AssetItem[];
+  previewAsset?: AssetItem | null;
+}
+
+export interface ProductDesignQuickIntake {
+  intakeId: string;
+  source: "vl_design_intake";
+  plan: ProductDesignAgentPlan;
+  recommendation: {
+    title: string;
+    actionLabel: string;
+    reason: string;
+    risk?: string | null;
+    suggestedMode: "wrap" | "fit" | "cover" | "decal" | null;
+    requiresAgent: boolean;
+  };
+}
+
+/* ────────────────────────────────────────────
  * 批量处理任务
  * ──────────────────────────────────────────── */
 
-export type ProcessTaskType = "clean" | "extend" | "extract" | "variation" | "seamless2" | "seamless4";
+export type ProcessTaskType = "clean" | "extend" | "extract" | "variation" | "seamless2" | "seamless4" | "image_edit";
 export type ProcessTaskStatus = "pending" | "processing" | "completed" | "failed";
 
 export interface ProcessTask {
   id: string;
-  runIds?: string[];
   type: ProcessTaskType;
   status: ProcessTaskStatus;
   inputAssetIds: string[];
@@ -80,15 +258,27 @@ export interface ProcessTask {
   resultType?: AssetType;
   inputImages?: string[];
   resultImages?: string[];
-  errorMessage?: string;
-  executionMode?: "business";
+  submitStatus?: string;
+  callbackStatus?: string;
+  finalStatus?: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  queueSummary?: {
+    queued?: number;
+    running?: number;
+    completed?: number;
+    failed?: number;
+    maxInFlight?: number;
+    dispatchPerTick?: number;
+  };
+  params?: Record<string, unknown>;
 }
 
 /* ────────────────────────────────────────────
  * AI 处理能力定义
  * ──────────────────────────────────────────── */
 
-export type BatchGoalId = ProcessTaskType;
+export type BatchGoalId = Exclude<ProcessTaskType, "image_edit">;
 
 export interface AbilityDefinition {
   id: BatchGoalId;
@@ -116,6 +306,12 @@ export interface InspirationWork {
   favorites: number;
   earnings: string;
   trend: string;
+  licenseMode?: AssetLicenseMode;
+  pricePoints?: number | null;
+  rightsLabel?: string;
+  complaintCount?: number;
+  sourceAssetId?: string | null;
+  productId?: string | null;
 }
 
 /* ────────────────────────────────────────────
@@ -129,8 +325,11 @@ export interface PublishApplicationSnapshot {
   tags: string;
   usage: string;
   image: string;
+  licenseMode?: AssetLicenseMode;
+  pricePoints?: number | null;
   submittedAt: string;
-  status: "待审核";
+  status: "待审核" | "已通过" | "已拒绝";
+  reviewNote?: string | null;
 }
 
 export interface PublishDraftSource {
@@ -140,6 +339,7 @@ export interface PublishDraftSource {
   usage: string;
   image: string;
   sourceLabel: string;
+  sourceAssetId?: string | null;
 }
 
 /* ────────────────────────────────────────────
@@ -151,19 +351,49 @@ export interface ProductionOrderSnapshot {
   product: string;
   asset: string;
   quantity: string;
-  status: "待支付" | "运营核对" | "已推送供应商" | "制作中" | "已发货" | "已完成" | "待确认";
+  status: "待支付" | "制作中" | "待确认" | "已发出" | "已完成" | "已取消";
   eta: string;
   image: string;
   createdAt: string;
   shippingSummary: string;
   discount: string;
   usedProductCoupon: boolean;
-  orderNo?: string;
-  paymentStatus?: string;
-  supplierStatus?: string | null;
-  productionAssetUrl?: string;
-  supplierEffectImageUrl?: string | null;
-  preflightPassed?: boolean;
+  supplierOrderId?: string | null;
+  logisticsNo?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ClientShippingAddress {
+  recipientName: string;
+  phoneNumber: string;
+  country: string;
+  state: string;
+  city: string;
+  postalCode: string;
+  address: string;
+  email: string;
+}
+
+export interface ProductCheckoutDraft {
+  productId: string;
+  productName: string;
+  productImage: string;
+  sourceAssetId: string;
+  sourceAssetTitle: string;
+  sourceAssetUrl: string;
+  previewAssetId: string;
+  previewImageUrl: string;
+  quantity: number;
+  unitPriceCents: number;
+  payableCents: number;
+  useProductCoupon: boolean;
+  designConfig: Record<string, unknown>;
+}
+
+export interface ProductOrderDraft extends ProductCheckoutDraft {
+  draftId: string;
+  createdAt: string;
+  status: "in_design_basket";
 }
 
 export type CommerceOrderStatus =

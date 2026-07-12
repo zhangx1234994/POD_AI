@@ -1,194 +1,179 @@
 /**
- * 图编辑器 — 单图精修
- * 三栏：左侧工具面板 / 中间画布 / 右侧参数
+ * 素材详情 — 查看、复用和进入下一步
+ *
+ * 素材详情只承载查看和业务流转；单图精修进入独立图片处理工具。
  */
-import { useState } from "react";
 import {
-  Crop,
-  RotateCw,
-  Sliders,
-  Type,
-  Sticker,
-  Eraser,
-  Save,
-  ShoppingBag,
-  RefreshCw,
   ArrowLeft,
-  CheckCircle2,
+  Download,
+  ImageIcon,
+  Layers3,
+  RefreshCw,
+  ShoppingBag,
+  Sparkles,
+  WandSparkles,
 } from "lucide-react";
 import { useApp } from "../hooks/useAppState";
 import PageHeader from "../components/PageHeader";
-
-const tools = [
-  { id: "crop", label: "裁剪", icon: Crop },
-  { id: "rotate", label: "旋转", icon: RotateCw },
-  { id: "adjust", label: "调色", icon: Sliders },
-  { id: "text", label: "文字", icon: Type },
-  { id: "sticker", label: "贴纸", icon: Sticker },
-  { id: "erase", label: "擦除", icon: Eraser },
-];
+import { assetTypeLabels, visibilityLabels } from "../utils/constants";
 
 export default function EditorPage() {
-  const { navigate, state } = useApp();
-  const [activeTool, setActiveTool] = useState("crop");
-  const [saved, setSaved] = useState(false);
-  const [notice, setNotice] = useState("");
+  const { navigate, state, dispatch } = useApp();
+  const asset = state.assets.find((item) => state.selectedAssetIds.includes(item.id)) ?? state.assets[0];
 
-  // 取第一张选中的素材作为编辑对象
-  const editingAsset =
-    state.assets.find((a) => state.selectedAssetIds.includes(a.id)) ?? state.assets[0];
-
-  const showNotice = (msg: string) => {
-    setNotice(msg);
-    setTimeout(() => setNotice(""), 2600);
+  const handleUseForProduct = () => {
+    if (asset) {
+      dispatch({ type: "SELECT_ASSETS", ids: [asset.id] });
+    }
+    navigate("productDesign");
   };
 
-  const handleSave = () => {
-    setSaved(true);
-    showNotice("编辑已保存");
-    setTimeout(() => setSaved(false), 2000);
+  const handleDownload = () => {
+    if (!asset?.url) return;
+    window.open(asset.url, "_blank", "noopener,noreferrer");
   };
+
+  const handleEditImage = () => {
+    if (asset) {
+      dispatch({ type: "SELECT_ASSETS", ids: [asset.id] });
+    }
+    navigate("imageEditor");
+  };
+
+  if (!asset) {
+    return (
+      <main className="page-shell asset-detail-page">
+        <PageHeader
+          eyebrow="素材详情"
+          title="还没有可查看的素材。"
+          desc="先上传图片做一次批量处理，结果会自动进入素材库，然后可以继续做产品或公开分享。"
+        />
+        <section className="asset-detail-empty">
+          <ImageIcon size={28} />
+          <strong>素材库是空的</strong>
+          <p>可以先从素材库选择一张图，或去图片批处理生成一批可复用素材。</p>
+          <button className="primary" onClick={() => navigate("assets")}>
+            去素材库
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  const typeLabel = assetTypeLabels[asset.type] ?? asset.type;
+  const visibilityLabel = visibilityLabels[asset.visibility] ?? asset.visibility;
 
   return (
-    <main className="editor-page">
-      <div className="editor-topbar">
-        <button className="editor-back" onClick={() => navigate("assets")}>
+    <main className="page-shell asset-detail-page">
+      <div className="asset-detail-topbar">
+        <button className="secondary" onClick={() => navigate("assets")}>
           <ArrowLeft size={16} />
           返回素材库
         </button>
-        <span className="editor-filename">{editingAsset?.title ?? "未命名图片"}</span>
-        <div className="editor-topbar-actions">
-          <button className="secondary" onClick={() => navigate("process")}>
-            <RefreshCw size={14} /> 继续处理
+        <div className="asset-detail-actions">
+          <button className="secondary" onClick={handleEditImage}>
+            <WandSparkles size={15} />
+            单图精修
           </button>
-          <button className="secondary" onClick={() => navigate("products")}>
-            <ShoppingBag size={14} /> 做产品
+          <button className="secondary" onClick={handleDownload}>
+            <Download size={15} />
+            下载原图
           </button>
-          <button className="primary" onClick={handleSave}>
-            <Save size={14} />
-            {saved ? "已保存" : "保存"}
+          <button className="primary" onClick={handleUseForProduct}>
+            <ShoppingBag size={15} />
+            用这张图做产品
           </button>
         </div>
       </div>
 
-      {notice && (
-        <div className="editor-notice" role="status">
-          <CheckCircle2 size={14} />
-          <span>{notice}</span>
+      <PageHeader
+        eyebrow="素材详情"
+        title={asset.title}
+        desc="确认这张图片是否适合精修、进入杯子试做，或作为私有素材保存在素材库。"
+      />
+
+      <section className="asset-detail-layout">
+        <div className="asset-detail-stage">
+          <img src={asset.url || asset.thumbnailUrl} alt={asset.title} />
         </div>
-      )}
 
-      <div className="editor-layout">
-        {/* 左侧工具面板 */}
-        <aside className="editor-tools">
-          {tools.map((tool) => {
-            const Icon = tool.icon;
-            return (
-              <button
-                key={tool.id}
-                className={activeTool === tool.id ? "active" : ""}
-                onClick={() => setActiveTool(tool.id)}
-                title={tool.label}
-              >
-                <Icon size={18} />
-                <span>{tool.label}</span>
-              </button>
-            );
-          })}
-        </aside>
-
-        {/* 中间画布 */}
-        <section className="editor-canvas">
-          <div className="canvas-area">
-            <img
-              src={editingAsset?.thumbnailUrl ?? "/demo/floral-pattern.png"}
-              alt="编辑中"
-              className="canvas-image"
-            />
-            <div className="canvas-overlay">
-              <span>画布区域 — 后续接入 Canvas 编辑</span>
+        <aside className="asset-detail-panel">
+          <div className="asset-detail-panel-header">
+            <ImageIcon size={22} />
+            <div>
+              <small>当前素材</small>
+              <strong>{asset.title}</strong>
             </div>
           </div>
-        </section>
 
-        {/* 右侧参数面板 */}
-        <aside className="editor-params">
-          <h3>参数</h3>
-          {activeTool === "crop" && (
-            <div className="param-group">
-              <label>
-                <span>宽度</span>
-                <input type="number" defaultValue={800} />
-              </label>
-              <label>
-                <span>高度</span>
-                <input type="number" defaultValue={600} />
-              </label>
-              <label>
-                <span>比例锁定</span>
-                <select>
-                  <option>自由</option>
-                  <option>1:1</option>
-                  <option>4:3</option>
-                  <option>16:9</option>
-                </select>
-              </label>
+          <dl className="asset-detail-meta">
+            <div>
+              <dt>类型</dt>
+              <dd>{typeLabel}</dd>
             </div>
-          )}
-          {activeTool === "rotate" && (
-            <div className="param-group">
-              <label>
-                <span>旋转角度</span>
-                <input type="range" min="-180" max="180" defaultValue={0} />
-              </label>
-              <label>
-                <span>翻转</span>
-                <div className="flip-btns">
-                  <button>水平翻转</button>
-                  <button>垂直翻转</button>
-                </div>
-              </label>
+            <div>
+              <dt>来源</dt>
+              <dd>{asset.source}</dd>
             </div>
-          )}
-          {activeTool === "adjust" && (
-            <div className="param-group">
-              <label><span>亮度</span><input type="range" min={-100} max={100} defaultValue={0} /></label>
-              <label><span>对比度</span><input type="range" min={-100} max={100} defaultValue={0} /></label>
-              <label><span>饱和度</span><input type="range" min={-100} max={100} defaultValue={0} /></label>
-              <label><span>色温</span><input type="range" min={-100} max={100} defaultValue={0} /></label>
+            <div>
+              <dt>公开状态</dt>
+              <dd>{visibilityLabel}</dd>
             </div>
-          )}
-          {(activeTool === "text" || activeTool === "sticker" || activeTool === "erase") && (
-            <div className="param-group">
-              <p className="param-placeholder">
-                {activeTool === "text" && "在画布上点击添加文字"}
-                {activeTool === "sticker" && "在画布上点击添加贴纸"}
-                {activeTool === "erase" && "在画布上涂抹要擦除的区域"}
-              </p>
+            <div>
+              <dt>尺寸</dt>
+              <dd>{asset.width && asset.height ? `${asset.width} × ${asset.height}px` : "待识别"}</dd>
             </div>
-          )}
+            <div>
+              <dt>DPI</dt>
+              <dd>{asset.dpi ? `${asset.dpi}` : "待识别"}</dd>
+            </div>
+            <div>
+              <dt>批次</dt>
+              <dd>{asset.batchId || "单张素材"}</dd>
+            </div>
+          </dl>
 
-          <div className="param-output">
-            <h3>输出设置</h3>
-            <label>
-              <span>格式</span>
-              <select>
-                <option>PNG</option>
-                <option>JPG</option>
-                <option>WebP</option>
-              </select>
-            </label>
-            <label>
-              <span>质量</span>
-              <select>
-                <option>高</option>
-                <option>中</option>
-                <option>低</option>
-              </select>
-            </label>
+          <div className="asset-detail-next">
+            <article>
+              <RefreshCw size={18} />
+              <div>
+                <strong>批量处理</strong>
+                <span>多张图一起扩图、裂变、提花或连续化。</span>
+              </div>
+              <button onClick={() => navigate("process")}>进入</button>
+            </article>
+            <article>
+              <WandSparkles size={18} />
+              <div>
+                <strong>单图精修</strong>
+                <span>标注位置、加入参考图，再提交精确修改。</span>
+              </div>
+              <button onClick={handleEditImage}>进入</button>
+            </article>
+            <article>
+              <ShoppingBag size={18} />
+              <div>
+                <strong>做产品</strong>
+                <span>带入杯子试做页，满意后放入设计篮。</span>
+              </div>
+              <button onClick={handleUseForProduct}>进入</button>
+            </article>
+            <article>
+              <Sparkles size={18} />
+              <div>
+                <strong>公开灵感</strong>
+                <span>通过审核后进入灵感广场。</span>
+              </div>
+              <button onClick={() => navigate("publish")}>申请</button>
+            </article>
+          </div>
+
+          <div className="asset-detail-note">
+            <Layers3 size={16} />
+            <span>单图精修和批量处理分开：精确修改进入图片处理工具，多图商家处理进入批量处理。</span>
           </div>
         </aside>
-      </div>
+      </section>
     </main>
   );
 }

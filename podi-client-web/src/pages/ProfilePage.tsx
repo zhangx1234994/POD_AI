@@ -22,7 +22,7 @@ export default function ProfilePage() {
 
   const useWork = (work: typeof inspirationWorks[0]) => {
     dispatch({ type: "SET_SAME_STYLE_WORK", work });
-    navigate(work.kind === "产品作品" ? "products" : "process");
+    navigate(work.kind === "产品作品" ? "productDesign" : "process");
   };
 
   return (
