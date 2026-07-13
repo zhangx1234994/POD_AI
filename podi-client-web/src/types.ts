@@ -393,6 +393,7 @@ export interface ClientShippingAddress {
   country: string;
   state: string;
   city: string;
+  district: string;
   postalCode: string;
   address: string;
   email: string;

@@ -805,6 +805,7 @@ export async function createVerifiedSeamlessArtwork(payload: {
   width: number;
   height: number;
   dpi?: number;
+  seamlessMode?: "two_way" | "four_way";
 }): Promise<AssetItem> {
   return jsonRequest<AssetItem>("/api/client/v1/production-artwork/seamless", {
     method: "POST",
@@ -1034,6 +1035,7 @@ export async function createClientOrder(payload: {
     country: string;
     state: string;
     city: string;
+    district?: string;
     postalCode: string;
     address: string;
     phoneNumber: string;
@@ -1275,7 +1277,7 @@ export function getClientAssetPreviewUrl(assetId: string, userId: string): strin
   const cleanUserId = userId.trim();
   if (!cleanAssetId || !cleanUserId) return "";
   const query = new URLSearchParams({ userId: cleanUserId });
-  return `${getRuntimeConfig().apiBaseUrl}/api/client/v1/assets/${encodeURIComponent(cleanAssetId)}/preview?${query.toString()}`;
+  return `${getRuntimeConfig().businessBaseUrl}/api/client/v1/assets/${encodeURIComponent(cleanAssetId)}/preview?${query.toString()}`;
 }
 
 export function hasApiKey(): boolean {

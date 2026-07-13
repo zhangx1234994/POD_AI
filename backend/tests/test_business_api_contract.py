@@ -31,6 +31,7 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
 
     assert "/api/business/pattern-extract/runs" in paths
     assert "/api/business/fission/runs" in paths
+    assert "/api/business/seamless/runs" in paths
     assert "/api/business/image-edit/runs" in paths
     assert "/api/business/image-edit/component-config" in paths
     assert "/api/business/product-design/runs" in paths
@@ -54,6 +55,13 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     submit_schema = paths["/api/business/fission/runs"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
     ]
+    seamless_schema = paths["/api/business/seamless/runs"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert seamless_schema["required"] == ["imageUrl"]
+    assert {"imageUrl", "prompt", "width", "height", "inputs"}.issubset(
+        seamless_schema["properties"]
+    )
     assert submit_schema["required"] == ["imageUrl"]
     assert {
         "imageUrl",

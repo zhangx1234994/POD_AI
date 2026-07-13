@@ -1,6 +1,11 @@
 import importlib.util
+from io import BytesIO
 from pathlib import Path
 import unittest
+from unittest.mock import patch
+import urllib.error
+
+from PIL import Image
 
 
 SERVER_PATH = Path(__file__).resolve().parents[1] / "server.py"
@@ -22,6 +27,8 @@ class CommerceFlowTests(unittest.TestCase):
     self.original_get_ability_task = server.get_midplatform_ability_task
     self.original_text2image_available = server.AGENT_TEXT2IMAGE_AVAILABLE
     self.original_text2image_ability_id = server.AGENT_TEXT2IMAGE_ABILITY_ID
+    self.original_fetch_image_bytes = server.fetch_image_bytes_for_asset
+    self.original_upload_image_bytes = server.upload_image_bytes_to_oss
     server.STATE = server.default_state()
     server.save_state = lambda _state: None
 
@@ -36,6 +43,123 @@ class CommerceFlowTests(unittest.TestCase):
     server.get_midplatform_ability_task = self.original_get_ability_task
     server.AGENT_TEXT2IMAGE_AVAILABLE = self.original_text2image_available
     server.AGENT_TEXT2IMAGE_ABILITY_ID = self.original_text2image_ability_id
+    server.fetch_image_bytes_for_asset = self.original_fetch_image_bytes
+    server.upload_image_bytes_to_oss = self.original_upload_image_bytes
+
+  def test_two_way_production_artwork_rejects_unverified_horizontal_boundary(self):
+    source = Image.new("RGB", (96, 64))
+    for x in range(96):
+      color = (240, 30, 20) if x < 48 else (10, 40, 230)
+      for y in range(64):
+        source.putpixel((x, y), color)
+    source_bytes = BytesIO()
+    source.save(source_bytes, format="PNG")
+    captured = {}
+    server.fetch_image_bytes_for_asset = lambda _url: (source_bytes.getvalue(), "image/png", "https://example.com/source.png")
+
+    def capture_upload(**kwargs):
+      captured.update(kwargs)
+      return "https://podi.example.com/verified.png"
+
+    server.upload_image_bytes_to_oss = capture_upload
+    with self.assertRaisesRegex(ValueError, "CLIENT_PRODUCTION_ARTWORK_SEAM_UNVERIFIED"):
+      server.create_verified_seamless_artwork(
+        user_id="user-test",
+        source_url="https://example.com/source.png",
+        title="两方连续验收",
+        width=96,
+        height=64,
+        dpi=150,
+        seamless_mode="two_way",
+      )
+
+    self.assertEqual(captured, {})
+
+  def test_midplatform_http_error_is_not_reported_as_success(self):
+    error = urllib.error.HTTPError(
+      "http://127.0.0.1:8099/api/business/seamless/runs",
+      404,
+      "Not Found",
+      {},
+      BytesIO(b'{"detail":"Not Found"}'),
+    )
+    with patch.object(server.urllib.request, "urlopen", side_effect=error):
+      result = server.proxy_midplatform_request("POST", "/api/business/seamless/runs", {"imageUrl": "x"})
+
+    self.assertEqual(result["errorCode"], "MIDPLATFORM_HTTP_404")
+    self.assertEqual(result["status"], "failed")
+    self.assertEqual(result["upstreamStatus"], 404)
+
+  def test_oss_upload_falls_back_from_internal_to_public_endpoint(self):
+    endpoints = []
+
+    class FakeBucket:
+      def __init__(self, _auth, endpoint, _bucket, connect_timeout=30):
+        del connect_timeout
+        self.endpoint = endpoint
+        endpoints.append(endpoint)
+
+      def put_object(self, _object_key, _data, headers=None):
+        del headers
+        if "internal" in self.endpoint:
+          raise RuntimeError("internal endpoint unavailable")
+
+    with patch.object(server, "OSS_ACCESS_KEY", "test-key"), patch.object(
+      server, "OSS_SECRET_KEY", "test-secret"
+    ), patch.object(server, "OSS_ENDPOINT", "oss-cn-hangzhou-internal.aliyuncs.com"), patch.object(
+      server, "OSS_PUBLIC_ENDPOINT", "oss-cn-hangzhou.aliyuncs.com"
+    ), patch.object(server.oss2, "Bucket", FakeBucket):
+      url = server.upload_image_bytes_to_oss(
+        user_id="user-test",
+        source_url="https://example.com/source.png",
+        data=b"png",
+        content_type="image/png",
+        namespace="production-artwork",
+      )
+
+    self.assertEqual(
+      endpoints,
+      ["https://oss-cn-hangzhou-internal.aliyuncs.com", "https://oss-cn-hangzhou.aliyuncs.com"],
+    )
+    self.assertTrue(url.startswith(server.OSS_PUBLIC_DOMAIN))
+
+  def test_two_way_production_artwork_preserves_pattern_scale_in_wide_canvas(self):
+    source = Image.new("RGB", (64, 64), (245, 240, 230))
+    for x in range(20, 44):
+      for y in range(20, 44):
+        source.putpixel((x, y), (20, 80, 70))
+    source_bytes = BytesIO()
+    source.save(source_bytes, format="PNG")
+    captured = {}
+    server.fetch_image_bytes_for_asset = lambda _url: (source_bytes.getvalue(), "image/png", "https://example.com/source.png")
+
+    def capture_upload(**kwargs):
+      captured.update(kwargs)
+      return "https://podi.example.com/verified-wide.png"
+
+    server.upload_image_bytes_to_oss = capture_upload
+    asset = server.create_verified_seamless_artwork(
+      user_id="user-test",
+      source_url="https://example.com/source.png",
+      title="宽画布两方连续验收",
+      width=112,
+      height=64,
+      dpi=150,
+      seamless_mode="two_way",
+    )
+
+    with Image.open(BytesIO(captured["data"])) as result:
+      self.assertEqual(result.size, (112, 64))
+      self.assertAlmostEqual(float(result.info["dpi"][0]), 150.0, delta=0.1)
+      self.assertAlmostEqual(float(result.info["dpi"][1]), 150.0, delta=0.1)
+      for y in range(result.height):
+        self.assertEqual(result.getpixel((0, y)), result.getpixel((result.width - 1, y)))
+    check = asset["metadata"]["seamlessEdgeCheck"]
+    self.assertEqual(asset["source"], "产品设计 · AI 两方连续")
+    self.assertEqual(asset["metadata"]["seamlessMode"], "two_way")
+    self.assertEqual(check["topBottom"], "not_required")
+    self.assertEqual(check["horizontalRepeats"], 2)
+    self.assertEqual(check["afterLeftRightMeanError"], 0.0)
 
   def test_coupon_count_uses_available_detailed_and_legacy_coupons(self):
     wallet = {
@@ -74,6 +198,16 @@ class CommerceFlowTests(unittest.TestCase):
     self.assertNotIn("10341", {item["productId"] for item in server.product_pricing_snapshot()})
     self.assertNotIn("10342", {item["productId"] for item in server.product_pricing_snapshot()})
 
+  def test_empty_launch_pricing_is_initialized_from_approved_recommendations(self):
+    self.assertEqual(server.commerce_config()["productPrices"], {})
+
+    self.assertTrue(server.ensure_initial_recommended_pricing())
+
+    pricing = server.product_pricing_snapshot()
+    self.assertTrue(pricing)
+    self.assertTrue(all(item["salePricePoints"] == item["recommendedSalePricePoints"] for item in pricing))
+    self.assertFalse(server.ensure_initial_recommended_pricing())
+
   def test_cn_supplier_payload_keeps_district(self):
     shipping = server.normalize_shipping_address({
       "country": "CN",
@@ -88,6 +222,41 @@ class CommerceFlowTests(unittest.TestCase):
 
     self.assertEqual(shipping["district"], "浦口区")
     self.assertEqual(server.supply_chain_shipping_fields(shipping)["shipDistrict"], "浦口区")
+
+  def test_missing_craft_mapping_is_blocked_by_default(self):
+    with self.assertRaisesRegex(server.HumcustomError, "当前杯型缺少蜂鸟工艺编码"):
+      server.resolve_supply_chain_craft("10395", {}, {})
+
+  def test_ops_can_explicitly_probe_supplier_without_craft_fields(self):
+    user_id = "user-test"
+    server.ensure_bucket("assets", user_id).append({
+      "id": "asset-production",
+      "url": "https://example.com/production.png",
+      "metadata": {
+        "productionValidation": "verified",
+        "seamlessVerified": True,
+      },
+    })
+    order = {
+      "id": "order-craft-probe",
+      "quantity": 1,
+      "metadata": {
+        "productId": "cup-10395",
+        "sourceAssetId": "asset-production",
+        "designConfig": {
+          "textureMode": "wrap",
+          "sizeCode": "OneSize",
+          "baseColorCode": "black",
+          "surfaceName": "front",
+        },
+      },
+    }
+
+    goods = server.build_supply_chain_goods(user_id, order, {"allowCraftOmission": True})
+
+    self.assertEqual(goods[0]["templateNo"], "10395")
+    self.assertNotIn("firstCraft", goods[0])
+    self.assertNotIn("secondCraft", goods[0])
 
   def test_platform_payment_waits_for_ops_confirmation_before_supplier_submission(self):
     class CaptureHandler:
@@ -301,15 +470,24 @@ class CommerceFlowTests(unittest.TestCase):
       "user-prompt-only",
       "agent-prompt-only",
       "为夏日文旅礼品设计一张野花与蝴蝶平面花纹，适合完整铺满杯身，不要文字和产品样机。",
-      {"surfaces": [{"name": "front", "width": 2717, "height": 1476, "dpi": 150, "role": "wrap"}]},
+      {"surfaces": [{"name": "front", "width": 2717, "height": 1476, "dpi": 150, "role": "front"}]},
       [],
-      {"source": "prompt_only", "baseAssetRole": "prompt_only", "visionAnalysis": {"recommendedIntent": "ai_recreate", "confidence": 0.72}},
+      {
+        "source": "prompt_only",
+        "baseAssetRole": "prompt_only",
+        "visionAnalysis": {
+          "recommendedIntent": "ai_recreate",
+          "layoutMode": "wrap",
+          "needsSeamless": True,
+          "confidence": 0.72,
+        },
+      },
     )
 
     self.assertEqual(plan["intent"], "ai_recreate")
     self.assertEqual(plan["steps"][1]["targetAbility"], "image2_recreate")
-    self.assertFalse(plan["layoutPlan"]["surfaceAssignments"][0]["needsSeamless"])
-    self.assertFalse(plan["layoutPlan"]["postprocess"]["seamRiskCheck"])
+    self.assertTrue(plan["layoutPlan"]["surfaceAssignments"][0]["needsSeamless"])
+    self.assertTrue(plan["layoutPlan"]["postprocess"]["seamRiskCheck"])
 
   def test_vl_prompt_requires_structured_style_and_product_constraints(self):
     prompt = server.agent_vl_prompt(

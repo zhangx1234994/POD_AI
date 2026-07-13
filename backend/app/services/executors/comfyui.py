@@ -603,12 +603,30 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                     )
         return {"images": images, "history": entry}
 
-    def _store_remote_asset(self, url: str, context: ExecutionContext, *, tag: str) -> dict[str, Any] | None:
+    def _store_remote_asset(
+        self,
+        url: str,
+        context: ExecutionContext,
+        *,
+        tag: str,
+        expected_size: tuple[int, int] | None = None,
+    ) -> dict[str, Any] | None:
         filename_hint = self._extract_filename_hint(url)
         # ComfyUI's /view endpoint can be flaky under load (occasionally 502 even though
         # the file becomes available moments later). Retry a few times before giving up.
         for attempt in range(4):
             try:
+                if expected_size:
+                    response = httpx.get(url, timeout=60)
+                    response.raise_for_status()
+                    normalized = self._resize_delivery_image(response.content, expected_size)
+                    return media_ingest_service.upload_generated_image_bytes(
+                        data=normalized,
+                        user_id=str(context.task.user_id or "comfyui"),
+                        filename=filename_hint or "comfyui.png",
+                        content_type="image/png",
+                        tag=tag,
+                    )
                 return media_ingest_service.ingest_from_remote_url(
                     url,
                     user_id=str(context.task.user_id or "comfyui"),
@@ -633,8 +651,25 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 return None
         return None
 
-    def _store_base64_asset(self, payload: str, context: ExecutionContext, *, tag: str) -> dict[str, Any] | None:
+    def _store_base64_asset(
+        self,
+        payload: str,
+        context: ExecutionContext,
+        *,
+        tag: str,
+        expected_size: tuple[int, int] | None = None,
+    ) -> dict[str, Any] | None:
         try:
+            if expected_size:
+                data_part = payload.split(",", 1)[1] if payload.startswith("data:") else payload
+                normalized = self._resize_delivery_image(base64.b64decode(data_part), expected_size)
+                return media_ingest_service.upload_generated_image_bytes(
+                    data=normalized,
+                    user_id=str(context.task.user_id or "comfyui"),
+                    filename="comfyui.png",
+                    content_type="image/png",
+                    tag=tag,
+                )
             return media_ingest_service.ingest_from_base64(
                 payload,
                 user_id=str(context.task.user_id or "comfyui"),
@@ -645,6 +680,19 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         except Exception as exc:  # pragma: no cover - defensive
             self._logger.warning("Failed to ingest base64 ComfyUI asset: %s", exc)
             return None
+
+    @staticmethod
+    def _resize_delivery_image(data: bytes, expected_size: tuple[int, int]) -> bytes:
+        target_width, target_height = expected_size
+        if target_width <= 0 or target_height <= 0:
+            raise ValueError("COMFYUI_EXPECTED_SIZE_INVALID")
+        with Image.open(BytesIO(data)) as source:
+            image = source.convert("RGBA")
+            if image.size != expected_size:
+                image = image.resize(expected_size, Image.Resampling.LANCZOS)
+            output = BytesIO()
+            image.save(output, format="PNG", optimize=True)
+            return output.getvalue()
 
     def _build_image_url(self, base_url: str, image: dict[str, Any]) -> str | None:
         filename = image.get("filename")

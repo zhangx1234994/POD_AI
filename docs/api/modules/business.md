@@ -47,6 +47,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
+| 两方/四方连续生产候选 | `POST /api/business/seamless/runs` | `imageUrl` | `prompt`、`width`、`height`、`inputs.patternType`（`twoway`/`seamless`） | `imageUrls` | Image2 负责设计重绘，本入口固定调用 158/5090 专用连续图工作流消除接缝；随后只做目标画布整数周期铺排、像素断言和 2× 平铺视觉复核。 |
 | 产品设计 | `POST /api/business/product-design/runs` | `imageUrl`、`designBrief` | `productType`、`scene`、`referenceImages`、`clientContextId`、`inputAssetIds`、`quality`、`size` | `imageUrls` | 把素材/花纹上到指定产品载体，输出产品设计图。它是独立业务能力，不是图编辑内部模式；客户端可把它编排进端到端链路。 |
 | 产品推广视频素材包 | 规划 `POST /api/business/promo-video/plan`；首尾帧 `POST /api/business/promo-video/keyframes/runs`；分段视频 `POST /api/business/promo-video/runs`；可选合成 `POST /api/business/promo-video/compose/runs`；查询 `POST /api/business/runs/get` | 核心输入为 `productImageUrl` 或 `productImages`；`productFields` 是可选说明材料，不是必填事实源；成本动作必须至少有一张产品图 | `productImages`、`videoScenario`、`durationSeconds`、`targetDurationSeconds`、`aspectRatio`、`executorId`、`extraPrompt`、`videoPlanningContext`、`videoPromptOverride`、`keyframeShotScope`、`confirmedVideoKeyframes` | 规划返回 `videoPlan`、`videoAssetPackagePlan`、`resolvedProductFacts`、`review`；执行返回 `runId` 且 `businessKey=promo_video`，终态查询返回 `imageUrls`、`videoUrls` 或 `resultPayload.videoAssetPackage` | 正式产品视频能力入口，拆成规划、首尾帧、分段视频和可选合成四层。MVP 内部沿用 `product_commercialization` 编排服务和计费/轮询链路，但业务方不再需要自己传 `action`，也不再看到旧聚合业务键。 |
 | 产品商业化（兼容聚合） | 视频预览 `POST /api/business/product-commercialization/preview` 且 `action=video_preview`；首尾帧/视频执行 `POST /api/business/product-commercialization/runs`；查询 `POST /api/business/runs/get` | 同上 | 视频：`action=video_preview/video_keyframes/video_generate` 等；文案入口已从测评端撤下，后续按 `product_copy_package` 独立重做 | 同上 | 试验/兼容聚合入口。新业务接入优先使用 `promo-video` 拆分入口，避免把文案、组图、视频和合成混在一个大接口里。 |
@@ -99,6 +100,35 @@ curl -X POST "$PODI_BACKEND/api/business/fission/runs" \
   }'
 ```
 
+提交杯身两方连续候选图：
+
+```bash
+curl -X POST "$PODI_BACKEND/api/business/seamless/runs" \
+  -H "X-PODI-API-Key: $PODI_BUSINESS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "imageUrl": "https://example.com/pattern.png",
+    "prompt": "整理为杯身左右自然衔接的连续图，不得出现白边、断层或主体切口",
+    "width": 3378,
+    "height": 1949,
+    "inputs": {
+      "patternType": "twoway",
+      "mode": "twoway"
+    }
+  }'
+```
+
+成功响应会包含真实 `runId`，随后使用 `/api/business/runs/get` 轮询。常见错误包括：
+
+- `BUSINESS_IMAGE_URL_REQUIRED`：缺少原图。
+- `BUSINESS_CAPABILITY_NOT_FOUND`：中台没有激活 `businessKey=seamless` 的能力版本。
+- `COMFYUI_EXECUTOR_UNAVAILABLE` / `Q1002`：没有可用的兼容执行节点。
+- `COMFYUI_TIMEOUT`：连续图工作流超时。
+- `CLIENT_PRODUCTION_ARTWORK_SEAM_UNVERIFIED`：候选图的边缘跳变高于画面正常纹理变化，不允许通过羽化或镜像伪装成生产连续图。
+- `MIDPLATFORM_HTTP_*`：业务端代理收到中台非 2xx，必须作为失败处理，不能创建伪任务。
+
+运营端推送蜂鸟时默认要求产品配置中存在经供应链确认的工艺编码。只有在运营人员与供应链联调未知模板边界时，才允许在管理端提交体显式传 `allowCraftOmission=true`；此时仅省略 `firstCraft/secondCraft`，模板、颜色、尺码、生产图和收货地址仍然必须完整。该开关不得暴露给普通客户端，也不得作为长期生产配置。
+
 查询结果：
 
 ```bash
@@ -122,7 +152,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
     "status": "active",
     "tenantId": "tenant-a",
     "clientId": "open-api",
-    "allowedBusinessKeys": ["fission", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit", "image_edit_chat", "product_design", "product_commercialization", "promo_video"],
+    "allowedBusinessKeys": ["fission", "seamless", "text_fission", "fission_evaluate", "outpaint", "pattern_extract", "image_edit", "image_edit_chat", "product_design", "product_commercialization", "promo_video"],
     "expireAt": "2026-12-31T23:59:59+08:00"
   }'
 ```

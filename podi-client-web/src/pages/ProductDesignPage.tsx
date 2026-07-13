@@ -736,7 +736,13 @@ export default function ProductDesignPage() {
       textureLoadState.failedSurfaceNames.length === 0);
   const failedTextureSurfaces = readySurfaces.filter((surface) => textureLoadState.failedSurfaceNames.includes(surface.name));
   const hasTextureLoadFailure = failedTextureSurfaces.length > 0;
-  const canConfirmDesign = Boolean(selectedProduct && draftAsset && priceConfigured && texturePreviewReady);
+  const canConfirmDesign = Boolean(
+    selectedProduct &&
+    draftAsset &&
+    priceConfigured &&
+    texturePreviewReady &&
+    !(textureMode === "wrap" && !assetLooksSeamless(draftAsset))
+  );
   const currentPreviewKey = selectedProduct && draftAsset ? `${selectedProduct.id}:${draftAsset.id}:${designKey}` : "";
   const currentPreviewAlreadyGenerated = Boolean(
     currentPreviewKey && storedPreviewKey === currentPreviewKey && previewAssetId
@@ -920,6 +926,50 @@ export default function ProductDesignPage() {
     setStoredPreviewKey("");
   };
 
+  const restoreAgentPreviewState = (session: ProductDesignAgentSession) => {
+    const preview = session.previewAsset;
+    if (!preview) return;
+    const metadata = preview.metadata ?? {};
+    const config = metadata["designConfig"] && typeof metadata["designConfig"] === "object"
+      ? metadata["designConfig"] as Record<string, unknown>
+      : {};
+    const sourceAssetId = typeof metadata["sourceAssetId"] === "string" ? metadata["sourceAssetId"] : "";
+    const configuredAssignments = config["surfaceAssignments"] && typeof config["surfaceAssignments"] === "object"
+      ? Object.fromEntries(
+        Object.entries(config["surfaceAssignments"] as Record<string, unknown>)
+          .filter((entry): entry is [string, string] => typeof entry[1] === "string" && Boolean(entry[1]))
+      )
+      : {};
+    const surfaceName = typeof config["surfaceName"] === "string" ? config["surfaceName"] : readySurfaces[0]?.name ?? "";
+    const assignments = Object.keys(configuredAssignments).length
+      ? configuredAssignments
+      : sourceAssetId && surfaceName
+        ? { [surfaceName]: sourceAssetId }
+        : {};
+    if (Object.keys(assignments).length) {
+      setSurfaceAssetIds(assignments);
+      setSelectedSurfaceName(surfaceName || Object.keys(assignments)[0]);
+      setSelectedAssetId(sourceAssetId || Object.values(assignments)[0]);
+    }
+    const restoredMode = config["textureMode"];
+    if (restoredMode === "wrap" || restoredMode === "fit" || restoredMode === "cover" || restoredMode === "decal") {
+      setTextureMode(restoredMode);
+    }
+    if (typeof config["baseColor"] === "string") setBaseColor(config["baseColor"]);
+    if (typeof config["textureScale"] === "number") setTextureScale(config["textureScale"]);
+    if (typeof config["textureOffsetX"] === "number") setTextureOffsetX(config["textureOffsetX"]);
+    if (typeof config["textureOffsetY"] === "number") setTextureOffsetY(config["textureOffsetY"]);
+    setPreviewAssetId(preview.id);
+    setPreviewImageUrl(preview.url || preview.thumbnailUrl || selectedProductPhoto);
+    const restoredDesignKey = typeof config["designKey"] === "string" ? config["designKey"] : "";
+    setStoredPreviewKey(
+      restoredDesignKey && sourceAssetId
+        ? `${selectedProduct?.id}:${sourceAssetId}:${restoredDesignKey}`
+        : `${selectedProduct?.id}:${preview.id}:restored-agent-preview`
+    );
+    setPreviewGenerated(true);
+  };
+
   useEffect(() => {
     if (!readySurfaces.length) {
       if (selectedSurfaceName) setSelectedSurfaceName("");
@@ -967,9 +1017,9 @@ export default function ProductDesignPage() {
 
   useEffect(() => {
     if (!isAuthenticated || !selectedProduct) return;
-    let sessionId = "";
+    let sessionId = state.resumeAgentSessionId || "";
     try {
-      sessionId = window.localStorage.getItem(resumeAgentSessionKey) || "";
+      sessionId ||= window.localStorage.getItem(resumeAgentSessionKey) || "";
     } catch {
       return;
     }
@@ -984,8 +1034,12 @@ export default function ProductDesignPage() {
         setAgentSession(session);
         setDesignMode("agent");
         upsertAgentAssets(session.resultAssets);
-        if (session.previewAsset) upsertAgentAssets([session.previewAsset]);
+        if (session.previewAsset) {
+          upsertAgentAssets([session.previewAsset]);
+          restoreAgentPreviewState(session);
+        }
         dispatch({ type: "UPSERT_DESIGN_AGENT_SESSION", session });
+        dispatch({ type: "SET_RESUME_AGENT_SESSION", sessionId: null });
         try {
           window.localStorage.removeItem(resumeAgentSessionKey);
         } catch {
@@ -999,7 +1053,7 @@ export default function ProductDesignPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeUserId, isAuthenticated, selectedProduct?.id, state.designAgentSessions]);
+  }, [activeUserId, isAuthenticated, selectedProduct?.id, state.designAgentSessions, state.resumeAgentSessionId]);
 
   const applyAssetToSurface = (assetId: string, surfaceName?: string) => {
     const targetSurfaceName = surfaceName || selectedSurface?.name || readySurfaces[0]?.name || "";
@@ -1029,6 +1083,10 @@ export default function ProductDesignPage() {
   };
 
   const selectAssetForSurface = (assetId: string) => {
+    if (selectedSurfaceAssetId === assetId) {
+      clearSelectedSurfaceAsset();
+      return;
+    }
     applyAssetToSurface(assetId);
   };
 
@@ -1352,6 +1410,12 @@ export default function ProductDesignPage() {
 
   const agentPlacementMode = (plan?: ProductDesignAgentPlan | null): TexturePlacementMode => {
     const assignmentMode = plan?.layoutPlan?.surfaceAssignments?.[0]?.mode;
+    const requiresSeamless = Boolean(
+      plan?.layoutPlan?.surfaceAssignments?.[0]?.needsSeamless ||
+      plan?.visionAnalysis?.needsSeamless ||
+      plan?.visionAnalysis?.layoutMode === "wrap"
+    );
+    if (requiresSeamless) return "wrap";
     if (assignmentMode === "wrap" || assignmentMode === "fit" || assignmentMode === "cover" || assignmentMode === "decal") {
       return assignmentMode;
     }
@@ -1378,6 +1442,70 @@ export default function ProductDesignPage() {
     plan: currentAgentPlan,
   });
 
+  const createProductionReadyWrapAsset = async (
+    sourceAsset: AssetItem,
+    surface: DesignSurface,
+    title: string
+  ): Promise<AssetItem> => {
+    if (assetLooksSeamless(sourceAsset)) return sourceAsset;
+    if (!surface.width || !surface.height) {
+      throw new Error("当前杯型缺少生产尺寸，暂不能生成环绕生产图。");
+    }
+
+    const submitted = await submitBusinessRun("/api/business/seamless/runs", {
+      imageUrl: sourceAsset.url,
+      prompt: "将输入设计整理为杯身左右无缝衔接的两方连续图。保留主体风格、色彩与构图层次；左右边缘必须自然连续，不得出现白边、断层、重复主体切口或可见接缝。",
+      width: surface.width,
+      height: surface.height,
+      inputs: {
+        imageUrl: sourceAsset.url,
+        patternType: "twoway",
+        mode: "twoway",
+        width: surface.width,
+        height: surface.height,
+        productId: selectedProduct?.id,
+        surfaceName: surface.name,
+        dpi: surface.dpi ?? 150,
+        designIntent: "production-two-way-seamless-wrap",
+      },
+      source: "client-product-design",
+      userId: activeUserId,
+      clientRequestId: `two-way-seamless-${selectedProduct?.id || "product"}-${sourceAsset.id}-${Date.now()}`,
+    });
+    if (!submitted.ok || !submitted.runId) {
+      throw new Error(submitted.error || "两方连续任务未能提交。");
+    }
+
+    showNotice("正在生成杯身连续图，完成校验后才会应用。");
+    const deadline = Date.now() + 8 * 60 * 1000;
+    let latest = submitted;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 3500));
+      latest = await getBusinessRun(submitted.runId);
+      if (!latest.ok) throw new Error(latest.error || "两方连续任务失败。");
+      if (latest.imageUrls.length > 0) break;
+      if (["failed", "cancelled"].includes(String(latest.status || "").toLowerCase())) {
+        throw new Error("两方连续图未成功生成，请重试或换一张素材。");
+      }
+    }
+    const imageUrl = latest.imageUrls[0];
+    if (!imageUrl) throw new Error("连续图仍在生成，可稍后重新采用这套设计。");
+
+    const verifiedAsset = await createVerifiedSeamlessArtwork({
+      userId: activeUserId,
+      sourceUrl: imageUrl,
+      sourceAssetId: sourceAsset.id,
+      businessRunId: submitted.runId,
+      title,
+      width: surface.width,
+      height: surface.height,
+      dpi: surface.dpi ?? 150,
+      seamlessMode: "two_way",
+    });
+    dispatch({ type: "ADD_ASSETS", assets: [verifiedAsset] });
+    return verifiedAsset;
+  };
+
   const optimizeForSeamlessProduction = async () => {
     if (!draftAsset || !draftSurface || !selectedProduct || !draftSurface.width || !draftSurface.height) {
       showNotice("先选择一张图片和可用设计面，再进行 AI 优化。");
@@ -1392,64 +1520,18 @@ export default function ProductDesignPage() {
 
     setSeamlessOptimizing(true);
     try {
-      const submitted = await submitBusinessRun("/api/business/seamless/runs", {
-        imageUrl: draftAsset.url,
-        prompt: "将输入图片整理为上下左右均可无缝拼接的四方连续图。保留主要花纹、色彩和密度；不要保留拍摄背景、产品轮廓或透视。",
-        width: draftSurface.width,
-        height: draftSurface.height,
-        inputs: {
-          imageUrl: draftAsset.url,
-          patternType: "seamless",
-          mode: "seamless",
-          width: draftSurface.width,
-          height: draftSurface.height,
-          productId: selectedProduct.id,
-          surfaceName: draftSurface.name,
-          dpi: draftSurface.dpi ?? 150,
-          designIntent: "production-seamless-source",
-        },
-        source: "client-product-design",
-        userId: activeUserId,
-        clientRequestId: `seamless-${selectedProduct.id}-${Date.now()}`,
-      });
-      if (!submitted.ok || !submitted.runId) {
-        throw new Error(submitted.error || "四方连续任务未能提交。");
-      }
-
-      showNotice("AI 优化已提交，正在生成连续图。");
-      const deadline = Date.now() + 8 * 60 * 1000;
-      let latest = submitted;
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => window.setTimeout(resolve, 3500));
-        latest = await getBusinessRun(submitted.runId);
-        if (!latest.ok) throw new Error(latest.error || "连续图任务失败。");
-        if (latest.imageUrls.length > 0) break;
-        if (["failed", "cancelled"].includes(String(latest.status || "").toLowerCase())) {
-          throw new Error("连续图任务未成功完成，请在任务中心查看原因。");
-        }
-      }
-      const imageUrl = latest.imageUrls[0];
-      if (!imageUrl) {
-        throw new Error("连续图仍在队列中，稍后可在任务中心继续查看。");
-      }
-      const asset = await createVerifiedSeamlessArtwork({
-        userId: activeUserId,
-        sourceUrl: imageUrl,
-        sourceAssetId: draftAsset.id,
-        businessRunId: submitted.runId,
-        title: `${draftAsset.title} · AI 四方连续`,
-        width: draftSurface.width,
-        height: draftSurface.height,
-        dpi: draftSurface.dpi ?? 150,
-      });
-      dispatch({ type: "ADD_ASSETS", assets: [asset] });
+      const asset = await createProductionReadyWrapAsset(
+        draftAsset,
+        draftSurface,
+        `${draftAsset.title} · AI 杯身连续`
+      );
       applyAssetToSurface(asset.id, draftSurface.name);
       setTextureMode("wrap");
       setTextureScale(1);
       setTextureOffsetX(0);
       setTextureOffsetY(0);
       resetPreviewState();
-      showNotice("已应用 AI 连续图，并完成生产图边缘像素校验。");
+      showNotice("已应用两方连续图，并完成杯身左右接缝校验。");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "AI 优化失败，请稍后重试。");
     } finally {
@@ -1458,12 +1540,22 @@ export default function ProductDesignPage() {
   };
 
   const handleUseAgentAsset = async (asset: AssetItem, surfaceName?: string, mode?: TexturePlacementMode) => {
-    upsertAgentAssets([asset]);
     const plan = currentAgentPlan;
     const targetSurface = readySurfaces.find((surface) => surface.name === surfaceName) || agentPlacementSurface(plan);
     const targetMode = mode || agentPlacementMode(plan);
-    applyAssetToSurface(asset.id, targetSurface?.name);
-    setTextureMode(targetMode);
+    if (!targetSurface) {
+      showNotice("当前杯型没有可用设计面。");
+      return;
+    }
+    setAgentBusy(true);
+    setAgentBusyText(targetMode === "wrap" ? "正在生成并校验杯身连续图。" : "正在采用设计结果。");
+    try {
+      const productionAsset = targetMode === "wrap"
+        ? await createProductionReadyWrapAsset(asset, targetSurface, `${asset.title} · 杯身连续生产图`)
+        : asset;
+      upsertAgentAssets([productionAsset]);
+      applyAssetToSurface(productionAsset.id, targetSurface.name);
+      setTextureMode(targetMode);
     const assignment = plan?.layoutPlan?.surfaceAssignments?.[0];
     if (typeof assignment?.scale === "number") setTextureScale(assignment.scale);
     if (assignment?.position && typeof assignment.position.x === "number") setTextureOffsetX(assignment.position.x);
@@ -1473,13 +1565,12 @@ export default function ProductDesignPage() {
       setTextureOffsetX(0);
       setTextureOffsetY(0);
     }
-    if (!agentSession || !targetSurface) return;
-    try {
+      if (!agentSession) return;
       const session = await confirmProductDesignAgentStep({
         userId: activeUserId,
         sessionId: agentSession.sessionId,
         stepId: latestAgentPlan(agentSession)?.steps?.find((step) => step.status === "completed")?.stepId || "s2",
-        assetId: asset.id,
+        assetId: productionAsset.id,
         surfaceId: targetSurface.name,
         surfaceLabel: targetSurface.label,
         mode: targetMode,
@@ -1489,9 +1580,12 @@ export default function ProductDesignPage() {
         position: { x: textureOffsetX, y: textureOffsetY },
       });
       rememberAgentSession(session);
-      showNotice("已采用为当前产品设计，左侧预览会同步更新。");
+      showNotice(targetMode === "wrap" ? "已采用并通过杯身接缝校验。" : "已采用为当前产品设计。");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "应用 AI 结果失败。");
+    } finally {
+      setAgentBusy(false);
+      setAgentBusyText("");
     }
   };
 

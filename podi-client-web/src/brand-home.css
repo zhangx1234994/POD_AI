@@ -60,7 +60,7 @@
 }
 
 .brand-home-hero .market-hero-copy > p:not(.eyebrow, .hero-brand-proof) {
-  max-width: 570px;
+  max-width: 430px;
   margin: 24px 0 0;
   color: #46555b;
   font-size: 17px;
@@ -184,7 +184,7 @@ body .market-final-cta > img {
   }
 
   .brand-home-hero-image {
-    object-position: 70% center;
+    object-position: 58% center;
   }
 
   .brand-home-hero .market-hero-copy {
@@ -205,7 +205,7 @@ body .market-final-cta > img {
   }
 
   .brand-home-hero .market-hero-copy > p:not(.eyebrow, .hero-brand-proof) {
-    max-width: 440px;
+    max-width: 320px;
     margin-top: 18px;
     font-size: 15px;
     line-height: 1.7;

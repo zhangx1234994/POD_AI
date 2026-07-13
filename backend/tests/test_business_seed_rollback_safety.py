@@ -65,6 +65,7 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         outpaint_fallback = session.get(BusinessCapability, "biz_outpaint_rollback_huawen_kuotu")
         pattern_extract_default = session.get(BusinessCapability, "biz_pattern_extract_v1_yinhua_tiqu")
         pattern_extract_fallback = session.get(BusinessCapability, "biz_pattern_extract_rollback_lora_8step")
+        seamless_default = session.get(BusinessCapability, "biz_seamless_v1_sifang_lianxu")
 
         assert pattern_extract_default is not None
         assert pattern_extract_default.recipe["primaryAbilityId"] == "comfyui_yinhua_tiqu"
@@ -79,6 +80,13 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert pattern_extract_fallback.is_default is False
         assert pattern_extract_fallback.extra_metadata["versionLine"]["key"] == "rollback"
         assert pattern_extract_fallback.extra_metadata["versionLineage"]["decision"] == "rollback"
+
+        assert seamless_default is not None
+        assert seamless_default.is_default is True
+        assert seamless_default.recipe["primaryAbilityId"] == "comfyui_sifang_lianxu"
+        assert seamless_default.extra_metadata["requiredExecutorId"] == "executor_comfyui_pattern_extract_158"
+        assert seamless_default.extra_metadata["seed_version"] == 3
+        assert session.get(Ability, "comfyui_sifang_lianxu") is not None
 
         assert fission_fallback is not None
         assert fission_fallback.recipe["primaryAbilityId"] == "comfyui_e7_flux2_liebian"

@@ -23352,7 +23352,7 @@ body,
   object-fit: contain;
   object-position: center;
   mix-blend-mode: multiply;
-  transform: scale(1.12);
+  transform: scale(1.35);
 }
 
 .catalog-card-swatch {
@@ -23677,6 +23677,10 @@ body,
 
   .catalog-product-visual {
     min-height: 146px;
+  }
+
+  .catalog-product-visual .catalog-product-photo {
+    transform: scale(1.28);
   }
 
   .catalog-product-body {

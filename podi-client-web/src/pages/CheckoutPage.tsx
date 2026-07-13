@@ -33,6 +33,7 @@ function validateAddress(address: ClientShippingAddress) {
   else if (!/^[A-Za-z]{2,3}$/.test(country)) errors.country = "请使用 CN / US 这类国家代码";
   if (!address.state.trim()) errors.state = "请填写省/州";
   if (!address.city.trim()) errors.city = "请填写城市";
+  if (country.toUpperCase() === "CN" && !address.district.trim()) errors.district = "请填写区/县";
   if (!postalCode) errors.postalCode = "请填写邮编";
   else if (!/^[A-Za-z0-9\-\s]{3,16}$/.test(postalCode)) errors.postalCode = "邮编格式不正确";
   if (!address.address.trim()) errors.address = "请填写详细地址";
@@ -197,6 +198,7 @@ export default function CheckoutPage() {
         normalizedAddress.country,
         normalizedAddress.state,
         normalizedAddress.city,
+        normalizedAddress.district,
         normalizedAddress.postalCode,
         normalizedAddress.address,
       ].join("|");
@@ -225,6 +227,7 @@ export default function CheckoutPage() {
             country: normalizedAddress.country,
             state: normalizedAddress.state,
             city: normalizedAddress.city,
+            district: normalizedAddress.district || undefined,
             postalCode: normalizedAddress.postalCode,
             address: normalizedAddress.address,
             phoneNumber: normalizedAddress.phoneNumber,
@@ -260,8 +263,8 @@ export default function CheckoutPage() {
       </button>
       <PageHeader
         eyebrow="结算"
-        title="确认地址、权益和支付。"
-        desc="用户先在 AI创品完成支付，订单进入运营核对；运营确认设计稿和收货信息后才会推送蜂鸟。快递由蜂鸟后台选择。"
+        title="确认设计、地址和支付。"
+        desc="支付后进入运营核对，确认无误再安排生产。"
       />
 
       <section className="checkout-shell">
@@ -278,31 +281,33 @@ export default function CheckoutPage() {
             </div>
           </article>
 
-          {state.orderDrafts.length > 1 && (
+          {state.orderDrafts.length > 0 && (
             <section className="design-basket-list">
               <div className="checkout-section-head">
                 <PackageCheck size={18} />
                 <div>
                   <strong>设计篮</strong>
-                  <span>如果寄给同一个人，直接整批提交；需要代发给不同客户时，切到逐件拆单。</span>
+                  <span>{state.orderDrafts.length > 1 ? "核对每件设计；需要分开发货时再切换拆单。" : "核对当前设计，确认无误后填写地址并结算。"}</span>
                 </div>
               </div>
-              <div className="checkout-mode-switch" role="group" aria-label="提交方式">
-                <button
-                  type="button"
-                  className={checkoutMode === "together" ? "active" : ""}
-                  onClick={() => setCheckoutMode("together")}
-                >
-                  一起寄给同一个人
-                </button>
-                <button
-                  type="button"
-                  className={checkoutMode === "split" ? "active" : ""}
-                  onClick={() => setCheckoutMode("split")}
-                >
-                  逐件拆单代发
-                </button>
-              </div>
+              {state.orderDrafts.length > 1 && (
+                <div className="checkout-mode-switch" role="group" aria-label="提交方式">
+                  <button
+                    type="button"
+                    className={checkoutMode === "together" ? "active" : ""}
+                    onClick={() => setCheckoutMode("together")}
+                  >
+                    一起寄给同一个人
+                  </button>
+                  <button
+                    type="button"
+                    className={checkoutMode === "split" ? "active" : ""}
+                    onClick={() => setCheckoutMode("split")}
+                  >
+                    逐件拆单代发
+                  </button>
+                </div>
+              )}
               <div className="design-basket-list__items">
                 {state.orderDrafts.map((item) => (
                   <div className={`design-basket-list__item ${checkoutMode === "together" || item.draftId === draft.draftId ? "active" : ""}`} key={item.draftId}>
@@ -366,6 +371,11 @@ export default function CheckoutPage() {
                 <span>城市</span>
                 <input className={addressErrors.city ? "invalid" : ""} value={address.city} onChange={(event) => updateAddress("city", event.target.value)} placeholder="城市" />
                 {addressErrors.city && <em className="field-error">{addressErrors.city}</em>}
+              </label>
+              <label>
+                <span>区/县{address.country === "CN" ? "" : "（可选）"}</span>
+                <input className={addressErrors.district ? "invalid" : ""} value={address.district} onChange={(event) => updateAddress("district", event.target.value)} placeholder="区或县" />
+                {addressErrors.district && <em className="field-error">{addressErrors.district}</em>}
               </label>
               <label>
                 <span>邮编</span>

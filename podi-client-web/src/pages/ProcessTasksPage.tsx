@@ -28,8 +28,10 @@ function designSessionMeta(session: ProductDesignAgentSession) {
   const plan = [...plans].reverse().find((item) => item.planId === session.currentPlanId) || plans[plans.length - 1];
   const status = session.status === "executing"
     ? "生成中"
-    : session.status === "completed" || session.status === "preview_ready"
-      ? "可查看"
+    : session.status === "preview_applied" || session.status === "completed"
+      ? "已完成"
+      : session.status === "preview_ready"
+        ? "待采用"
       : session.status === "failed"
         ? "需要处理"
         : "待确认";
@@ -370,9 +372,13 @@ export default function ProcessTasksPage() {
   );
 
   const runningDesignCount = designSessions.filter((session) => session.status === "executing").length;
+  const completedDesignCount = designSessions.filter((session) =>
+    session.status === "preview_applied" || session.status === "completed"
+  ).length;
   const runningCount = tasks.filter(isRunning).length + runningDesignCount;
-  const completedCount = tasks.filter((task) => task.status === "completed").length;
+  const completedCount = tasks.filter((task) => task.status === "completed").length + completedDesignCount;
   const latestTask = tasks[0] ?? null;
+  const latestDesign = designSessions[0] ?? null;
 
   if (activeTask) {
     return <TaskDetail task={activeTask} onBack={() => setDetailTaskId(null)} />;
@@ -384,6 +390,7 @@ export default function ProcessTasksPage() {
     } catch {
       // Ignore storage failures.
     }
+    dispatch({ type: "SET_RESUME_AGENT_SESSION", sessionId: session.sessionId });
     dispatch({ type: "SET_SELECTED_PRODUCT", productId: session.productId });
     navigate("productDesign");
   };
@@ -429,8 +436,12 @@ export default function ProcessTasksPage() {
         </div>
         <div>
           <small>最近任务</small>
-          <strong>{latestTask ? resolveTaskAbilityTitle(latestTask) : "暂无"}</strong>
-          <span>{latestTask ? `${latestTask.createdAt} · ${statusMeta[latestTask.status].label}` : "创建任务后显示"}</span>
+          <strong>{latestTask ? resolveTaskAbilityTitle(latestTask) : latestDesign ? "AI 产品设计" : "暂无"}</strong>
+          <span>{latestTask
+            ? `${latestTask.createdAt} · ${statusMeta[latestTask.status].label}`
+            : latestDesign
+              ? `${latestDesign.updatedAt} · ${designSessionMeta(latestDesign).status}`
+              : "创建任务后显示"}</span>
         </div>
       </section>
 

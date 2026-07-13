@@ -82,6 +82,7 @@ export default function InspirePage() {
   const [complaintEvidence, setComplaintEvidence] = useState("");
   const [complaintDetail, setComplaintDetail] = useState("");
   const [notice, setNotice] = useState("");
+  const [preparingWorkId, setPreparingWorkId] = useState<string | null>(null);
 
   const sourceWorks = useMemo(() => {
     const merged = new Map<string, InspirationWork>();
@@ -225,18 +226,24 @@ export default function InspirePage() {
   };
 
   const useWork = async (work: InspirationWork) => {
-    dispatch({ type: "SET_SAME_STYLE_WORK", work });
-    if (work.kind === "产品作品") {
-      const assetId = await acquireWorkAsset(work);
-      if (!assetId) return;
-      rememberProductDesignAsset(assetId);
-      dispatch({ type: "SET_PENDING_PRODUCT_DESIGN_ASSET", id: assetId });
-      const productId = normalizeProductId(work.productId);
-      if (productId) dispatch({ type: "SET_SELECTED_PRODUCT", productId });
-      navigate("productDesign");
-      return;
+    if (preparingWorkId) return;
+    setPreparingWorkId(work.id);
+    try {
+      dispatch({ type: "SET_SAME_STYLE_WORK", work });
+      if (work.kind === "产品作品") {
+        const assetId = await acquireWorkAsset(work);
+        if (!assetId) return;
+        rememberProductDesignAsset(assetId);
+        dispatch({ type: "SET_PENDING_PRODUCT_DESIGN_ASSET", id: assetId });
+        const productId = normalizeProductId(work.productId);
+        if (productId) dispatch({ type: "SET_SELECTED_PRODUCT", productId });
+        navigate("productDesign");
+        return;
+      }
+      setImageActionWork(work);
+    } finally {
+      setPreparingWorkId(null);
     }
-    setImageActionWork(work);
   };
 
   const submitComplaint = async () => {
@@ -384,8 +391,12 @@ export default function InspirePage() {
                     <strong>作者收益：{workEarningsLabel(work)}</strong>
                     <span>只能站内抵扣，不能提现</span>
                   </div>
-                  <button className="primary full" onClick={() => useWork(work)}>
-                    {workActionLabel(work)}
+                  <button
+                    className="primary full"
+                    onClick={() => useWork(work)}
+                    disabled={Boolean(preparingWorkId)}
+                  >
+                    {preparingWorkId === work.id ? "正在准备…" : workActionLabel(work)}
                   </button>
                 </div>
               </article>

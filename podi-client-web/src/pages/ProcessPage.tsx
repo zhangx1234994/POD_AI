@@ -111,7 +111,7 @@ const abilityPresentation: Record<
     summary: "适合杯子、瓶身、圆柱包装等横向环绕产品。重点处理左右边缘衔接，让图案绕一圈时更自然。",
     entryCopy: "用于杯子、瓶身这类圆柱产品，解决左右接缝。",
     bestFor: ["左右衔接", "杯身环绕", "减少接缝"],
-    productFits: ["马克杯", "吸管杯", "保温杯", "包装筒"],
+    productFits: ["手柄杯", "吸管杯", "保温杯", "包装筒"],
     params: [
       { label: "连续方式", value: "左右连续" },
       { label: "输出尺寸", value: "原图 / 常用 / 自定义" },
@@ -592,12 +592,6 @@ export default function ProcessPage() {
             </button>
           </section>
         )}
-
-        <PageHeader
-          eyebrow="图片处理"
-          title="把图片变成可以继续创作的素材。"
-          desc="提取花纹、扩展画面或生成连续图。处理结果会保存到你的素材库。"
-        />
 
         <section className="process-capability-hero">
           <div>

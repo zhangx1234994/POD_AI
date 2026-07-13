@@ -59,6 +59,7 @@ export interface AppState {
 
   // AI 产品设计助手
   designAgentSessions: ProductDesignAgentSession[];
+  resumeAgentSessionId: string | null;
 
   // 产品
   selectedProductId: string | null;
@@ -131,6 +132,7 @@ export type AppAction =
   | { type: "ADD_PROCESS_TASK"; task: ProcessTask }
   | { type: "UPDATE_PROCESS_TASK"; id: string; patch: Partial<ProcessTask> }
   | { type: "UPSERT_DESIGN_AGENT_SESSION"; session: ProductDesignAgentSession }
+  | { type: "SET_RESUME_AGENT_SESSION"; sessionId: string | null }
   | { type: "SET_SELECTED_PRODUCT"; productId: string; sizeLabel?: string | null }
   | { type: "SET_SELECTED_SURFACE"; surface: string | null }
   | { type: "SET_CHECKOUT_DRAFT"; draft: ProductCheckoutDraft }
@@ -523,6 +525,7 @@ const initialState: AppState = {
   processTasks: [],
   latestProcessTaskId: null,
   designAgentSessions: [],
+  resumeAgentSessionId: null,
   selectedProductId: null,
   selectedProductSizeLabel: null,
   selectedSurface: null,
@@ -571,6 +574,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         processTasks: [],
         latestProcessTaskId: null,
         designAgentSessions: [],
+        resumeAgentSessionId: null,
         checkoutDraft: null,
         orderDrafts: [],
         aiCredits: 0,
@@ -693,6 +697,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
           ...state.designAgentSessions.filter((item) => item.sessionId !== action.session.sessionId),
         ],
       };
+
+    case "SET_RESUME_AGENT_SESSION":
+      return { ...state, resumeAgentSessionId: action.sessionId };
 
     case "SET_SELECTED_PRODUCT":
       return { ...state, selectedProductId: action.productId, selectedProductSizeLabel: action.sizeLabel ?? null };

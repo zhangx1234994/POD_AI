@@ -168,6 +168,18 @@
 | IMAGE_EDIT_MASK_ALPHA_REQUIRED | 图编辑蒙版缺少 Alpha 通道 | 400，mask 必须是有效透明蒙版 |
 | IMAGE_EDIT_QUALITY_INVALID | 图编辑质量档位非法 | 400，允许 `auto` / `preview` / `production` / `premium` |
 | IMAGE_EDIT_OUTPUT_FORMAT_INVALID | 图编辑输出格式非法 | 400，允许 `png` / `jpeg` / `webp` |
+| CLIENT_ASSET_USER_REQUIRED | 素材预览缺少当前用户 | 422，业务客户端 3D 预览代理接口 |
+| CLIENT_ASSET_NOT_FOUND | 素材不存在或不属于当前账号 | 404，业务客户端 3D 预览代理接口 |
+| CLIENT_ASSET_PREVIEW_UNAVAILABLE | 素材无法从自有 OSS 读取或格式不支持 | 422/502/503，业务客户端 3D 预览代理接口 |
+| CLIENT_ASSET_PREVIEW_TOO_LARGE | 素材超过 3D 预览代理大小限制 | 413，业务客户端 3D 预览代理接口 |
+| CLIENT_PRODUCTION_ARTWORK_SOURCE_REQUIRED | 生产连续图缺少生成结果 URL | 422，连续图验收与生产图导出接口 |
+| CLIENT_PRODUCTION_ARTWORK_MODE_INVALID | 连续图验收模式非法 | 422，仅允许 `two_way` / `four_way` |
+| CLIENT_PRODUCTION_ARTWORK_SEAM_UNVERIFIED | 连续候选仍存在可检测接缝 | 422，不进入设计篮；重新调用 158/5090 专用连续图能力后再导出生产图 |
+| CLIENT_PRODUCTION_ARTWORK_UPLOAD_FAILED | 生产图已生成但 OSS 保存失败 | 502，检查 OSS 内外网端点与凭证后重试；客户端保留生成任务 |
+| CLIENT_SUPPLY_CHAIN_CRAFT_CONFIG_REQUIRED | 当前杯型缺少蜂鸟工艺编码 | 422，默认阻断推单；仅运营端可显式使用 `allowCraftOmission=true` 做一次受控接口探测 |
+| CLIENT_SUPPLY_CHAIN_CRAFT_UNSUPPORTED | 当前杯型不支持所选工艺 | 422，重新选择工艺或补齐产品配置后再推单 |
+| CLIENT_SUPPLY_CHAIN_CRAFT_DISABLED | 所选工艺尚未开放 | 422，当前 5D 工艺不开放 |
+| CLIENT_ORDER_SUPPLY_CHAIN_PAYLOAD_INVALID | 蜂鸟商品明细不完整 | 422，缺少模板、数量、颜色、尺码或生产图；不得静默补猜 |
 | PRODUCT_DESIGN_BRIEF_REQUIRED | 产品设计缺少设计要求 | 400，`/api/business/product-design/runs` 必须传 `designBrief` 或兼容字段 |
 | PRODUCT_DESIGN_PRODUCT_TYPE_INVALID | 产品设计产品类型非法 | 400，允许 `apparel` / `home_textile` / `bag` / `shoe` / `stationery` / `packaging` / `generic` |
 | PRODUCT_DESIGN_SCENE_INVALID | 产品设计展示场景非法 | 400，允许 `studio_product` / `flat_lay` / `ecommerce` / `lifestyle` / `print_mockup` / `generic` |
@@ -534,6 +546,7 @@
 | VENDOR_API_TIMEOUT | 第三方 API 调用超时 | 常见于网络出口或代理异常 |
 | VENDOR_API_UPSTREAM_ERROR | 第三方 API 上游异常 | 非平台侧参数错误 |
 | VENDOR_API_PROXY_UNAVAILABLE | 第三方 API 代理不可用 | 检查 HTTP_PROXY/HTTPS_PROXY 或国际出口节点 |
+| MIDPLATFORM_HTTP_* | 业务端访问中台时收到非 2xx 响应 | 保留上游状态码与 detail，业务端不得把失败包装成成功任务 |
 | VENDOR_API_RESPONSE_INVALID | 第三方 API 返回结构异常 | 需要保留截断 debugResponse |
 | VENDOR_PROVIDER_REGISTRY_UNAVAILABLE | 第三方供应商注册表不可读 | 管理端治理摘要降级提示，不中断页面 |
 | VENDOR_KEY_STATUS_UNAVAILABLE | 第三方密钥状态不可读 | 管理端治理摘要降级提示，不返回明文 |

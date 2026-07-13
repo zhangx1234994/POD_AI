@@ -33,6 +33,21 @@ def test_flux_strong_hq_seed_allows_both_verified_comfyui_nodes():
     assert metadata["seed_version"] >= 3
 
 
+def test_seamless_seed_is_pinned_to_158_without_233_fallback():
+    metadata = COMFYUI_ABILITIES["sifang_lianxu"]["metadata"]
+
+    assert metadata["allowed_executor_ids"] == ["executor_comfyui_pattern_extract_158"]
+    assert metadata["routing_policy"] == "fixed-executor"
+    assert metadata["seed_version"] >= 12
+
+
+def test_flux2_seamless_seed_is_pinned_to_158_without_233_fallback():
+    metadata = COMFYUI_ABILITIES["flux2_9b_liebian_sifang"]["metadata"]
+
+    assert metadata["allowed_executor_ids"] == ["executor_comfyui_pattern_extract_158"]
+    assert metadata["routing_policy"] == "fixed"
+
+
 def test_pick_comfyui_executor_by_queue_round_robin_on_tie(monkeypatch):
     service = AbilityInvocationService()
 

@@ -317,6 +317,10 @@ export default function AccountPage() {
             <input value={addressInfo.city} onChange={(event) => updateAddressInfo("city", event.target.value)} placeholder="城市" />
           </label>
           <label>
+            <span>区/县</span>
+            <input value={addressInfo.district} onChange={(event) => updateAddressInfo("district", event.target.value)} placeholder="区或县" />
+          </label>
+          <label>
             <span>邮编</span>
             <input value={addressInfo.postalCode} onChange={(event) => updateAddressInfo("postalCode", event.target.value)} placeholder="邮编" />
           </label>

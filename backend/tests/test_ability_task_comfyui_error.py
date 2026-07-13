@@ -1,6 +1,12 @@
+from io import BytesIO
+from types import SimpleNamespace
+
 from fastapi import HTTPException
+from PIL import Image
 
 from app.services.ability_task_service import AbilityTaskService
+from app.services.executors.comfyui import ComfyUIExecutorAdapter
+from app.services.executors import comfyui as comfyui_module
 
 
 def test_extract_comfyui_error_detail_with_execution_error_message():
@@ -73,3 +79,33 @@ def test_comfyui_input_validation_error_is_not_reroutable():
     exc = HTTPException(status_code=400, detail="COMFYUI_IMAGE_REQUIRED")
 
     assert AbilityTaskService._is_comfyui_reroutable_error(exc) is False
+
+
+def test_comfyui_asset_store_accepts_finalize_expected_size(monkeypatch):
+    adapter = ComfyUIExecutorAdapter()
+    context = SimpleNamespace(task=SimpleNamespace(user_id="test-user"))
+    monkeypatch.setattr(
+        comfyui_module.media_ingest_service,
+        "ingest_from_remote_url",
+        lambda *args, **kwargs: {"ossUrl": "https://example.com/result.png"},
+    )
+
+    result = adapter._store_remote_asset(
+        "https://example.com/result.png",
+        context,
+        tag="comfyui",
+        expected_size=None,
+    )
+
+    assert result == {"ossUrl": "https://example.com/result.png"}
+
+
+def test_comfyui_delivery_resize_outputs_exact_pixels():
+    source = Image.new("RGB", (64, 64), (20, 80, 120))
+    payload = BytesIO()
+    source.save(payload, format="PNG")
+
+    normalized = ComfyUIExecutorAdapter._resize_delivery_image(payload.getvalue(), (96, 48))
+
+    with Image.open(BytesIO(normalized)) as result:
+        assert result.size == (96, 48)

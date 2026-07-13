@@ -1060,6 +1060,15 @@ def create_fission_run(
     return _create_business_run_with_usage(request=request, business_key="fission", payload=payload, user=user)
 
 
+@router.post("/seamless/runs", response_model=dict[str, Any], response_model_by_alias=False)
+def create_seamless_run(
+    payload: schemas.BusinessRunCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    return _create_business_run_with_usage(request=request, business_key="seamless", payload=payload, user=user)
+
+
 @router.post("/text-fission/prompts", response_model=schemas.TextFissionPromptResponse, response_model_by_alias=False)
 def prepare_text_fission_prompt(
     payload: schemas.TextFissionPromptRequest,
@@ -3302,6 +3311,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         required_override=[],
     )
     fission_submit_schema = _merge_business_capability_schema("fission", fission_submit_schema)
+    seamless_submit_schema = _merge_business_capability_schema("seamless", fission_submit_schema)
+    seamless_submit_schema["required"] = ["imageUrl"]
     fission_route_preview_schema = _merge_business_capability_schema("fission", fission_route_preview_schema, required_override=[])
     image_edit_submit_schema = _merge_business_capability_schema("image_edit", image_edit_submit_schema)
     image_edit_submit_schema["required"] = ["imageUrl"]
@@ -3892,6 +3903,23 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     ],
                     "responses": _business_responses(
                         success_description="Business run accepted",
+                        errors_by_status=submit_errors,
+                        success_schema=submit_response_schema,
+                    ),
+                }
+            },
+            "/api/business/seamless/runs": {
+                "post": {
+                    "operationId": "podi_business_seamless_run",
+                    "summary": "PODI · 两方/四方连续候选图",
+                    "description": "提交连续图候选生成任务。patternType=twoway 只承诺左右连续；patternType=seamless 承诺四边连续。候选图必须继续经过目标画布适配、像素边缘断言和平铺视觉复核后才能用于生产。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": seamless_submit_schema}},
+                    },
+                    "responses": _business_responses(
+                        success_description="Seamless candidate run accepted",
                         errors_by_status=submit_errors,
                         success_schema=submit_response_schema,
                     ),

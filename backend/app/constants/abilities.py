@@ -3561,8 +3561,8 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "height": 1024,
             "timeout": 900,
         },
-        "display_name": "ComfyUI · 四方连续",
-        "description": "将输入图转为可四方连续拼接的纹理，自动结合图像理解提示词与自定义 prompt。",
+        "display_name": "ComfyUI · 两方/四方连续",
+        "description": "将已确认的设计候选转为可两方或四方连续拼接的生产纹理，固定由 158/5090 执行。",
         "category": "image_generation",
         "input_schema": _comfyui_seamless_schema(),
         "metadata": {
@@ -3576,13 +3576,11 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             # Only keep final outputs from the known "SaveImage" node for this workflow.
             # Otherwise ComfyUI history may contain multiple intermediate previews.
             "output_node_ids": ["111"],
-            # This workflow depends on the custom String node. 233 was restored
-            # under whitelist control on 2026-05-16 and passed a forced run.
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
             "required_node_keys": ["String", "StringConcatenate", "SaveImage"],
-            "routing_note": "2026-05-16: 233 String node restored and forced 233 run passed; route by queue across 233/158.",
-            "routing_policy": "queue",
-            "seed_version": 10,
+            "routing_note": "2026-07-13: 连续图主链路固定到 158/5090/117.50.80.158；禁止静默回退 233/4090。",
+            "routing_policy": "fixed-executor",
+            "seed_version": 12,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",

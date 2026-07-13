@@ -355,6 +355,66 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
         },
     ),
     BusinessCapabilitySeed(
+        id="biz_seamless_v1_sifang_lianxu",
+        business_key="seamless",
+        version="v1",
+        display_name="连续图 · 5090 专用接缝修复",
+        description="将已确认的设计候选转为两方/四方连续生产图，固定使用 158/5090/117.50.80.158 的专用连续图工作流。",
+        status="active",
+        is_default=True,
+        release_time=datetime(2026, 7, 13, 0, 0, 0),
+        recipe={
+            "mode": "single_ability_task",
+            "primaryAbilityId": "comfyui_sifang_lianxu",
+            "steps": [
+                {
+                    "id": "seamless",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "abilityId": "comfyui_sifang_lianxu",
+                }
+            ],
+            "vlAssist": {"enabled": False, "abilityId": "vl_analyze_image"},
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧传入已确认的图案或设计候选图。"),
+                _field("prompt", "连续图要求 Prompt", field_type="textarea", required=False),
+                _field(
+                    "patternType",
+                    "连续方式 Pattern Type",
+                    field_type="select",
+                    default="twoway",
+                    options=[
+                        {"label": "两方连续", "value": "twoway"},
+                        {"label": "四方连续", "value": "seamless"},
+                    ],
+                ),
+                _field("width", "目标宽度 Width", field_type="number", default=1024),
+                _field("height", "目标高度 Height", field_type="number", default=1024),
+                _field("timeout", "超时时间 Timeout", field_type="number", default=420),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "seamless",
+            "entry": "business-api",
+            "versionLine": _version_line(
+                "comfyui",
+                "ComfyUI 自研线",
+                "Image2 负责设计重绘，连续图固定走 158/5090 专用接缝修复工作流。",
+                20,
+            ),
+            "versionLineage": _version_lineage(
+                decision_note="实图 2x 平铺验收确认 FLUX2 候选仍有接缝，恢复专用连续图工作流并固定 158/5090。",
+                change_summary="连续图入口改为 sifang_lianxu；生产导出只做周期铺排和尺寸/DPI校验，不再用羽化伪修复。",
+            ),
+            "coze_strategy": "新链路不再走 Coze；业务方统一调用 /api/business/seamless/runs。",
+            "requiredExecutorId": "executor_comfyui_pattern_extract_158",
+            "seed_version": 3,
+        },
+    ),
+    BusinessCapabilitySeed(
         id="biz_fission_v1_flux_strong_hq_softstyle",
         business_key="fission",
         version="v1",

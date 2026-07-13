@@ -15,6 +15,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import mimetypes
 import os
 import re
@@ -111,6 +112,7 @@ OSS_SECRET_KEY = os.getenv("OSS_SECRET_KEY") or os.getenv("ALIYUN_OSS_KEY_SECRET
 OSS_BUCKET = os.getenv("OSS_BUCKET") or os.getenv("ALIYUN_OSS_BUCKET") or "podi"
 OSS_REGION = os.getenv("OSS_REGION") or os.getenv("ALIYUN_OSS_REGION") or "oss-cn-hangzhou"
 OSS_ENDPOINT = os.getenv("OSS_INTERNAL_ENDPOINT") or os.getenv("OSS_ENDPOINT") or os.getenv("ALIYUN_OSS_ENDPOINT") or "oss-cn-hangzhou.aliyuncs.com"
+OSS_PUBLIC_ENDPOINT = os.getenv("OSS_ENDPOINT") or os.getenv("ALIYUN_OSS_ENDPOINT") or f"{OSS_REGION}.aliyuncs.com"
 OSS_PUBLIC_DOMAIN = (os.getenv("OSS_PUBLIC_DOMAIN") or os.getenv("ALIYUN_OSS_PUBLIC_DOMAIN") or f"https://{OSS_BUCKET}.{OSS_REGION}.aliyuncs.com").rstrip("/")
 OSS_ROOT_PREFIX = (os.getenv("OSS_ROOT_PREFIX") or os.getenv("ALIYUN_OSS_ROOT_PREFIX") or "test").strip("/")
 HUMCUSTOM_BASE = os.getenv("HUMCUSTOM_API_BASE_URL", "https://openapi.humcustom.com").rstrip("/")
@@ -390,6 +392,15 @@ def _oss_endpoint() -> str:
   return endpoint if endpoint.startswith("http") else f"https://{endpoint}"
 
 
+def _oss_endpoint_candidates() -> list[str]:
+  candidates = []
+  for endpoint in (OSS_ENDPOINT, OSS_PUBLIC_ENDPOINT, f"{OSS_REGION}.aliyuncs.com"):
+    normalized = endpoint if endpoint.startswith("http") else f"https://{endpoint}"
+    if normalized not in candidates:
+      candidates.append(normalized)
+  return candidates
+
+
 def upload_model_input_bytes_to_oss(
   *,
   user_id: str,
@@ -424,10 +435,16 @@ def upload_image_bytes_to_oss(
   prefix = "/".join(segment for segment in [OSS_ROOT_PREFIX, namespace_part, user_part, date_str] if segment)
   object_key = f"{prefix}/{secrets.token_hex(4)}-{int(time.time())}{safe_suffix}"
   auth = oss2.Auth(OSS_ACCESS_KEY, OSS_SECRET_KEY)
-  bucket = oss2.Bucket(auth, _oss_endpoint(), OSS_BUCKET, connect_timeout=30)
   headers = {"Content-Type": content_type} if content_type else None
-  bucket.put_object(object_key, data, headers=headers)
-  return f"{OSS_PUBLIC_DOMAIN}/{quote(object_key, safe='/')}"
+  last_error: Exception | None = None
+  for endpoint in _oss_endpoint_candidates():
+    try:
+      bucket = oss2.Bucket(auth, endpoint, OSS_BUCKET, connect_timeout=30)
+      bucket.put_object(object_key, data, headers=headers)
+      return f"{OSS_PUBLIC_DOMAIN}/{quote(object_key, safe='/')}"
+    except Exception as exc:  # noqa: BLE001 - try public OSS outside the ECS VPC
+      last_error = exc
+  raise RuntimeError("OSS_ASSET_UPLOAD_FAILED") from last_error
 
 
 def oss_object_key_from_url(value: Any) -> str | None:
@@ -571,6 +588,7 @@ def create_verified_seamless_artwork(
   dpi: int,
   source_asset_id: str | None = None,
   business_run_id: str | None = None,
+  seamless_mode: str = "four_way",
 ) -> dict[str, Any]:
   if width < 64 or height < 64 or width > 10000 or height > 10000:
     raise ValueError("CLIENT_PRODUCTION_ARTWORK_SIZE_INVALID")
@@ -582,16 +600,92 @@ def create_verified_seamless_artwork(
   data, _content_type, fetched_url = fetch_image_bytes_for_asset(source_url)
   try:
     with Image.open(BytesIO(data)) as source_image:
-      artwork = source_image.convert("RGBA")
-      if artwork.size != (width, height):
-        artwork = artwork.resize((width, height), Image.Resampling.LANCZOS)
-      pixels = artwork.load()
-      for y in range(height):
-        pixels[width - 1, y] = pixels[0, y]
-      for x in range(width):
-        pixels[x, height - 1] = pixels[x, 0]
+      def boundary_error(image: Any, axis: str) -> float:
+        image_width, image_height = image.size
+        if axis == "horizontal":
+          first = image.crop((0, 0, 1, image_height))
+          last = image.crop((image_width - 1, 0, image_width, image_height))
+        else:
+          first = image.crop((0, 0, image_width, 1))
+          last = image.crop((0, image_height - 1, image_width, image_height))
+        first_bytes = first.convert("RGB").tobytes()
+        last_bytes = last.convert("RGB").tobytes()
+        if not first_bytes:
+          return 0.0
+        return round(sum(abs(left - right) for left, right in zip(first_bytes, last_bytes)) / len(first_bytes), 3)
+
+      def typical_adjacent_error(image: Any, axis: str) -> float:
+        image_width, image_height = image.size
+        if axis == "horizontal":
+          positions = sorted({1, image_width // 4, image_width // 2, (image_width * 3) // 4, image_width - 1})
+          samples = []
+          for position in positions:
+            position = max(1, min(image_width - 1, position))
+            left = image.crop((position - 1, 0, position, image_height)).convert("RGB").tobytes()
+            right = image.crop((position, 0, position + 1, image_height)).convert("RGB").tobytes()
+            samples.append(sum(abs(a - b) for a, b in zip(left, right)) / max(len(left), 1))
+          return round(sum(samples) / max(len(samples), 1), 3)
+        positions = sorted({1, image_height // 4, image_height // 2, (image_height * 3) // 4, image_height - 1})
+        samples = []
+        for position in positions:
+          position = max(1, min(image_height - 1, position))
+          top = image.crop((0, position - 1, image_width, position)).convert("RGB").tobytes()
+          bottom = image.crop((0, position, image_width, position + 1)).convert("RGB").tobytes()
+          samples.append(sum(abs(a - b) for a, b in zip(top, bottom)) / max(len(top), 1))
+        return round(sum(samples) / max(len(samples), 1), 3)
+
+      def lock_boundary(image: Any, axis: str) -> None:
+        image_width, image_height = image.size
+        pixels = image.load()
+        if axis == "horizontal":
+          for y in range(image_height):
+            pixels[image_width - 1, y] = pixels[0, y]
+          return
+        for x in range(image_width):
+          pixels[x, image_height - 1] = pixels[x, 0]
+
+      def compose_periodic_canvas(image: Any) -> tuple[Any, int, int]:
+        source_width, source_height = image.size
+        natural_width = max(1, round(source_width * height / max(source_height, 1)))
+        horizontal_repeats = max(1, round(width / natural_width))
+        vertical_repeats = 1
+        tile_width = max(1, round(width / horizontal_repeats))
+        tile = image.resize((tile_width, height), Image.Resampling.LANCZOS)
+        strip = Image.new("RGBA", (tile_width * horizontal_repeats, height))
+        for repeat_index in range(horizontal_repeats):
+          strip.paste(tile, (repeat_index * tile_width, 0))
+        canvas = strip if strip.width == width else strip.resize((width, height), Image.Resampling.LANCZOS)
+        return canvas, horizontal_repeats, vertical_repeats
+
+      candidate = source_image.convert("RGBA")
+      source_size = candidate.size
+      before_left_right = boundary_error(candidate, "horizontal")
+      before_top_bottom = boundary_error(candidate, "vertical") if seamless_mode == "four_way" else None
+      adjacent_left_right = typical_adjacent_error(candidate, "horizontal")
+      adjacent_top_bottom = typical_adjacent_error(candidate, "vertical") if seamless_mode == "four_way" else None
+      left_right_ratio = before_left_right / max(adjacent_left_right, 1.0)
+      top_bottom_ratio = (
+        before_top_bottom / max(adjacent_top_bottom or 0.0, 1.0)
+        if seamless_mode == "four_way" and before_top_bottom is not None
+        else None
+      )
+      if before_left_right > 24.0 or left_right_ratio > 1.6:
+        raise ValueError("CLIENT_PRODUCTION_ARTWORK_SEAM_UNVERIFIED")
+      if seamless_mode == "four_way":
+        if (before_top_bottom or 0.0) > 24.0 or (top_bottom_ratio or 0.0) > 1.6:
+          raise ValueError("CLIENT_PRODUCTION_ARTWORK_SEAM_UNVERIFIED")
+
+      artwork, horizontal_repeats, vertical_repeats = compose_periodic_canvas(candidate)
+      lock_boundary(artwork, "horizontal")
+      if seamless_mode == "four_way":
+        lock_boundary(artwork, "vertical")
+
+      after_left_right = boundary_error(artwork, "horizontal")
+      after_top_bottom = boundary_error(artwork, "vertical") if seamless_mode == "four_way" else None
       output = BytesIO()
-      artwork.save(output, format="PNG", optimize=True)
+      artwork.save(output, format="PNG", optimize=True, dpi=(dpi, dpi))
+  except ValueError:
+    raise
   except Exception as exc:  # noqa: BLE001 - keep image internals out of client errors
     raise RuntimeError("CLIENT_PRODUCTION_ARTWORK_PROCESS_FAILED") from exc
 
@@ -608,7 +702,7 @@ def create_verified_seamless_artwork(
     "title": title,
     "url": oss_url,
     "thumbnailUrl": oss_url,
-    "source": "产品设计 · AI 四方连续",
+    "source": "产品设计 · AI 两方连续" if seamless_mode == "two_way" else "产品设计 · AI 四方连续",
     "createdAt": now_label(),
     "selected": False,
     "favorite": False,
@@ -625,10 +719,25 @@ def create_verified_seamless_artwork(
       "isSeamless": True,
       "seamlessVerified": True,
       "productionValidation": "verified",
-      "productionValidationMethod": "target-size-export-edge-pixel-lock",
+      "productionValidationMethod": "verified-tile-integer-periodic-export",
+      "productionCanvasStrategy": "preserve-aspect-periodic-repeat",
+      "seamlessMode": seamless_mode,
       "seamlessEdgeCheck": {
         "leftRight": "exact",
-        "topBottom": "exact",
+        "topBottom": "exact" if seamless_mode == "four_way" else "not_required",
+        "beforeLeftRightMeanError": before_left_right,
+        "afterLeftRightMeanError": after_left_right,
+        "beforeTopBottomMeanError": before_top_bottom,
+        "afterTopBottomMeanError": after_top_bottom,
+        "candidateLeftRightAdjacentMeanError": adjacent_left_right,
+        "candidateLeftRightSeamRatio": round(left_right_ratio, 3),
+        "candidateTopBottomAdjacentMeanError": adjacent_top_bottom,
+        "candidateTopBottomSeamRatio": round(top_bottom_ratio, 3) if top_bottom_ratio is not None else None,
+        "repairAxes": [],
+        "sourceWidth": source_size[0],
+        "sourceHeight": source_size[1],
+        "horizontalRepeats": horizontal_repeats,
+        "verticalRepeats": vertical_repeats,
         "width": width,
         "height": height,
       },
@@ -1517,6 +1626,26 @@ def recommended_sale_price_points(cost_price_cents: int) -> int:
 
 
 STATE = load_state()
+
+
+def ensure_initial_recommended_pricing() -> bool:
+  """Apply the approved launch pricing once when no product has a sale price."""
+  config = STATE.setdefault("commerce", {})
+  prices = config.setdefault("productPrices", {})
+  if any((optional_int(value) or 0) > 0 for value in prices.values()):
+    return False
+  for product_id, product in SUPPLY_CHAIN_PRODUCT_OVERRIDES.items():
+    if product_id in DISCONTINUED_PRODUCT_TEMPLATE_IDS:
+      continue
+    name = str(product.get("name") or "")
+    cost_price_cents = 2696 if product_id == "10167" else product_cost_price_cents(product_id, name)
+    prices[product_id] = recommended_sale_price_points(cost_price_cents) * 100
+  config["initialRecommendedPricingAppliedAt"] = datetime.now(timezone.utc).isoformat()
+  save_state(STATE)
+  return True
+
+
+ensure_initial_recommended_pricing()
 
 
 def json_error(code: str, message: str, status: int = 400) -> tuple[int, dict[str, Any]]:
@@ -2599,7 +2728,11 @@ def build_design_agent_plan(
     })
 
   surface_supports_wrap = bool(default_surface.get("supportsWrap", default_surface.get("role") == "wrap"))
-  if intent in {"make_seamless_wrap", "extract_pattern", "generate_variations"}:
+  vision_layout_mode = str(vision_analysis.get("layoutMode") or "").strip().lower()
+  vision_requires_seamless = bool(vision_analysis.get("needsSeamless"))
+  if vision_layout_mode == "wrap" or vision_requires_seamless:
+    layout_mode = "wrap"
+  elif intent in {"make_seamless_wrap", "extract_pattern", "generate_variations"}:
     layout_mode = "wrap"
   elif intent == "ai_recreate" and surface_supports_wrap and not requests_original_print(message):
     layout_mode = "wrap"
@@ -2615,7 +2748,7 @@ def build_design_agent_plan(
     risk_reasons.append("需要确认是否保留原图风格")
   if target_width and target_height:
     risk_reasons.append(f"最终生产图必须后处理到 {target_width}x{target_height}px，不能让用户手工凑尺寸")
-  if intent == "make_seamless_wrap":
+  if layout_mode == "wrap":
     risk_reasons.append("杯身环绕需要检查左右接缝；主体图不应直接强行连续化")
   context_asset_ids = normalize_id_list(asset_ids)
   context_source = str(context.get("source") or ("explicit_assets" if context_asset_ids else "prompt_only"))
@@ -2690,7 +2823,7 @@ def build_design_agent_plan(
           "scale": 1,
           "position": {"x": 0, "y": 0},
           "fullBleed": layout_mode == "wrap",
-          "needsSeamless": intent == "make_seamless_wrap",
+          "needsSeamless": layout_mode == "wrap",
         }
       ],
       "postprocess": {
@@ -2701,7 +2834,7 @@ def build_design_agent_plan(
         "strategy": "exact_surface_fit",
         "allowMinorStretch": True,
         "allowPaddingOrCrop": True,
-          "seamRiskCheck": intent == "make_seamless_wrap",
+          "seamRiskCheck": layout_mode == "wrap",
           "preferredWrapStrategy": "seamless_background_then_foreground" if intent == "make_seamless_wrap" else "full_bleed_cover" if layout_mode == "wrap" else None,
         "outputCount": plan_output_count,
       },
@@ -4133,6 +4266,8 @@ def resolve_supply_chain_craft(template_id: str, design_config: dict[str, Any], 
     )
   if options:
     return options[0]
+  if payload.get("allowCraftOmission") is True:
+    return {}
   raise HumcustomError(
     422,
     "CLIENT_SUPPLY_CHAIN_CRAFT_CONFIG_REQUIRED",
@@ -4253,7 +4388,9 @@ def build_supply_chain_goods(user_id: str, order: dict[str, Any], payload: dict[
     "colorCode": color_code or "default",
     "imageList": [{"imageUrl": image_url, "surfaceName": surface_name, "viewId": design_config.get("surfaceViewId")}],
   })
-  required = ("templateNo", "firstCraft", "secondCraft", "num", "platItemId", "sizeCode", "colorCode", "imageList")
+  required = ("templateNo", "num", "platItemId", "sizeCode", "colorCode", "imageList")
+  if craft_config:
+    required += ("firstCraft", "secondCraft")
   if not all(item.get(key) not in (None, "", [], {}) for key in required):
     raise HumcustomError(422, "CLIENT_ORDER_SUPPLY_CHAIN_PAYLOAD_INVALID", "缺少可提交蜂鸟的商品明细。")
   return [item]
@@ -4433,9 +4570,17 @@ def proxy_midplatform_request(
       return json.loads(response.read().decode("utf-8") or "{}")
   except urllib.error.HTTPError as error:
     try:
-      return json.loads(error.read().decode("utf-8") or "{}")
+      response_payload = json.loads(error.read().decode("utf-8") or "{}")
     except Exception:
-      return {"errorCode": f"HTTP_{error.code}", "message": str(error), "status": "failed"}
+      response_payload = {}
+    if not isinstance(response_payload, dict):
+      response_payload = {}
+    detail = str(response_payload.get("detail") or response_payload.get("message") or "").strip()
+    response_payload.setdefault("errorCode", f"MIDPLATFORM_HTTP_{error.code}")
+    response_payload["message"] = detail or f"中台返回 HTTP {error.code}。"
+    response_payload["status"] = "failed"
+    response_payload["upstreamStatus"] = error.code
+    return response_payload
   except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
     return None
 
@@ -6174,10 +6319,18 @@ class Handler(BaseHTTPRequestHandler):
 
     try:
       auth = oss2.Auth(OSS_ACCESS_KEY, OSS_SECRET_KEY)
-      bucket = oss2.Bucket(auth, _oss_endpoint(), OSS_BUCKET, connect_timeout=20)
-      response = bucket.get_object(object_key)
-      content_type = str(response.headers.get("Content-Type") or mimetypes.guess_type(object_key)[0] or "image/png").split(";", 1)[0].strip().lower()
-      image_bytes = response.read(CLIENT_ASSET_PREVIEW_MAX_BYTES + 1)
+      last_error = None
+      for endpoint in _oss_endpoint_candidates():
+        try:
+          bucket = oss2.Bucket(auth, endpoint, OSS_BUCKET, connect_timeout=20)
+          response = bucket.get_object(object_key)
+          content_type = str(response.headers.get("Content-Type") or mimetypes.guess_type(object_key)[0] or "image/png").split(";", 1)[0].strip().lower()
+          image_bytes = response.read(CLIENT_ASSET_PREVIEW_MAX_BYTES + 1)
+          break
+        except Exception as exc:  # noqa: BLE001 - retry public endpoint after internal endpoint failure
+          last_error = exc
+      else:
+        raise RuntimeError("OSS preview unavailable") from last_error
     except Exception:  # noqa: BLE001 - external storage errors must not leak to clients
       status, payload = json_error("CLIENT_ASSET_PREVIEW_UNAVAILABLE", "素材预览服务暂时不可用，请稍后重试。", 502)
       self._json(payload, status)
@@ -6788,25 +6941,53 @@ class Handler(BaseHTTPRequestHandler):
     width = optional_int(body.get("width")) or 0
     height = optional_int(body.get("height")) or 0
     dpi = optional_int(body.get("dpi")) or 150
+    seamless_mode = optional_text(body.get("seamlessMode")) or "four_way"
+    if seamless_mode not in {"two_way", "four_way"}:
+      status, payload = json_error("CLIENT_PRODUCTION_ARTWORK_MODE_INVALID", "连续图校验模式不受支持。", 422)
+      self._json(payload, status)
+      return
     try:
       asset = create_verified_seamless_artwork(
         user_id=user_id,
         source_url=source_url,
-        title=optional_text(body.get("title")) or "AI 四方连续生产图",
+        title=optional_text(body.get("title")) or (
+          "AI 两方连续生产图" if seamless_mode == "two_way" else "AI 四方连续生产图"
+        ),
         width=width,
         height=height,
         dpi=dpi,
         source_asset_id=optional_text(body.get("sourceAssetId")),
         business_run_id=optional_text(body.get("businessRunId")),
+        seamless_mode=seamless_mode,
       )
     except ValueError as exc:
-      status, payload = json_error(str(exc), "生产图尺寸不符合当前设计面要求。", 422)
+      code = str(exc)
+      message = (
+        "当前结果仍能检测到接缝，请重新执行 AI 连续化后再进入生产。"
+        if code == "CLIENT_PRODUCTION_ARTWORK_SEAM_UNVERIFIED"
+        else "生产图尺寸不符合当前设计面要求。"
+      )
+      status, payload = json_error(code, message, 422)
       self._json(payload, status)
       return
     except RuntimeError as exc:
       code = str(exc)
-      message = "生产图边缘校验暂时不可用。" if code == "CLIENT_PRODUCTION_ARTWORK_PROCESS_UNAVAILABLE" else "生产图导出失败，请稍后重试。"
+      if code == "CLIENT_PRODUCTION_ARTWORK_PROCESS_UNAVAILABLE":
+        message = "生产图边缘校验暂时不可用。"
+      elif code == "OSS_ASSET_UPLOAD_FAILED":
+        code = "CLIENT_PRODUCTION_ARTWORK_UPLOAD_FAILED"
+        message = "生产图已生成，但保存到素材库失败，请稍后重试。"
+      else:
+        message = "生产图导出失败，请稍后重试。"
       status, payload = json_error(code, message, 502)
+      self._json(payload, status)
+      return
+    except Exception:
+      status, payload = json_error(
+        "CLIENT_PRODUCTION_ARTWORK_UPLOAD_FAILED",
+        "生产图已生成，但保存到素材库失败，请稍后重试。",
+        502,
+      )
       self._json(payload, status)
       return
     self._json(asset)

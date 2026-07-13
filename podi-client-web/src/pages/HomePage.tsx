@@ -35,26 +35,24 @@ const featuredProducts = [
   featuredProduct("10235", "OneSize", "冰饮", "30oz 冰霸杯，支持单件试做"),
 ].filter((item): item is FeaturedProduct => Boolean(item));
 
-const heroProduct = resolveApprovedCatalogItem("10395", "OneSize");
-
 const expressionStories = [
   {
     product: resolveApprovedCatalogItem("10395", "OneSize"),
     kicker: "通勤随行",
     title: "把喜欢的图案，做成每天都会用的手柄杯",
-    desc: "20oz 带手柄和吸管不锈钢杯 · 模板 10395",
+    desc: "20oz 带手柄和吸管不锈钢杯",
   },
   {
     product: resolveApprovedCatalogItem("10241", "18OZ"),
     kicker: "轻便出行",
     title: "把同一套表达，适配到更轻巧的随行杯型",
-    desc: "18OZ 不锈钢太空壶 · 模板 10241",
+    desc: "18OZ 不锈钢太空壶",
   },
   {
     product: resolveApprovedCatalogItem("10376", "OneSize"),
     kicker: "活动礼赠",
     title: "先做一件看效果，再决定是否批量制作",
-    desc: "30oz 手提杯 · 模板 10376",
+    desc: "30oz 手提杯",
   },
 ].filter((story): story is typeof story & { product: ApprovedCatalogItem } => Boolean(story.product));
 
@@ -79,18 +77,16 @@ export default function HomePage() {
   return (
     <main className="market-home brand-home">
       <section className="market-hero brand-home-hero">
-        {heroProduct && (
-          <img
-            className="brand-home-hero-image"
-            src="/brand/generated/hero-personal-expression-v2.png"
-            alt="使用真实杯型表达个人审美的创作者生活场景"
-          />
-        )}
+        <img
+          className="brand-home-hero-image"
+          src="/brand/generated/hero-personal-expression-v2.png"
+          alt="用专属产品表达个人审美的创作者生活场景"
+        />
         <div className="market-hero-copy">
           <p className="eyebrow">AI创品</p>
           <h1>有品，必不同。</h1>
-          <p>不将就现成，不凑合同款。把你的想法，做成真正属于你的产品。</p>
-          <div className="hero-persona-line">你的审美 · 你的故事 · 你的产品</div>
+          <p>不将就，不凑合。把喜欢做成你的那一件。</p>
+          <div className="hero-persona-line">你的审美 · 你的表达</div>
           <div className="market-hero-actions">
             <button className="primary" onClick={() => navigate("products")}>
               <Wand2 size={18} />
@@ -101,22 +97,7 @@ export default function HomePage() {
               选择杯型
             </button>
           </div>
-          {heroProduct && (
-            <p className="hero-brand-proof">
-              场景图基于真实可做杯型：{productDisplayName(heroProduct)} · 模板 {heroProduct.product.id}
-            </p>
-          )}
         </div>
-        {heroProduct && (
-          <button className="hero-product-proof" onClick={() => openProduct(heroProduct)}>
-            <img src={heroProduct.renderUrl} alt={`${productDisplayName(heroProduct)} 真实目录校样`} />
-            <span>
-              <small>真实目录校样</small>
-              <strong>{productDisplayName(heroProduct)}</strong>
-              <em>模板 {heroProduct.product.id} · 点击开始设计</em>
-            </span>
-          </button>
-        )}
       </section>
 
       <section className="expression-story-section">
@@ -124,7 +105,7 @@ export default function HomePage() {
           <div>
             <p className="eyebrow">让产品替你表达</p>
             <h2>不是换个花色，是做出你的那一款。</h2>
-            <span>下面每张图都来自当前可下单杯型的真实模型校样，不使用不存在的产品造型。</span>
+            <span>从日常随行到认真送礼，让每一件都带着你的表达。</span>
           </div>
         </div>
         <div className="expression-story-grid">
@@ -151,7 +132,7 @@ export default function HomePage() {
           <div>
             <p className="eyebrow">已核验杯型</p>
             <h2>选一款真实杯型，先做一件看效果。</h2>
-            <span>杯型、贴图位置和生产尺寸均来自当前产品库，点击后直接进入对应设计页。</span>
+            <span>先看效果，再决定是否做成实物。</span>
           </div>
           <button className="text-action" onClick={() => navigate("products")}>
             全部商品 <ArrowRight size={14} />
@@ -167,7 +148,7 @@ export default function HomePage() {
               <img src={item.renderUrl} alt={`${productDisplayName(item)} 商品效果图`} />
               <span>{item.tag}</span>
               <strong>{productDisplayName(item)}</strong>
-              <small>{item.desc} · 模板 {item.product.id}</small>
+              <small>{item.desc}</small>
             </button>
           ))}
         </div>
@@ -209,9 +190,7 @@ export default function HomePage() {
               >
                 <img src={item.renderUrl} alt={`${productDisplayName(item)} 商品效果图`} />
                 <strong>{productDisplayName(item)}</strong>
-                <span>
-                  模板 {item.product.id} · {item.surface.width}×{item.surface.height}px
-                </span>
+                <span>{item.size.label} · 支持单件试做</span>
               </button>
             ))}
           </div>
