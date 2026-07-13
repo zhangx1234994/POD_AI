@@ -6472,7 +6472,10 @@ class Handler(BaseHTTPRequestHandler):
         return
       existing_execution = plan.get("execution") if isinstance(plan.get("execution"), dict) else {}
       existing_status = str(plan.get("status") or "")
-      if existing_status in {"executing", "running"} or str(existing_execution.get("status") or "") in {"queued", "running"}:
+      if existing_status not in {"failed"} and (
+        existing_status in {"executing", "running"}
+        or str(existing_execution.get("status") or "") in {"queued", "running"}
+      ):
         self._json({
           "session": self._agent_session_snapshot(session),
           "resultAssets": [],
