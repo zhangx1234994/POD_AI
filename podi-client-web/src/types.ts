@@ -132,6 +132,30 @@ export interface ProductDesignAgentPlan {
   needsUserConfirmation: boolean;
   status: "clarifying" | "needs_confirmation" | "preview_ready" | "completed" | "failed" | string;
   summaryForUser: string;
+  designBrief?: {
+    title: string;
+    audience?: string;
+    occasion?: string;
+    styleName?: string;
+    styleRationale?: string;
+    alternativeStyle?: string | null;
+    palette?: string[];
+    composition?: string;
+    materialNotes?: string;
+    productFit?: {
+      productName?: string;
+      sizeLabel?: string;
+      material?: string;
+      surfaceLabel?: string;
+      width?: number | null;
+      height?: number | null;
+      dpi?: number | null;
+      craft?: string[];
+    };
+    operations?: Array<{ title: string; purpose: string }>;
+    planningCredits?: number;
+    generationCredits?: number;
+  };
   questions?: string[];
   steps: ProductDesignAgentStep[];
   layoutPlan: {

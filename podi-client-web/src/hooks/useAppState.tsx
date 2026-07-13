@@ -26,6 +26,7 @@ import type {
 import {
   advanceClientProcessTask,
   getClientBootstrap,
+  getProductDesignAgentSession,
   getCurrentAuthUser,
   logoutClient,
   refreshAuthSession,
@@ -129,6 +130,7 @@ export type AppAction =
   | { type: "DELETE_ASSET"; id: string }
   | { type: "ADD_PROCESS_TASK"; task: ProcessTask }
   | { type: "UPDATE_PROCESS_TASK"; id: string; patch: Partial<ProcessTask> }
+  | { type: "UPSERT_DESIGN_AGENT_SESSION"; session: ProductDesignAgentSession }
   | { type: "SET_SELECTED_PRODUCT"; productId: string; sizeLabel?: string | null }
   | { type: "SET_SELECTED_SURFACE"; surface: string | null }
   | { type: "SET_CHECKOUT_DRAFT"; draft: ProductCheckoutDraft }
@@ -683,6 +685,15 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ),
       };
 
+    case "UPSERT_DESIGN_AGENT_SESSION":
+      return {
+        ...state,
+        designAgentSessions: [
+          action.session,
+          ...state.designAgentSessions.filter((item) => item.sessionId !== action.session.sessionId),
+        ],
+      };
+
     case "SET_SELECTED_PRODUCT":
       return { ...state, selectedProductId: action.productId, selectedProductSizeLabel: action.sizeLabel ?? null };
 
@@ -824,6 +835,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const activeUserId = state.currentUser?.id ?? "guest";
   const isAuthenticated = Boolean(state.currentUser?.id && state.accessToken);
+  const runningDesignSessionKey = state.designAgentSessions
+    .filter((session) => session.status === "executing")
+    .map((session) => session.sessionId)
+    .join("|");
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -866,6 +881,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.clearInterval(timer);
     };
   }, [activeUserId, isAuthenticated, state.processTasks]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const runningSessions = state.designAgentSessions.filter((session) => session.status === "executing");
+    if (!runningSessions.length) return;
+    let cancelled = false;
+    const refreshDesignSessions = async () => {
+      for (const session of runningSessions) {
+        if (cancelled) return;
+        const latest = await getProductDesignAgentSession({
+          userId: activeUserId,
+          sessionId: session.sessionId,
+        }).catch(() => null);
+        if (!cancelled && latest) dispatch({ type: "UPSERT_DESIGN_AGENT_SESSION", session: latest });
+      }
+    };
+    void refreshDesignSessions();
+    const timer = window.setInterval(() => void refreshDesignSessions(), 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeUserId, isAuthenticated, runningDesignSessionKey]);
 
   useEffect(() => {
     if (!state.accessToken) return;

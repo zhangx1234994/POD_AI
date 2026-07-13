@@ -50,8 +50,10 @@ export default function AppHeader() {
   const taskStatusRef = useRef<Record<string, string>>({});
   const taskNoticeReadyRef = useRef(false);
   const { currentView, aiCredits } = state;
-  const runningTaskCount = state.processTasks.filter((task) => task.status === "pending" || task.status === "processing").length;
-  const taskCount = runningTaskCount || state.processTasks.length;
+  const runningTaskCount =
+    state.processTasks.filter((task) => task.status === "pending" || task.status === "processing").length +
+    state.designAgentSessions.filter((session) => session.status === "executing").length;
+  const taskCount = runningTaskCount || state.processTasks.length + state.designAgentSessions.length;
   const draftCount = state.orderDrafts.length;
   const accountActive = ["account", "tasks", "orders", "wallet", "publish", "profile"].includes(currentView);
   const showMobileTabBar = !["productDesign", "checkout", "imageEditor"].includes(currentView);

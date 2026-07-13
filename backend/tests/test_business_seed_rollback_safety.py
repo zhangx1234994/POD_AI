@@ -104,6 +104,13 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert "preserve_count_density" not in field_names
         assert "style_shift" not in field_names
 
+        image_edit_default = session.get(BusinessCapability, "biz_image_edit_gpt_image2_editor_v1")
+        assert image_edit_default is not None
+        assert image_edit_default.is_default is True
+        assert image_edit_default.recipe["primaryAbilityId"] == "packy_gpt_image_2_edit"
+        assert image_edit_default.extra_metadata["providerPolicy"] == "packy_primary_middle_platform_managed"
+        assert session.get(Ability, "packy_gpt_image_2_edit") is not None
+
         gpt_image2_controlled = session.get(BusinessCapability, "biz_fission_v5_openai_gpt_image2_controlled")
         assert gpt_image2_controlled is not None
         assert gpt_image2_controlled.status == "active"

@@ -311,6 +311,67 @@ class CommerceFlowTests(unittest.TestCase):
     self.assertFalse(plan["layoutPlan"]["surfaceAssignments"][0]["needsSeamless"])
     self.assertFalse(plan["layoutPlan"]["postprocess"]["seamRiskCheck"])
 
+  def test_vl_prompt_requires_structured_style_and_product_constraints(self):
+    prompt = server.agent_vl_prompt(
+      {
+        "productName": "20oz 手柄杯",
+        "sizeLabel": "20OZ",
+        "material": "不锈钢",
+        "colors": [{"code": "white", "label": "白色"}],
+        "craftOptions": [{"name": "360度UV打印-光油"}],
+        "surfaces": [{"name": "front", "label": "正面", "width": 3378, "height": 1949, "dpi": 150}],
+      },
+      "为西安文旅设计一款杯子",
+    )
+
+    self.assertIn("20oz 手柄杯", prompt)
+    self.assertIn("不锈钢", prompt)
+    self.assertIn("3378", prompt)
+    self.assertIn("styleName", prompt)
+    self.assertIn("plannedOperations", prompt)
+
+  def test_agent_plan_exposes_free_planning_and_structured_design_brief(self):
+    server.AGENT_TEXT2IMAGE_AVAILABLE = True
+    plan = server.build_design_agent_plan(
+      "user-brief",
+      "agent-brief",
+      "给年轻游客设计一款西安文旅杯，现代但不要俗气",
+      {
+        "productName": "20oz 手柄杯",
+        "sizeLabel": "20OZ",
+        "material": "不锈钢",
+        "surfaces": [{"name": "front", "label": "正面", "width": 3378, "height": 1949, "dpi": 150}],
+      },
+      [],
+      {
+        "source": "prompt_only",
+        "baseAssetRole": "prompt_only",
+        "visionAnalysis": {
+          "recommendedIntent": "ai_recreate",
+          "confidence": 0.91,
+          "designConcept": "长安新印象",
+          "audience": "来西安旅行的年轻人",
+          "occasion": "旅行纪念与伴手礼",
+          "styleName": "新中式版画",
+          "styleRationale": "用克制线条表现城墙与瓦当。",
+          "palette": ["朱砂红", "城墙灰", "米白"],
+          "composition": "城墙作为连续背景，局部保留印章式主体。",
+          "materialNotes": "为不锈钢白底保留高对比轮廓。",
+          "plannedOperations": [
+            {"title": "提炼城市符号", "purpose": "从城墙与瓦当中确定主视觉"},
+            {"title": "生成杯身图案", "purpose": "形成适合正面设计面的平面稿"},
+          ],
+        },
+      },
+    )
+
+    brief = plan["designBrief"]
+    self.assertEqual(brief["planningCredits"], 0)
+    self.assertEqual(brief["generationCredits"], 5)
+    self.assertEqual(brief["styleName"], "新中式版画")
+    self.assertEqual(brief["productFit"]["width"], 3378)
+    self.assertEqual(len(brief["operations"]), 2)
+
   def test_running_prompt_only_agent_session_reads_middle_platform_task_result(self):
     server.prepare_asset_for_storage = lambda _user_id, asset, **_kwargs: asset
     server.get_midplatform_ability_task = lambda _task_id, timeout=15.0: {

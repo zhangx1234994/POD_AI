@@ -19,7 +19,27 @@ import PageHeader from "../components/PageHeader";
 import { useApp } from "../hooks/useAppState";
 import { advanceClientProcessTask } from "../api";
 import { assetTypeLabels } from "../utils/constants";
-import type { ProcessTask, ProcessTaskStatus } from "../types";
+import type { ProcessTask, ProcessTaskStatus, ProductDesignAgentSession } from "../types";
+
+const resumeAgentSessionKey = "podi.resumeAgentDesignSession";
+
+function designSessionMeta(session: ProductDesignAgentSession) {
+  const plans = session.plans || [];
+  const plan = [...plans].reverse().find((item) => item.planId === session.currentPlanId) || plans[plans.length - 1];
+  const status = session.status === "executing"
+    ? "生成中"
+    : session.status === "completed" || session.status === "preview_ready"
+      ? "可查看"
+      : session.status === "failed"
+        ? "需要处理"
+        : "待确认";
+  return {
+    plan,
+    status,
+    title: plan?.designBrief?.title || plan?.summaryForUser || "AI 产品设计",
+    style: plan?.designBrief?.styleName,
+  };
+}
 
 const statusMeta: Record<ProcessTaskStatus, { label: string; desc: string; progress: number }> = {
   pending: {
@@ -269,6 +289,7 @@ export default function ProcessTasksPage() {
   const { state, navigate, dispatch, activeUserId } = useApp();
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const tasks = state.processTasks;
+  const designSessions = state.designAgentSessions;
   const tasksRef = useRef(tasks);
   const pollingRef = useRef(false);
   const advancingTaskIdsRef = useRef<Set<string>>(new Set());
@@ -348,7 +369,8 @@ export default function ProcessTasksPage() {
     [detailTaskId, tasks]
   );
 
-  const runningCount = tasks.filter(isRunning).length;
+  const runningDesignCount = designSessions.filter((session) => session.status === "executing").length;
+  const runningCount = tasks.filter(isRunning).length + runningDesignCount;
   const completedCount = tasks.filter((task) => task.status === "completed").length;
   const latestTask = tasks[0] ?? null;
 
@@ -356,7 +378,17 @@ export default function ProcessTasksPage() {
     return <TaskDetail task={activeTask} onBack={() => setDetailTaskId(null)} />;
   }
 
-  if (tasks.length === 0) {
+  const resumeDesignSession = (session: ProductDesignAgentSession) => {
+    try {
+      window.localStorage.setItem(resumeAgentSessionKey, session.sessionId);
+    } catch {
+      // Ignore storage failures.
+    }
+    dispatch({ type: "SET_SELECTED_PRODUCT", productId: session.productId });
+    navigate("productDesign");
+  };
+
+  if (tasks.length === 0 && designSessions.length === 0) {
     return (
       <main className="page-shell task-page">
         <PageHeader
@@ -380,8 +412,8 @@ export default function ProcessTasksPage() {
     <main className="page-shell task-page task-list-page">
       <PageHeader
         eyebrow="任务中心"
-        title="图片处理记录"
-        desc="每一行先看图片，再看能力、进度和结果数量；点开后查看每张图片的生成状态。"
+        title="生成任务与设计会话"
+        desc="离开设计页面不会中断生成；从这里返回原来的方案、对话和结果。"
       />
 
       <section className="task-overview-strip">
@@ -402,7 +434,34 @@ export default function ProcessTasksPage() {
         </div>
       </section>
 
-      <section className="task-list-panel">
+      {designSessions.length > 0 && (
+        <section className="agent-task-panel">
+          <div className="task-list-panel-head">
+            <div><small>AI 产品设计</small><strong>可继续的设计</strong></div>
+            <span>{runningDesignCount ? `${runningDesignCount} 个正在后台生成` : "方案与结果会一直保留"}</span>
+          </div>
+          <div className="agent-task-list">
+            {designSessions.map((session) => {
+              const meta = designSessionMeta(session);
+              const preview = session.previewAsset?.thumbnailUrl || session.previewAsset?.url || session.resultAssets?.[0]?.thumbnailUrl || session.resultAssets?.[0]?.url;
+              return (
+                <button key={session.sessionId} className={`agent-task-row ${session.status}`} onClick={() => resumeDesignSession(session)}>
+                  <span className="agent-task-preview">{preview ? <img src={preview} alt={session.productName} /> : <WandSparkles size={22} />}</span>
+                  <span className="agent-task-copy">
+                    <small>{session.productName}</small>
+                    <strong>{meta.title}</strong>
+                    <em>{[meta.style, session.updatedAt].filter(Boolean).join(" · ")}</em>
+                  </span>
+                  <span className="agent-task-status"><i className={session.status === "executing" ? "spin-dot" : ""} />{meta.status}</span>
+                  <span className="agent-task-action">返回设计</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {tasks.length > 0 && <section className="task-list-panel">
         <div className="task-list-panel-head">
           <div>
             <small>处理记录</small>
@@ -461,7 +520,7 @@ export default function ProcessTasksPage() {
             );
           })}
         </div>
-      </section>
+      </section>}
     </main>
   );
 }

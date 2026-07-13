@@ -954,7 +954,17 @@ def agent_vl_prompt(
     }
     for item in surfaces
   ]
-  product_name = (product_context or {}).get("productName") or "当前商品"
+  product = product_context if isinstance(product_context, dict) else {}
+  product_name = product.get("productName") or "当前商品"
+  product_facts = {
+    "productName": product_name,
+    "category": product.get("category"),
+    "sizeLabel": product.get("sizeLabel"),
+    "material": product.get("material"),
+    "colors": product.get("colors"),
+    "craftOptions": product.get("craftOptions"),
+    "surfaces": surface_text,
+  }
   asset_list = assets if isinstance(assets, list) and assets else ([asset] if asset else [])
   asset_context = [
     {
@@ -967,11 +977,10 @@ def agent_vl_prompt(
     if isinstance(item, dict)
   ]
   return (
-    "你是 POD 定制商品的视觉设计路由分析员。你的任务不是生成图片，而是根据图片、"
-    "用户需求和商品贴图面约束，判断下一步应该走哪条可生产的设计路线。"
+    "你是 POD 定制商品的资深视觉设计策划师。你的任务不是生成图片，而是综合用户对话、"
+    "参考图片、商品材质、颜色、工艺和精确贴图面，提出用户能看懂且可以执行的设计方案。"
     "只输出 JSON，不要输出 Markdown，不要解释 JSON 以外的内容。\n"
-    f"商品: {product_name}\n"
-    f"贴图面: {json.dumps(surface_text, ensure_ascii=False)}\n"
+    f"商品与生产约束: {json.dumps(clean_dict(product_facts), ensure_ascii=False)}\n"
     f"素材上下文: {json.dumps([clean_dict(item) for item in asset_context], ensure_ascii=False)}\n"
     f"多图参考关系: {reference_instruction or '未指定；如有多张图，请判断它们分别承担色调、元素、构图或主体参考。'}\n"
     f"业务端初判: {intent_hint or 'unknown'}\n"
@@ -995,9 +1004,15 @@ def agent_vl_prompt(
     "10. 所有进入生产的结果都必须适配到商品贴图面的精确像素尺寸；差几个像素可以拉伸/补边，比例差异大时必须裁切、扩图或重绘。\n"
     "11. 如果不能确认无缝连续，必须把接缝风险写进 risks，并建议用户先做连续图或改为局部印刷。\n"
     "12. 如果图片可用但设计方向不唯一，needsUserConfirmation=true，并提出 1-3 个用户能理解的问题。\n"
+    "13. 必须选择一个真实、常见且适合当前需求的视觉风格，例如新中式、包豪斯、孟菲斯、装饰艺术、"
+    "中世纪现代、浮世绘、植物水彩、版画、拼贴、极简几何等；不要编造风格名，并用普通人能理解的话解释选择理由。\n"
+    "14. 无图时也必须根据文字需求和商品约束给出完整原创方案，不要只返回路由；有图时说明保留什么、修改什么。\n"
+    "15. plannedOperations 必须按真实执行顺序列出 2-6 步，每步包含 title 和 purpose；只写用户价值，不暴露模型名、供应商或内部能力代号。\n"
     "JSON 字段必须包含: imageType, printable, qualityRisk, recommendedIntent, "
     "recommendedSurfaceId, layoutMode, needsSeamless, needsImage2, needsUserConfirmation, "
-    "confidence, observations, risks, questions。confidence 用 0-1 数字。"
+    "confidence, observations, risks, questions, designConcept, audience, occasion, styleName, "
+    "styleRationale, alternativeStyle, palette, composition, materialNotes, plannedOperations。"
+    "palette 是 3-5 个颜色名称或十六进制色值数组；plannedOperations 是对象数组；confidence 用 0-1 数字。"
   )
 
 
@@ -2605,6 +2620,30 @@ def build_design_agent_plan(
   context_source = str(context.get("source") or ("explicit_assets" if context_asset_ids else "prompt_only"))
   base_asset_role = str(context.get("baseAssetRole") or ("source_asset" if context_asset_ids else "prompt_only"))
   plan_output_count = requested_output_count or (4 if intent in {"generate_variations", "make_seamless_wrap"} and not asset else 1)
+  planned_operations = []
+  for operation in vision_analysis.get("plannedOperations") or []:
+    if not isinstance(operation, dict):
+      continue
+    title = first_non_empty_text(operation.get("title"))
+    purpose = first_non_empty_text(operation.get("purpose"))
+    if title:
+      planned_operations.append({"title": title, "purpose": purpose or "完成这一阶段的设计处理"})
+  if not planned_operations:
+    planned_operations = [
+      {
+        "title": str(step.get("title") or "设计处理"),
+        "purpose": str(step.get("summary") or "完成这一阶段的设计处理"),
+      }
+      for step in steps
+      if str(step.get("targetAbility") or "") not in {"vl_analyze", "ask_user", "render_product_preview"}
+    ]
+  palette = text_list(vision_analysis.get("palette"))[:5]
+  material = first_non_empty_text((product_context or {}).get("material")) or "按当前商品材质表现"
+  craft_options = (product_context or {}).get("craftOptions") if isinstance((product_context or {}).get("craftOptions"), list) else []
+  production_cost = sum(optional_int(step.get("costCredits")) or 0 for step in steps)
+  style_name = first_non_empty_text(vision_analysis.get("styleName")) or (
+    "植物水彩" if intent in {"extract_pattern", "make_seamless_wrap"} else "现代插画"
+  )
   return {
     "planId": "plan-" + secrets.token_hex(5),
     "sessionId": session_id,
@@ -2614,6 +2653,30 @@ def build_design_agent_plan(
     "status": "needs_confirmation" if needs_confirm else "clarifying",
     "outputCount": plan_output_count,
     "summaryForUser": summary,
+    "designBrief": {
+      "title": first_non_empty_text(vision_analysis.get("designConcept")) or f"{product_name if (product_name := (product_context or {}).get('productName')) else '专属产品'}设计方案",
+      "audience": first_non_empty_text(vision_analysis.get("audience")) or "为本次需求定制",
+      "occasion": first_non_empty_text(vision_analysis.get("occasion")) or "日常使用或礼赠",
+      "styleName": style_name,
+      "styleRationale": first_non_empty_text(vision_analysis.get("styleRationale")) or "兼顾图案辨识度、杯身展示效果和实际印刷可行性。",
+      "alternativeStyle": first_non_empty_text(vision_analysis.get("alternativeStyle")),
+      "palette": palette,
+      "composition": first_non_empty_text(vision_analysis.get("composition")) or f"围绕{surface_label}组织主体、留白和环绕关系。",
+      "materialNotes": first_non_empty_text(vision_analysis.get("materialNotes")) or f"结合{material}底材控制对比度与细节密度。",
+      "productFit": {
+        "productName": (product_context or {}).get("productName"),
+        "sizeLabel": (product_context or {}).get("sizeLabel"),
+        "material": material,
+        "surfaceLabel": surface_label,
+        "width": target_width,
+        "height": target_height,
+        "dpi": target_dpi,
+        "craft": [first_non_empty_text(item.get("name")) for item in craft_options if isinstance(item, dict) and first_non_empty_text(item.get("name"))],
+      },
+      "operations": planned_operations,
+      "planningCredits": 0,
+      "generationCredits": production_cost,
+    },
     "questions": [] if needs_confirm else clarify_questions,
     "steps": steps,
     "layoutPlan": {
@@ -6201,10 +6264,8 @@ class Handler(BaseHTTPRequestHandler):
       "isFollowup": False,
     }
     intent_hint = classify_design_intent(message, first_user_asset(user_id, source_asset_ids), initial_context)
-    initial_context["visionAnalysis"] = (
-      analyze_agent_visual_context(user_id, source_asset_ids, message, product_context, intent_hint)
-      if source_asset_ids
-      else prompt_only_agent_analysis(message, product_context, intent_hint)
+    initial_context["visionAnalysis"] = analyze_agent_visual_context(
+      user_id, source_asset_ids, message, product_context, intent_hint
     )
     plan = build_design_agent_plan(user_id, intake_id, message, product_context, source_asset_ids, initial_context)
     self._json({
@@ -6235,16 +6296,12 @@ class Handler(BaseHTTPRequestHandler):
       "isFollowup": False,
     }
     intent_hint = classify_design_intent(message, first_user_asset(user_id, source_asset_ids), initial_context)
-    initial_context["visionAnalysis"] = (
-      analyze_agent_visual_context(
-        user_id,
-        source_asset_ids,
-        message,
-        product_context,
-        intent_hint,
-      )
-      if source_asset_ids
-      else prompt_only_agent_analysis(message, product_context, intent_hint)
+    initial_context["visionAnalysis"] = analyze_agent_visual_context(
+      user_id,
+      source_asset_ids,
+      message,
+      product_context,
+      intent_hint,
     )
     plan = build_design_agent_plan(user_id, session_id, message, product_context, source_asset_ids, initial_context)
     now = now_label()
@@ -6344,16 +6401,18 @@ class Handler(BaseHTTPRequestHandler):
     }
     intent_hint = classify_design_intent(message, first_user_asset(user_id, context_asset_ids), planner_context)
     product_context = session.get("productContext") if isinstance(session.get("productContext"), dict) else {}
-    planner_context["visionAnalysis"] = (
-      analyze_agent_visual_context(
-        user_id,
-        context_asset_ids,
-        message,
-        product_context,
-        intent_hint,
-      )
-      if context_asset_ids
-      else prompt_only_agent_analysis(message, product_context, intent_hint)
+    conversation_context = "\n".join(
+      str(item.get("content") or "")
+      for item in (session.get("messages") or [])[-6:]
+      if isinstance(item, dict) and str(item.get("content") or "").strip()
+    )
+    planner_message = f"历史对话:\n{conversation_context}\n\n用户本轮需求:\n{message}" if conversation_context else message
+    planner_context["visionAnalysis"] = analyze_agent_visual_context(
+      user_id,
+      context_asset_ids,
+      planner_message,
+      product_context,
+      intent_hint,
     )
     plan = build_design_agent_plan(
       user_id,

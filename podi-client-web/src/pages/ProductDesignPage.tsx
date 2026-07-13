@@ -51,6 +51,7 @@ const Product3DPreview = lazy(() => import("../components/Product3DPreview"));
 const pendingProductAssetKey = "podi.pendingProductDesignAssetId";
 const postAuthReturnKey = "podi.postAuthReturn";
 const pendingAgentDraftKey = "podi.pendingAgentDesignDraft";
+const resumeAgentSessionKey = "podi.resumeAgentDesignSession";
 
 type TexturePlacementMode = "wrap" | "fit" | "cover" | "decal";
 
@@ -779,7 +780,15 @@ export default function ProductDesignPage() {
     templateNo: selectedProduct?.id ?? "",
     bodyCode: selectedProduct?.bodyCode ?? "",
     category: selectedProduct?.category ?? "杯子",
+    sizeLabel: selectedSize?.label ?? "",
+    material: selectedProduct?.tags.find((tag) => tag.includes("不锈钢") || tag.includes("塑料")) ?? "不锈钢",
     colors: productColorOptions.map((option) => ({ code: option.code, label: option.label, value: option.value })),
+    craftOptions: productCraftOptions.map((option) => ({
+      name: [option.firstCraftName, option.secondCraftName].filter(Boolean).join(" · "),
+      firstCraft: option.firstCraft,
+      secondCraft: option.secondCraft,
+      isDefault: option.isDefault,
+    })),
     surfaces: readySurfaces.map((surface) => ({
       name: surface.name,
       label: surface.label,
@@ -956,6 +965,42 @@ export default function ProductDesignPage() {
     resetPreviewState();
   }, [selectedProduct?.id]);
 
+  useEffect(() => {
+    if (!isAuthenticated || !selectedProduct) return;
+    let sessionId = "";
+    try {
+      sessionId = window.localStorage.getItem(resumeAgentSessionKey) || "";
+    } catch {
+      return;
+    }
+    if (!sessionId) return;
+    const cached = state.designAgentSessions.find((item) => item.sessionId === sessionId);
+    if (cached && cached.productId !== selectedProduct.id) return;
+    let cancelled = false;
+    const restoreSession = async () => {
+      try {
+        const session = cached || await getProductDesignAgentSession({ userId: activeUserId, sessionId });
+        if (cancelled || session.productId !== selectedProduct.id) return;
+        setAgentSession(session);
+        setDesignMode("agent");
+        upsertAgentAssets(session.resultAssets);
+        if (session.previewAsset) upsertAgentAssets([session.previewAsset]);
+        dispatch({ type: "UPSERT_DESIGN_AGENT_SESSION", session });
+        try {
+          window.localStorage.removeItem(resumeAgentSessionKey);
+        } catch {
+          // Ignore storage failures.
+        }
+      } catch (error) {
+        if (!cancelled) setAgentError(error instanceof Error ? error.message : "恢复 AI 设计任务失败。");
+      }
+    };
+    void restoreSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUserId, isAuthenticated, selectedProduct?.id, state.designAgentSessions]);
+
   const applyAssetToSurface = (assetId: string, surfaceName?: string) => {
     const targetSurfaceName = surfaceName || selectedSurface?.name || readySurfaces[0]?.name || "";
     setSelectedAssetId(assetId);
@@ -1055,6 +1100,11 @@ export default function ProductDesignPage() {
     if (newAssets.length) dispatch({ type: "ADD_ASSETS", assets: newAssets });
   };
 
+  const rememberAgentSession = (session: ProductDesignAgentSession) => {
+    setAgentSession(session);
+    dispatch({ type: "UPSERT_DESIGN_AGENT_SESSION", session });
+  };
+
   useEffect(() => {
     if (!agentSession || agentSession.status !== "executing") return;
     let cancelled = false;
@@ -1067,7 +1117,7 @@ export default function ProductDesignPage() {
         if (cancelled) return;
         upsertAgentAssets(latest.resultAssets);
         if (latest.previewAsset) upsertAgentAssets([latest.previewAsset]);
-        setAgentSession(latest);
+        rememberAgentSession(latest);
         if (latest.status !== "executing") {
           setAgentBusy(false);
           setAgentBusyText("");
@@ -1179,7 +1229,7 @@ export default function ProductDesignPage() {
           });
       upsertAgentAssets(session.resultAssets);
       if (session.previewAsset) upsertAgentAssets([session.previewAsset]);
-      setAgentSession(session);
+      rememberAgentSession(session);
       setAgentInput("");
       setAgentAttachmentIds([]);
       setDesignMode("agent");
@@ -1281,7 +1331,7 @@ export default function ProductDesignPage() {
       }
       upsertAgentAssets(response.resultAssets);
       upsertAgentAssets(response.session.resultAssets);
-      setAgentSession(response.session);
+      rememberAgentSession(response.session);
       if (response.status === "failed") {
         setAgentError(response.message || "执行设计方案失败。");
         showNotice(response.message || "执行设计方案失败。");
@@ -1438,7 +1488,7 @@ export default function ProductDesignPage() {
         scale: textureScale,
         position: { x: textureOffsetX, y: textureOffsetY },
       });
-      setAgentSession(session);
+      rememberAgentSession(session);
       showNotice("已采用为当前产品设计，左侧预览会同步更新。");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "应用 AI 结果失败。");
@@ -1460,7 +1510,7 @@ export default function ProductDesignPage() {
       });
       upsertAgentAssets([response.previewAsset]);
       if (response.session.resultAssets) upsertAgentAssets(response.session.resultAssets);
-      setAgentSession(response.session);
+      rememberAgentSession(response.session);
       setPreviewAssetId(response.previewAsset.id);
       setPreviewImageUrl(response.previewAsset.url || response.previewAsset.thumbnailUrl || selectedProductPhoto);
       setStoredPreviewKey(currentPreviewKey || `${selectedProduct?.id}:${response.previewAsset.id}:${designKey}`);
@@ -1874,46 +1924,61 @@ export default function ProductDesignPage() {
                         {messagePlan && (
                           <div className="agent-inline-plan">
                             <div className="agent-plan-title">
-                              <span>我先这样设计：{agentIntentLabel(messagePlan.intent)}</span>
-                              <em>可信度 {Math.round((messagePlan.confidence || 0) * 100)}%</em>
+                              <span>{messagePlan.designBrief?.title || "这套设计方案"}</span>
+                              <em>方案分析 0 积分</em>
                             </div>
                             <p className="agent-plan-summary">{messagePlan.summaryForUser}</p>
-                            {visionEvidence && (
-                              <div
-                                className={
-                                  messagePlan.visionAnalysis?.skippedReason ||
-                                  messagePlan.visionAnalysis?.fallback ||
-                                  messagePlan.visionAnalysis?.modelError
-                                    ? "agent-vision-note warning"
-                                    : "agent-vision-note"
-                                }
-                              >
-                                <strong>{visionEvidence.title}</strong>
-                                <span>{visionEvidence.modelLabel}</span>
-                                <p>{visionEvidence.note}</p>
-                                {visionEvidence.extra && <p>{visionEvidence.extra}</p>}
+                            {messagePlan.designBrief && (
+                              <div className="agent-design-brief">
+                                <dl>
+                                  <div><dt>为谁设计</dt><dd>{messagePlan.designBrief.audience}</dd></div>
+                                  <div><dt>使用场景</dt><dd>{messagePlan.designBrief.occasion}</dd></div>
+                                  <div className="wide"><dt>视觉风格</dt><dd><strong>{messagePlan.designBrief.styleName}</strong>{messagePlan.designBrief.styleRationale}</dd></div>
+                                  <div className="wide"><dt>画面构图</dt><dd>{messagePlan.designBrief.composition}</dd></div>
+                                  <div className="wide"><dt>材质与生产</dt><dd>{messagePlan.designBrief.materialNotes}</dd></div>
+                                </dl>
+                                {messagePlan.designBrief.palette?.length ? (
+                                  <div className="agent-palette"><span>建议色彩</span>{messagePlan.designBrief.palette.map((color) => <em key={color}>{color}</em>)}</div>
+                                ) : null}
+                                {messagePlan.designBrief.productFit && (
+                                  <div className="agent-product-fit">
+                                    <strong>{messagePlan.designBrief.productFit.productName || selectedProduct?.name}</strong>
+                                    <span>{[
+                                      messagePlan.designBrief.productFit.sizeLabel,
+                                      messagePlan.designBrief.productFit.material,
+                                      messagePlan.designBrief.productFit.surfaceLabel,
+                                      messagePlan.designBrief.productFit.width && messagePlan.designBrief.productFit.height
+                                        ? `${messagePlan.designBrief.productFit.width}×${messagePlan.designBrief.productFit.height}px`
+                                        : null,
+                                      messagePlan.designBrief.productFit.dpi ? `${messagePlan.designBrief.productFit.dpi}DPI` : null,
+                                    ].filter(Boolean).join(" · ")}</span>
+                                  </div>
+                                )}
+                                {messagePlan.designBrief.operations?.length ? (
+                                  <ol className="agent-operation-list">
+                                    {messagePlan.designBrief.operations.map((operation, index) => (
+                                      <li key={`${operation.title}-${index}`}><span>{index + 1}</span><div><strong>{operation.title}</strong><p>{operation.purpose}</p></div></li>
+                                    ))}
+                                  </ol>
+                                ) : null}
+                                <div className="agent-plan-cost">
+                                  <span>理解需求与制定方案 <strong>0 积分</strong></span>
+                                  <span>确认后生成 <strong>{messagePlan.designBrief.generationCredits || 0} 积分</strong></span>
+                                </div>
                               </div>
                             )}
+                            {!messagePlan.designBrief && visionEvidence && <p className="agent-plan-summary">{visionEvidence.note}</p>}
                             {messagePlan.questions?.length ? (
                               <div className="agent-questions">
                                 {messagePlan.questions.map((item) => <button key={item} type="button" onClick={() => setAgentInput(item)}>{item}</button>)}
                               </div>
                             ) : null}
-                            <div className="agent-step-list">
-                              {messagePlan.steps.map((step) => (
-                                <span key={step.stepId} className={`agent-step-pill ${step.status}`}>
-                                  <strong>{step.title}</strong>
-                                  <small>{agentStepStatusLabel(step.status, step.userStatus)}</small>
-                                  {step.costCredits ? <em>{step.costCredits} 积分</em> : null}
-                                </span>
-                              ))}
-                            </div>
                             {isAgentClarifying(messagePlan) ? (
                               <span className="agent-plan-done muted">先回复上面的问题，我再继续规划。</span>
                             ) : messagePlan.needsUserConfirmation ? (
                               <button className="agent-chat-action primary" type="button" disabled={agentBusy} onClick={() => void handleConfirmAgentPlan(messagePlan.planId)}>
                                 {agentBusy ? <Loader2 size={16} className="spin" /> : <CheckCircle2 size={16} />}
-                                确认方案，开始调用模型生成
+                                确认这套方案并后台生成
                               </button>
                             ) : (
                               <span className="agent-plan-done">已进入生成或结果确认</span>

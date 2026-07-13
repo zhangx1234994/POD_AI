@@ -972,14 +972,14 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
         release_time=datetime(2026, 5, 19, 0, 0, 0),
         recipe={
             "mode": "single_ability_task",
-            "primaryAbilityId": "openai_gpt_image_2_edit",
+            "primaryAbilityId": "packy_gpt_image_2_edit",
             "steps": [
                 {
                     "id": "primary",
                     "type": "ability_task",
                     "role": "primary",
                     "displayName": "GPT Image 2 图片编辑",
-                    "abilityId": "openai_gpt_image_2_edit",
+                    "abilityId": "packy_gpt_image_2_edit",
                 }
             ],
             "promptCompiler": {
@@ -1018,7 +1018,8 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "role": "gray_candidate",
             "badge": "新版",
             "isNewVersion": True,
-            "provider": "openai",
+            "provider": "openai_compatible",
+            "providerPolicy": "packy_primary_middle_platform_managed",
             "model": "gpt-image-2",
             "component": {
                 "type": "image-edit-workbench",
@@ -1041,7 +1042,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             ),
             "quality_map": {"auto": "auto", "preview": "low", "production": "medium", "premium": "high"},
             "coze_strategy": "Coze 可只调用图编辑业务 API；复杂画布交互由托管组件或业务方源码组件完成。",
-            "seed_version": 1,
+            "seed_version": 2,
         },
     ),
     BusinessCapabilitySeed(

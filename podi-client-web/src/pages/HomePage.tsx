@@ -1,10 +1,6 @@
 import {
   ArrowRight,
   BadgeCheck,
-  Gift,
-  Images,
-  PackageCheck,
-  Palette,
   ShoppingBag,
   Sparkles,
   Wand2,
@@ -46,6 +42,27 @@ const creationScenes = [
   },
 ];
 
+const expressionStories = [
+  {
+    kicker: "给孩子和家人",
+    title: "把一张画，做成只属于他的礼物",
+    desc: "保留手绘的稚拙，再把颜色、构图和杯型整理到适合生产。",
+    image: "/demo/market/pattern-bloom.webp",
+  },
+  {
+    kicker: "给一座城市",
+    title: "把在地记忆，做成游客带得走的作品",
+    desc: "从建筑、纹样和故事里提炼风格，不再是换个 Logo 的纪念品。",
+    image: "/demo/market/image2-tumbler-product.webp",
+  },
+  {
+    kicker: "给自己的品牌",
+    title: "把品牌气质，做成真正会被使用的伴手礼",
+    desc: "让配色、图案、材质和包装服务同一个表达。",
+    image: "/demo/market/product-can-cooler-dark-botanical.png",
+  },
+];
+
 export default function HomePage() {
   const { navigate, state } = useApp();
   const selectedAssets = useSelectedAssets(state);
@@ -64,8 +81,9 @@ export default function HomePage() {
             做成属于你的产品
           </h1>
           <p>
-            上传一张喜欢的图，或说说你的想法。AI 协助完成设计，供应链把它做成可以收到的实物。
+            你的故事、审美和想法，不该只停在图片里。AI 和你一起完成设计，再把它做成真正属于你的产品。
           </p>
+          <div className="hero-persona-line">为自己表达 · 为重要的人定制 · 为品牌留下辨识度</div>
           <div className="hero-value-line">
             <span>定义个性</span>
             <span>AI 协作</span>
@@ -93,43 +111,28 @@ export default function HomePage() {
             <strong>从一张图，到一件只属于你的产品</strong>
             <span>先看设计效果，再决定是否制作。</span>
           </div>
+          <div className="hero-creation-path" aria-label="从想法到产品">
+            <span><small>你的想法</small><strong>一张画、一段故事、一个品牌</strong></span>
+            <ArrowRight size={17} />
+            <span><small>AI 共创</small><strong>理解风格，组织成可生产方案</strong></span>
+            <ArrowRight size={17} />
+            <span><small>专属成品</small><strong>一件起做，真正拿在手里</strong></span>
+          </div>
         </div>
       </section>
 
-      <section className="quick-paths">
-        {[
-          {
-            title: "把图片变成设计素材",
-            desc: "提取花纹、扩展画面或生成连续图，让想法更适合做成产品。",
-            action: "处理图片",
-            icon: Images,
-            onClick: () => navigate("process"),
-          },
-          {
-            title: "选择一件想做的产品",
-            desc: "把喜欢的图案放上去，先看效果，再决定是否试做。",
-            action: "选择产品",
-            icon: Gift,
-            onClick: () => navigate("products"),
-          },
-          {
-            title: "让创意成为实物",
-            desc: "从一件开始，做给自己、送人，或验证你的新想法。",
-            action: "查看权益",
-            icon: PackageCheck,
-            onClick: () => navigate("wallet"),
-          },
-        ].map(({ title, desc, action, icon: Icon, onClick }) => (
-          <button key={title} className="quick-path-card" onClick={onClick}>
-            <Icon size={22} />
-            <strong>{title}</strong>
-            <span>{desc}</span>
-            <em>
-              {action}
-              <ArrowRight size={14} />
-            </em>
-          </button>
-        ))}
+      <section className="expression-story-section">
+        <div className="market-section-heading">
+          <div><p className="eyebrow">有品，不必一样</p><h2>不同，不是换个花色。</h2><span>是把每个人真正重视的东西，变成产品里看得见的表达。</span></div>
+        </div>
+        <div className="expression-story-grid">
+          {expressionStories.map((story) => (
+            <button key={story.title} className="expression-story" onClick={() => navigate("products")}>
+              <img src={story.image} alt={story.title} />
+              <span><small>{story.kicker}</small><strong>{story.title}</strong><em>{story.desc}</em><i>开始设计 <ArrowRight size={14} /></i></span>
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="market-section product-market">
@@ -262,12 +265,13 @@ export default function HomePage() {
       )}
 
       <section className="market-final-cta">
-        <Palette size={28} />
-        <h2>先从一张图片开始。</h2>
-        <p>处理图片、保存结果、选杯型试做；满意了，再考虑做更多。</p>
-        <button className="primary" onClick={() => navigate("process")}>
-          上传图片试试 <ArrowRight size={18} />
-        </button>
+        <img src="/demo/market/podi-hero-products.webp" alt="把个人想法做成专属杯子" />
+        <div>
+          <small>AI创品</small>
+          <h2>你的想法，值得有自己的样子。</h2>
+          <p>没有图片也可以先说想法；有一张图，就从它开始共同设计。</p>
+          <button className="primary" onClick={() => navigate("products")}>选择一款产品 <ArrowRight size={18} /></button>
+        </div>
       </section>
     </main>
   );

@@ -61,7 +61,11 @@ python3 podi-business-api/server.py --port 8240
 
 当前业务默认只路由到中台内已验证的 Packy Image 2 能力：`packy_gpt_image_2_generate` 和 `packy_gpt_image_2_edit`。旧官方 OpenAI GPT Image 2 与 Seedream 目录条目仅保留审计，不允许进入自动业务路由。新增中转供应商时，先在中台完成能力测试、OSS 回填和错误契约验证，再更新业务 API 的受控能力 ID；前端不得直连厂商。
 
-默认不调用外部 VL，使用本地规则保持闭环。需要启用豆包 VL 时设置：
+AI 设计的 VL 规划不扣积分。无论用户是否上传图片，业务 API 都应把用户对话、最近上下文、商品名称、规格、材质、颜色、工艺和精确贴图面交给 VL；本地规则只允许作为模型异常时的降级证据，不能冒充完整设计方案。
+
+会话规划响应中的 `plan.designBrief` 是客户端确认卡的稳定契约，包含：`title/audience/occasion/styleName/styleRationale/palette/composition/materialNotes/productFit/operations/planningCredits/generationCredits`。用户确认后会话进入 `executing`，客户端可以离开页面；任务中心通过 `GET /api/client/v1/product-design-agent/sessions/{sessionId}` 恢复同一会话。缺少商品返回 `CLIENT_PRODUCT_REQUIRED`（422），会话不存在返回 `CLIENT_DESIGN_AGENT_SESSION_NOT_FOUND`（404），缺少消息返回 `CLIENT_DESIGN_AGENT_MESSAGE_REQUIRED`（422），中台生成失败返回会话 `execution_failed` 且不扣生成积分。
+
+默认生产环境启用豆包 VL；本地规则仅用于开发降级。配置方式：
 
 ```bash
 PODI_AGENT_VL_PROVIDER=volcengine-doubao-lite \
@@ -83,3 +87,5 @@ PODI_AGENT_PLANNER_MODEL=doubao-seed-2-1-turbo-260628
 - GPT 系模型先作为后续质量标尺和兜底，不作为当前默认主路由。
 
 模型返回只作为规划证据。最终能力调用仍由业务 API 做白名单、Schema、费用估算、用户确认、幂等和队列控制。
+
+`image_edit/gpt-image2-editor-v1` 默认能力为 `packy_gpt_image_2_edit`。旧 KIE Image2 目录条目不再作为该业务版本的默认能力；新增中转站应在中台完成能力与执行节点健康检查后参与路由，业务客户端不保存供应商 Key，也不选择供应商。
