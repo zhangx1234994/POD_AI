@@ -1297,6 +1297,15 @@ class AbilityTaskService:
             task.started_at = started_at
             session.add(task)
             session.commit()
+        # The task row above is detached after leaving the session and its
+        # attributes may be expired by the commit. Production-canvas
+        # post-processing only needs this stable request snapshot, so never
+        # hand the detached ORM row to a long-running vendor response path.
+        task_context = AbilityTask(
+            id=task_id,
+            request_payload=dict(request_payload or {}),
+            user_id=task_user_id,
+        )
         try:
             request_model = AbilityInvokeRequest.model_validate(request_payload or {})
             user = None
@@ -1336,7 +1345,7 @@ class AbilityTaskService:
             production_error: str | None = None
             if self._resolve_invoke_status(response.status) == "succeeded":
                 final_payload, production_error = self._apply_production_canvas_if_requested(
-                    task=task,
+                    task=task_context,
                     payload=final_payload,
                 )
             with get_session() as session:
