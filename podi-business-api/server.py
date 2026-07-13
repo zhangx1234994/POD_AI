@@ -3725,6 +3725,11 @@ def fail_agent_plan_execution(session: dict[str, Any], plan: dict[str, Any], mes
     step["errorMessage"] = message
   plan["status"] = "failed"
   plan["needsUserConfirmation"] = True
+  if isinstance(plan.get("execution"), dict):
+    plan["execution"]["status"] = "failed"
+    plan["execution"]["userStatus"] = "处理失败"
+    plan["execution"]["errorMessage"] = message
+    plan["execution"]["completedAt"] = now
   for tool_call in reversed(session.get("toolCalls") or []):
     if str(tool_call.get("planId") or "") == str(plan.get("planId") or "") and str(tool_call.get("status") or "") in {"running", "queued"}:
       tool_call["status"] = "failed"
@@ -6485,9 +6490,21 @@ class Handler(BaseHTTPRequestHandler):
           "wallet": ensure_wallet(user_id),
         })
         return
+      if existing_status == "failed" or str(existing_execution.get("status") or "") == "failed":
+        for step in plan.get("steps") or []:
+          ability = str(step.get("targetAbility") or "")
+          if step.get("status") != "failed" or ability in {"vl_analyze", "ask_user"}:
+            continue
+          step["status"] = "pending" if ability == "render_product_preview" else "waiting_confirmation"
+          step["userStatus"] = agent_step_user_status(str(step["status"]))
+          step.pop("errorMessage", None)
+          step.pop("completedAt", None)
+        plan.pop("execution", None)
+        plan["status"] = "needs_confirmation"
       plan_cost = agent_plan_cost_credits(plan)
       wallet = ensure_wallet(user_id)
-      if plan_cost > 0 and not plan.get("walletCharge"):
+      previous_charge = plan.get("walletCharge") if isinstance(plan.get("walletCharge"), dict) else None
+      if plan_cost > 0 and (not previous_charge or previous_charge.get("refundedAt")):
         available_credits = int(wallet.get("aiCredits") or 0)
         if available_credits < plan_cost:
           status, payload = json_error("CLIENT_WALLET_CREDITS_NOT_ENOUGH", f"这次设计需要 {plan_cost} 积分，当前积分不足。", 402)

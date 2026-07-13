@@ -372,6 +372,29 @@ class CommerceFlowTests(unittest.TestCase):
     self.assertEqual(brief["productFit"]["width"], 3378)
     self.assertEqual(len(brief["operations"]), 2)
 
+  def test_failed_agent_execution_closes_running_state_for_retry(self):
+    plan = {
+      "planId": "plan-retry",
+      "status": "running",
+      "needsUserConfirmation": False,
+      "steps": [{"stepId": "s2", "targetAbility": "image2_recreate", "status": "running"}],
+      "execution": {"status": "running", "businessRunIds": ["run-1"]},
+    }
+    session = {
+      "sessionId": "agent-retry",
+      "status": "executing",
+      "steps": plan["steps"],
+      "toolCalls": [{"planId": "plan-retry", "status": "running"}],
+      "messages": [],
+    }
+
+    result = server.fail_agent_plan_execution(session, plan, "ABILITY_TASK_FAILED")
+
+    self.assertEqual(result["status"], "failed")
+    self.assertEqual(plan["status"], "failed")
+    self.assertEqual(plan["execution"]["status"], "failed")
+    self.assertEqual(session["status"], "execution_failed")
+
   def test_running_prompt_only_agent_session_reads_middle_platform_task_result(self):
     server.prepare_asset_for_storage = lambda _user_id, asset, **_kwargs: asset
     server.get_midplatform_ability_task = lambda _task_id, timeout=15.0: {
