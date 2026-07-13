@@ -15,6 +15,7 @@
 
 当前执行焦点（2026-07-08）：
 
+- 2026-07-13：品牌口号统一为“有品，必不同”，首页首屏、登录页和主题配图进入品牌化整改。配图不再使用与业务无关的通用图库或重复杯型白图，首批家庭纪念、城市文旅、企业伴手礼和首页主视觉已通过中台 `packy_gpt_image_2_generate` 真实生成并沉淀自有 OSS；资产、构图规则和回归门禁见 `docs/client/design/brand-visual-assets-2026-07-13.md`。
 - 2026-07-11：产品设计能力先以“手动 AI 工作流”作为基础，而不是把手动模式理解为无 AI 上传表单。已确认：手动模式由用户主动选择、修改和确认工作流；Agent 模式在同一批工作流之上做意图理解、追问、选流程、填参和编排，不能形成重复能力栈。正式基线见 `docs/client/design/product-design-manual-ai-workflow-foundation-2026-07-11.md`，真实样例和能力门禁见 `docs/client/design/product-design-requirement-map-and-validation-2026-07-11.md`；中台 VL `design_intake` 已完成真实调用验证，连续图像素门禁已上线为 `podi_seamless_production_normalize`。下一步收敛首批手动工作流，并补目标生产画布适配与印刷预检。
 - 2026-07-08：当前主线切换为“独立可运营客户端 + 可复制主题站 + 中台能力入口 + 生产履约闭环”。当前事实入口见 `docs/strategy/current-operating-model-2026-07-08.md`；本地启动和走查记录见 `docs/strategy/local-walkthrough-2026-07-08.md`。
 - 2026-07-08：`podi-client-web/` 当前存在且已能作为业务端启动，它不是历史目录。当前状态是业务产品壳和部分中台调用能力并存，图片批处理、产品试做、订单等主流程仍需接真实中台 run、OSS 素材沉淀和蜂鸟履约。

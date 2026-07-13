@@ -103,7 +103,7 @@ const routeAliases: Partial<Record<string, AppView>> = {
 };
 
 const viewMetaMap: Record<AppView, { title: string; desc: string }> = {
-  home: { title: "AI创品 · 有品，不必一样", desc: "把你的想法做成属于你的产品。" },
+  home: { title: "AI创品 · 有品，必不同", desc: "把个性做成别人复制不了的产品。" },
   process: { title: "图片处理 · AI创品", desc: "把图片变成可以继续创作的设计素材。" },
   tasks: { title: "处理任务 · AI创品", desc: "查看 AI 图片处理任务进度和结果。" },
   assets: { title: "素材库 · AI创品", desc: "管理处理后的图片、花纹和裂变结果。" },

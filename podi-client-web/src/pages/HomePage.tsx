@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  BadgeCheck,
   ShoppingBag,
   Sparkles,
   Wand2,
@@ -24,42 +23,24 @@ const productPreviewImages = [
   "/demo/market/image2-tumbler-product.webp",
 ];
 
-const creationScenes = [
-  {
-    title: "只处理图片",
-    desc: "批量扩图、提取花纹、裂变或连续化，结果可直接下载。",
-    image: "/demo/market/pattern-dark-botanical.webp",
-  },
-  {
-    title: "先做样品",
-    desc: "选一张图和一款杯子，做一件看实际效果。",
-    image: "/demo/market/image2-tumbler-product.webp",
-  },
-  {
-    title: "做活动礼品",
-    desc: "同一套图案用到多款杯子，适合小批量送礼。",
-    image: "/demo/market/product-can-cooler-dark-botanical.png",
-  },
-];
-
 const expressionStories = [
   {
     kicker: "给孩子和家人",
     title: "把一张画，做成只属于他的礼物",
     desc: "保留手绘的稚拙，再把颜色、构图和杯型整理到适合生产。",
-    image: "/demo/market/pattern-bloom.webp",
+    image: "/brand/generated/family-expression.jpg",
   },
   {
     kicker: "给一座城市",
     title: "把在地记忆，做成游客带得走的作品",
     desc: "从建筑、纹样和故事里提炼风格，不再是换个 Logo 的纪念品。",
-    image: "/demo/market/image2-tumbler-product.webp",
+    image: "/brand/generated/city-expression.jpg",
   },
   {
     kicker: "给自己的品牌",
     title: "把品牌气质，做成真正会被使用的伴手礼",
     desc: "让配色、图案、材质和包装服务同一个表达。",
-    image: "/demo/market/product-can-cooler-dark-botanical.png",
+    image: "/brand/generated/business-expression.jpg",
   },
 ];
 
@@ -73,22 +54,22 @@ export default function HomePage() {
 
   return (
     <main className="market-home">
-      <section className="market-hero">
+      <section className="market-hero brand-home-hero">
+        <img
+          className="brand-home-hero-image"
+          src="/brand/generated/hero-expression.jpg"
+          alt="三件使用不同个人图案定制的杯子"
+        />
         <div className="market-hero-copy">
-          <p className="eyebrow">AI创品 · 有品，不必一样</p>
+          <p className="eyebrow">AI创品 · 有品，必不同</p>
           <h1>
-            <span>把你的想法</span>
-            做成属于你的产品
+            <span>让你的个性</span>
+            成为别人复制不了的产品
           </h1>
           <p>
-            你的故事、审美和想法，不该只停在图片里。AI 和你一起完成设计，再把它做成真正属于你的产品。
+            不套模板，不做同款。把你的故事、审美和态度交给 AI，做成真正能拿在手里的作品。
           </p>
-          <div className="hero-persona-line">为自己表达 · 为重要的人定制 · 为品牌留下辨识度</div>
-          <div className="hero-value-line">
-            <span>定义个性</span>
-            <span>AI 协作</span>
-            <span>一件起做</span>
-          </div>
+          <div className="hero-persona-line">敢表达 · 不跟款 · 一件也能做</div>
           <div className="market-hero-actions">
             <button className="primary" onClick={() => navigate("process")}>
               <Wand2 size={18} />
@@ -99,31 +80,13 @@ export default function HomePage() {
               选择杯型
             </button>
           </div>
-        </div>
-
-        <div className="hero-showcase" aria-label="AI 定制平台示意">
-          <img className="hero-market-photo" src="/demo/market/podi-hero-products.webp" alt="AI 定制杯子和设计画布" />
-          <img className="hero-pattern-card hero-pattern-card-a" src="/demo/market/pattern-garden.webp" alt="真实花纹素材" />
-          <img className="hero-pattern-card hero-pattern-card-b" src="/demo/market/pattern-dark-botanical.webp" alt="真实深色花纹素材" />
-
-          <div className="hero-proof">
-            <BadgeCheck size={18} />
-            <strong>从一张图，到一件只属于你的产品</strong>
-            <span>先看设计效果，再决定是否制作。</span>
-          </div>
-          <div className="hero-creation-path" aria-label="从想法到产品">
-            <span><small>你的想法</small><strong>一张画、一段故事、一个品牌</strong></span>
-            <ArrowRight size={17} />
-            <span><small>AI 共创</small><strong>理解风格，组织成可生产方案</strong></span>
-            <ArrowRight size={17} />
-            <span><small>专属成品</small><strong>一件起做，真正拿在手里</strong></span>
-          </div>
+          <p className="hero-brand-proof">从一张图、一个故事，到一件只属于你的产品。</p>
         </div>
       </section>
 
       <section className="expression-story-section">
         <div className="market-section-heading">
-          <div><p className="eyebrow">有品，不必一样</p><h2>不同，不是换个花色。</h2><span>是把每个人真正重视的东西，变成产品里看得见的表达。</span></div>
+          <div><p className="eyebrow">有品，必不同</p><h2>不是换个花色，是让产品替你发声。</h2><span>把你真正重视的东西，变成产品里看得见、拿得到的表达。</span></div>
         </div>
         <div className="expression-story-grid">
           {expressionStories.map((story) => (
@@ -209,27 +172,6 @@ export default function HomePage() {
       <section className="market-section">
         <div className="market-section-heading">
           <div>
-            <p className="eyebrow">使用场景</p>
-            <h2>图片怎么用，你来决定。</h2>
-            <span>只处理图片、先做一件样品，或者准备一批礼品，都可以从同一张图开始。</span>
-          </div>
-        </div>
-        <div className="scene-strip">
-          {creationScenes.map((scene) => (
-            <article key={scene.title}>
-              <img src={scene.image} alt={scene.title} />
-              <div>
-                <strong>{scene.title}</strong>
-                <span>{scene.desc}</span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="market-section">
-        <div className="market-section-heading">
-          <div>
             <p className="eyebrow">灵感广场</p>
             <h2>喜欢的设计，直接开做。</h2>
             <span>看到合适的图片或产品，可以同款处理、同款试做；公开作品会先审核。</span>
@@ -265,12 +207,12 @@ export default function HomePage() {
       )}
 
       <section className="market-final-cta">
-        <img src="/demo/market/podi-hero-products.webp" alt="把个人想法做成专属杯子" />
+        <img src="/brand/generated/business-expression.jpg" alt="为品牌定制的专属杯子和礼盒" />
         <div>
-          <small>AI创品</small>
-          <h2>你的想法，值得有自己的样子。</h2>
-          <p>没有图片也可以先说想法；有一张图，就从它开始共同设计。</p>
-          <button className="primary" onClick={() => navigate("products")}>选择一款产品 <ArrowRight size={18} /></button>
+          <small>AI创品 · 有品，必不同</small>
+          <h2>别找同款。做你的款。</h2>
+          <p>从一句想法开始，让 AI 和你一起把个性做成产品。</p>
+          <button className="primary" onClick={() => navigate("products")}>开始设计 <ArrowRight size={18} /></button>
         </div>
       </section>
     </main>

@@ -99,7 +99,7 @@ export default function AppHeader() {
           <img className="brand-symbol" src="/brand/ai-chuangpin-mark.png" alt="" />
           <span>
             <strong>AI创品</strong>
-            <small>把想法做成产品</small>
+            <small>有品，必不同</small>
           </span>
         </button>
 

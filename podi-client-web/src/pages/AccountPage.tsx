@@ -119,11 +119,11 @@ export default function AccountPage() {
       <main className="account-auth-page">
         <section className="auth-login-shell" aria-label="登录 AI创品">
           <aside className="auth-login-visual" aria-hidden="true">
-            <img src="/demo/market/product-tumbler-blue-botanical.png" alt="" />
+            <img src="/brand/generated/city-expression.jpg" alt="" />
             <div className="auth-login-visual-copy">
-              <span>AI创品 · 有品，不必一样</span>
-              <strong>登录后，<br />继续定义你的不同。</strong>
-              <small>保存灵感、设计和订单。</small>
+              <span>AI创品 · 有品，必不同</span>
+              <strong>登录后，<br />继续做你的款。</strong>
+              <small>灵感、设计和订单，都跟你走。</small>
             </div>
           </aside>
           <form className="auth-login-card" onSubmit={submitAuth}>
