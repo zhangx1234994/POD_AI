@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Search } from "lucide-react";
 import { useApp } from "../hooks/useAppState";
 import { cupTags, filterCupProducts } from "../data/cup-products";
-import { isCatalogRenderApproved } from "../data/catalog-render-readiness";
+import {
+  firstReadySurface,
+  listApprovedCatalogItems,
+} from "../data/catalog-product-visuals";
 import { getClientProductPricing } from "../api";
 import type { CupProduct, ProductSize } from "../data/cup-products";
 
@@ -14,24 +17,6 @@ function productPrice(salePriceCents?: number | null) {
 
 function productShipDate(index: number) {
   return index % 3 === 0 ? "预计 3-5 天发出" : "预计 5-7 天发出";
-}
-
-type ProductListItem = {
-  product: CupProduct;
-  size: ProductSize;
-};
-
-function listItemsForProducts(products: CupProduct[]): ProductListItem[] {
-  return products.flatMap((product) =>
-    product.sizes.map((size) => ({
-      product,
-      size,
-    }))
-  );
-}
-
-function firstReadySurface(size: ProductSize) {
-  return size.surfaces.find((surface) => surface.width && surface.height);
 }
 
 function productDisplayName(product: CupProduct, size: ProductSize) {
@@ -48,20 +33,6 @@ function productMaterialLabel(product: CupProduct) {
   return product.category || product.secondCraft || "杯子";
 }
 
-function hasProductModel(product: CupProduct, size: ProductSize) {
-  return Boolean(size.modelFile || product.modelFile);
-}
-
-function isOrderableProduct(product: CupProduct, size: ProductSize) {
-  const modelFile = size.modelFile || product.modelFile;
-  return hasProductModel(product, size) && Boolean(firstReadySurface(size)) && isCatalogRenderApproved(modelFile);
-}
-
-function productCatalogRenderUrl(product: CupProduct, size: ProductSize) {
-  const modelFile = size.modelFile || product.modelFile;
-  return modelFile ? `/models/catalog-renders/${modelFile.replace(/\.glb$/i, ".png")}` : null;
-}
-
 export default function ProductsPage() {
   const { state, dispatch, navigate } = useApp();
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -72,7 +43,7 @@ export default function ProductsPage() {
     [tagFilter, searchQuery]
   );
   const listItems = useMemo(
-    () => listItemsForProducts(filteredProducts).filter(({ product, size }) => isOrderableProduct(product, size)),
+    () => listApprovedCatalogItems(filteredProducts),
     [filteredProducts]
   );
   const sameStyleWork = state.sameStyleWork?.kind === "产品作品" ? state.sameStyleWork : null;
@@ -160,11 +131,10 @@ export default function ProductsPage() {
           </div>
 
           <div className="catalog-grid">
-            {listItems.map(({ product, size }, index) => {
+            {listItems.map(({ product, size, renderUrl }, index) => {
               const displayName = productDisplayName(product, size);
               const materialLabel = productMaterialLabel(product);
               const salePriceCents = salePricesByProduct[product.id];
-              const renderUrl = productCatalogRenderUrl(product, size);
               return (
                 <button key={`${product.id}-${size.label}`} className="catalog-product-card" onClick={() => openProduct(product, size)}>
                   <div className="catalog-product-visual">

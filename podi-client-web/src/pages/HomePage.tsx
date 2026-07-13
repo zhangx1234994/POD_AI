@@ -5,94 +5,142 @@ import {
   Wand2,
 } from "lucide-react";
 import { useApp, useSelectedAssets } from "../hooks/useAppState";
-import { cupProducts } from "../data/cup-products";
+import {
+  listApprovedCatalogItems,
+  resolveApprovedCatalogItem,
+} from "../data/catalog-product-visuals";
 import { inspirationWorks } from "../data/mock-data";
+import type { ApprovedCatalogItem } from "../data/catalog-product-visuals";
 
-const categoryTiles = [
-  { label: "手柄杯", image: "/demo/market/image2-tumbler-product.webp", tag: "热门", desc: "通勤、礼物、活动款" },
-  { label: "保温杯", image: "/demo/market/product-tumbler-blue-botanical.png", tag: "通勤", desc: "冬季和户外场景" },
-  { label: "运动水壶", image: "/demo/market/product-tumbler-blue-botanical.png", tag: "户外", desc: "社团、运动队、露营" },
-  { label: "冰霸杯", image: "/demo/market/product-can-cooler-dark-botanical.png", tag: "日常", desc: "大容量饮品和礼品" },
-  { label: "杯套配件", image: "/demo/market/product-can-cooler-dark-botanical.png", tag: "套装", desc: "组合售卖和增购" },
-];
+type FeaturedProduct = ApprovedCatalogItem & {
+  tag: string;
+  desc: string;
+};
 
-const productPreviewImages = [
-  "/demo/market/image2-tumbler-product.webp",
-  "/demo/market/product-tumbler-blue-botanical.png",
-  "/demo/market/product-can-cooler-dark-botanical.png",
-  "/demo/market/image2-tumbler-product.webp",
-];
+function featuredProduct(
+  templateId: string,
+  sizeLabel: string,
+  tag: string,
+  desc: string
+): FeaturedProduct | null {
+  const item = resolveApprovedCatalogItem(templateId, sizeLabel);
+  return item ? { ...item, tag, desc } : null;
+}
+
+const featuredProducts = [
+  featuredProduct("10395", "OneSize", "热门", "通勤、礼物、活动款"),
+  featuredProduct("10385", "OneSize", "轻巧", "易拉罐杯型，适合随行"),
+  featuredProduct("10376", "OneSize", "手提", "大容量，17 色可选"),
+  featuredProduct("10241", "18OZ", "便携", "保温太空壶，3 色可选"),
+  featuredProduct("10235", "OneSize", "冰饮", "30oz 冰霸杯，支持单件试做"),
+].filter((item): item is FeaturedProduct => Boolean(item));
+
+const heroProduct = resolveApprovedCatalogItem("10395", "OneSize");
 
 const expressionStories = [
   {
-    kicker: "给孩子和家人",
-    title: "把一张画，做成只属于他的礼物",
-    desc: "保留手绘的稚拙，再把颜色、构图和杯型整理到适合生产。",
-    image: "/brand/generated/family-expression.jpg",
+    product: resolveApprovedCatalogItem("10395", "OneSize"),
+    kicker: "通勤随行",
+    title: "把喜欢的图案，做成每天都会用的手柄杯",
+    desc: "20oz 带手柄和吸管不锈钢杯 · 模板 10395",
   },
   {
-    kicker: "给一座城市",
-    title: "把在地记忆，做成游客带得走的作品",
-    desc: "从建筑、纹样和故事里提炼风格，不再是换个 Logo 的纪念品。",
-    image: "/brand/generated/city-expression.jpg",
+    product: resolveApprovedCatalogItem("10241", "18OZ"),
+    kicker: "轻便出行",
+    title: "把同一套表达，适配到更轻巧的随行杯型",
+    desc: "18OZ 不锈钢太空壶 · 模板 10241",
   },
   {
-    kicker: "给自己的品牌",
-    title: "把品牌气质，做成真正会被使用的伴手礼",
-    desc: "让配色、图案、材质和包装服务同一个表达。",
-    image: "/brand/generated/business-expression.jpg",
+    product: resolveApprovedCatalogItem("10376", "OneSize"),
+    kicker: "活动礼赠",
+    title: "先做一件看效果，再决定是否批量制作",
+    desc: "30oz 手提杯 · 模板 10376",
   },
-];
+].filter((story): story is typeof story & { product: ApprovedCatalogItem } => Boolean(story.product));
+
+function productDisplayName(item: ApprovedCatalogItem) {
+  return item.product.sizes.length > 1
+    ? `${item.size.label} ${item.product.name}`
+    : item.product.name;
+}
 
 export default function HomePage() {
-  const { navigate, state } = useApp();
+  const { navigate, state, dispatch } = useApp();
   const selectedAssets = useSelectedAssets(state);
-  const readyProducts = cupProducts.filter((p) => p.status === "ready");
-  const allSurfaces = cupProducts.flatMap((p) => p.sizes.flatMap((s) => s.surfaces));
-  const readySurfaces = allSurfaces.filter((surface) => surface.width && surface.height);
-  const hotProducts = readyProducts.slice(0, 8);
+  const approvedCatalogItems = listApprovedCatalogItems();
+  const hotProducts = approvedCatalogItems.slice(0, 6);
+
+  const openProduct = (item: ApprovedCatalogItem) => {
+    dispatch({ type: "SET_SELECTED_PRODUCT", productId: item.product.id, sizeLabel: item.size.label });
+    dispatch({ type: "SET_SELECTED_SURFACE", surface: item.surface.name });
+    navigate("productDesign");
+  };
 
   return (
-    <main className="market-home">
+    <main className="market-home brand-home">
       <section className="market-hero brand-home-hero">
-        <img
-          className="brand-home-hero-image"
-          src="/brand/generated/hero-expression.jpg"
-          alt="三件使用不同个人图案定制的杯子"
-        />
+        {heroProduct && (
+          <img
+            className="brand-home-hero-image"
+            src="/brand/generated/hero-personal-expression-v2.png"
+            alt="使用真实杯型表达个人审美的创作者生活场景"
+          />
+        )}
         <div className="market-hero-copy">
-          <p className="eyebrow">AI创品 · 有品，必不同</p>
-          <h1>
-            <span>让你的个性</span>
-            成为别人复制不了的产品
-          </h1>
-          <p>
-            不套模板，不做同款。把你的故事、审美和态度交给 AI，做成真正能拿在手里的作品。
-          </p>
-          <div className="hero-persona-line">敢表达 · 不跟款 · 一件也能做</div>
+          <p className="eyebrow">AI创品</p>
+          <h1>有品，必不同。</h1>
+          <p>不将就现成，不凑合同款。把你的想法，做成真正属于你的产品。</p>
+          <div className="hero-persona-line">你的审美 · 你的故事 · 你的产品</div>
           <div className="market-hero-actions">
-            <button className="primary" onClick={() => navigate("process")}>
+            <button className="primary" onClick={() => navigate("products")}>
               <Wand2 size={18} />
-              开始创作
+              开始设计
             </button>
             <button className="secondary" onClick={() => navigate("products")}>
               <ShoppingBag size={18} />
               选择杯型
             </button>
           </div>
-          <p className="hero-brand-proof">从一张图、一个故事，到一件只属于你的产品。</p>
+          {heroProduct && (
+            <p className="hero-brand-proof">
+              场景图基于真实可做杯型：{productDisplayName(heroProduct)} · 模板 {heroProduct.product.id}
+            </p>
+          )}
         </div>
+        {heroProduct && (
+          <button className="hero-product-proof" onClick={() => openProduct(heroProduct)}>
+            <img src={heroProduct.renderUrl} alt={`${productDisplayName(heroProduct)} 真实目录校样`} />
+            <span>
+              <small>真实目录校样</small>
+              <strong>{productDisplayName(heroProduct)}</strong>
+              <em>模板 {heroProduct.product.id} · 点击开始设计</em>
+            </span>
+          </button>
+        )}
       </section>
 
       <section className="expression-story-section">
         <div className="market-section-heading">
-          <div><p className="eyebrow">有品，必不同</p><h2>不是换个花色，是让产品替你发声。</h2><span>把你真正重视的东西，变成产品里看得见、拿得到的表达。</span></div>
+          <div>
+            <p className="eyebrow">让产品替你表达</p>
+            <h2>不是换个花色，是做出你的那一款。</h2>
+            <span>下面每张图都来自当前可下单杯型的真实模型校样，不使用不存在的产品造型。</span>
+          </div>
         </div>
         <div className="expression-story-grid">
           {expressionStories.map((story) => (
-            <button key={story.title} className="expression-story" onClick={() => navigate("products")}>
-              <img src={story.image} alt={story.title} />
-              <span><small>{story.kicker}</small><strong>{story.title}</strong><em>{story.desc}</em><i>开始设计 <ArrowRight size={14} /></i></span>
+            <button
+              key={`${story.product.product.id}-${story.product.size.label}`}
+              className="expression-story"
+              onClick={() => openProduct(story.product)}
+            >
+              <img src={story.product.renderUrl} alt={`${story.title} 商品效果图`} />
+              <span>
+                <small>{story.kicker}</small>
+                <strong>{story.title}</strong>
+                <em>{story.desc}</em>
+                <i>开始设计 <ArrowRight size={14} /></i>
+              </span>
             </button>
           ))}
         </div>
@@ -101,21 +149,25 @@ export default function HomePage() {
       <section className="market-section product-market">
         <div className="market-section-heading">
           <div>
-            <p className="eyebrow">POD 杯子款式</p>
-            <h2>选一款杯子，先做成实物。</h2>
-            <span>当前先开放杯子类。选款式、选图案，生成预览后可以试做一件。</span>
+            <p className="eyebrow">已核验杯型</p>
+            <h2>选一款真实杯型，先做一件看效果。</h2>
+            <span>杯型、贴图位置和生产尺寸均来自当前产品库，点击后直接进入对应设计页。</span>
           </div>
           <button className="text-action" onClick={() => navigate("products")}>
             全部商品 <ArrowRight size={14} />
           </button>
         </div>
         <div className="category-showcase">
-          {categoryTiles.map((tile) => (
-            <button key={tile.label} className="category-tile" onClick={() => navigate("products")}>
-              <img src={tile.image} alt={tile.label} />
-              <span>{tile.tag}</span>
-              <strong>{tile.label}</strong>
-              <small>{tile.desc}</small>
+          {featuredProducts.map((item) => (
+            <button
+              key={`${item.product.id}-${item.size.label}`}
+              className="category-tile"
+              onClick={() => openProduct(item)}
+            >
+              <img src={item.renderUrl} alt={`${productDisplayName(item)} 商品效果图`} />
+              <span>{item.tag}</span>
+              <strong>{productDisplayName(item)}</strong>
+              <small>{item.desc} · 模板 {item.product.id}</small>
             </button>
           ))}
         </div>
@@ -147,24 +199,21 @@ export default function HomePage() {
               <p className="eyebrow">杯子款式</p>
               <h2>可试做杯型</h2>
             </div>
-            <span>
-              {readyProducts.length} 款可试做 · {readySurfaces.length}/{allSurfaces.length} 个图案位置
-            </span>
+            <span>{approvedCatalogItems.length} 款模型与设计面已核验</span>
           </div>
           <div className="compact-product-grid">
-            {hotProducts.slice(0, 6).map((product, index) => {
-              const surface = product.sizes[0]?.surfaces[0];
-              return (
-                <button key={product.id} onClick={() => navigate("products")}>
-                  <img src={productPreviewImages[index % productPreviewImages.length]} alt={product.name} />
-                  <strong>{product.name}</strong>
-                  <span>
-                    {product.sizes[0]?.label || "杯型"}
-                    {surface?.width ? ` · 设计面 ${surface.width}×${surface.height}px` : ""}
-                  </span>
-                </button>
-              );
-            })}
+            {hotProducts.map((item) => (
+              <button
+                key={`${item.product.id}-${item.size.label}`}
+                onClick={() => openProduct(item)}
+              >
+                <img src={item.renderUrl} alt={`${productDisplayName(item)} 商品效果图`} />
+                <strong>{productDisplayName(item)}</strong>
+                <span>
+                  模板 {item.product.id} · {item.surface.width}×{item.surface.height}px
+                </span>
+              </button>
+            ))}
           </div>
         </div>
       </section>
@@ -206,15 +255,22 @@ export default function HomePage() {
         </section>
       )}
 
-      <section className="market-final-cta">
-        <img src="/brand/generated/business-expression.jpg" alt="为品牌定制的专属杯子和礼盒" />
-        <div>
-          <small>AI创品 · 有品，必不同</small>
-          <h2>别找同款。做你的款。</h2>
-          <p>从一句想法开始，让 AI 和你一起把个性做成产品。</p>
-          <button className="primary" onClick={() => navigate("products")}>开始设计 <ArrowRight size={18} /></button>
-        </div>
-      </section>
+      {featuredProducts[2] && (
+        <section className="market-final-cta">
+          <img
+            src={featuredProducts[2].renderUrl}
+            alt={`${productDisplayName(featuredProducts[2])} 真实商品效果图`}
+          />
+          <div>
+            <small>AI创品</small>
+            <h2>有品，必不同。</h2>
+            <p>从一句想法开始，让 AI 和你一起把个性做成真实产品。</p>
+            <button className="primary" onClick={() => openProduct(featuredProducts[2])}>
+              开始设计 <ArrowRight size={18} />
+            </button>
+          </div>
+        </section>
+      )}
     </main>
   );
 }
