@@ -329,6 +329,46 @@ class CommerceFlowTests(unittest.TestCase):
     self.assertIn("3378", prompt)
     self.assertIn("styleName", prompt)
     self.assertIn("plannedOperations", prompt)
+    self.assertIn("生产事实只能来自商品与生产约束", prompt)
+    self.assertIn("不得自行声称食品级", prompt)
+
+  def test_image2_prompt_executes_confirmed_structured_design_brief(self):
+    prompt = server.agent_image2_design_prompt(
+      {
+        "userId": "user-brief",
+        "productId": "10395",
+        "productName": "20oz 手柄杯",
+        "messages": [{"role": "user", "type": "text", "content": "给我的猫做一款有艺术感的杯子"}],
+        "productContext": {
+          "surfaces": [{"name": "front", "label": "正面", "width": 3378, "height": 1949, "dpi": 150}],
+        },
+      },
+      {
+        "planId": "plan-brief",
+        "intent": "ai_recreate",
+        "summaryForUser": "制作一款猫咪主题杯身设计",
+        "designBrief": {
+          "title": "橘猫的午后花园",
+          "styleName": "治愈系水彩插画",
+          "palette": ["暖橙", "米白", "鼠尾草绿"],
+          "composition": "猫咪居中，植物纹理向两侧自然延伸",
+          "operations": [
+            {"title": "重绘猫咪主体", "purpose": "保留五官特征"},
+            {"title": "补充环绕背景", "purpose": "适配杯身比例"},
+          ],
+        },
+        "layoutPlan": {"surfaceAssignments": [{"surfaceId": "front"}]},
+      },
+      {"stepId": "s2", "title": "AI 重绘适配"},
+      0,
+      1,
+    )
+
+    self.assertIn("严格执行用户已经确认的设计方案", prompt)
+    self.assertIn("橘猫的午后花园", prompt)
+    self.assertIn("治愈系水彩插画", prompt)
+    self.assertIn("暖橙、米白、鼠尾草绿", prompt)
+    self.assertIn("重绘猫咪主体；补充环绕背景", prompt)
 
   def test_agent_plan_exposes_free_planning_and_structured_design_brief(self):
     server.AGENT_TEXT2IMAGE_AVAILABLE = True

@@ -1008,6 +1008,7 @@ def agent_vl_prompt(
     "中世纪现代、浮世绘、植物水彩、版画、拼贴、极简几何等；不要编造风格名，并用普通人能理解的话解释选择理由。\n"
     "14. 无图时也必须根据文字需求和商品约束给出完整原创方案，不要只返回路由；有图时说明保留什么、修改什么。\n"
     "15. plannedOperations 必须按真实执行顺序列出 2-6 步，每步包含 title 和 purpose；只写用户价值，不暴露模型名、供应商或内部能力代号。\n"
+    "16. 生产事实只能来自商品与生产约束。不得自行声称食品级、防水、防刮、热转印、保温性能、环保认证或其他未提供的工艺与材质能力；未知信息明确写待确认。\n"
     "JSON 字段必须包含: imageType, printable, qualityRisk, recommendedIntent, "
     "recommendedSurfaceId, layoutMode, needsSeamless, needsImage2, needsUserConfirmation, "
     "confidence, observations, risks, questions, designConcept, audience, occasion, styleName, "
@@ -3052,6 +3053,14 @@ def agent_image2_design_prompt(session: dict[str, Any], plan: dict[str, Any], st
   risks = "；".join(text_list(vision.get("risks"))[:2])
   source_assets = agent_source_assets(str(session.get("userId") or "demo-user"), session, plan)
   reference_instruction = agent_reference_role_instruction(session, plan, source_assets) or str(vision.get("referenceInstruction") or "")
+  design_brief = plan.get("designBrief") if isinstance(plan.get("designBrief"), dict) else {}
+  palette = "、".join(text_list(design_brief.get("palette"))[:5])
+  operations = design_brief.get("operations") if isinstance(design_brief.get("operations"), list) else []
+  operation_text = "；".join(
+    str(item.get("title") or item.get("purpose") or "").strip()
+    for item in operations[:6]
+    if isinstance(item, dict) and str(item.get("title") or item.get("purpose") or "").strip()
+  )
   variant_note = f"这是第 {index + 1}/{total} 张候选，请和其他候选保持同一主题但构图、元素或色彩有明显差异。" if total > 1 else ""
   prompt_parts = [
     base_prompt,
@@ -3059,6 +3068,17 @@ def agent_image2_design_prompt(session: dict[str, Any], plan: dict[str, Any], st
     "如果有参考图或用户描述，必须先转化成适合印刷的完整设计，不要只是把原图直接贴到杯子上。",
     "画面需要干净、清晰、可商用印刷，边缘留有可裁切余量；若是杯身环绕，要优先考虑左右边缘衔接。",
   ]
+  if design_brief:
+    prompt_parts.append(
+      "严格执行用户已经确认的设计方案："
+      f"主题：{design_brief.get('title') or summary}；"
+      f"风格：{design_brief.get('styleName') or '按已确认方案'}；"
+      f"构图：{design_brief.get('composition') or '主体清晰并适配设计面'}。"
+    )
+    if palette:
+      prompt_parts.append(f"配色限定：{palette}。")
+    if operation_text:
+      prompt_parts.append(f"执行重点：{operation_text}。")
   if reference_instruction:
     prompt_parts.append(reference_instruction)
   if observations:
