@@ -1042,7 +1042,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             ),
             "quality_map": {"auto": "auto", "preview": "low", "production": "medium", "premium": "high"},
             "coze_strategy": "Coze 可只调用图编辑业务 API；复杂画布交互由托管组件或业务方源码组件完成。",
-            "seed_version": 2,
+            "seed_version": 5,
         },
     ),
     BusinessCapabilitySeed(
