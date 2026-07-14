@@ -80,8 +80,8 @@ export const moduleGuides: Record<IntegrationNavId, ModuleGuide> = {
   },
   'production-orders': {
     audience: '运营管理员',
-    firstLook: '先核对支付状态、蜂鸟订单号和供应商回传，再处理自动提交异常。',
-    nextAction: '正常订单无需人工确认；仅对已支付但未成功推送蜂鸟的订单执行重试。',
+    firstLook: '先核对支付状态、蜂鸟订单号、商品、生产图和收货信息是否与蜂鸟后台一致。',
+    nextAction: '推送成功后在蜂鸟后台确认生产；只有自动推送失败的订单才在本站执行重试。',
     riskHint: '效果图和物流必须以蜂鸟回传为准，不能用页面预览代替。',
   },
   monitor: {

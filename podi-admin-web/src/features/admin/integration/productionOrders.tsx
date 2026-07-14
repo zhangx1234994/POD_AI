@@ -9,7 +9,7 @@ const statusLabel: Record<string, string> = {
   supplier_pending: '自动提交中',
   supplier_retry: '供应链待重试',
   ops_review: '供应链待重试',
-  submitted_to_supplier: '已推送蜂鸟',
+  submitted_to_supplier: '已推送待核对',
   producing: '生产中',
   quality_check: '质检中',
   shipped: '已发货',
@@ -79,14 +79,14 @@ export function ProductionOrdersPanel({ formatDateTime }: { formatDateTime: (val
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Alert
         theme="info"
-        message="履约顺序：用户在 AI创品 完成支付 -> 平台自动推送蜂鸟 -> 蜂鸟回传效果图、生产和物流状态。运营端用于对账、同步和异常重试；“测试代付”仅用于内测验收。"
+        message="履约顺序：用户在 AI创品 完成支付 -> 平台自动推送蜂鸟创建待确认订单 -> 运营比对两边数据 -> 在蜂鸟后台确认生产、选择物流并支付供应链。本站后台用于对账、同步和异常重试；“测试代付”仅用于内测验收。"
       />
       {error ? <Alert theme="error" message={error} /> : null}
       <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
         <Space>
           <Tag theme="warning" variant="light">待支付 {counts.pendingPayment}</Tag>
           <Tag theme="warning" variant="light">待供应链重试 {counts.supplierRetry}</Tag>
-          <Tag theme="success" variant="light">供应链中 {counts.supplier}</Tag>
+          <Tag theme="success" variant="light">蜂鸟已接收 {counts.supplier}</Tag>
         </Space>
         <Space>
           <Select
@@ -97,7 +97,7 @@ export function ProductionOrdersPanel({ formatDateTime }: { formatDateTime: (val
               { label: '待支付', value: 'awaiting_payment' },
               { label: '自动提交中', value: 'supplier_pending' },
               { label: '供应链待重试', value: 'supplier_retry' },
-              { label: '已推送蜂鸟', value: 'submitted_to_supplier' },
+              { label: '已推送待核对', value: 'submitted_to_supplier' },
               { label: '生产中', value: 'producing' },
               { label: '已发货', value: 'shipped' },
             ]}

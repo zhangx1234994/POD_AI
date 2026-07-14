@@ -264,7 +264,7 @@ export default function CheckoutPage() {
       <PageHeader
         eyebrow="结算"
         title="确认设计、地址和支付。"
-        desc="支付成功后自动提交蜂鸟安排生产。"
+        desc="支付成功后自动在蜂鸟创建待确认订单，运营核对两边数据后再确认生产。"
       />
 
       <section className="checkout-shell">

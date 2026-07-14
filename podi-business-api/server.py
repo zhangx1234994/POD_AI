@@ -4785,7 +4785,7 @@ def submit_order_to_supply_chain(
   order["metadata"] = metadata
   order["supplierOrderId"] = supplier_order_id or platform_order_id
   order["status"] = "制作中"
-  order["eta"] = "已推送蜂鸟，等待供应链确认"
+  order["eta"] = "已推送蜂鸟，等待运营核对并在蜂鸟确认生产"
   order["shippingSummary"] = shipping_summary(shipping, order.get("shippingSummary"))
   order["supplierStatusName"] = "已提交"
   order["supplierSyncedAt"] = submitted_at
