@@ -1630,8 +1630,8 @@ export const adminApi = {
       headers: { Accept: 'text/csv' },
     });
   },
-  // Production fulfillment. Payment confirmation is only for controlled pre-payment tests;
-  // a WeChat Pay callback will replace this action before public launch.
+  // Production fulfillment. Payment confirmation auto-submits to Fengniao. The
+  // manual supplier action below is retained only for failed-delivery retries.
   listProductionFulfillmentOrders: (status?: string) => {
     const params = new URLSearchParams();
     if (status && status !== 'all') params.set('status', status);

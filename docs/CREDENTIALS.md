@@ -130,7 +130,52 @@ OPENAI_PROJECT_ID=<optional>
 - 支持蒙版、多图、同步返回、异步轮询的模型，都必须通过能力 schema 单独描述参数。
 - 对外仍统一为“提交任务 -> 查询结果”，不让业务方感知厂商差异。
 
-## 8. 轮换与泄露处理
+## 8. 微信支付
+
+### 必需配置
+
+```bash
+WECHAT_PAY_APP_ID=<required>
+WECHAT_PAY_MCH_ID=<required>
+WECHAT_PAY_MERCHANT_PRIVATE_KEY_PATH=<required>
+WECHAT_PAY_MERCHANT_CERT_SERIAL=<required>
+WECHAT_PAY_API_V3_KEY=<required>
+WECHAT_PAY_PUBLIC_KEY_PATH=<required>
+WECHAT_PAY_PUBLIC_KEY_ID=<required>
+WECHAT_PAY_NOTIFY_URL=https://aichuangpin.com/api/client/v1/payments/wechat/notify
+```
+
+### 维护要求
+
+- 商户 API 证书不能代替配套的商户 API 私钥；`APIv3 Key` 用于回调报文解密。
+- 优先使用微信支付公钥与公钥 ID 验签；如采用平台证书模式，必须记录证书轮换和过期检查。
+- 回调必须验签、解密、核对商户号/AppID/订单号/金额，并按支付单号幂等处理。
+- 私钥、`APIv3 Key`、证书正文不得进入仓库或前端构建产物。
+
+## 9. 支付宝
+
+### 必需配置
+
+```bash
+ALIPAY_APP_ID=<required>
+ALIPAY_APP_PRIVATE_KEY_PATH=<required>
+ALIPAY_PUBLIC_KEY_PATH=<required-for-public-key-mode>
+ALIPAY_ROOT_CERT_PATH=<required-for-certificate-mode>
+ALIPAY_APP_CERT_PATH=<required-for-certificate-mode>
+ALIPAY_PUBLIC_CERT_PATH=<required-for-certificate-mode>
+ALIPAY_GATEWAY=https://openapi.alipay.com/gateway.do
+ALIPAY_NOTIFY_URL=https://aichuangpin.com/api/client/v1/payments/alipay/notify
+ALIPAY_RETURN_URL=https://aichuangpin.com/orders?payment=alipay
+```
+
+### 维护要求
+
+- 普通公钥模式和证书模式二选一，不允许混用配置。
+- `notify_url` 是支付异步通知地址，不是 OAuth 授权回调地址或应用网关。
+- 回调必须验签、核对 `app_id/out_trade_no/total_amount/trade_status` 并按支付宝交易号幂等处理，成功时仅返回纯文本 `success`。
+- 私钥一旦进入聊天、日志、工单或 Git，必须先轮换再联调。
+
+## 10. 轮换与泄露处理
 
 1. 立即禁用或轮换疑似泄露密钥。
 2. 更新服务器环境变量或管理端密钥配置。
@@ -138,10 +183,10 @@ OPENAI_PROJECT_ID=<optional>
 4. 检查调用日志，确认没有继续使用旧密钥。
 5. 如果密钥进入 Git 历史，记录影响范围，再决定是否执行历史清理。
 
-## 9. 文档维护规则
+## 11. 文档维护规则
 
 - 本文件变更必须和能力接入、执行节点、部署说明保持一致。
 - 新增供应商时，只补充配置项、能力范围、错误分类和轮换方式。
 - 真实密钥只允许进入 `docs/CREDENTIALS.local.md` 或受控密钥系统。
 
-*最后更新: 2026-04-30*
+*最后更新: 2026-07-14*

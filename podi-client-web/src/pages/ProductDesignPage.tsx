@@ -1956,12 +1956,12 @@ export default function ProductDesignPage() {
                   ? currentDesignAlreadyInBasket
                     ? "当前设计已放入设计篮"
                     : currentPreviewAlreadyGenerated || previewGenerated
-                      ? "产品预览已生成，满意后放入设计篮"
+                      ? "杯身生产图已生成，满意后放入设计篮"
                       : "3D 贴图实时预览，满意后放入设计篮"
                   : currentDesignAlreadyInBasket
                     ? "当前设计已放入设计篮"
                     : currentPreviewAlreadyGenerated || previewGenerated
-                      ? "产品预览已生成，满意后放入设计篮"
+                      ? "杯身生产图已生成，满意后放入设计篮"
                       : "选择素材后放入设计篮"}
               </span>
             </div>

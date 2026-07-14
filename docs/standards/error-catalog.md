@@ -614,8 +614,10 @@
 | PRODUCTION_ORDER_FORBIDDEN | 无权访问生产订单 | 403，订单必须属于当前用户。 |
 | PRODUCTION_ORDER_IDEMPOTENCY_CONFLICT | 生产订单幂等编号冲突 | 409，同一个请求编号不能归属不同用户。 |
 | PRODUCTION_ORDER_PAYMENT_STATUS_INVALID | 当前状态不能确认支付 | 409，支付回调不得跨状态更新订单。 |
-| PRODUCTION_ORDER_NOT_READY_FOR_SUPPLIER | 订单尚未支付或未进入运营审核 | 409，只有已支付的运营待审订单能推蜂鸟。 |
-| PRODUCTION_ORDER_OPS_CONFIRMATION_REQUIRED | 运营未明确确认生产 | 409，不能自动推供应商。 |
+| PRODUCTION_ORDER_NOT_READY_FOR_SUPPLIER | 订单尚未支付或未进入供应链提交队列 | 409，只有已支付并处于自动提交或重试状态的订单能推蜂鸟。 |
+| PRODUCTION_ORDER_SUPPLIER_CONFIRMATION_REQUIRED | 供应链重试未明确确认 | 409，运营手工重试时必须明确确认，正常支付链路会自动提交。 |
+| PRODUCTION_ORDER_SUPPLIER_SUBMIT_FAILED | 供应链自动提交失败 | 支付事实保留为已支付，订单进入 `supplier_retry`，由平台重试。 |
+| PRODUCTION_ORDER_SUPPLIER_SUBMIT_UNEXPECTED | 供应链自动提交发生未分类异常 | 支付事实保留为已支付，记录异常摘要并进入 `supplier_retry`。 |
 | PRODUCTION_CANVAS_SOURCE_INVALID | 生产图源地址非法 | 400，仅允许可访问的 HTTP(S) 图片。 |
 | PRODUCTION_CANVAS_CONFIG_INVALID | 生产画布声明不完整或非法 | 400，调用方已要求生产画布时，不允许静默跳过尺寸/DPI/模式门禁。 |
 | PRODUCTION_CANVAS_SOURCE_LOAD_FAILED | 无法读取生产图源文件 | 400，阻断生产图生成。 |

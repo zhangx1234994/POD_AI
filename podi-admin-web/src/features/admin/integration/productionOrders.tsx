@@ -6,7 +6,9 @@ import { adminApi } from '../../../services/adminApi';
 
 const statusLabel: Record<string, string> = {
   awaiting_payment: '待支付',
-  ops_review: '运营核对',
+  supplier_pending: '自动提交中',
+  supplier_retry: '供应链待重试',
+  ops_review: '供应链待重试',
   submitted_to_supplier: '已推送蜂鸟',
   producing: '生产中',
   quality_check: '质检中',
@@ -17,7 +19,7 @@ const statusLabel: Record<string, string> = {
 
 const statusTheme = (status: string): 'success' | 'warning' | 'danger' | 'default' => {
   if (['submitted_to_supplier', 'producing', 'quality_check', 'shipped', 'delivered', 'completed'].includes(status)) return 'success';
-  if (['awaiting_payment', 'ops_review'].includes(status)) return 'warning';
+  if (['awaiting_payment', 'supplier_pending', 'supplier_retry', 'ops_review'].includes(status)) return 'warning';
   return 'default';
 };
 
@@ -48,14 +50,14 @@ export function ProductionOrdersPanel({ formatDateTime }: { formatDateTime: (val
 
   const counts = useMemo(() => ({
     pendingPayment: orders.filter((order) => order.status === 'awaiting_payment').length,
-    opsReview: orders.filter((order) => order.status === 'ops_review').length,
+    supplierRetry: orders.filter((order) => ['supplier_pending', 'supplier_retry', 'ops_review'].includes(order.status)).length,
     supplier: orders.filter((order) => ['submitted_to_supplier', 'producing', 'quality_check', 'shipped'].includes(order.status)).length,
   }), [orders]);
 
   const runAction = async (order: ProductionFulfillmentOrder, action: 'pay' | 'submit' | 'sync') => {
     const labels = {
       pay: '确认这是受控测试订单，并将其标记为已支付？正式支付接入后，此操作将由支付回调替代。',
-      submit: '确认生产文件、款式、数量、地址无误，并推送到蜂鸟？',
+      submit: '确认重试把这个已支付订单提交到蜂鸟？',
       sync: '从蜂鸟同步订单状态、效果图和物流信息？',
     };
     if (!window.confirm(labels[action])) return;
@@ -77,13 +79,13 @@ export function ProductionOrdersPanel({ formatDateTime }: { formatDateTime: (val
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Alert
         theme="info"
-        message="履约顺序：用户在 AI创品 完成支付 -> 运营核对订单和生产文件 -> 推送蜂鸟 -> 蜂鸟回传效果图、生产和物流状态。当前“测试代付”仅用于内测验收，不能替代正式支付回调。"
+        message="履约顺序：用户在 AI创品 完成支付 -> 平台自动推送蜂鸟 -> 蜂鸟回传效果图、生产和物流状态。运营端用于对账、同步和异常重试；“测试代付”仅用于内测验收。"
       />
       {error ? <Alert theme="error" message={error} /> : null}
       <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
         <Space>
           <Tag theme="warning" variant="light">待支付 {counts.pendingPayment}</Tag>
-          <Tag theme="warning" variant="light">待运营核对 {counts.opsReview}</Tag>
+          <Tag theme="warning" variant="light">待供应链重试 {counts.supplierRetry}</Tag>
           <Tag theme="success" variant="light">供应链中 {counts.supplier}</Tag>
         </Space>
         <Space>
@@ -93,7 +95,8 @@ export function ProductionOrdersPanel({ formatDateTime }: { formatDateTime: (val
             options={[
               { label: '全部状态', value: 'all' },
               { label: '待支付', value: 'awaiting_payment' },
-              { label: '运营核对', value: 'ops_review' },
+              { label: '自动提交中', value: 'supplier_pending' },
+              { label: '供应链待重试', value: 'supplier_retry' },
               { label: '已推送蜂鸟', value: 'submitted_to_supplier' },
               { label: '生产中', value: 'producing' },
               { label: '已发货', value: 'shipped' },
@@ -175,8 +178,8 @@ export function ProductionOrdersPanel({ formatDateTime }: { formatDateTime: (val
                   {row.status === 'awaiting_payment' ? (
                     <Button size="small" theme="warning" loading={actionId === row.id} onClick={() => void runAction(row, 'pay')}>测试代付</Button>
                   ) : null}
-                  {row.status === 'ops_review' ? (
-                    <Button size="small" theme="primary" loading={actionId === row.id} onClick={() => void runAction(row, 'submit')}>确认并推蜂鸟</Button>
+                  {['supplier_pending', 'supplier_retry', 'ops_review'].includes(row.status) ? (
+                    <Button size="small" theme="primary" loading={actionId === row.id} onClick={() => void runAction(row, 'submit')}>重试推送蜂鸟</Button>
                   ) : null}
                   {['submitted_to_supplier', 'producing', 'quality_check', 'shipped'].includes(row.status) ? (
                     <Button size="small" variant="outline" loading={actionId === row.id} onClick={() => void runAction(row, 'sync')}>同步蜂鸟回传</Button>

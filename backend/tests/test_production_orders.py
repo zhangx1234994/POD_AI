@@ -75,19 +75,16 @@ def test_production_order_requires_verified_supplier_template(monkeypatch) -> No
     paid = production_order_service.mark_paid_for_gateway(
         order_id=order["id"], actor=_user(), payment_reference="test-paid", test_mode=True
     )
-    assert paid["status"] == "ops_review"
+    assert paid["paymentStatus"] == "paid"
+    assert paid["status"] == "supplier_retry"
+    assert paid["supplierStatus"] == "retry_required"
     with pytest.raises(Exception) as exc_info:
         production_order_service.submit_to_fengniao(order_id=order["id"], actor=_user(), confirm_production=True)
     assert exc_info.value.detail["errorCode"] == "FENGNIAO_TEMPLATE_NOT_VERIFIED"
 
 
-def test_production_order_paid_then_ops_submits_supplier_and_archives_effect(monkeypatch) -> None:
+def test_production_order_payment_auto_submits_supplier_and_archives_effect(monkeypatch) -> None:
     _patch_canvas(monkeypatch)
-    order = production_order_service.create(user=_user(), payload=_payload())
-    production_order_service.mark_paid_for_gateway(
-        order_id=order["id"], actor=_user(), payment_reference="test-paid", test_mode=True
-    )
-
     captured: dict = {}
 
     class FakeSupplier:
@@ -111,8 +108,12 @@ def test_production_order_paid_then_ops_submits_supplier_and_archives_effect(mon
         "app.services.production_orders.media_ingest_service.ingest_from_remote_url",
         lambda *_, **__: {"ossUrl": "https://oss.example.test/effect.png", "ossKey": "supplier/effect.png"},
     )
-    submitted = production_order_service.submit_to_fengniao(order_id=order["id"], actor=_user(), confirm_production=True)
+    order = production_order_service.create(user=_user(), payload=_payload())
+    submitted = production_order_service.mark_paid_for_gateway(
+        order_id=order["id"], actor=_user(), payment_reference="test-paid", test_mode=True
+    )
     assert submitted["status"] == "submitted_to_supplier"
+    assert submitted["paymentStatus"] == "paid"
     assert submitted["supplierOrderId"] == "FN-ORDER-100"
     assert submitted["supplierEffectImageUrls"] == ["https://oss.example.test/effect.png"]
     assert captured["shipCountry"] == "CN"
@@ -131,3 +132,26 @@ def test_production_order_paid_then_ops_submits_supplier_and_archives_effect(mon
             "orderStatusName": "待付款",
             "waybillNo": None,
         }
+
+
+def test_unexpected_supplier_failure_preserves_paid_order_for_retry(monkeypatch) -> None:
+    _patch_canvas(monkeypatch)
+
+    class BrokenSupplier:
+        def place_order(self, _payload: dict) -> HumcustomPlaceOrderResult:
+            raise RuntimeError("temporary supplier adapter failure")
+
+    monkeypatch.setattr("app.services.production_orders.humcustom_supply_chain_client", BrokenSupplier())
+    order = production_order_service.create(user=_user(), payload=_payload())
+
+    paid = production_order_service.mark_paid_for_gateway(
+        order_id=order["id"], actor=_user(), payment_reference="test-paid-unexpected", test_mode=True
+    )
+
+    assert paid["paymentStatus"] == "paid"
+    assert paid["status"] == "supplier_retry"
+    assert paid["supplierStatus"] == "retry_required"
+    with get_session() as session:
+        row = session.get(ProductionOrder, order["id"])
+        assert row is not None
+        assert row.payment_reference == "test-paid-unexpected"

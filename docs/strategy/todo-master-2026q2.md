@@ -15,6 +15,7 @@
 
 当前执行焦点（2026-07-08）：
 
+- 2026-07-14：生产订单状态机调整为“平台支付成功 -> 自动推蜂鸟”；运营端只做对账、状态同步和失败重试。支付接入进入 `doing`：微信 Native 与支付宝网页支付均采用服务端异步回调，尚缺完整配套参数并需轮换已暴露的支付宝应用私钥；配置项见 `docs/CREDENTIALS.md`。
 - 2026-07-13：品牌口号统一为“有品，必不同”，首页首屏、登录页和主题配图进入品牌化整改。配图不再使用与业务无关的通用图库或重复杯型白图，首批家庭纪念、城市文旅、企业伴手礼和首页主视觉已通过中台 `packy_gpt_image_2_generate` 真实生成并沉淀自有 OSS；资产、构图规则和回归门禁见 `docs/client/design/brand-visual-assets-2026-07-13.md`。
 - 2026-07-11：产品设计能力先以“手动 AI 工作流”作为基础，而不是把手动模式理解为无 AI 上传表单。已确认：手动模式由用户主动选择、修改和确认工作流；Agent 模式在同一批工作流之上做意图理解、追问、选流程、填参和编排，不能形成重复能力栈。正式基线见 `docs/client/design/product-design-manual-ai-workflow-foundation-2026-07-11.md`，真实样例和能力门禁见 `docs/client/design/product-design-requirement-map-and-validation-2026-07-11.md`；中台 VL `design_intake` 已完成真实调用验证，连续图像素门禁已上线为 `podi_seamless_production_normalize`。下一步收敛首批手动工作流，并补目标生产画布适配与印刷预检。
 - 2026-07-08：当前主线切换为“独立可运营客户端 + 可复制主题站 + 中台能力入口 + 生产履约闭环”。当前事实入口见 `docs/strategy/current-operating-model-2026-07-08.md`；本地启动和走查记录见 `docs/strategy/local-walkthrough-2026-07-08.md`。

@@ -24,7 +24,7 @@ function formatPayableAmount(cents: number | null) {
 }
 
 function displayOrderStatus(status: ProductionOrderSnapshot["status"]) {
-  if (status === "待确认") return "待平台确认";
+  if (status === "待确认") return "供应链重试中";
   if (status === "制作中") return "制作中";
   return status;
 }
@@ -81,7 +81,7 @@ export default function OrdersPage() {
         <PageHeader
           eyebrow="制作订单"
           title="还没有制作订单。"
-          desc="从产品试做页把设计放入设计篮并提交订单后，会在这里查看平台确认、生产、物流和售后状态。"
+          desc="从产品试做页把设计放入设计篮并提交订单后，会在这里查看支付、生产、物流和售后状态。"
         />
         <section className="auth-required-panel">
           <PackageCheck size={28} />
@@ -105,9 +105,9 @@ export default function OrdersPage() {
   const orderSteps = [
     { title: "设计已保存", body: "图案位置、款式和数量已写入订单。", done: true },
     isPaymentPending
-      ? { title: "待支付", body: "确认金额并完成支付后，订单才会进入运营核对。", done: false }
-      : { title: "已支付", body: "平台支付已完成，订单正在等待运营核对。", done: true },
-    { title: "运营确认并推送蜂鸟", body: supplierSubmitted ? "蜂鸟订单已创建，等待供应链确认与效果图回传。" : "运营会核对设计稿和收货信息后推送蜂鸟。", done: supplierSubmitted },
+      ? { title: "待支付", body: "确认金额并完成支付后，平台会自动提交蜂鸟。", done: false }
+      : { title: "已支付", body: "平台支付已完成，供应链履约已经启动。", done: true },
+    { title: "自动提交蜂鸟", body: supplierSubmitted ? "蜂鸟订单已创建，等待效果图和生产状态回传。" : "自动提交暂未完成，平台正在重试。", done: supplierSubmitted },
     { title: "制作中", body: "按已接入款式和设计面制作。", done: ["制作中", "已发出", "已完成"].includes(activeOrder.status) },
     { title: "已发出/收货", body: "发货后同步物流，收货满意后可申请公开作品。", done: ["已发出", "已完成"].includes(activeOrder.status) },
   ];
@@ -140,9 +140,9 @@ export default function OrdersPage() {
         ? `${activeOrder.product} 正在等待平台支付。`
         : supplierSubmitted
           ? `${activeOrder.product} 已推送蜂鸟，供应链状态和效果图会回传到这里。`
-          : `${activeOrder.product} 已支付，等待运营核对后推送蜂鸟。`,
-      steps: isPaymentPending ? ["确认金额", "完成支付", "进入运营核对"] : supplierSubmitted ? ["蜂鸟后台选择快递", "蜂鸟后台完成供应链付款", "同步生产和物流"] : ["运营核对设计稿", "确认推送蜂鸟", "等待供应链回执"],
-      action: isPaymentPending ? "去支付" : supplierSubmitted ? "查看供应链状态" : "等待运营确认",
+          : `${activeOrder.product} 已支付，平台正在重试提交蜂鸟。`,
+      steps: isPaymentPending ? ["确认金额", "完成支付", "自动提交蜂鸟"] : supplierSubmitted ? ["蜂鸟后台选择快递", "蜂鸟后台完成供应链付款", "同步生产和物流"] : ["保持订单已支付", "平台自动重试", "等待供应链回执"],
+      action: isPaymentPending ? "去支付" : supplierSubmitted ? "查看供应链状态" : "查看重试状态",
     },
     quality: {
       title: "质量问题处理",
@@ -185,7 +185,7 @@ export default function OrdersPage() {
       <PageHeader
         eyebrow="制作订单"
         title="订单进度"
-        desc="先完成平台支付，再由运营核对并推送蜂鸟；后续生产、物流和蜂鸟效果图会同步回来。"
+        desc="支付成功后自动提交蜂鸟；后续效果图、生产和物流状态会同步回来。"
       />
       {latestProductionOrder && (
         <section className="latest-order-banner" aria-live="polite">
@@ -200,7 +200,7 @@ export default function OrdersPage() {
       <section className="order-overview">
         {[
           { label: "待支付", value: String(orderItems.filter((o) => o.status === "待支付").length), note: "创建后未付款" },
-          { label: "待运营确认", value: String(orderItems.filter((o) => o.status === "待确认").length), note: "已支付，等待核对" },
+          { label: "待供应链重试", value: String(orderItems.filter((o) => o.status === "待确认").length), note: "已支付，平台重试中" },
           { label: "制作中", value: String(orderItems.filter((o) => o.status === "制作中").length), note: "试做或已排产" },
           { label: "可公开", value: "2", note: "收货满意后申请" },
         ].map((item) => (
@@ -259,7 +259,7 @@ export default function OrdersPage() {
           {isPaymentPending && (
             <div className="order-payment-callout">
               <CreditCard size={18} />
-              <div><strong>待支付订单</strong><p>支付完成后才会进入运营核对，避免未付款订单误提交供应链。</p></div>
+              <div><strong>待支付订单</strong><p>支付成功后平台自动提交蜂鸟；未付款订单不会进入供应链。</p></div>
               <span>{payableAmount}</span>
               <button className="primary" disabled={payingOrderId === activeOrder.id} onClick={() => handleMockPay(activeOrder)}>{payingOrderId === activeOrder.id ? "确认中" : "测试支付"}</button>
             </div>

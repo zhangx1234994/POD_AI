@@ -189,6 +189,29 @@ class CommerceFlowTests(unittest.TestCase):
       ["https://example.com/effect.jpg", "https://example.com/render-2.png"],
     )
 
+  def test_client_static_order_images_never_expose_localhost(self):
+    self.assertEqual(
+      server.client_visible_static_url("http://127.0.0.1:5180/models/catalog-renders/10235-onesize.png"),
+      "/models/catalog-renders/10235-onesize.png",
+    )
+    self.assertEqual(
+      server.client_visible_static_url("http://localhost:8230/demo/market/pattern-garden.webp?size=small"),
+      "/demo/market/pattern-garden.webp?size=small",
+    )
+    supplier_url = "https://img.customwe.com/render/effect.png"
+    self.assertEqual(server.client_visible_static_url(supplier_url), supplier_url)
+
+  def test_historical_order_static_images_are_normalized_in_place(self):
+    orders = [{
+      "id": "order-local-static",
+      "image": "http://127.0.0.1:5180/models/catalog-renders/10235-onesize.png",
+      "metadata": {"previewAssetUrl": "https://podi.example.com/design.png"},
+    }]
+
+    self.assertTrue(server.normalize_local_demo_urls(orders))
+    self.assertEqual(orders[0]["image"], "/models/catalog-renders/10235-onesize.png")
+    self.assertEqual(orders[0]["metadata"]["previewAssetUrl"], "https://podi.example.com/design.png")
+
   def test_supplier_submission_requires_a_paid_platform_order(self):
     self.assertFalse(server.order_is_paid({"metadata": {}}))
     self.assertFalse(server.order_is_paid({"metadata": {"payment": {"status": "unpaid"}}}))
@@ -258,7 +281,7 @@ class CommerceFlowTests(unittest.TestCase):
     self.assertNotIn("firstCraft", goods[0])
     self.assertNotIn("secondCraft", goods[0])
 
-  def test_platform_payment_waits_for_ops_confirmation_before_supplier_submission(self):
+  def test_platform_payment_auto_submits_supplier_order(self):
     class CaptureHandler:
       def __init__(self):
         self.responses = []
@@ -272,7 +295,12 @@ class CommerceFlowTests(unittest.TestCase):
     handler = CaptureHandler()
     server.commerce_config()["productPrices"] = {"10395": 5900}
     server.ensure_wallet("user-test")["aiCredits"] = 200
-    server.humcustom_place_order = lambda _payload: self.fail("蜂鸟不能在平台支付前被调用")
+    place_order_payloads = []
+    server.build_supply_chain_goods = lambda *_args, **_kwargs: [{"templateNo": "10395", "num": 1}]
+    server.humcustom_place_order = lambda payload: (
+      place_order_payloads.append(payload)
+      or {"data": {"orderId": "FN-AUTO-1", "platformOrderId": "FN-PLATFORM-1"}}
+    )
     request = {
       "userId": "user-test",
       "productId": "cup-10395",
@@ -289,12 +317,56 @@ class CommerceFlowTests(unittest.TestCase):
     created = handler.responses[-1]
     self.assertEqual(created["status"], "待支付")
     self.assertNotIn("supplyChain", created["metadata"])
+    self.assertEqual(place_order_payloads, [])
 
     server.Handler._handle_pay_order(handler, created["id"], {"userId": "user-test", "method": "mock"})
     paid = handler.responses[-1]
-    self.assertEqual(paid["status"], "待确认")
+    self.assertEqual(paid["status"], "制作中")
     self.assertEqual(paid["metadata"]["payment"]["status"], "paid")
-    self.assertNotIn("supplyChain", paid["metadata"])
+    self.assertEqual(paid["metadata"]["supplierSync"], "submitted")
+    self.assertEqual(paid["metadata"]["supplyChain"]["submittedBy"], "system:payment-confirmed")
+    self.assertEqual(len(place_order_payloads), 1)
+
+  def test_supplier_failure_keeps_platform_payment_and_marks_retry(self):
+    class CaptureHandler:
+      def __init__(self):
+        self.responses = []
+
+      def _json(self, payload, _status=200):
+        self.responses.append(payload)
+
+      def _order_snapshot(self, _user_id, order):
+        return dict(order)
+
+    handler = CaptureHandler()
+    server.commerce_config()["productPrices"] = {"10395": 5900}
+    server.ensure_wallet("user-test")["aiCredits"] = 200
+    server.build_supply_chain_goods = lambda *_args, **_kwargs: [{"templateNo": "10395", "num": 1}]
+
+    def fail_supplier(_payload):
+      raise server.HumcustomError(502, "CLIENT_SUPPLY_CHAIN_PLACE_ORDER_FAILED", "蜂鸟暂时不可用。")
+
+    server.humcustom_place_order = fail_supplier
+    server.Handler._handle_create_order(handler, {
+      "userId": "user-test",
+      "productId": "cup-10395",
+      "productName": "20oz 测试杯",
+      "assetId": "asset-1",
+      "quantity": 1,
+      "shippingAddress": {
+        "country": "CN", "state": "江苏省", "city": "南京市", "postalCode": "210000",
+        "district": "浦口区", "address": "测试路 1 号", "phoneNumber": "13800000000", "recipientName": "测试用户",
+      },
+    })
+    created = handler.responses[-1]
+
+    server.Handler._handle_pay_order(handler, created["id"], {"userId": "user-test", "method": "mock"})
+    paid = handler.responses[-1]
+
+    self.assertEqual(paid["metadata"]["payment"]["status"], "paid")
+    self.assertEqual(paid["status"], "待确认")
+    self.assertEqual(paid["metadata"]["supplierSubmission"]["status"], "retry_required")
+    self.assertEqual(paid["metadata"]["supplierSubmission"]["errorCode"], "CLIENT_SUPPLY_CHAIN_PLACE_ORDER_FAILED")
 
   def test_confirmed_supplier_submission_persists_returned_render_asset(self):
     server.humcustom_place_order = lambda _payload: {

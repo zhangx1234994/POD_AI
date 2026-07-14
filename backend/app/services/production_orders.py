@@ -1,4 +1,4 @@
-"""Production-order orchestration: exact artwork -> payment -> ops -> Fengniao."""
+"""Production-order orchestration: exact artwork -> payment -> Fengniao."""
 
 from __future__ import annotations
 
@@ -142,32 +142,80 @@ class ProductionOrderService:
     def mark_paid_for_gateway(self, *, order_id: str, actor: User, payment_reference: str | None, test_mode: bool) -> dict[str, Any]:
         with self._session() as session:
             order = self._find_order(session, order_id)
-            if order.payment_status == "paid":
+            if order.payment_status == "paid" and order.status not in {"supplier_pending", "supplier_retry", "ops_review"}:
                 return self._serialize(order)
-            if order.status != "awaiting_payment":
+            if order.payment_status != "paid" and order.status != "awaiting_payment":
                 raise self._error(409, "PRODUCTION_ORDER_PAYMENT_STATUS_INVALID", "当前订单不能确认支付。")
-            order.payment_status = "paid"
-            order.status = "ops_review"
-            order.payment_reference = payment_reference
-            order.paid_at = datetime.utcnow()
-            self._add_event(order, "payment_confirmed", actor.id, {"testMode": test_mode, "reference": payment_reference or None})
-            self._add_event(order, "ops_review_queued", actor.id, {"reason": "payment_confirmed"})
+            if order.payment_status != "paid":
+                order.payment_status = "paid"
+                order.payment_reference = payment_reference
+                order.paid_at = datetime.utcnow()
+                self._add_event(order, "payment_confirmed", actor.id, {"testMode": test_mode, "reference": payment_reference or None})
+            order.status = "supplier_pending"
+            self._add_event(order, "supplier_auto_submit_queued", actor.id, {"reason": "payment_confirmed"})
             session.add(order)
             session.commit()
+
+        try:
+            return self.submit_to_fengniao(order_id=order_id, actor=actor, confirm_production=True)
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            return self._defer_supplier_submission(
+                order_id=order_id,
+                actor=actor,
+                error_code=detail.get("errorCode", "PRODUCTION_ORDER_SUPPLIER_SUBMIT_FAILED"),
+                message=detail.get("message", "供应链自动提交失败，等待平台重试。"),
+            )
+        except Exception as exc:  # noqa: BLE001 - payment success must survive supplier failures
+            return self._defer_supplier_submission(
+                order_id=order_id,
+                actor=actor,
+                error_code="PRODUCTION_ORDER_SUPPLIER_SUBMIT_UNEXPECTED",
+                message=str(exc)[:300] or "供应链自动提交异常，等待平台重试。",
+            )
+
+    def _defer_supplier_submission(
+        self,
+        *,
+        order_id: str,
+        actor: User,
+        error_code: str,
+        message: str,
+    ) -> dict[str, Any]:
+        with self._session() as session:
+            order = self._find_order(session, order_id)
+            if order.status != "submitted_to_supplier":
+                order.status = "supplier_retry"
+                order.supplier_status = "retry_required"
+                self._add_event(
+                    order,
+                    "supplier_auto_submit_deferred",
+                    actor.id,
+                    {
+                        "errorCode": error_code,
+                        "message": message,
+                    },
+                )
+                session.add(order)
+                session.commit()
             return self._serialize(order)
 
     def submit_to_fengniao(self, *, order_id: str, actor: User, confirm_production: bool) -> dict[str, Any]:
         if not confirm_production:
-            raise self._error(409, "PRODUCTION_ORDER_OPS_CONFIRMATION_REQUIRED", "运营必须明确确认后才能推送蜂鸟。")
+            raise self._error(409, "PRODUCTION_ORDER_SUPPLIER_CONFIRMATION_REQUIRED", "供应链重试必须明确确认。")
         with self._session() as session:
             order = self._find_order(session, order_id)
-            if order.payment_status != "paid" or order.status != "ops_review":
-                raise self._error(409, "PRODUCTION_ORDER_NOT_READY_FOR_SUPPLIER", "订单尚未支付或不在运营审核队列。")
+            if order.status == "submitted_to_supplier":
+                return self._serialize(order)
+            if order.payment_status != "paid" or order.status not in {"supplier_pending", "supplier_retry", "ops_review"}:
+                raise self._error(409, "PRODUCTION_ORDER_NOT_READY_FOR_SUPPLIER", "订单尚未支付或不在供应链提交队列。")
             self._validate_supplier_ready(order)
             supplier_payload = self._supplier_payload(order)
             try:
                 result = humcustom_supply_chain_client.place_order(supplier_payload)
             except HumcustomSupplyChainError as exc:
+                order.status = "supplier_retry"
+                order.supplier_status = "retry_required"
                 self._add_event(order, "supplier_submit_failed", actor.id, {"errorCode": exc.error_code, "message": exc.message})
                 session.add(order)
                 session.commit()

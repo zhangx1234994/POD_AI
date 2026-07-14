@@ -264,7 +264,7 @@ export default function CheckoutPage() {
       <PageHeader
         eyebrow="结算"
         title="确认设计、地址和支付。"
-        desc="支付后进入运营核对，确认无误再安排生产。"
+        desc="支付成功后自动提交蜂鸟安排生产。"
       />
 
       <section className="checkout-shell">
@@ -401,7 +401,7 @@ export default function CheckoutPage() {
             <CreditCard size={18} />
             <div>
               <strong>支付确认</strong>
-              <span>测试阶段使用测试支付，正式上线再接微信/支付宝。</span>
+              <span>测试支付与正式支付共用同一条自动履约链路。</span>
             </div>
           </div>
           <div className="checkout-line">
@@ -433,7 +433,7 @@ export default function CheckoutPage() {
           </div>
           <div className="checkout-payment-method">
             <WalletCards size={16} />
-            <span>测试支付 · 支付后进入运营核对</span>
+            <span>测试支付 · 成功后自动提交蜂鸟</span>
           </div>
           {checkoutError && (
             <div className="sample-order-error" role="alert">
@@ -456,7 +456,7 @@ export default function CheckoutPage() {
                   ? `提交 ${selectedDrafts.length} 个设计并测试支付`
                   : "提交订单并测试支付"}
           </button>
-          <p>支付后订单进入运营核对；运营确认推送蜂鸟后，蜂鸟回传的效果图会替换当前商品示意图。</p>
+          <p>支付成功后平台自动提交蜂鸟；如供应链暂时失败，订单保持已支付并由平台重试。蜂鸟效果图回传后会替换当前商品示意图。</p>
         </aside>
       </section>
     </main>
