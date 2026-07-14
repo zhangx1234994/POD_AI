@@ -19,6 +19,7 @@ import {
 import { useApp } from "../hooks/useAppState";
 import { cupProducts } from "../data/cup-products";
 import type { CupProduct, DesignSurface, ProductColor, ProductCraftOption } from "../data/cup-products";
+import { listApprovedCatalogItems } from "../data/catalog-product-visuals";
 import { modelUvCalibrationForSurface } from "../data/model-uv-calibrations";
 import type {
   AssetItem,
@@ -550,8 +551,14 @@ function DesignBasketCard({
 
 export default function ProductDesignPage() {
   const { state, dispatch, navigate, activeUserId, isAuthenticated } = useApp();
-  const selectedProduct =
-    cupProducts.find((product) => product.id === state.selectedProductId) ?? cupProducts[0];
+  const approvedCatalogItems = listApprovedCatalogItems();
+  const selectedCatalogItem =
+    approvedCatalogItems.find(
+      (item) =>
+        item.product.id === state.selectedProductId &&
+        (!state.selectedProductSizeLabel || item.size.label === state.selectedProductSizeLabel)
+    ) ?? approvedCatalogItems[0] ?? null;
+  const selectedProduct = selectedCatalogItem?.product ?? null;
   const designSourceAssets = state.assets.filter((asset) => asset.type !== "product_preview");
   const initialSurfaceName = selectedProduct ? firstReadySurface(selectedProduct)?.name ?? "" : "";
   const initialCraftOption =
@@ -595,6 +602,33 @@ export default function ProductDesignPage() {
   const [agentAttachmentIds, setAgentAttachmentIds] = useState<string[]>([]);
   const [agentUploadBusy, setAgentUploadBusy] = useState(false);
   const [agentInputFocused, setAgentInputFocused] = useState(false);
+
+  useEffect(() => {
+    if (!selectedCatalogItem) return;
+    const productMismatch = state.selectedProductId !== selectedCatalogItem.product.id;
+    const sizeMismatch = state.selectedProductSizeLabel !== selectedCatalogItem.size.label;
+    if (!productMismatch && !sizeMismatch) return;
+
+    const replacedUnavailableProduct = Boolean(state.selectedProductId && productMismatch);
+    dispatch({
+      type: "SET_SELECTED_PRODUCT",
+      productId: selectedCatalogItem.product.id,
+      sizeLabel: selectedCatalogItem.size.label,
+    });
+    dispatch({ type: "SET_SELECTED_SURFACE", surface: selectedCatalogItem.surface.name });
+    if (replacedUnavailableProduct) {
+      setNotice("原杯型暂未完成供应链配置，已切换到可正常试做的杯型。");
+      const timer = window.setTimeout(() => setNotice(""), 3600);
+      return () => window.clearTimeout(timer);
+    }
+  }, [
+    dispatch,
+    selectedCatalogItem?.product.id,
+    selectedCatalogItem?.size.label,
+    selectedCatalogItem?.surface.name,
+    state.selectedProductId,
+    state.selectedProductSizeLabel,
+  ]);
 
   useEffect(() => {
     const defaultCraft =

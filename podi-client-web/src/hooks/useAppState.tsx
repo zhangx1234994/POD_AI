@@ -35,6 +35,7 @@ import {
   type ClientCoupon,
 } from "../api";
 import { inspirationWorks as defaultInspirationWorks } from "../data/mock-data";
+import { isSupplyChainReadyTemplateId } from "../data/cup-products";
 
 /* ── State ── */
 
@@ -477,12 +478,19 @@ function readStoredDesignBasket(): Pick<AppState, "checkoutDraft" | "orderDrafts
       orderDrafts?: unknown;
     };
     const orderDrafts = Array.isArray(data.orderDrafts)
-      ? data.orderDrafts.filter(isProductOrderDraft)
+      ? data.orderDrafts.filter(isProductOrderDraft).filter((draft) => isSupplyChainReadyTemplateId(draft.productId))
       : [];
-    const checkoutDraft =
+    const storedCheckoutDraft =
       isProductOrderDraft(data.checkoutDraft) || isProductCheckoutDraft(data.checkoutDraft)
         ? data.checkoutDraft
-        : orderDrafts[0] ?? null;
+        : null;
+    const checkoutDraft = storedCheckoutDraft && isSupplyChainReadyTemplateId(storedCheckoutDraft.productId)
+      ? storedCheckoutDraft
+      : orderDrafts[0] ?? null;
+    const storedOrderDraftCount = Array.isArray(data.orderDrafts) ? data.orderDrafts.length : 0;
+    const discardedUnavailableDraft =
+      storedOrderDraftCount !== orderDrafts.length || Boolean(storedCheckoutDraft && storedCheckoutDraft !== checkoutDraft);
+    if (discardedUnavailableDraft) writeStoredDesignBasket(checkoutDraft, orderDrafts);
     return { checkoutDraft, orderDrafts };
   } catch {
     window.localStorage.removeItem(DESIGN_BASKET_STORAGE_KEY);
@@ -708,10 +716,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, selectedSurface: action.surface };
 
     case "SET_CHECKOUT_DRAFT":
+      if (!isSupplyChainReadyTemplateId(action.draft.productId)) return state;
       writeStoredDesignBasket(action.draft, state.orderDrafts);
       return { ...state, checkoutDraft: action.draft };
 
     case "ADD_ORDER_DRAFT": {
+      if (!isSupplyChainReadyTemplateId(action.draft.productId)) return state;
       const orderDrafts = [
         action.draft,
         ...state.orderDrafts.filter((draft) => draft.draftId !== action.draft.draftId),

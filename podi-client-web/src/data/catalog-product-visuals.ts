@@ -1,4 +1,4 @@
-import { cupProducts } from "./cup-products";
+import { cupProducts, isSupplyChainReadyProduct } from "./cup-products";
 import { isCatalogRenderApproved } from "./catalog-render-readiness";
 import type { CupProduct, DesignSurface, ProductSize } from "./cup-products";
 
@@ -28,7 +28,7 @@ export function approvedCatalogItem(product: CupProduct, size: ProductSize): App
   const surface = firstReadySurface(size);
   const modelFile = catalogModelFile(product, size);
   const renderUrl = catalogRenderUrl(product, size);
-  if (!surface || !modelFile || !renderUrl) return null;
+  if (!isSupplyChainReadyProduct(product) || !surface || !modelFile || !renderUrl) return null;
   return { product, size, surface, modelFile, renderUrl };
 }
 

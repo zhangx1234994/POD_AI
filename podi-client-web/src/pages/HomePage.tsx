@@ -28,19 +28,19 @@ function featuredProduct(
 }
 
 const featuredProducts = [
-  featuredProduct("10395", "OneSize", "热门", "通勤、礼物、活动款"),
-  featuredProduct("10385", "OneSize", "轻巧", "易拉罐杯型，适合随行"),
-  featuredProduct("10376", "OneSize", "手提", "大容量，17 色可选"),
+  featuredProduct("10232", "OneSize", "热门", "通勤、礼物、活动款"),
+  featuredProduct("10236", "OneSize", "轻巧", "瘦身杯型，适合随行"),
+  featuredProduct("10242", "OneSize", "随行", "29oz 保温杯，支持单件试做"),
   featuredProduct("10241", "18OZ", "便携", "保温太空壶，3 色可选"),
   featuredProduct("10235", "OneSize", "冰饮", "30oz 冰霸杯，支持单件试做"),
 ].filter((item): item is FeaturedProduct => Boolean(item));
 
 const expressionStories = [
   {
-    product: resolveApprovedCatalogItem("10395", "OneSize"),
+    product: resolveApprovedCatalogItem("10232", "OneSize"),
     kicker: "通勤随行",
     title: "把喜欢的图案，做成每天都会用的手柄杯",
-    desc: "20oz 带手柄和吸管不锈钢杯",
+    desc: "40oz 活动手柄杯",
   },
   {
     product: resolveApprovedCatalogItem("10241", "18OZ"),
@@ -49,10 +49,10 @@ const expressionStories = [
     desc: "18OZ 不锈钢太空壶",
   },
   {
-    product: resolveApprovedCatalogItem("10376", "OneSize"),
+    product: resolveApprovedCatalogItem("10235", "OneSize"),
     kicker: "活动礼赠",
     title: "先做一件看效果，再决定是否批量制作",
-    desc: "30oz 手提杯",
+    desc: "30oz 冰霸杯",
   },
 ].filter((story): story is typeof story & { product: ApprovedCatalogItem } => Boolean(story.product));
 

@@ -304,6 +304,14 @@ function buildProducts(): CupProduct[] {
 
 export const cupProducts: CupProduct[] = buildProducts();
 
+export function isSupplyChainReadyProduct(product: CupProduct | null | undefined): product is CupProduct {
+  return Boolean(product?.craftOptions.length);
+}
+
+export function isSupplyChainReadyTemplateId(templateId: string | null | undefined): boolean {
+  return Boolean(templateId && cupProducts.some((product) => product.id === templateId && isSupplyChainReadyProduct(product)));
+}
+
 export const cupTags: string[] = Array.from(
   new Set(cupProducts.flatMap((product) => product.tags))
 ).sort();
