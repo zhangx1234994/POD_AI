@@ -1,5 +1,5 @@
 <#
-POD_AI generic file-level deployment script.
+AI Chuangpin generic file-level deployment script.
 
 The online /srv/pod directory is not a Git working tree, so this script packages
 changed files from selected local commits, uploads them to Linux, backs up the
@@ -141,11 +141,11 @@ $commitDisplay = ($commitList -join ",")
 $target = "${SERVER_USER}@${SERVER_HOST}"
 $timestamp = $RUN_TIMESTAMP
 $tempRoot = [System.IO.Path]::GetTempPath()
-$archivePath = Join-Path $tempRoot "pod_ai_deploy_${commitSha}_${timestamp}.tar"
-$manifestPath = Join-Path $tempRoot "pod_ai_deploy_${commitSha}_${timestamp}.manifest"
-$deleteManifestPath = Join-Path $tempRoot "pod_ai_deploy_${commitSha}_${timestamp}.delete"
-$remoteScriptPath = Join-Path $tempRoot "pod_ai_deploy_${commitSha}_${timestamp}.sh"
-$envPath = Join-Path $tempRoot "pod_ai_deploy_${commitSha}_${timestamp}.env"
+$archivePath = Join-Path $tempRoot "aichuangpin_deploy_${commitSha}_${timestamp}.tar"
+$manifestPath = Join-Path $tempRoot "aichuangpin_deploy_${commitSha}_${timestamp}.manifest"
+$deleteManifestPath = Join-Path $tempRoot "aichuangpin_deploy_${commitSha}_${timestamp}.delete"
+$remoteScriptPath = Join-Path $tempRoot "aichuangpin_deploy_${commitSha}_${timestamp}.sh"
+$envPath = Join-Path $tempRoot "aichuangpin_deploy_${commitSha}_${timestamp}.env"
 $remoteArchive = "/tmp/$(Split-Path $archivePath -Leaf)"
 $remoteManifest = "/tmp/$(Split-Path $manifestPath -Leaf)"
 $remoteDeleteManifest = "/tmp/$(Split-Path $deleteManifestPath -Leaf)"
@@ -214,7 +214,7 @@ set -euo pipefail
 ENV_FILE="${1:?missing env file}"
 source "${ENV_FILE}"
 
-RELEASE_DIR="/tmp/pod_ai_release_${COMMIT_SHA}_$(date +%Y%m%d%H%M%S)"
+RELEASE_DIR="/tmp/aichuangpin_release_${COMMIT_SHA}_$(date +%Y%m%d%H%M%S)"
 BACKUP_DIR="${REMOTE_BASE}/deploy_backups/local_deploy_${COMMIT_SHA}_$(date +%Y%m%d%H%M%S)"
 
 cleanup() {

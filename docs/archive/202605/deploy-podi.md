@@ -9,9 +9,11 @@
 ## 1. 拉代码
 
 ```bash
-git clone --recurse-submodules https://github.com/zhangx1234994/POD_AI.git
-cd POD_AI
+git clone --recurse-submodules <PRIVATE_REPOSITORY_URL>
+cd <REPOSITORY_DIRECTORY>
 ```
+
+> 该文档已归档，请不要从公开历史仓库执行生产发布。
 
 ## 2. 生成后端配置（推荐：一条命令）
 

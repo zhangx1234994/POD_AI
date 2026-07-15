@@ -4,10 +4,10 @@
 `backend/` 是 FastAPI 中台，`app/routers` 暴露任务、调度、管理端接口，`app/models`/`schemas` 定义任务、执行器、能力（`Ability`）等 ORM/DTO，`app/services`/`workers` 实现业务逻辑与 Celery 任务，数据库迁移位于 `backend/alembic/`。`podi-client-web/` 是 AI创品业务客户端；`podi-business-api/` 负责主站登录、素材、设计篮、订单和对中台能力的受控编排；`podi-eval-web/` 为内部能力评测站；`podi-admin-web/` 为独立管理端（端口 8199），负责执行节点、能力、密钥、评测配置的维护。顶层 `docs/`、`架构实施计划.md`、`后端架构与业务模型.md` 记录决策与路线图。
 
 ### Git 远程与接管约定
-- 当前仓库采用双远程：`github=https://github.com/zhangx1234994/POD_AI` 作为外部上游，只用于 `fetch/pull/merge`；`origin=http://192.168.2.210:8888/podi1/pod_ai.git` 作为局域网主仓库，用于日常分支、提交和推送。
+- 本公开仓库已停止作为发布源，仅保留历史代码；不得从此仓库发版，也不得在文档中写入当前私有仓库、凭证或内网地址。
 - 开发前先执行 `git remote -v`、`git branch --show-current`、`git status --short`，确认当前分支和远程方向；不要把 `D:\01_Dev\Podi` 根目录的状态当作本仓库状态。
-- 没有明确授权时不要向 `github` 推送。需要吸收外部更新时，先 `git fetch github --prune`，再把 `github/main` 合并到局域网 `origin` 的目标分支，冲突处理完成后只推送到 `origin`。
-- 涉及 Podi 主项目联动时，同步更新 `D:\01_Dev\Podi\documents\AI_WORKFLOW_HANDOFF_SUMMARY.md` 和 `D:\01_Dev\Podi\documents\podi_ai` 下的接管文档。
+- 没有明确授权时不要向本公开归档推送；所有日常开发与发版操作应在受控的当前私有仓库中进行。
+- 涉及 Podi 主项目联动时，同步更新主项目的工作流交接文档。
 
 ### 图案拼接多工序编码前置
 - 图案拼接进入多工序按非 Coze business API 设计，不走 Coze workflow；正式编码前先梳理 `backend/` 与 `image-ops-service/`、`vendor-api-ops/`、`podi-admin-web/`、`podi-eval-web/` 的调用关系。
