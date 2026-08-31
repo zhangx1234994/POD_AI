@@ -175,11 +175,17 @@ fi
 
 section "Automated tests"
 if [[ "$RUN_TESTS" == "1" ]]; then
-  python3 -m pytest \
+  # 发版校验固定读取仓库生产 executor 配置，避免开发机 backend/.env 的 3090 配置污染结果。
+  EXECUTOR_CONFIG_PATH=config/executors.yaml python3 -m pytest \
     backend/tests/test_business_api_contract.py \
     backend/tests/test_ability_task_owner.py \
     backend/tests/test_admin_dashboard_release_governance.py \
     backend/tests/test_coze_comfyui_new_toolboxes_openapi.py \
+    backend/tests/test_comfyui_executor_retirement.py \
+    backend/tests/test_main_startup_catalog_seed.py \
+    backend/tests/test_workflow_seed_refresh.py \
+    backend/tests/test_routing_governance.py \
+    backend/tests/test_workflow_seed_new_comfyui_toolboxes.py \
     backend/tests/test_podi_release_smoke.py \
     backend/tests/test_release_archive_packaging.py \
     -q
@@ -206,7 +212,7 @@ mkdir -p "$ARCHIVE_DIR"
 python3 scripts/package_release_archive.py \
   --root "$ROOT_DIR" \
   --output "$CONTROL_ARCHIVE" \
-  backend docs scripts deploy
+  backend config/executors.yaml docs scripts deploy
 python3 scripts/package_release_archive.py \
   --root "$ROOT_DIR" \
   --output "$WEB_ARCHIVE" \
@@ -256,6 +262,7 @@ if [[ -d backend/.venv ]]; then
 fi
 
 rm -rf backend docs scripts deploy
+rm -f config/executors.yaml
 tar --no-same-owner -xzf "$CONTROL_ARCHIVE" -C "$TARGET_ROOT"
 
 if [[ -n "$ENV_BACKUP" ]]; then
@@ -271,6 +278,24 @@ rm -rf podi-admin-web/dist podi-eval-web/dist
 tar --no-same-owner -xzf "$WEB_ARCHIVE" -C "$TARGET_ROOT"
 
 cd "$TARGET_ROOT/backend"
+# backend/.env 的配置优先级高于默认值；若生产仍指向开发机专用 YAML，启动 seed 会把 233
+# 重新标记为 active。这里只校验路径并在异常时阻断发布，不自动修改服务器环境文件。
+configured_executor_path="$(
+  grep -E '^[[:space:]]*EXECUTOR_CONFIG_PATH[[:space:]]*=' .env 2>/dev/null \
+    | tail -1 \
+    | cut -d= -f2- \
+    | tr -d '\r' \
+    | xargs 2>/dev/null \
+    || true
+)"
+case "$configured_executor_path" in
+  ""|"config/executors.yaml"|"./config/executors.yaml"|"../config/executors.yaml"|"./../config/executors.yaml"|"$TARGET_ROOT/config/executors.yaml")
+    ;;
+  *)
+    echo "[release-114] ERROR: backend/.env EXECUTOR_CONFIG_PATH points outside production config: $configured_executor_path" >&2
+    exit 2
+    ;;
+esac
 if [[ ! -x .venv/bin/python ]]; then
   python3.11 -m venv .venv
 fi
@@ -280,7 +305,7 @@ elif [[ "$INSTALL_DEPS" == "auto" ]]; then
   echo "[release-114] INSTALL_DEPS=auto: preserving current venv; set INSTALL_DEPS=1 when dependencies changed."
 fi
 .venv/bin/alembic upgrade head
-.venv/bin/python scripts/refresh_workflow_seeds.py
+EXECUTOR_CONFIG_PATH="$TARGET_ROOT/config/executors.yaml" .venv/bin/python scripts/refresh_workflow_seeds.py
 
 systemctl restart podi-backend podi-admin-web podi-eval-web
 printf '%s' "$COMMIT" > "$TARGET_ROOT/DEPLOYED_COMMIT"

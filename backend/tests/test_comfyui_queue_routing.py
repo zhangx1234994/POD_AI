@@ -23,13 +23,11 @@ def test_pick_comfyui_executor_by_queue_prefers_lower_queue(monkeypatch):
     assert picked == "executor_b"
 
 
-def test_flux_strong_hq_seed_allows_both_verified_comfyui_nodes():
+def test_flux_strong_hq_seed_allows_only_active_158_node():
+    """233 停用后，能力 seed 只能生成 158 白名单，防止启动同步恢复双机路由。"""
     metadata = COMFYUI_ABILITIES["flux_strong_hq_softstyle_fission"]["metadata"]
 
-    assert metadata["allowed_executor_ids"] == [
-        "executor_comfyui_seamless_117",
-        "executor_comfyui_pattern_extract_158",
-    ]
+    assert metadata["allowed_executor_ids"] == ["executor_comfyui_pattern_extract_158"]
     assert metadata["seed_version"] >= 3
 
 
@@ -220,7 +218,8 @@ def test_global_default_does_not_override_multi_executor_queue_policy(monkeypatc
     assert picked == "executor_b"
 
 
-def test_exact_workflow_binding_uses_remaining_compatible_executor_when_one_is_excluded(monkeypatch):
+def test_exact_workflow_binding_returns_none_when_only_active_executor_is_excluded(monkeypatch):
+    """158 是唯一生产节点；重试排除 158 后必须返回无可用节点，不能回退到已停用的 233。"""
     service = AbilityInvocationService()
     ability = SimpleNamespace(
         id="ability_test",
@@ -248,7 +247,7 @@ def test_exact_workflow_binding_uses_remaining_compatible_executor_when_one_is_e
         {},
         exclude_executor_ids=["executor_comfyui_pattern_extract_158"],
     )
-    assert picked == "executor_comfyui_seamless_117"
+    assert picked is None
 
 
 def test_exact_workflow_binding_uses_compatible_executor_even_if_other_node_is_less_busy(monkeypatch):

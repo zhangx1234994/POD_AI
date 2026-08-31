@@ -49,6 +49,9 @@ from app.services.workflow_seed import ensure_default_bindings, ensure_default_w
 
 VENDOR_API_PROVIDERS = {"baidu", "volcengine", "kie", "openai", "openai_compatible"}
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
+# 已入库任务在服务重启后会沿用原 executorId 恢复执行；这两个来源不能套用“新请求”禁用规则，
+# 否则发布时仍在 233 排队的任务会被新代码直接判失败。
+PERSISTED_ABILITY_TASK_SOURCES = {"ability-task", "ability-task-reroute"}
 
 
 def _format_invocation_error(code: str, message: str) -> str:
@@ -122,6 +125,61 @@ class AbilityInvocationService:
             self._executor_slots.pop(eid, None)
             self._executor_slot_sizes.pop(eid, None)
 
+    def validate_explicit_comfyui_executor(
+        self,
+        *,
+        ability: Ability,
+        executor_id: str,
+        source: str,
+    ) -> str:
+        """校验新请求显式指定的 ComfyUI 执行器，并返回规范化后的 ID。
+
+        该方法由同步能力入口、异步入队入口和 Coze 工具入口在创建新任务时调用。
+        例如能力只允许 158 时，新请求传入已停用的 233 会在入队或访问远端队列前被拒绝；
+        已持久化任务的恢复执行由 ``invoke`` 根据 source 单独放行，不调用本方法。
+        """
+
+        normalized_executor_id = str(executor_id or "").strip()
+        rejection_detail: str | None = None
+        rejection_reason: str | None = None
+        executor: Executor | None = None
+        if not normalized_executor_id:
+            rejection_detail = "ABILITY_EXECUTOR_NOT_CONFIGURED"
+            rejection_reason = "empty_executor_id"
+        else:
+            with get_session() as session:
+                executor = session.get(Executor, normalized_executor_id)
+            if executor is None:
+                rejection_detail = "EXECUTOR_NOT_FOUND"
+                rejection_reason = "executor_not_found"
+            elif str(executor.status or "").strip().lower() != "active":
+                rejection_detail = "EXECUTOR_INACTIVE"
+                rejection_reason = f"executor_status_{executor.status or 'unknown'}"
+            elif str(executor.type or "").strip().lower() != "comfyui":
+                rejection_detail = "EXECUTOR_TYPE_NOT_COMFYUI"
+                rejection_reason = f"executor_type_{executor.type or 'unknown'}"
+
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        allowed_executor_ids = self._normalize_executor_ids(
+            normalize_ability_routing(metadata).get("allowed_executor_ids")
+        )
+        # 旧自定义能力可能尚未声明白名单，仍沿用“活动 ComfyUI 节点可显式调用”的原合同；
+        # 一旦声明 allowed_executor_ids，它就是工作流兼容性边界，不能由调用方绕过。
+        if rejection_detail is None and allowed_executor_ids and normalized_executor_id not in allowed_executor_ids:
+            rejection_detail = "COMFYUI_EXECUTOR_NOT_ALLOWED"
+            rejection_reason = "executor_not_in_ability_allowlist"
+
+        if rejection_detail is not None:
+            self._logger.warning(
+                "[ComfyUIRouting] 拒绝新请求显式执行器 abilityId=%s executorId=%s source=%s reason=%s",
+                ability.id,
+                normalized_executor_id or "<empty>",
+                source or "unknown",
+                rejection_reason,
+            )
+            raise HTTPException(status_code=400, detail=rejection_detail)
+        return normalized_executor_id
+
     # -------- catalogue helpers -------- #
     def list_public_abilities(self) -> list[schemas.AbilityPublicInfo]:
         with get_session() as session:
@@ -158,6 +216,19 @@ class AbilityInvocationService:
         image_bundle = self._normalize_image_inputs(payload, merged_inputs)
         provider_key = ability.provider.lower()
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        explicit_executor_id = str(payload.executorId or "").strip()
+        # 例：发布前已入库任务保存 executorId=233，重启后 source=ability-task，继续排空；
+        # 发布后 API/Coze 新请求再显式传 233，则必须先检查 active 状态和能力白名单。
+        if (
+            provider_key == "comfyui"
+            and explicit_executor_id
+            and (source or "ability-api") not in PERSISTED_ABILITY_TASK_SOURCES
+        ):
+            explicit_executor_id = self.validate_explicit_comfyui_executor(
+                ability=ability,
+                executor_id=explicit_executor_id,
+                source=source or "ability-api",
+            )
         fallback_to_default = metadata.get("fallback_to_default")
         if fallback_to_default is None:
             fallback_to_default = True
@@ -166,7 +237,7 @@ class AbilityInvocationService:
             (payload.metadata or {}).get("excludeExecutorIds")
             or (payload.metadata or {}).get("exclude_executor_ids")
         )
-        executor_id = payload.executorId
+        executor_id = explicit_executor_id or None
         if not executor_id and provider_key != "comfyui":
             executor_id = ability.executor_id
         if provider_key == "comfyui" and executor_id in excluded_executor_ids:

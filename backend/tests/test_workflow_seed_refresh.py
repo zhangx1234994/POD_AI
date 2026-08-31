@@ -6,8 +6,9 @@ from copy import deepcopy
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
-from app.models.integration import Workflow
-from app.services.workflow_seed import DEFAULT_WORKFLOW_SEEDS, ensure_default_workflows
+from app.core.db import Base
+from app.models.integration import Workflow, WorkflowBinding
+from app.services.workflow_seed import DEFAULT_WORKFLOW_SEEDS, ensure_default_bindings, ensure_default_workflows
 
 
 def test_ensure_default_workflows_refreshes_existing_definition() -> None:
@@ -71,3 +72,33 @@ def test_ensure_default_workflows_is_safe_under_parallel_startup(tmp_path) -> No
 
     assert workflow_count == len(DEFAULT_WORKFLOW_SEEDS)
     assert any(results)
+
+
+def test_ensure_default_bindings_disables_existing_233_binding() -> None:
+    """数据库中历史 233 binding 即使仍为 enabled=1，启动 seed 也必须更新为 enabled=0。"""
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    with TestingSession() as session:
+        session.add(
+            WorkflowBinding(
+                id="binding_seamless_comfyui_v1",
+                action="seamless",
+                workflow_id="workflow_comfyui_sifang_lianxu_v1",
+                executor_id="executor_comfyui_seamless_117",
+                priority=100,
+                enabled=True,
+                extra_metadata={"notes": "stale production value"},
+            )
+        )
+        session.commit()
+
+        changed = ensure_default_bindings(session)
+        refreshed = session.get(WorkflowBinding, "binding_seamless_comfyui_v1")
+
+    assert changed is True
+    assert refreshed is not None
+    assert refreshed.enabled is False
+    assert "233 retired" in (refreshed.extra_metadata or {}).get("notes", "")

@@ -1485,6 +1485,14 @@ def invoke_tool(
     # Translate Coze tool input -> our generic invoke request.
     # NOTE: Coze may send image inputs as structured objects; accept broadly.
     executor_id = body.pop("executorId", None)  # legacy; currently not exposed in OpenAPI
+    # 历史调用方仍可能手工传 executorId。先拦截 inactive/越权节点，避免后续队列检查
+    # 对已下线的 233 发起网络请求；自动路由选出的节点仍会在 enqueue 时再次校验。
+    if provider.lower() == "comfyui" and str(executor_id or "").strip():
+        executor_id = ability_invocation_service.validate_explicit_comfyui_executor(
+            ability=ability,
+            executor_id=str(executor_id),
+            source="coze-tool",
+        )
     image_url = None
     image_base64 = None
     url_candidates: list[str] = []

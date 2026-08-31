@@ -1,6 +1,6 @@
 # 中台运行事实与回归防错口径
 
-最后更新：2026-06-10
+最后更新：2026-08-31
 
 本文只记录当前执行必须依赖的固定事实和高频回归防线。任何排查、发版、验收、文档更新，先对照本文，避免靠临时记忆判断。
 
@@ -10,12 +10,12 @@
 | --- | --- | --- | --- | --- |
 | 114 控制面 | `114.55.0.56` | backend、管理端、测评端、Coze 接入控制 | backend `8099`；管理端 `8199`；测评端 `8200`；Coze `8888` | 业务状态、任务、路由、接口文档、OSS 回填和管理端都在这里闭环。 |
 | 158 / 5090 | `117.50.80.158` | GPU 执行面、image-ops、vendor-api-ops | ComfyUI `8079`；image-ops `8200`；vendor-api-ops `8310` | executor ID：`executor_comfyui_pattern_extract_158`。 |
-| 233 / 4090 | `117.50.216.233` | GPU 执行面 | ComfyUI `8079` | executor ID：`executor_comfyui_seamless_117`。 |
+| 233 / 4090 | `117.50.216.233` | 历史 GPU 执行面（已停用） | ComfyUI `8079` | executor ID：`executor_comfyui_seamless_117`；2026-08-31 停止续费，不再承接新任务。 |
 
 硬规则：
 
 - 任何沟通、日志、复盘和发布记录禁止只写“117 服务器”。必须写清 `158/5090/117.50.80.158` 或 `233/4090/117.50.216.233`。
-- 114 是控制面；158 和 233 是执行面。普通 backend、管理端、测评端发版不应该更新 GPU 机器。
+- 114 是控制面；158 是当前唯一生产 ComfyUI 执行面。233 仅保留历史执行器记录，不再参与生产路由。
 - ComfyUI 公网端口可能有白名单。开发机直连 `117.*:8079` 超时或 502，不能直接判断 GPU 服务异常；最终以 114 控制面或已放行机器上的 `/system_stats`、`/queue`、`/object_info` 为准。
 - 本地临时静态代理可以为了避开端口占用使用 `8299` 等端口，但必须在报告中写成“本地临时端口”。线上和正式脚本口径仍是测评端 `8200`。
 
@@ -24,7 +24,17 @@
 | executor ID | 标准显示名 | 机器 | 常见用途 |
 | --- | --- | --- | --- |
 | `executor_comfyui_pattern_extract_158` | ComfyUI 5090 · 158 · 117.50.80.158 | 158 / 5090 | 默认承接多数 ComfyUI 主线能力。 |
-| `executor_comfyui_seamless_117` | ComfyUI 4090 · 233 · 117.50.216.233 | 233 / 4090 | 承接通用/备用/部分历史工作流。 |
+| `executor_comfyui_seamless_117` | ComfyUI 4090 · 233 · 117.50.216.233 | 233 / 4090 | `inactive` 历史节点；保留记录用于任务追溯和必要时回滚。 |
+
+生产路由硬规则：
+
+- `config/executors.yaml` 中 233 必须保持 `status: inactive`。
+- 所有 ComfyUI 能力的 `allowed_executor_ids` 只包含 `executor_comfyui_pattern_extract_158`。
+- 233 的 `workflow_bindings` 记录允许保留，但 `enabled` 必须为 `false`；158 继续使用原 `max_concurrency=10`，本次下线不调整并发参数。
+- POD_AI backend 启动时按 `executor -> workflow -> binding -> ability -> business` 同步 seed，不需要手工执行 SQL。
+- 114 控制面当前为非 Docker 部署，仓库目录是 `/srv/pod`，backend 启动命令与 `deploy/systemd/podi-backend.service` 一致。生产 `EXECUTOR_CONFIG_PATH` 应为空（由 `/srv/pod` 解析默认 `config/executors.yaml`）或明确写成 `/srv/pod/config/executors.yaml`。
+- `scripts/release_114_control_plane.sh` 必须把仓库 `config/executors.yaml` 打进控制面发布包，同时保留 `/srv/pod/config` 下其他运维文件；脚本执行 seed 时显式使用 `/srv/pod/config/executors.yaml`，并在 `backend/.env` 指向其他开发配置时中止发布。否则只更新 Python 代码不会把 233 的 `inactive` 状态稳定同步到数据库。
+- 发布前已入库且保存 `executorId=executor_comfyui_seamless_117` 的在途任务会继续访问 233 排空；发布后的新请求无论显式传 233，还是旧能力默认指向 233，都会在入队前拒绝。确认 233 队列和处理中任务清零后再关机。
 
 如果 release smoke 或兼容检查出现缺模型、缺节点，必须先回答三个问题：
 
@@ -85,6 +95,14 @@ python -m pytest backend/tests/test_comfyui_new_toolbox_inputs.py -q
 cd podi-admin-web && npm run lint
 cd ../podi-eval-web && npm run lint
 ```
+
+本次 233 下线从已提交、已推送且工作区干净的需求分支发布时，使用现有控制面脚本即可；脚本会上传到 `/srv/pod`、运行 migration/seed、重启 systemd 服务并执行健康检查：
+
+```bash
+BRANCH=ys/ops-disable-comfyui-233 bash scripts/release_114_control_plane.sh
+```
+
+如果改动先合并到 `main`，则使用脚本默认的 `BRANCH=main`，不需要传 `BRANCH`。执行前应先在 114 上确认 `systemctl is-active podi-backend podi-admin-web podi-eval-web` 全部为 `active`；该命令只核对现有部署方式，不修改服务。
 
 发布到 114 后至少执行：
 

@@ -7,11 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.db import get_session
 from app.services.runtime_safety import get_background_worker_decision
+from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_runs import get_business_run_service
 from app.services.business_seed import ensure_default_business_capabilities
 from app.services.eval_service import get_eval_service
 from app.services.executor_seed import ensure_default_executors
+from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
 
 from app.routers import (
     abilities,
@@ -45,7 +47,13 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     def _warmup_services() -> None:
         with get_session() as session:
+            # 启动同步必须按外键依赖执行：executor -> workflow -> binding -> ability -> business。
+            # 例如数据库仍是“233 active + binding enabled=1”，新版本启动完成后会自动收敛为
+            # executor inactive、binding enabled=0、能力白名单仅 158，无需人工补 UPDATE SQL。
             ensure_default_executors(session)
+            ensure_default_workflows(session)
+            ensure_default_bindings(session)
+            ensure_default_abilities(session)
             ensure_default_business_capabilities(session)
         # Instantiate background queues once per process so pending tasks/runs are resumed.
         worker_decision = get_background_worker_decision()

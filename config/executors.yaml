@@ -72,7 +72,8 @@ executors:
     name: "ComfyUI 4090 · 233 · 117.50.216.233"
     type: comfyui
     base_url: "http://117.50.216.233:8079"
-    status: active
+    # 233 于 2026-08-31 停止续费；保留记录用于历史任务追溯和必要时回滚，但不再参与新任务路由。
+    status: inactive
     weight: 1
     max_concurrency: 10
     config:

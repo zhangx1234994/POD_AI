@@ -97,3 +97,16 @@ def test_package_release_archive_can_package_dist_contents_without_prefix(tmp_pa
     assert "assets" in added
     assert "assets/main.js" in added
     assert "." not in added
+
+
+def test_control_plane_release_packages_executor_config() -> None:
+    """控制面发布包必须携带 config，否则 233 inactive 配置无法同步到 /srv/pod。"""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    release_script = (repo_root / "scripts" / "release_114_control_plane.sh").read_text(encoding="utf-8")
+
+    assert "backend config/executors.yaml docs scripts deploy" in release_script
+    assert "rm -f config/executors.yaml" in release_script
+    assert "rm -rf backend config docs scripts deploy" not in release_script
+    assert 'EXECUTOR_CONFIG_PATH="$TARGET_ROOT/config/executors.yaml" .venv/bin/python scripts/refresh_workflow_seeds.py' in release_script
+    assert "EXECUTOR_CONFIG_PATH points outside production config" in release_script

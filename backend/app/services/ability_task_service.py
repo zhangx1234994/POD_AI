@@ -97,7 +97,16 @@ class AbilityTaskService:
             if not ability or ability.status != "active":
                 raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND_OR_INACTIVE")
             provider_lower = (ability.provider or "").lower()
-            executor_id = payload.executorId or ability.executor_id
+            explicit_executor_id = str(payload.executorId or "").strip()
+            executor_id = explicit_executor_id or str(ability.executor_id or "").strip() or None
+            # enqueue 只处理“现在新建”的任务，因此请求显式节点和能力历史默认节点都必须在
+            # 写入 ability_tasks 前校验。已有任务恢复不经过 enqueue，由 _run_task 继续排空。
+            if provider_lower == "comfyui" and executor_id:
+                executor_id = ability_invocation_service.validate_explicit_comfyui_executor(
+                    ability=ability,
+                    executor_id=executor_id,
+                    source="ability-task-enqueue",
+                )
             if executor_id:
                 is_comfyui = provider_lower == "comfyui"
                 is_commercial = provider_lower in {"volcengine", "kie"} or _is_openai_gpt_image_2_capability(

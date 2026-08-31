@@ -50,8 +50,8 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
                 "workflow_key": "sifang_lianxu",
                 "description": "ComfyUI JSON workflow stored under app/workflows/comfyui.",
                 "required_node_keys": ["String", "StringConcatenate", "SaveImage"],
-                "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
-                "routing_note": "2026-05-16: 233 String node restored and forced 233 run passed; use queue routing across 233/158.",
+                "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+                "routing_note": "2026-08-31: 233 retired; production requests route only to 158.",
             },
         ),
         WorkflowSeed(
@@ -66,8 +66,8 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
                 "workflow_key": "huawen_kuotu",
                 "description": "ComfyUI workflow for pattern outpainting / expansion.",
                 "required_node_keys": ["String", "SaveImage"],
-                "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
-                "routing_note": "2026-05-16: 233 String/Text/Get Image Size nodes restored and forced 233 run passed; use queue routing across 233/158.",
+                "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+                "routing_note": "2026-08-31: 233 retired; production requests route only to 158.",
             },
         ),
         WorkflowSeed(
@@ -125,8 +125,8 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
                 "description": "ComfyUI workflow for FLUX2-9b image fission + seamless output.",
                 "output_node_ids": ["111"],
                 "required_node_keys": ["String", "SaveImage"],
-                "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
-                "routing_note": "2026-05-16: 233 String node restored and forced 233 run passed; use queue routing across 233/158.",
+                "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+                "routing_note": "2026-08-31: 233 retired; production requests route only to 158.",
             },
         ),
         WorkflowSeed(
@@ -229,6 +229,8 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
 
 
 def _build_binding_seeds() -> list[WorkflowBindingSeed]:
+    # 233 的 binding 保留在目录中用于历史任务追溯和回滚，但必须保持 disabled，
+    # 否则服务启动时的 seed 会把数据库中的旧节点重新启用。
     return [
         WorkflowBindingSeed(
             id="binding_seamless_comfyui_v1",
@@ -236,8 +238,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_sifang_lianxu_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=100,
-            enabled=True,
-            metadata={"notes": "Restored 2026-05-16: 233 custom String node recovered and forced 233 seamless run passed."},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical seamless binding retained for audit and rollback."},
         ),
         WorkflowBindingSeed(
             id="binding_seamless_comfyui_158_v1",
@@ -254,8 +256,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_huawen_kuotu_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=100,
-            enabled=True,
-            metadata={"notes": "Restored 2026-05-16: 233 custom String/Text/Get Image Size dependencies recovered and forced 233 pattern expand run passed."},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical pattern-expand binding retained for audit and rollback."},
         ),
         WorkflowBindingSeed(
             id="binding_pattern_expand_comfyui_158_v1",
@@ -281,8 +283,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_flux2_klein_9b_outpaint_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=95,
-            enabled=True,
-            metadata={"notes": "Fallback binding for FLUX2-Klein 扩图 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical FLUX2-Klein outpaint binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_background_remove_comfyui_117_v1",
@@ -290,8 +292,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_beijing_koutu_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=100,
-            enabled=True,
-            metadata={"notes": "Default binding for ComfyUI 背景抠图 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical background-remove binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_background_remove_comfyui_158_v1",
@@ -308,8 +310,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_toubu_kouxiang_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=100,
-            enabled=True,
-            metadata={"notes": "Default binding for ComfyUI 头部抠像 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical head-extract binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_head_extract_comfyui_158_v1",
@@ -326,8 +328,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_flux2_9b_liebian_sifang_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=98,
-            enabled=True,
-            metadata={"notes": "Restored 2026-05-16: 233 custom String node recovered and forced 233 FLUX2 fission run passed."},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical FLUX2 fission binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_flux2_9b_liebian_sifang_comfyui_158_v1",
@@ -344,8 +346,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_qwen2512_print_shape_text_enhance_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=98,
-            enabled=True,
-            metadata={"notes": "Secondary binding for 裂变文字强化 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical text-enhance binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_qwen2512_print_shape_text_enhance_comfyui_158_v1",
@@ -362,8 +364,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_qwen2512_text2img_text_allowed_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=98,
-            enabled=True,
-            metadata={"notes": "Secondary binding for 文字强化文生图 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical text-to-image binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_qwen2512_text2img_text_allowed_comfyui_158_v1",
@@ -380,9 +382,9 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=95,
-            enabled=True,
+            enabled=False,
             metadata={
-                "notes": "Secondary binding for 多元素花纹裂变 workflow (117.50.216.233:8079); CLIPVision/IPAdapter assets verified."
+                "notes": "Disabled 2026-08-31: 233 retired; historical softstyle-fission binding retained."
             },
         ),
         WorkflowBindingSeed(
@@ -409,8 +411,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_yinhua_tiqu_v2",
             executor_id="executor_comfyui_seamless_117",
             priority=95,
-            enabled=True,
-            metadata={"notes": "Fallback binding for ComfyUI 印花提取 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical pattern-extract binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_pattern_extract_lora_8step_comfyui_v1",
@@ -427,8 +429,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_yinhua_tiqu_lora_8step_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=90,
-            enabled=True,
-            metadata={"notes": "Fallback binding for ComfyUI 8步加速可换LoRA workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical LoRA pattern-extract binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_multi_image_fusion_comfyui_v1",
@@ -445,8 +447,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_duotu_ronghe_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=95,
-            enabled=True,
-            metadata={"notes": "Fallback binding for ComfyUI 多图融合 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical multi-image-fusion binding retained."},
         ),
         WorkflowBindingSeed(
             id="binding_image_fission_comfyui_v1",
@@ -463,8 +465,8 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_e7_flux2_liebian_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=95,
-            enabled=True,
-            metadata={"notes": "Fallback binding for ComfyUI E7 裂变重绘 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={"notes": "Disabled 2026-08-31: 233 retired; historical E7 fission binding retained."},
         ),
     ]
 

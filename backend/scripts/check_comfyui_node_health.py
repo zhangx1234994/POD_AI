@@ -19,8 +19,8 @@ import httpx
 
 
 DEFAULT_EXECUTORS: tuple[tuple[str, str], ...] = (
+    # 233 已停止服务；默认巡检只检查当前生产节点，历史节点仍可通过 --executor 显式检查。
     ("executor_comfyui_pattern_extract_158", "http://117.50.80.158:8079"),
-    ("executor_comfyui_seamless_117", "http://117.50.216.233:8079"),
 )
 DEFAULT_REQUIRED_CLASSES = ("KSampler", "SaveImage", "LoadImage")
 
@@ -323,7 +323,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--executor",
         action="append",
         type=_parse_executor_arg,
-        help="Executor target in id=url format. Defaults to 158 and 233.",
+        help="Executor target in id=url format. Defaults to the active 158 production node.",
     )
     parser.add_argument(
         "--required-class",

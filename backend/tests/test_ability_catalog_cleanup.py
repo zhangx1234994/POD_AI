@@ -70,6 +70,7 @@ def test_seed_applies_cleanup_for_overridden_abilities() -> None:
 
 
 def test_seed_repairs_stale_comfyui_allowed_executor_ids() -> None:
+    """旧数据库即使仍保存 233/158 双机白名单，seed 也必须收敛为仅允许 158。"""
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -88,7 +89,10 @@ def test_seed_repairs_stale_comfyui_allowed_executor_ids() -> None:
                 input_schema={},
                 extra_metadata={
                     "seed_version": 999,
-                    "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+                    "allowed_executor_ids": [
+                        "executor_comfyui_seamless_117",
+                        "executor_comfyui_pattern_extract_158",
+                    ],
                     "routing_policy": "queue",
                     "custom_note": "keep me",
                 },
@@ -103,15 +107,9 @@ def test_seed_repairs_stale_comfyui_allowed_executor_ids() -> None:
         ).scalar_one()
         metadata = refreshed.extra_metadata or {}
 
-    assert metadata["allowed_executor_ids"] == [
-        "executor_comfyui_seamless_117",
-        "executor_comfyui_pattern_extract_158",
-    ]
+    assert metadata["allowed_executor_ids"] == ["executor_comfyui_pattern_extract_158"]
     assert metadata["routing_policy"] == "queue"
-    assert metadata["routing"]["allowed_executor_ids"] == [
-        "executor_comfyui_seamless_117",
-        "executor_comfyui_pattern_extract_158",
-    ]
+    assert metadata["routing"]["allowed_executor_ids"] == ["executor_comfyui_pattern_extract_158"]
     assert metadata["routing"]["selection_policy"] == "queue"
     assert metadata["custom_note"] == "keep me"
 

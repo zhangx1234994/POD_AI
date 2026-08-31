@@ -3209,6 +3209,11 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
     },
 }
 
+# 233 于 2026-08-31 下线后，生产能力统一只允许路由到 158。
+# 集中维护白名单，避免新增或恢复能力 seed 时误把已停用节点重新加入路由。
+PRODUCTION_COMFYUI_EXECUTOR_IDS: tuple[str, ...] = ("executor_comfyui_pattern_extract_158",)
+
+
 COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
     "sifang_lianxu": {
         "defaults": {
@@ -3233,11 +3238,10 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             # Only keep final outputs from the known "SaveImage" node for this workflow.
             # Otherwise ComfyUI history may contain multiple intermediate previews.
             "output_node_ids": ["111"],
-            # This workflow depends on the custom String node. 233 was restored
-            # under whitelist control on 2026-05-16 and passed a forced run.
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            # 233 已停止服务，String 节点兼容性不再作为生产路由依据。
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "required_node_keys": ["String", "StringConcatenate", "SaveImage"],
-            "routing_note": "2026-05-16: 233 String node restored and forced 233 run passed; route by queue across 233/158.",
+            "routing_note": "2026-08-31: 233 retired; production requests route only to 158.",
             "routing_policy": "queue",
             "seed_version": 10,
             "pricing": {
@@ -3287,7 +3291,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_extract",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 7,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
@@ -3345,7 +3349,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_extract",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 4,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
@@ -3375,7 +3379,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["4"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 2,
             "pricing": {
@@ -3404,7 +3408,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["140"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 2,
             "pricing": {
@@ -3433,9 +3437,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["111"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "required_node_keys": ["String", "SaveImage"],
-            "routing_note": "2026-05-16: 233 String node restored and forced 233 run passed; route by queue across 233/158.",
+            "routing_note": "2026-08-31: 233 retired; production requests route only to 158.",
             "routing_policy": "queue",
             "seed_version": 2,
             "pricing": {
@@ -3487,7 +3491,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["29"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 1,
             "pricing": {
@@ -3545,9 +3549,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_expand",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "required_node_keys": ["String", "SaveImage"],
-            "routing_note": "2026-05-16: 233 String/Text/Get Image Size nodes restored and forced 233 run passed; route by queue across 233/158.",
+            "routing_note": "2026-08-31: 233 retired; production requests route only to 158.",
             "routing_policy": "queue",
             "seed_version": 6,
             "pricing": {
@@ -3580,7 +3584,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["9"],
-            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 6,
             "workflow_revision": "2026-05-25_flux2_klein_9b_222",
@@ -3632,7 +3636,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": False,
             "supports_vision": False,
             "output_node_ids": ["21"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "fallback_to_default": False,
             "interface_pack": "19_2026-05-19_text2img_user_editable_vl_pack_v2",
@@ -3676,7 +3680,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_edit_fast",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 5,
             "pricing": {
@@ -3705,7 +3709,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_edit_medium",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 5,
             "pricing": {
@@ -3733,7 +3737,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "multi_image_fusion",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 4,
             "pricing": {
@@ -3764,7 +3768,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_fission",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 4,
             "pricing": {
@@ -3802,7 +3806,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["31"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 3,
             "pricing": {
@@ -3871,9 +3875,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["31"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "required_node_keys": ["LoadImage", "CLIPVisionLoader", "IPAdapterModelLoader", "SaveImage"],
-            "routing_note": "2026-05-15: 158/233 both remain eligible; this high-frequency fission workflow does not depend on the missing String node.",
+            "routing_note": "2026-08-31: 233 retired; production requests route only to 158.",
             "routing_policy": "queue",
             "seed_version": 3,
             "pricing": {
@@ -3933,7 +3937,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["31"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": list(PRODUCTION_COMFYUI_EXECUTOR_IDS),
             "routing_policy": "queue",
             "seed_version": 2,
             "pricing": {

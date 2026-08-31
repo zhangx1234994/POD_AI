@@ -109,6 +109,7 @@ def test_enrich_ability_metadata_with_routing_persists_normalized_block() -> Non
 
 
 def test_executor_seed_persists_routing_block_to_config() -> None:
+    """执行器 seed 应保留 233 历史记录但标记 inactive，同时保持 158 为活动生产节点。"""
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -128,11 +129,14 @@ def test_executor_seed_persists_routing_block_to_config() -> None:
         node_158 = by_id["executor_comfyui_pattern_extract_158"]
         assert node_233.name == "ComfyUI 4090 · 233 · 117.50.216.233"
         assert node_158.name == "ComfyUI 5090 · 158 · 117.50.80.158"
+        assert node_233.status == "inactive"
+        assert node_158.status == "active"
         assert {"gpu:4090", "host:233", "comfyui-233"}.issubset(set(node_233.config["tags"]))
         assert {"gpu:5090", "host:158", "comfyui-158"}.issubset(set(node_158.config["tags"]))
 
 
 def test_executor_seed_repairs_comfyui_display_name_and_tags() -> None:
+    """seed 修复 233 展示信息时也必须同步 inactive，不能因修复旧记录而重新启用节点。"""
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -156,4 +160,5 @@ def test_executor_seed_repairs_comfyui_display_name_and_tags() -> None:
         assert changed is True
         assert refreshed is not None
         assert refreshed.name == "ComfyUI 4090 · 233 · 117.50.216.233"
+        assert refreshed.status == "inactive"
         assert {"gpu:4090", "host:233", "comfyui-233"}.issubset(set(refreshed.config["tags"]))
